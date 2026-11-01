@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>Easy Bitcoin Payments — Dashboard</title>
+<style>
+  :root {
+    --accent: #f7931a;
+    --bg: #ffffff;
+    --fg: #14161a;
+    --muted: #5b6472;
+    --line: #e3e6eb;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --fg: #f2f4f8; --muted: #9aa4b2; --line: #242a33; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 20px 18px 48px; }
+  header { display: flex; align-items: center; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .badge {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .card { margin-top: 18px; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+  ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  li { margin: 4px 0; }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  footer { margin-top: 26px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="dot" aria-hidden="true"></span>
+    <h1>Easy Bitcoin Payments</h1>
+    <span class="badge">Phase 0</span>
+  </header>
+
+  <section class="card">
+    <h2>Dashboard placeholder</h2>
+    <p>
+      This is the mobile-first shell for the merchant dashboard. Phase 0 ships the
+      route, the layout, and the deploy path so the navigation is real. Balances,
+      payment history, the expiry queue, ASP status, and the accounting export
+      arrive in Phase 1 and Phase 2.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>What works today</h2>
+    <ul>
+      <li>Invoice API: create, get, list, cancel — per-store API keys</li>
+      <li>Hosted checkout page at <code>/i/&lt;invoice id&gt;</code></li>
+      <li>Payment watcher skeleton (polling adapter)</li>
+      <li>Signed webhook emitter (HMAC-SHA256, replay window)</li>
+      <li>Health endpoint at <code>/api/v1/health</code></li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>What is stubbed</h2>
+    <p>
+      The wallet layer is a stub. No real Bark wallet is connected yet, so no
+      Bitcoin moves. Every integration point is marked
+      <code>// BARK INTEGRATION</code> in the source.
+    </p>
+  </section>
+
+  <footer>
+    <p>Free and open source under the MIT license. Your keys, your coins, your server.</p>
+  </footer>
+</main>
+</body>
+</html>

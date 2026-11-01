@@ -1,0 +1,12 @@
+target
+.git
+.github
+data
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.env
+ebp.toml
+docs
+README.md
+LICENSE

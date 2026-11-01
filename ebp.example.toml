@@ -1,0 +1,55 @@
+# Easy Bitcoin Payments — example configuration.
+#
+# Copy to `ebp.toml` (or point EBP_CONFIG at it) and edit.
+# Every value here can also be set with an EBP_* environment variable,
+# which takes precedence over this file.
+
+# Address the HTTP server binds to.
+bind_addr = "0.0.0.0:8080"
+
+# SQLite database file. The parent directory is created automatically.
+database_path = "./data/ebp.sqlite3"
+
+# Public URL of this server. Used to build checkout links returned by the API.
+# Set this to your real https:// domain in production.
+public_base_url = "http://localhost:8080"
+
+# Invoice lifetime (the BTC rate is locked for this long).
+default_expiry_minutes = 20
+max_expiry_minutes = 1440
+
+# Currency used when a request does not specify one.
+default_currency = "EUR"
+
+# Phase 0 rate source: static fiat-per-BTC values.
+# Phase 1 replaces this with a live median-of-sources provider.
+[static_rates]
+EUR = 95000.0
+USD = 88000.0
+GBP = 82000.0
+CHF = 99000.0
+
+# Custody Level 0: the server till is capped at this many sats.
+hot_wallet_cap_sats = 500000
+
+# How often the payment watcher polls the wallet adapter.
+watcher_interval_secs = 10
+
+# Timeout for a single webhook delivery attempt.
+webhook_timeout_secs = 10
+
+# Log filter (tracing EnvFilter syntax).
+log_level = "info,tower_http=info"
+
+# Master key for encrypting wallet material and webhook secrets at rest.
+# TODO(Phase 1): at-rest encryption is not implemented yet. Leave unset for now.
+# key_encryption_key = ""
+
+# Optional admin token for the dashboard (Phase 1 wires this up).
+# admin_token = ""
+
+# Shown on the checkout page as the merchant's refund policy link.
+# checkout_policy_url = "https://shop.example.com/refund-policy"
+
+# Checkout accent colour (merchant branding).
+checkout_accent_color = "#f7931a"

@@ -1,0 +1,167 @@
+//! Wallet adapter boundary.
+//!
+//! Everything the payments server needs from a Bitcoin wallet lives behind
+//! [`WalletAdapter`]. Phase 0 ships [`StubWallet`], which derives deterministic
+//! placeholder addresses and observes no payments. Phase 1 replaces it with a
+//! `BarkWallet` backed by bark-wallet / barkd — no other module changes.
+
+use crate::models::Rail;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiveAddresses {
+    pub ark_address: String,
+    pub onchain_address: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WalletPayment {
+    /// The address the funds arrived at. Used to match the invoice.
+    pub address: String,
+    pub rail: Rail,
+    pub amount_sats: i64,
+    pub vtxo_id: Option<String>,
+    pub txid: Option<String>,
+    pub detected_at: i64,
+    pub confirmed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AspStatus {
+    Ok,
+    Degraded,
+    Down,
+    Unknown,
+}
+
+impl AspStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AspStatus::Ok => "ok",
+            AspStatus::Degraded => "degraded",
+            AspStatus::Down => "down",
+            AspStatus::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WalletHealth {
+    pub reachable: bool,
+    pub balance_sats: Option<i64>,
+    pub asp: AspStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WalletError {
+    #[error("wallet unavailable: {0}")]
+    Unavailable(String),
+    #[error("wallet rejected the request: {0}")]
+    Rejected(String),
+}
+
+/// The single integration surface for Bark.
+///
+/// // BARK INTEGRATION: Phase 1 implements this trait with a `BarkWallet`
+/// // adapter over bark-wallet (in-process) or barkd (REST). The five spike
+/// // questions in docs/PHASE0_SPIKE_PLAN.md determine the exact calls used for
+/// // `receive_addresses`, `poll_payments`, and `health`.
+pub trait WalletAdapter: Send + Sync {
+    /// Derive a fresh receive address pair for an invoice.
+    fn receive_addresses(&self, invoice_id: &str) -> Result<ReceiveAddresses, WalletError>;
+
+    /// Current spendable balance of the server till, in sats.
+    fn balance_sats(&self) -> Result<i64, WalletError>;
+
+    /// Payments observed at or after `since` (UNIX seconds).
+    fn poll_payments(&self, since: i64) -> Result<Vec<WalletPayment>, WalletError>;
+
+    /// Wallet and ASP reachability for `GET /api/v1/health`.
+    fn health(&self) -> WalletHealth;
+}
+
+/// Phase 0 placeholder wallet.
+///
+/// Addresses are deterministic functions of the invoice id so tests and the
+/// checkout page have something stable to display. It never reports payments.
+pub struct StubWallet;
+
+impl StubWallet {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for StubWallet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn derive(invoice_id: &str, prefix: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(invoice_id.as_bytes());
+    let digest = hex::encode(hasher.finalize());
+    format!("{prefix}{}", &digest[..40])
+}
+
+impl WalletAdapter for StubWallet {
+    fn receive_addresses(&self, invoice_id: &str) -> Result<ReceiveAddresses, WalletError> {
+        Ok(ReceiveAddresses {
+            ark_address: derive(invoice_id, "ark1qstub"),
+            onchain_address: derive(invoice_id, "bc1qstub"),
+        })
+    }
+
+    fn balance_sats(&self) -> Result<i64, WalletError> {
+        Ok(0)
+    }
+
+    fn poll_payments(&self, _since: i64) -> Result<Vec<WalletPayment>, WalletError> {
+        Ok(Vec::new())
+    }
+
+    fn health(&self) -> WalletHealth {
+        WalletHealth {
+            reachable: true,
+            balance_sats: Some(0),
+            asp: AspStatus::Unknown,
+            detail: "stub wallet (Phase 0) — no Bark connection yet".to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addresses_are_deterministic_and_distinct() {
+        let wallet = StubWallet::new();
+        let a = wallet.receive_addresses("inv_1").unwrap();
+        let b = wallet.receive_addresses("inv_1").unwrap();
+        let c = wallet.receive_addresses("inv_2").unwrap();
+
+        assert_eq!(a, b);
+        assert_ne!(a.ark_address, c.ark_address);
+        assert_ne!(a.onchain_address, c.onchain_address);
+        assert!(a.ark_address.starts_with("ark1qstub"));
+        assert!(a.onchain_address.starts_with("bc1qstub"));
+    }
+
+    #[test]
+    fn stub_observes_no_payments() {
+        let wallet = StubWallet::new();
+        assert!(wallet.poll_payments(0).unwrap().is_empty());
+        assert_eq!(wallet.balance_sats().unwrap(), 0);
+    }
+
+    #[test]
+    fn health_reports_unknown_asp() {
+        let health = StubWallet::new().health();
+        assert!(health.reachable);
+        assert_eq!(health.asp, AspStatus::Unknown);
+        assert_eq!(health.asp.as_str(), "unknown");
+    }
+}

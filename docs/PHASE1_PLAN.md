@@ -27,15 +27,15 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 ### 1. Package the barkd sidecar (pinned 0.8.0)
 
-- **What:** Docker image, docker-compose service, and Umbrel manifest running
+- **What:** Docker image and docker-compose service running
   barkd 0.8.0 next to the ebp binary.
 - **How:** build from the 0.8.0 source tag or checksum-verified release
   binary; datadir on a named volume; bind to the internal container network
   only (plain HTTP, loopback-grade trust per barkd_start.md); no published
   ports; healthcheck against `/ping`; version pinned in
-  compose (digest pinning deferred until a registry image exists) and in the Umbrel manifest.
+  compose (digest pinning deferred until a registry image exists).
 - **Done when:** `docker compose up` on a fresh machine starts ebp + barkd;
-  barkd is unreachable from outside the internal network; Umbrel install from
+  barkd is unreachable from outside the internal network.
   the manifest works on real hardware; version pinned in-repo (digest when a
   registry image exists).
 
@@ -194,8 +194,7 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   the window and prove cursor polling catches payments made during it.
 - **LN gateway limits** (min/max, fees) come from the live ASP, not docs; the
   fee display must be computed at invoice time.
-- **Umbrel review timeline** is outside our control; direct Docker ships
-  first, Umbrel follows.
+- Docker ships first; no third-party app-store review in the path.
 - **Upgrade policy.** When do we move off 0.8.0, and who re-runs the spike
   against the new version? Owner needed before Phase 2.
 
@@ -250,13 +249,12 @@ with the 15,000 sat/VTXO exit reserve, Lightning receive via
 - **Task 11 — backup/restore + lost-phone recipes** (mnemonic is the root
   backup; barkd datadir snapshot guidance).
 - **Task 12 — setup recipe + the non-technical UX gate.**
-- **Umbrel manifest** (task 1's second target).
 
 ## Remaining (close-out status, 2026-11-01)
 
 Done in code: wizard (routes + UI + gate), LN fee display, test mode,
 backup/lost-phone recipes, drift check (paths + methods), release script,
-Umbrel package, install script, recipe v1, live signet verification of the
+install script, recipe v1, live signet verification of the
 barkd client (balances, vtxos, boarding, LN invoice), webhook E2E test,
 LiveRates provider, expiry sweep, doc-sync + security sweeps.
 
@@ -268,5 +266,5 @@ Still open before Phase 1 is declared done:
   merchant wallet (till currently holds 29,987 spendable signet sats).
 - **UX gate (task 12)**: a non-technical tester goes zero -> live signet
   invoice using only docs/RECIPE_SETUP.md and an iPhone.
-- Release assets: publish binaries + images so install.sh/Umbrel URLs resolve
+- Release assets: publish binaries + images so install.sh URLs resolve
   (requires cutting the first tag).

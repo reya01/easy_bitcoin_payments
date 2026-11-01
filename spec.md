@@ -64,7 +64,7 @@ Key design decisions:
 - **One checkout, all rails.** v1.0 checkout covers Ark (instant, cheap, self-custodial), Lightning (via the ASP's fee-labeled gateway), and on-chain in a single screen — customer reach is the product, and Lightning wallets vastly outnumber Ark wallets today. Until a multi-rail QR/URI standard is adopted (tracked as an open question), the checkout presents a rail selector with Ark default and one-tap fallbacks. Lightning receive is on by default; the gateway fee display is a Phase 1 close-out item.
 - **Store connectors are thin clients.** The WooCommerce plugin calls the merchant's own server and verifies webhooks. No third-party data flows.
 - **Standalone storefront mode (v1.x).** A minimal built-in catalog + cart + checkout for Bitcoin-only businesses that want no platform at all — deferred until the core payment loop is proven with real merchants.
-- **One-click deploys, as a spec requirement.** Target platforms, in order: Docker one-liner on a VPS (primary — reachability is solved there), Umbrel app, managed-VPS image, Start9, plain binary. "One-click" includes *reachable*: TLS, domain, and store→server callbacks are part of the flow, with honest guidance for home/NAT setups (Tor or tunnel). A release is not "done" until its one-click paths — including upgrades from the previous release — are tested.
+- **One-click deploys, as a spec requirement.** Target platform: **Docker one-liner on a VPS** — the only supported path, because reachability is solved there (public IP, DNS, TLS) and the whole product is manageable from an iPhone. "One-click" includes *reachable*: TLS, domain, and store→server callbacks are part of the flow. A release is not "done" until its one-click path — including upgrades from the previous release — is tested.
 
 ## Custody & key management
 
@@ -197,7 +197,7 @@ A living document, updated at every phase gate. Headline entries:
 One-click is a requirement, and "click" includes *reachable*:
 
 - **Docker one-liner on a VPS (primary).** A single command installs the binary plus Caddy with automatic TLS; the wizard asks for a domain and finishes the rest. Multi-arch images (x86_64, arm64), persistent volume, healthchecks, automatic SQLite migrations, guided backups, tested upgrade path.
-- **Umbrel app.** docker-compose packaging is the easy part; the app ships with honest reachability options (Tor by default; a documented tunnel option for clearnet stores), because a store's server must be reachable by the store.
+- **VPS-first hosting.** A small business checkout must be reachable by customers over clearnet HTTPS; a $5 VPS with DNS + automatic TLS is the deliberate answer. Home/Tor-only hosting cannot take customer payments and is out of scope.
 - **Managed-VPS image.** Marketplace-style image; first boot opens the setup wizard.
 - **Start9 (v1.x); bare binary (always).** The binary is for advanced users and documented as such.
 - Every release: all one-click paths are installed from scratch *and* upgraded from the previous release in CI before the release is tagged.
@@ -231,7 +231,7 @@ A structured, versioned runbook the merchant can execute with an AI agent — su
 - Mobile-first dashboard: balances, history, settlement log, expiry queue, ASP status indicator, CSV accounting export
 - Email + in-dashboard notifications (web-push deferred; unreliable on iOS for time-critical alerts)
 - Test mode (testnet/regtest, faucet links, fake webhooks)
-- One-click deploys: Docker one-liner, Umbrel app, managed-VPS image; bare binary
+- One-click deploys: Docker one-liner on a VPS (primary and, for now, only); bare binary for the self-hoster
 - Setup wizard + AI recipes v1 (in-repo, versioned, CI-tested)
 - Docs written for the least technical reader; threat model published
 
@@ -263,7 +263,7 @@ Phases are gated by acceptance criteria and UX gates, not by the calendar. Hones
 
 **Phase 2 — First store + settlement (months 3–6)**
 - WooCommerce plugin; Lightning receive via the ASP's Lightning gateway (fee display + trust-model doc are release prerequisites); settlement engine (auto-sweep, expiry renewals, sweep-now)
-- Umbrel app published; managed-VPS image; accounting CSV; backup/restore
+- Managed-VPS image; accounting CSV; backup/restore
 - AI recipes: store connection, troubleshooting, lost phone
 - Security review #2 (redirection, webhooks, custody claims)
 - **Acceptance:** **UX gate: a non-technical merchant connects a real WooCommerce store unassisted, takes a test payment, and confirms a sweep arrived in their wallet — all from an iPhone.** One pilot merchant transacting on mainnet with small amounts.

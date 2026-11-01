@@ -6,7 +6,7 @@ pats = {
   'hex64 (txid/key)': r'\b[0-9a-f]{64}\b',
   'wif/key markers': r'(privkey|private_key|BEGIN\ (RSA\ )?PRIVATE|L1[a-zA-Z0-9]{51}|Kw[a-zA-Z0-9]{51}|5[HJK][1-9A-Za-z]{49})',
 }
-skip = {'.git', 'target', 'docs', 'umbrel'}
+skip = {'.git', 'target', 'docs'}
 hits = []
 for root, dirs, files in os.walk('.'):
     dirs[:] = [d for d in dirs if d not in skip]

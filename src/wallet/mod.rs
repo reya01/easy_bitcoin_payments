@@ -2,8 +2,10 @@
 //!
 //! Everything the payments server needs from a Bitcoin wallet lives behind
 //! [`WalletAdapter`]. Phase 0 ships [`StubWallet`], which derives deterministic
-//! placeholder addresses and observes no payments. Phase 1 replaces it with a
-//! `BarkWallet` backed by bark-wallet / barkd — no other module changes.
+//! placeholder addresses and observes no payments. Phase 1 replaces it with
+//! [`barkd::BarkdWallet`], a reqwest client of the barkd sidecar's REST API
+//! (docs: barkd_index.md) — no other module changes. bark-wallet is NOT
+//! embedded: barkd already owns refresh scheduling, exits, and backups.
 
 use crate::models::Rail;
 
@@ -62,10 +64,11 @@ pub enum WalletError {
 
 /// The single integration surface for Bark.
 ///
-/// // BARK INTEGRATION: Phase 1 implements this trait with a `BarkWallet`
-/// // adapter over bark-wallet (in-process) or barkd (REST). The five spike
-/// // questions in docs/PHASE0_SPIKE_PLAN.md determine the exact calls used for
-/// // `receive_addresses`, `poll_payments`, and `health`.
+/// // BARK INTEGRATION: decided — Phase 1 implements this trait with
+/// // `barkd::BarkdWallet` over barkd's local REST API (bearer token, OpenAPI
+/// // spec pinned at docs/barkd-openapi.json). barkd is Second's reference
+/// // daemon for webshops/payment processors; the SDK is for on-device keys.
+/// // The trait goes async in Phase 1; method semantics stay as documented here.
 pub trait WalletAdapter: Send + Sync {
     /// Derive a fresh receive address pair for an invoice.
     fn receive_addresses(&self, invoice_id: &str) -> Result<ReceiveAddresses, WalletError>;

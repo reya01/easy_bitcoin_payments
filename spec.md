@@ -52,7 +52,7 @@ Easy Bitcoin Payments server — self-hosted, one Rust binary + SQLite
    └── Merchant dashboard — mobile-first PWA; email + in-dashboard alerts;
        expiry queue; accounting export
    ▼
-Bark wallet ↔ Bark ASP (Second's public server, or the merchant's own barkd)
+Bark wallet ↔ barkd sidecar → ASP (Second's public Ark server, or the merchant's own Ark server)
    └── VTXOs received → swept to the merchant's own keys (Arké on iPhone)
 ```
 
@@ -60,7 +60,7 @@ Key design decisions:
 
 - **Receive is passive; settlement is automatic.** Ark's passive receive means accepting a payment requires no merchant action and no interactive signing at checkout. Holding and spending VTXOs *do* require signing on a schedule (see *VTXO lifecycle*); the settlement engine automates that schedule from the server's capped till, sweeping to the merchant's designated wallet. Phone signature approval is not assumed — if the ecosystem ever enables it, it becomes an optional enhancement.
 - **iPhone is the admin console.** The dashboard is mobile-first; every operational action (check settlement status, check store health, read alerts) is completable on a phone screen. If a flow can't be completed on a phone, it isn't done.
-- **ASP-agnostic.** Works with Second's public ASP out of the box; supports any Bark-compatible ASP including the merchant's own `barkd` (advanced guide). ASP status is shown as a traffic-light indicator (fine / degraded / down, with a plain-language explanation); the unilateral-exit runbook is one tap from any ASP alert.
+- **barkd sidecar, ASP-agnostic.** EBP's wallet layer is a thin Rust client of a **barkd sidecar** — Second's reference wallet daemon, built for exactly this use case (webshops, payment processors). Works with Second's public ASP out of the box; supports any Bark-compatible ASP including the merchant's own Ark server (advanced guide). ASP status is shown as a traffic-light indicator (fine / degraded / down, with a plain-language explanation); the unilateral-exit runbook is one tap from any ASP alert.
 - **One checkout, all rails.** v1.0 checkout covers Ark (instant, cheap, self-custodial), Lightning (via a fee-labeled swap), and on-chain in a single screen — customer reach is the product, and Lightning wallets vastly outnumber Ark wallets today. Until a multi-rail QR/URI standard is adopted (tracked as an open question), the checkout presents a rail selector with Ark default and one-tap fallbacks. Lightning is enabled only after its trust-model doc and fee display pass review; once shipped, it is on by default.
 - **Store connectors are thin clients.** The WooCommerce plugin calls the merchant's own server and verifies webhooks. No third-party data flows.
 - **Standalone storefront mode (v1.x).** A minimal built-in catalog + cart + checkout for Bitcoin-only businesses that want no platform at all — deferred until the core payment loop is proven with real merchants.
@@ -74,7 +74,7 @@ The hardest engineering problem in this project, specified honestly.
 
 **The custody ladder.** EBP is built against three defined custody levels:
 
-- **Level 0 — Capped hot wallet on the server (works on Bark today).** The server runs a dedicated Bark wallet ("the till"). Guardrails: a configurable holding cap (default 500,000 sats); automatic sweeps to the merchant's own address on cap, on schedule, and ahead of VTXO expiry; keys encrypted at rest; guided, confirmed backup at setup. Honest UI label: "your register — like cash in a till; we empty it into your vault automatically." A compromised server can steal at most the float; it cannot touch swept funds.
+- **Level 0 — Capped hot wallet on the server (works on Bark today).** The server runs a dedicated Bark wallet ("the till"). Guardrails: a configurable holding cap (default 500,000 sats); automatic sweeps to the merchant's own address on cap, on schedule, and ahead of VTXO expiry; the datadir is access-restricted and continuous backups (bark-backupd, encrypted with a mnemonic-derived key) are supported; guided, confirmed backup at setup. Honest UI label: "your register — like cash in a till; we empty it into your vault automatically." A compromised server can steal at most the float; it cannot touch swept funds.
 - **Level 1 — Watch-only server, external signing (aspirational, not assumed).** The server holds only public material and the merchant signs settlement externally (phone or hardware signer). This is attractive but **requires capabilities Bark and Arké do not expose today**. The spec assumes they never arrive; if they do, Level 1 becomes a natural upgrade. EBP does not lobby, wait on, or plan around upstream changes.
 - **Level 2 — Restricted server signer (research).** A server-side key limited by Ark script/policy to *renew* VTXOs or *exit to the merchant's fixed address only* — compromise could force funds home but never steal them. Feasibility depends on Ark script capabilities; tracked as an open question.
 
@@ -86,9 +86,9 @@ The hardest engineering problem in this project, specified honestly.
 
 Receiving is passive; holding is not. VTXOs expire and must be renewed or settled before expiry, or funds require a costly unilateral exit. EBP makes this a managed schedule:
 
-- **Expiry tracking.** Every inbound VTXO is recorded with its expiry. The dashboard shows an expiry queue ("what must be signed by when"); typical exit costs are documented in a docs table, not computed in-product.
+- **Expiry tracking.** Every inbound VTXO is recorded with its own expiry — board/refresh VTXOs live ~28 days, Lightning-received VTXOs 1–3 days, and spend VTXOs inherit expiry from their parent, so some may need refresh almost immediately. Refreshes in the last two days of a VTXO's lifetime are free on Second's server; the expiry queue and alerts are driven by real per-VTXO expiries, not a fixed lead time.
 - **Renewal policy.** Default: renew or settle any VTXO 7 days before expiry (configurable). At Level 0 the server renews automatically. At Level 1 the merchant receives approval requests at T-14, T-7, T-3, and T-1 days via push and email; the flow is designed so a merchant who acts on any single alert is safe.
-- **Sweep triggers.** Sweep to the merchant's own wallet when: the balance exceeds the hot cap; the oldest VTXO passes an age threshold; expiry approaches; or the merchant taps "Sweep now."
+- **Sweep triggers.** Sweeps use Ark sends (same-ASP destinations) or cooperative offboarding to the merchant's on-chain address — never emergency exits, which require ≥15,000 confirmed sats per VTXO in CPFP fees and take 1–2 hours. The till keeps an on-chain fee reserve so an emergency exit is always fundable. Sweep when: the balance exceeds the hot cap; the oldest VTXO passes an age threshold; expiry approaches; or the merchant taps "Sweep now."
 - **ASP failure.** If the ASP stalls cooperative operations, the dashboard says so in plain language, links the unilateral-exit runbook with current cost estimates, and keeps monitoring. ASP reachability and health history are logged alongside the settlement log.
 - **Holding limits.** Docs recommend keeping hot float small and sweeping to on-chain for treasury; the defaults encode this.
 
@@ -96,9 +96,9 @@ Receiving is passive; holding is not. VTXOs expire and must be renewed or settle
 
 **Rails.**
 
-- **Ark (primary).** Instant, low-fee, self-custodial. "Paid" = the invoice's VTXO is received in the wallet. Ark's instant settlement carries ASP-related assumptions; the docs state them in plain language, and merchants can set a policy requiring on-chain settlement confirmation above a configurable amount.
+- **Ark (primary).** Instant, low-fee, self-custodial. "Paid" = the invoice's VTXO is received in the wallet. Ark's instant settlement carries ASP-related assumptions; the docs state them in plain language. Merchants can set a finality policy above a configurable amount: default is "final when the payment's VTXO is refreshed in a round and the round transaction confirms" (eliminates the sender-collusion trust window per the Ark docs); the conservative option offboards to on-chain confirmations.
 - **On-chain (fallback, v1.0).** "Paid" = N confirmations (default 1, configurable); 0-conf available with an explicit warning.
-- **Lightning receive (v1.0, core).** Implemented as a swap (e.g., Boltz VHTLC) paying out to the merchant's Ark or on-chain address — no per-payment signing at checkout. Lightning is included unconditionally: swap-provider fees are displayed before checkout, the trust model is documented in-product, and a stuck-swap runbook ships with it — these are build items delivered *with* the feature, never gates that delay it. A mild third-party trust dependency in one rail does not justify removing the rail customers actually have. (Per-invoice customer→merchant VHTLC claims would require a phone signature per customer payment — unusable at checkout — and are not the design.)
+- **Lightning receive (v1.0, core).** Via the ASP's built-in Lightning gateway: the Ark server operates its own Lightning node; the wallet generates the preimage, the server funds an HTLC from its VTXO pool, and payment reveals a spend VTXO — no swap provider at all. Lightning is included unconditionally; ASP fees are displayed before checkout and the gateway trust model (server-pool HTLC with ephemeral key, trusted until the received VTXO is refreshed in a round) is documented in-product — build items delivered *with* the feature, never gates that delay it. A mild, documented trust window in one rail does not justify removing the rail customers actually have. Lightning-received VTXOs expire in 1–3 days, so they are refreshed or swept promptly by policy.
 
 **Fiat pricing & rate lock.** Merchants price in their own currency. At invoice creation EBP locks a BTC rate from the configured source (default: median of major public APIs; the source is recorded per invoice) for the invoice lifetime (default 20 minutes). Amounts round to the sat. There is no live re-pricing: the customer sees a fixed sat price with a countdown; if it expires, they start a fresh invoice at the current rate. Fiat value, rate, source, and timestamp at payment time are stored for accounting.
 
@@ -259,7 +259,7 @@ Phases are gated by acceptance criteria and UX gates, not by the calendar. Hones
 - **Acceptance:** end-to-end testnet payment demo; webhook verification test suite passing; **UX gate: a non-technical tester goes zero → live testnet invoice using only the recipe and an iPhone.**
 
 **Phase 2 — First store + settlement (months 3–6)**
-- WooCommerce plugin; Lightning receive via swap (fee display + trust-model doc are release prerequisites); settlement engine (auto-sweep, expiry renewals, sweep-now)
+- WooCommerce plugin; Lightning receive via the ASP's Lightning gateway (fee display + trust-model doc are release prerequisites); settlement engine (auto-sweep, expiry renewals, sweep-now)
 - Umbrel app published; managed-VPS image; accounting CSV; backup/restore
 - AI recipes: store connection, troubleshooting, lost phone
 - Security review #2 (redirection, webhooks, custody claims)

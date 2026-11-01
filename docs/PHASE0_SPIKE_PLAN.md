@@ -21,18 +21,31 @@ version wins** — record the real invocation in the spike log.
 ## Environment
 
 ```bash
-# A throwaway regtest environment. Nothing here touches mainnet.
-export BARK_NETWORK=regtest
-export BARK_DATA_DIR="$PWD/.spike/bark"
-export BARK_ASP_URL="http://127.0.0.1:3535"   # local ASP for regtest
+# A throwaway signet environment. Nothing here touches mainnet.
+# Documented barkd surface: BARKD_DATADIR, --host/--port, --allowed-origins
+# (barkd_start.md). There is no --network/--asp flag; the ASP is chosen when
+# the wallet is created (connection-details.md).
+export BARKD_DATADIR="$PWD/.spike/barkd"
+mkdir -p "$BARKD_DATADIR"
 
-mkdir -p "$BARK_DATA_DIR"
+# Start the wallet daemon (headless — the shape EBP needs on a server).
+barkd --datadir "$BARKD_DATADIR" --host 127.0.0.1 --port 3000 &
+# API: http://localhost:3000/api/v1 — OpenAPI spec at /api-docs/openapi.json,
+# Swagger UI at /swagger-ui. Pin the spec into the repo for the client build.
+curl -sS http://127.0.0.1:3000/api-docs/openapi.json > docs/barkd-openapi.json
 
-# Start the wallet daemon (headless — this is the shape EBP needs on a server).
-barkd --network regtest --datadir "$BARK_DATA_DIR" --asp "$BARK_ASP_URL" &
+# Every REST call carries the bearer token barkd generated on first start
+# (barkd_authenticate.md). Rotate with `secret refresh` + restart.
+TOKEN="$(barkd --datadir "$BARKD_DATADIR" secret show)"
 
-# Confirm the daemon is up and the CLI can talk to it.
-bark --network regtest --datadir "$BARK_DATA_DIR" status
+# Create the wallet over REST (see api-reference/wallet/create-a-wallet; exact
+# path per the pinned OpenAPI spec). Second's public signet endpoints:
+#   ASP:     https://ark.signet.2nd.dev
+#   Esplora: https://esplora.signet.2nd.dev (automatic when no chain_source)
+curl -sS -X POST http://127.0.0.1:3000/api/v1/wallet \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"server_address": "https://ark.signet.2nd.dev"}'
+# For regtest, run a local Ark server (ark-server) and pass its address here.
 ```
 
 Record: daemon start time, ASP URL, whether the ASP was local or Second's
@@ -48,22 +61,28 @@ renew and exit without a human, the custody ladder changes.
 **How to answer it.**
 
 ```bash
-# 1. Receive. Get an address and fund it from a regtest faucet / second wallet.
-bark --network regtest --datadir "$BARK_DATA_DIR" receive
-# → record the address, then send to it from a second regtest wallet.
+# 1. Receive. Get an address (REST, per the pinned OpenAPI spec) and fund it
+#    from a signet faucet / second wallet. Record whether barkd issues a fresh
+#    Ark address per request — the watcher's per-invoice matching depends on it.
 
 # 2. Track. Confirm the VTXO appears with the right amount and expiry.
-bark --network regtest --datadir "$BARK_DATA_DIR" balance
-bark --network regtest --datadir "$BARK_DATA_DIR" vtxos list --json
-# → record vtxo id, amount, expiry height/timestamp, and script type.
+bark balance
+bark vtxos
+# → record vtxo id, amount, expiry height, and type (board/refresh/spend).
 
-# 3. Renew. Force a renewal and confirm the VTXO id changes and the amount holds.
-bark --network regtest --datadir "$BARK_DATA_DIR" vtxos renew --all
-bark --network regtest --datadir "$BARK_DATA_DIR" vtxos list --json
+# 3. Refresh. Docs call this "refresh" in a round (hourly on Second's server),
+#    not "renew". Trigger a refresh (command per `bark help` on the pinned
+#    version — record it) and confirm the VTXO id changes and the amount holds.
+bark vtxos
 
-# 4. Exit. Run a unilateral exit to a fixed on-chain address and time it.
-bark --network regtest --datadir "$BARK_DATA_DIR" exit --to <regtest-btc-address> --all
-# → record wall-clock duration, fee paid, and the resulting txid.
+# 4. Exit. A unilateral exit is a multi-step sequence, not one command
+#    (getting-started_bark-cli_advanced.md). Keep >= 15,000 confirmed on-chain
+#    sats per exiting VTXO for CPFP fees; budget 1-2 hours.
+bark exit start --all
+bark exit progress --wait     # broadcasts branch->leaf txs as parents confirm
+bark onchain address          # claim target (any on-chain wallet works)
+bark exit claim <address> --all   # after exit_delta: 12 blocks signet / 144 mainnet
+bark exit list                # record every txid, total fee, wall-clock time
 ```
 
 **Record in the log:**
@@ -112,31 +131,34 @@ lead time (spec default: 7 days before expiry), and the sweep triggers.
 
 ---
 
-## Q3 — What does the Boltz VHTLC swap path look like end-to-end from bark-wallet (fee profile, stuck states, failure recovery)?
+## Q3 — What does ASP-gateway Lightning receive look like end-to-end from barkd (fees, claim flow, VTXO lifetime, failure modes)?
 
-**Why it matters.** Lightning receive is a v1.0 core rail. It ships with a fee
-display, a trust-model doc, and a stuck-swap runbook — all of which need real
-numbers and real failure modes.
+**Why it matters.** Lightning receive is a v1.0 core rail. There is no swap
+provider: the Ark server is the Lightning gateway (learn_payments-lightning.md).
+The wallet generates a preimage, the server returns an invoice, and the paid
+invoice is claimed as a VTXO from the server's pool. The fee display, the
+trust-model doc (server-pool HTLC + ephemeral key until refreshed), and the
+short 1–3 day VTXO lifetime (learn_lifetime.md) all need real numbers.
 
 **How to answer it.**
 
 ```bash
-# 1. Create a reverse swap: Lightning in, Ark out.
-bark --network regtest --datadir "$BARK_DATA_DIR" swap reverse \
-  --amount-sats 100000 --to ark
+# 1. Enumerate the Lightning surface on the pinned spec.
+jq '.paths | keys' docs/barkd-openapi.json   # find the invoice/receive paths
 
-# → record the returned invoice, the quoted swap fee, and the lockup address.
+# 2. Create a Lightning invoice via barkd's REST API (path per the spec),
+#    then pay it from a signet Lightning wallet.
+# → record the invoice, any fee vs the invoiced amount, and the payment hash.
 
-# 2. Pay the invoice from a regtest Lightning node and watch the claim.
-bark --network regtest --datadir "$BARK_DATA_DIR" swap status --id <swap-id> --watch
+# 3. Watch the claim: poll barkd's payment history until the VTXO appears.
+# → record time from payment to claimable VTXO, the VTXO id, amount, and its
+#   expiry height — expect a 1–3 day lifetime, not 28 days.
 
-# 3. Force the stuck path: pay the invoice, then kill the daemon before the claim.
-#    Restart and confirm the swap is recovered, not lost.
-bark --network regtest --datadir "$BARK_DATA_DIR" swap status --id <swap-id>
-bark --network regtest --datadir "$BARK_DATA_DIR" swap recover --id <swap-id>
+# 4. Refresh the received VTXO in the next round (security upgrade:
+#    spend VTXO -> refresh VTXO) and record the wait and cost.
 
-# 4. Force the failure path: let the swap time out without paying.
-bark --network regtest --datadir "$BARK_DATA_DIR" swap status --id <swap-id>
+# 5. Failure modes: kill barkd after payment but before claim; restart and
+#    confirm the claim completes. Record htlc_recv_claim_delta behaviour.
 ```
 
 **Record in the log:**

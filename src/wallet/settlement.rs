@@ -284,7 +284,7 @@ mod tests {
         let (base, recorded) = mock::spawn(|req| match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
-                r#"{"spendable": [{"id": "v1", "amount_sats": 150000, "expires_at": 9999999999}], "pending": []}"#.to_string(),
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
             ),
             "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
             "/api/v1/wallet/balance" => (
@@ -332,7 +332,7 @@ mod tests {
         let (base, recorded) = mock::spawn(|req| match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
-                r#"{"spendable": [{"id": "v1", "amount_sats": 150000, "expires_at": 9999999999}], "pending": []}"#.to_string(),
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
             ),
             "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
             "/api/v1/wallet/balance" => (
@@ -369,7 +369,7 @@ mod tests {
         let (base, recorded) = mock::spawn(|req| match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
-                r#"{"spendable": [{"id": "v1", "amount_sats": 200000, "expires_at": 9999999999}, {"id": "v2", "amount_sats": 1, "expires_at": 9999999999}], "pending": []}"#.to_string(),
+                r#"[{"id": "v1", "amount_sat": 200000, "expires_at": 9999999999, "state": {"type": "spendable"}}, {"id": "v2", "amount_sat": 1, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
             ),
             "/api/v1/onchain/balance" => (200, r#"{"total_sat": 10000, "trusted_spendable_sat": 10000}"#.to_string()),
             "/api/v1/wallet/balance" => (
@@ -416,7 +416,7 @@ mod tests {
             "/api/v1/wallet/vtxos" => (
                 200,
                 format!(
-                    r#"{{"spendable": [{{"id": "v1", "amount_sats": 1000, "expires_at": {soon}}}], "pending": []}}"#
+                    r#"[{{"id": "v1", "amount_sat": 1000, "expires_at": {soon}, "state": {{"type": "spendable"}}}}]"#
                 ),
             ),
             "/api/v1/onchain/balance" => (200, r#"{"total_sat": 15000, "trusted_spendable_sat": 15000}"#.to_string()),

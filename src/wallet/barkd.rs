@@ -416,39 +416,55 @@ impl BarkdClient {
     }
 
     /// Spendable and pending VTXOs with per-VTXO expiry data.
-    // VERIFY: field shape — the /wallet/vtxos dump is empty in the pinned
-    // extract. Primary model: {"spendable": [...], "pending": [...]}; a flat
-    // array is accepted defensively (all VTXOs spendable).
+    /// VERIFIED against live barkd 0.8.0 (signet): /wallet/vtxos returns a
+    /// FLAT top-level array — no spendable/pending envelope. Entry shape:
+    /// {"id","amount_sat","policy_type","user_pubkey","server_pubkey",
+    ///  "expiry_height","exit_delta","chain_anchor","exit_depth",
+    ///  "state":{"type":"locked"|"spendable"|...,"movement_id":...}}.
+    /// Spendability is state.type == "spendable" ONLY: a freshly boarded
+    /// VTXO is "locked" while its board movement is pending, and
+    /// /wallet/balance counts it under pending_board_sat, not spendable_sat.
     pub async fn vtxos(&self) -> Result<VtxoSet, WalletError> {
         let v: Json = self.get(PATH_VTXOS).await?;
-        let spendable = flex::array_field(&v, &["spendable", "spendable_vtxos", "vtxos"])
-            .ok_or_else(|| {
+        // VERIFIED: barkd 0.8.0 sends a flat array; keep the object envelope
+        // only as a defensive fallback for other builds.
+        let items: Vec<Json> = if let Json::Array(items) = &v {
+            items.clone()
+        } else {
+            flex::array_field(&v, &["spendable", "spendable_vtxos", "vtxos"]).ok_or_else(|| {
                 WalletError::Rejected(
-                    "barkd vtxo list had no array (VERIFY: field shape)".to_string(),
+                    "barkd vtxo list was neither a flat array nor an object with a vtxo array"
+                        .to_string(),
                 )
-            })?;
-        let pending = v
-            .get("pending")
-            .and_then(Json::as_array)
-            .or_else(|| v.get("pending_vtxos").and_then(Json::as_array))
-            .cloned()
-            .unwrap_or_default();
-        let parse = |items: Vec<Json>| -> Result<Vec<Vtxo>, WalletError> {
-            items
-                .into_iter()
-                .map(|item| {
-                    serde_json::from_value(item).map_err(|e| {
-                        WalletError::Rejected(format!(
-                            "unparseable vtxo entry: {e} (VERIFY: field shape)"
-                        ))
-                    })
-                })
-                .collect()
+            })?
         };
-        Ok(VtxoSet {
-            spendable: parse(spendable)?,
-            pending: parse(pending)?,
-        })
+        let mut spendable = Vec::new();
+        let mut pending = Vec::new();
+        for item in items {
+            let state = item
+                .pointer("/state/type")
+                .and_then(Json::as_str)
+                .map(str::to_string);
+            // barkd 0.8.0 names the amount `amount_sat`; alias it so the
+            // Vtxo struct parses with or without a serde rename.
+            let mut item = item;
+            if let Some(amount) = item.get("amount_sat").cloned() {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.entry("amount_sats".to_string()).or_insert(amount);
+                }
+            }
+            let vtxo = serde_json::from_value(item).map_err(|e| {
+                WalletError::Rejected(format!(
+                    "unparseable vtxo entry: {e} (VERIFIED shape)"
+                ))
+            })?;
+            match state.as_deref() {
+                Some("spendable") => spendable.push(vtxo),
+                Some("spent") => {} // history, not a live VTXO
+                _ => pending.push(vtxo), // "pending", "locked", unknown
+            }
+        }
+        Ok(VtxoSet { spendable, pending })
     }
 
     /// VTXOs with wall-clock expiries, for the expiry queue. Ark expiries
@@ -1381,7 +1397,7 @@ mod tests {
 
     #[tokio::test]
     async fn parses_vtxos_in_both_shapes() {
-        let split = r#"{"spendable": [{"id": "a", "amount_sats": 100, "expires_at": 1750000000}], "pending": [{"id": "b", "amount_sats": 50, "expiry_height": 900}]}"#;
+        let split = r#"[{"id": "a", "amount_sat": 100, "expires_at": 1750000000, "state": {"type": "spendable"}}, {"id": "b", "amount_sat": 50, "expiry_height": 900, "state": {"type": "locked", "movement_id": 1}}]"#;
         let (base, _) = mock::spawn(move |_| (200, split.to_string()));
         let set = client(&base).vtxos().await.unwrap();
         assert_eq!(set.spendable.len(), 1);
@@ -1389,7 +1405,7 @@ mod tests {
         assert_eq!(set.spendable[0].id, "a");
         assert_eq!(set.pending[0].expiry_height, Some(900));
 
-        let flat = r#"[{"id": "c", "amount_sats": 7}]"#;
+        let flat = r#"[{"id": "c", "amount_sat": 7, "state": {"type": "spendable"}}]"#;
         let (base, _) = mock::spawn(move |_| (200, flat.to_string()));
         let set = client(&base).vtxos().await.unwrap();
         assert_eq!(set.spendable.len(), 1);

@@ -32,7 +32,7 @@ report it; every stumble becomes a fix.
 
 ## What you need
 
-- A computer or VPS that stays on, with Docker installed.
+- A VPS with a public IP, DNS, and TLS, with Docker installed. (The supported deployment is the Docker one-liner on a VPS; home/Tor-only hosting is out of scope.)
 - About 30 minutes.
 - Optional but recommended: an iPhone with the Arké wallet, to watch the
   sweep land in your own wallet.
@@ -41,8 +41,8 @@ report it; every stumble becomes a fix.
 
 ## Step 1 — Install the server
 
-The one-command installer ships with the first tagged release. Until then
-the Docker path is:
+The supported deploy is the Docker one-liner on a VPS. Until the
+one-command installer ships, the Docker path is:
 
 ```
 git clone https://github.com/easy-bitcoin-payments/ebp.git
@@ -65,13 +65,12 @@ minute. If it does not, `docker compose logs barkd` says why.
 
 ## Step 2 — First-run setup (the wizard)
 
-Open the wizard on the iPhone. **Security note: until TLS ships with the
-one-click deploy, wizard pages travel over plain HTTP — and the recovery
-words and barkd token appear on these pages.** On a remote server, do
-first run over an encrypted path (e.g. from your laptop:
-`ssh -L 8080:localhost:8080 your-server`, then open
-`http://localhost:8080/setup`), or accept the risk for signet testing on
-a trusted LAN only. Never run first-run setup over an untrusted network.
+Open the wizard on the iPhone. **Security note: the supported VPS deploy
+serves the wizard over HTTPS (public IP, DNS, TLS).** If you are testing
+before DNS/TLS is in place, do first run over an encrypted path (e.g. from
+your laptop: `ssh -L 8080:localhost:8080 your-server`, then open
+`http://localhost:8080/setup`). Never run first-run setup over an
+untrusted network.
 The wizard walks the whole first run — create the till wallet, back up
 the recovery words, verify the barkd token, create the store — and the
 invoice and checkout endpoints stay closed (503 SetupIncomplete) until
@@ -137,13 +136,13 @@ The merchant fills in the three values and runs this themselves:
 
 ```
 export EBP_BARKD_TOKEN='the real token from 2b'
-export EBP_PUBLIC_BASE_URL='http://YOUR-SERVER-ADDRESS:8080'
+export EBP_PUBLIC_BASE_URL='https://pay.example.com'
 export EBP_SETTLEMENT_DESTINATION='your arké signet address'
 docker compose up -d
 ```
 
-- `EBP_PUBLIC_BASE_URL` is the address your phone will open — use your
-  server's IP or domain.
+- `EBP_PUBLIC_BASE_URL` is the HTTPS address your phone will open — use
+  your VPS's public DNS name (TLS required for the supported deploy).
 - `EBP_SETTLEMENT_DESTINATION` is where the till automatically empties to:
   your own wallet. An Arké signet address is ideal.
 

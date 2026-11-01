@@ -15,6 +15,7 @@ bind_addr = "0.0.0.0:8080"
 database_path = "./data/ebp.sqlite3"
 
 # The address customers and your phone open — used to build checkout URLs.
+# For the supported VPS deploy, set this to your public HTTPS URL.
 public_base_url = "http://localhost:8080"
 
 # "test" (default; signet, play money, test invoices flagged and excluded

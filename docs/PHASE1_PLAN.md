@@ -34,10 +34,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   only (plain HTTP, loopback-grade trust per barkd_start.md); no published
   ports; healthcheck against `/ping`; version pinned in
   compose (digest pinning deferred until a registry image exists).
-- **Done when:** `docker compose up` on a fresh machine starts ebp + barkd;
-  barkd is unreachable from outside the internal network.
-  the manifest works on real hardware; version pinned in-repo (digest when a
-  registry image exists).
+- **Done when:** `docker compose up` on a fresh VPS starts ebp + barkd;
+  barkd is unreachable from outside the internal network; version pinned
+  in-repo (digest when a registry image exists).
 
 ### 2. OpenAPI client generation + CI drift check
 

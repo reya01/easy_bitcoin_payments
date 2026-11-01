@@ -33,7 +33,7 @@ is a bug in the recipe — report it; every stumble becomes a fix.
 | The till's recovery words (mnemonic) | The root backup: with them, the wallet — and every sat it ever received — can be rebuilt on any machine | Paper, two copies, two separate safe places |
 | The barkd datadir | Speed: restores VTXO state and history without a full rescan | The server (barkd's data volume) |
 | Your destination wallet's seed (e.g. Arké) | That is where the money actually ends up — your keys | Paper / that wallet's own guidance |
-| The deployment environment | `EBP_BARKD_TOKEN`, `EBP_SETTLEMENT_DESTINATION`, `EBP_PUBLIC_BASE_URL`, `mode` | docker-compose environment / systemd unit |
+| The deployment environment | `EBP_BARKD_TOKEN`, `EBP_SETTLEMENT_DESTINATION`, `EBP_PUBLIC_BASE_URL`, `mode` | docker-compose environment |
 | The EBP database | Invoice history and accounting records | `./data/ebp.sqlite3` |
 
 The recovery words outrank everything: datadir backups can be lost or

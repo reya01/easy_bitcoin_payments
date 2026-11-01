@@ -31,7 +31,7 @@ parser carries a `VERIFY: field shape` marker in `src/wallet/barkd.rs`.
 - **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
 - **Merchant dashboard placeholder** — mobile-first shell at `/dashboard`.
 - **Config** — env vars plus an optional TOML file, with sane defaults.
-- **Deployment** — multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
+- **Deployment** — Docker one-liner on a VPS (public IP, DNS, TLS; clearnet HTTPS), plus multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
 
 ### The wallet layer: the barkd sidecar
 
@@ -203,7 +203,9 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 
 ---
 
-## Docker
+## Docker (VPS-first)
+
+The supported deployment is a Docker one-liner on a VPS with a public IP, DNS, and TLS; home/Tor-only hosting is out of scope.
 
 ```bash
 docker build -t easy-bitcoin-payments .

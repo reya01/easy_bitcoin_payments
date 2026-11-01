@@ -1,5 +1,8 @@
 #!/bin/sh
-# Easy Bitcoin Payments (ebp) — bare-binary installer.
+# Easy Bitcoin Payments (ebp) — development-only bare-binary installer.
+#
+# The supported deployment is the Docker one-liner on a VPS (public IP,
+# DNS, TLS); this script is for local development and source builds.
 #
 # What it does:
 #   1. downloads the release archive for your OS/arch,
@@ -140,7 +143,7 @@ echo ""
 echo "Next steps — follow the setup recipe:"
 echo "  docs/RECIPE_SETUP.md"
 echo ""
-echo "Quick start (stub wallet; see the recipe for signet):"
+echo "Quick start (development stub wallet; see the recipe for signet):"
 echo "  1. ebp serve                              # start the payments server"
 echo "  2. ebp store create --name \"My store\"     # prints the store API key once"
-echo "  3. open the recipe for barkd wallet setup and the first test payment"
+echo "  3. for the supported VPS deploy, use the Docker one-liner in README.md"

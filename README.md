@@ -1,5 +1,11 @@
 # Easy Bitcoin Payments
 
+> **⚠ EXPERIMENTAL STATUS — NOT FOR REAL FUNDS.** EBP is pre-release software
+> under active development. Its wallet integration has not been audited, its
+> response shapes are not pinned by CI, and no security review has been
+> completed. **Do not connect it to mainnet or real bitcoin.** Use signet or
+> regtest only until this notice is removed.
+
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
 Easy Bitcoin Payments (EBP) is a single Rust binary plus SQLite that sits between

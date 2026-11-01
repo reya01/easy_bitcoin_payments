@@ -9,6 +9,8 @@
 
 use crate::models::Rail;
 
+pub mod barkd;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiveAddresses {
     pub ark_address: String,

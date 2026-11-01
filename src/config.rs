@@ -32,6 +32,10 @@ pub struct Config {
     /// server refuses to start with a non-empty value only if it is malformed.
     pub key_encryption_key: Option<String>,
     pub admin_token: Option<String>,
+    /// Base URL of the barkd sidecar REST API (loopback / internal only).
+    pub barkd_url: String,
+    /// barkd bearer token. Never logged; env-only (EBP_BARKD_TOKEN).
+    pub barkd_token: Option<String>,
     pub checkout_policy_url: Option<String>,
     pub checkout_accent_color: String,
 }
@@ -58,6 +62,8 @@ impl Default for Config {
             log_level: "info,tower_http=info".to_string(),
             key_encryption_key: None,
             admin_token: None,
+            barkd_url: "http://127.0.0.1:3000/api/v1".to_string(),
+            barkd_token: None,
             checkout_policy_url: None,
             checkout_accent_color: "#f7931a".to_string(),
         }
@@ -98,6 +104,7 @@ struct FileConfig {
     log_level: Option<String>,
     key_encryption_key: Option<String>,
     admin_token: Option<String>,
+    barkd_url: Option<String>,
     checkout_policy_url: Option<String>,
     checkout_accent_color: Option<String>,
 }
@@ -175,6 +182,9 @@ impl Config {
         if let Some(v) = file.admin_token {
             self.admin_token = Some(v);
         }
+        if let Some(v) = file.barkd_url {
+            self.barkd_url = v.trim_end_matches('/').to_string();
+        }
         if let Some(v) = file.checkout_policy_url {
             self.checkout_policy_url = Some(v);
         }
@@ -225,6 +235,12 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ADMIN_TOKEN") {
             self.admin_token = Some(v);
+        }
+        if let Some(v) = lookup("EBP_BARKD_URL") {
+            self.barkd_url = v.trim_end_matches('/').to_string();
+        }
+        if let Some(v) = lookup("EBP_BARKD_TOKEN") {
+            self.barkd_token = Some(v);
         }
         if let Some(v) = lookup("EBP_CHECKOUT_POLICY_URL") {
             self.checkout_policy_url = Some(v);

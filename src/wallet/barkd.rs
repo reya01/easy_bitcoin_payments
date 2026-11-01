@@ -10,7 +10,7 @@
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::de::DeserializeOwned;
 
-use super::{AspStatus, ReceiveAddresses, WalletError, WalletHealth, WalletPayment};
+use super::WalletError;
 
 #[derive(Debug, Clone)]
 pub struct BarkdConfig {
@@ -65,14 +65,116 @@ impl BarkdWallet {
             .json().await.map_err(|e| WalletError::Rejected(e.to_string()))
     }
 
-    // Phase 1 wires `WalletAdapter` (made async) to these calls; exact paths
-    // and response types come from the pinned OpenAPI spec:
-    //   receive_addresses -> fresh Ark address + fresh on-chain address
-    //   poll_payments     -> payment history; map to WalletPayment (vtxo_id/txid)
-    //   balance_sats      -> off-chain balance; track on-chain separately as
-    //                        the emergency-exit CPFP reserve (>=15k sats/VTXO)
-    //   health            -> daemon status + ASP reachability -> AspStatus
-    // Settlement engine (separate module): refresh (rounds), Ark send /
-    // offboard (sweeps), exit start/progress/claim (emergency only).
-    // Never call GET /api/v1/wallet/mnemonic: --expose-mnemonic stays off.
+    // Watcher surface: per-address receive + cursored payment history.
+    // Settlement surface: balances, VTXO list, ark send / offboard.
+    // Never call GET /wallet/mnemonic: --expose-mnemonic stays off.
+
+    /// Payments received at one invoice address.
+    pub async fn received_on(&self, address: &str) -> Result<Vec<PaymentEntry>, WalletError> {
+        self.get(&format!("/payments?address={address}")).await
+    }
+
+    /// Payment history at or after `cursor` (UNIX seconds), oldest first.
+    pub async fn payments_since(&self, cursor: i64) -> Result<Vec<PaymentEntry>, WalletError> {
+        self.get(&format!("/payments?since={cursor}")).await
+    }
+
+    /// On-chain and off-chain balances, tracked separately: the on-chain
+    /// part is the emergency-exit CPFP reserve.
+    pub async fn balances(&self) -> Result<Balances, WalletError> {
+        self.get("/wallet/balance").await
+    }
+
+    /// VTXO list with per-VTXO expiry (drives refresh scheduling).
+    pub async fn vtxos(&self) -> Result<Vec<Vtxo>, WalletError> {
+        self.get("/wallet/vtxos").await
+    }
+
+    /// Ark send to an Ark address (settlement sweep).
+    pub async fn ark_send(&self, dest: &str, sats: i64) -> Result<Json, WalletError> {
+        let body = serde_json::json!({"destination": dest, "amount_sats": sats});
+        self.post("/wallet/send", &body).await
+    }
+
+    /// Offboard on-chain. Callers keep >= [`ONCHAIN_RESERVE_PER_VTXO_SATS`]
+    /// per remaining VTXO as the emergency-exit CPFP reserve.
+    pub async fn offboard(&self, dest: &str, sats: i64) -> Result<Json, WalletError> {
+        let body = serde_json::json!({"destination": dest, "amount_sats": sats});
+        self.post("/wallet/offboard", &body).await
+    }
+}
+
+/// JSON receipt from barkd send/offboard (txid, status, ...).
+pub type Json = serde_json::Value;
+
+/// On-chain sats kept per VTXO so an emergency exit can always be CPFP'd.
+pub const ONCHAIN_RESERVE_PER_VTXO_SATS: i64 = 15_000;
+
+/// On-chain sats a settlement sweep may move while preserving the reserve.
+pub fn sweepable_onchain_sats(onchain_sats: i64, vtxo_count: usize) -> i64 {
+    (onchain_sats - ONCHAIN_RESERVE_PER_VTXO_SATS * vtxo_count as i64).max(0)
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PaymentEntry {
+    pub address: String,
+    pub amount_sats: i64,
+    #[serde(default)]
+    pub vtxo_id: Option<String>,
+    #[serde(default)]
+    pub txid: Option<String>,
+    pub detected_at: i64,
+    #[serde(default)]
+    pub confirmed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Balances {
+    pub onchain_sats: i64,
+    pub offchain_sats: i64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Vtxo {
+    pub id: String,
+    pub amount_sats: i64,
+    pub expires_at: i64, // UNIX seconds; refresh before this.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn mock_barkd(body: &'static str) -> (String, tokio::sync::mpsc::Receiver<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = sock.read(&mut buf).await.unwrap();
+            tx.send(String::from_utf8_lossy(&buf[..n]).to_string()).await.unwrap();
+            let head = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", body.len());
+            sock.write_all(format!("{head}{body}").as_bytes()).await.unwrap();
+        });
+        (format!("http://{addr}"), rx)
+    }
+
+    #[tokio::test]
+    async fn client_parses_shapes_and_sends_bearer_token() {
+        let (base, mut rx) = mock_barkd(r#"{"onchain_sats":45000,"offchain_sats":120000}"#).await;
+        let w = BarkdWallet::new(BarkdConfig { base_url: base, token: "s3cret".into() }).unwrap();
+        let b = w.balances().await.unwrap();
+        assert_eq!((b.onchain_sats, b.offchain_sats), (45_000, 120_000));
+        let req = rx.recv().await.unwrap();
+        assert!(req.contains("GET /wallet/balance"));
+        assert!(req.contains("authorization: Bearer s3cret"));
+    }
+
+    #[test]
+    fn settlement_keeps_per_vtxo_onchain_reserve() {
+        assert_eq!(sweepable_onchain_sats(100_000, 2), 70_000);
+        assert_eq!(sweepable_onchain_sats(30_000, 2), 0);
+    }
 }

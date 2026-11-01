@@ -123,7 +123,7 @@ mod history_direction_tests {
             "subsystem": {"name": "bark.lightning_send", "kind": "send"},
             "intended_balance_sat": -5000,
             "sent_to": [{
-                "destination": {"type": "invoice", "value": "lntbs50u1p4w0fpq"},
+                "destination": {"type": "invoice", "value": "lntbs<test-invoice>"},
                 "amount_sat": 5000
             }],
             "received_on": []

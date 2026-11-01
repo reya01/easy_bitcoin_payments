@@ -7,378 +7,110 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Pay with Bitcoin</title>
 <style>
-  :root {
-    --accent: #f7931a;
-    --bg: #ffffff;
-    --fg: #14161a;
-    --muted: #5b6472;
-    --line: #e3e6eb;
-    --ok: #12855b;
-    --warn: #a35a00;
-    --err: #b3261e;
-    --radius: 14px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1115;
-      --fg: #f2f4f8;
-      --muted: #9aa4b2;
-      --line: #242a33;
-    }
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--fg);
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    -webkit-text-size-adjust: 100%;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  }
-  main {
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 20px 18px 40px;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--line);
-  }
-  .dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--accent);
-    flex: 0 0 auto;
-  }
-  .store { font-weight: 600; font-size: 15px; }
-  .amount { margin: 22px 0 4px; font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
-  .sats { color: var(--muted); font-size: 15px; }
-  .countdown { margin-top: 10px; font-size: 14px; color: var(--muted); }
-  .countdown strong { color: var(--fg); font-variant-numeric: tabular-nums; }
-  .card {
-    margin-top: 20px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 16px;
-  }
-  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-  .tab {
-    flex: 1;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .tab[aria-selected="true"] {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-    font-weight: 600;
-  }
-  .qr {
-    display: grid;
-    place-items: center;
-    aspect-ratio: 1 / 1;
-    max-width: 260px;
-    margin: 0 auto 14px;
-    border: 1px dashed var(--line);
-    border-radius: 12px;
-    color: var(--muted);
-    font-size: 13px;
-    text-align: center;
-    padding: 16px;
-  }
-  .address {
-    display: block;
-    width: 100%;
-    padding: 12px;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--fg);
-    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-    word-break: break-all;
-    text-align: left;
-    cursor: pointer;
-  }
-  .hint { margin-top: 8px; font-size: 13px; color: var(--muted); }
-  .status {
-    margin-top: 20px;
-    padding: 14px 16px;
-    border-radius: var(--radius);
-    border: 1px solid var(--line);
-    font-size: 15px;
-  }
-  .status.ok { border-color: var(--ok); color: var(--ok); }
-  .status.warn { border-color: var(--warn); color: var(--warn); }
-  .status.err { border-color: var(--err); color: var(--err); }
-  footer { margin-top: 26px; font-size: 13px; color: var(--muted); }
-  footer a { color: inherit; }
-  .test-banner {
-    margin: 14px 0 0;
-    padding: 10px 14px;
-    border: 1px solid var(--warn);
-    border-radius: 10px;
-    color: var(--warn);
-    font-size: 13px;
-    font-weight: 600;
-    text-align: center;
-  }
-  .ln-fee { margin-top: 10px; font-size: 13px; color: var(--muted); }
-  .hidden { display: none !important; }
+:root{--accent:#f7931a;--bg:#fff;--fg:#14161a;--muted:#5b6472;--line:#e3e6eb;--ok:#12855b;--warn:#a35a00;--err:#b3261e;--radius:14px}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1115;--fg:#f2f4f8;--muted:#9aa4b2;--line:#242a33}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;align-items:center;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent)}.store{font-weight:600;font-size:15px}
+.amount{margin:22px 0 4px;font-size:34px;font-weight:700}.sats{color:var(--muted);font-size:15px}.countdown{margin-top:10px;font-size:14px;color:var(--muted)}
+.card{margin-top:20px;border:1px solid var(--line);border-radius:var(--radius);padding:16px}.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tab{flex:1;padding:10px 6px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
+.tab[aria-selected="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);font-weight:600}
+.qr{display:grid;place-items:center;aspect-ratio:1/1;max-width:260px;margin:0 auto 14px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:13px;text-align:center;padding:16px}
+.address{display:block;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--fg);font:13px/1.4 ui-monospace,Menlo,monospace;word-break:break-all;text-align:left;cursor:pointer}
+.ln-fee,footer{font-size:13px;color:var(--muted)}footer{margin-top:26px}
+.status{margin-top:20px;padding:14px 16px;border-radius:var(--radius);border:1px solid var(--line);font-size:15px}
+.status.ok{border-color:var(--ok);color:var(--ok)}.status.warn{border-color:var(--warn);color:var(--warn)}.status.err{border-color:var(--err);color:var(--err)}
+.test-banner{margin:14px 0 0;padding:10px 14px;border:1px solid var(--warn);border-radius:10px;color:var(--warn);font-size:13px;font-weight:600;text-align:center}.hidden{display:none!important}
 </style>
 </head>
 <body>
 <main>
-  <div class="test-banner hidden" id="test-banner" role="note">TEST MODE — signet. Play money; nothing here moves real value.</div>
-  <header>
-    <span class="dot" aria-hidden="true"></span>
-    <span class="store" id="store-name">Loading…</span>
-  </header>
-
-  <div class="amount" id="amount">—</div>
-  <div class="sats" id="sats"></div>
-  <div class="countdown" id="countdown"></div>
-
-  <section class="card" id="pay-card">
-    <div class="tabs" role="tablist" aria-label="Payment rail">
-      <button class="tab" role="tab" id="tab-ark" aria-selected="true" aria-controls="panel">Ark (instant)</button>
-      <button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden>Lightning</button>
-      <button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel">On-chain</button>
-    </div>
-    <div class="qr" id="qr">
-      QR code arrives with the Bark integration.<br>
-      Copy the address below into your wallet.
-    </div>
-    <button class="address" id="address" type="button" title="Tap to copy">—</button>
-    <p class="hint" id="copy-hint">Tap the address to copy it.</p>
-    <p class="ln-fee hidden" id="ln-fee"></p>
-  </section>
-
-  <div class="status" id="status" role="status" aria-live="polite">Waiting for payment…</div>
-
-  <footer>
-    <p>Bitcoin payments are final. Refunds follow this store's policy<span id="policy-wrap" class="hidden"> — <a id="policy-link" href="#" rel="noopener">read it here</a></span>.</p>
-    <p>No account, no email, no tracking. This page talks only to the merchant's own server.</p>
-  </footer>
+<div class="test-banner hidden" id="test-banner" role="note">TEST MODE — signet. Play money; nothing here moves real value.</div>
+<header><span class="dot" aria-hidden="true"></span><span class="store" id="store-name">Loading…</span></header>
+<div class="amount" id="amount">—</div>
+<div class="sats" id="sats"></div>
+<div class="countdown" id="countdown"></div>
+<section class="card">
+<div class="tabs" role="tablist" aria-label="Payment method">
+<button class="tab" role="tab" id="tab-bip321" aria-selected="true" aria-controls="panel">Bitcoin URI</button>
+<button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden>Lightning</button>
+<button class="tab" role="tab" id="tab-ark" aria-selected="false" aria-controls="panel">Ark</button>
+<button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel">On-chain</button>
+</div>
+<div class="qr" id="qr">QR arrives with the Bark integration. Copy the string below into your wallet.</div>
+<button class="address" id="address" type="button" title="Tap to copy">—</button>
+<p class="ln-fee hidden" id="ln-fee"></p>
+</section>
+<div class="status" id="status" role="status" aria-live="polite">Waiting for payment…</div>
+<footer><p>Bitcoin payments are final; refunds follow this store's policy. No account, no email, no tracking.</p></footer>
 </main>
-
 <script>
 (function () {
-  "use strict";
-
-  var invoiceId = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
-  var els = {
-    store: document.getElementById("store-name"),
-    amount: document.getElementById("amount"),
-    sats: document.getElementById("sats"),
-    countdown: document.getElementById("countdown"),
-    payCard: document.getElementById("pay-card"),
-    qr: document.getElementById("qr"),
-    address: document.getElementById("address"),
-    copyHint: document.getElementById("copy-hint"),
-    status: document.getElementById("status"),
-    tabArk: document.getElementById("tab-ark"),
-    tabLn: document.getElementById("tab-ln"),
-    tabChain: document.getElementById("tab-chain"),
-    lnFee: document.getElementById("ln-fee"),
-    testBanner: document.getElementById("test-banner"),
-    policyWrap: document.getElementById("policy-wrap"),
-    policyLink: document.getElementById("policy-link")
-  };
-
-  var state = { rail: "ark", data: null, deadline: 0, timer: null, poll: null, ln: null };
-
-  function fmtSats(n) {
-    return Number(n).toLocaleString("en-US") + " sats";
-  }
-
-  function setStatus(text, kind) {
-    els.status.textContent = text;
-    els.status.className = "status" + (kind ? " " + kind : "");
-  }
-
-  function currentAddress() {
-    if (!state.data) return "";
-    if (state.rail === "ln") return state.ln ? state.ln.bolt11 : "";
-    return state.rail === "ark" ? state.data.ark_address : state.data.onchain_address;
-  }
-
-  function renderAddress() {
-    var addr = currentAddress();
-    els.address.textContent = addr || "—";
-    if (state.rail === "ln") {
-      els.qr.textContent = "Lightning QR arrives with the Bark integration. Copy the invoice below into your Lightning wallet.";
-    } else {
-      els.qr.textContent = state.rail === "ark"
-        ? "Ark QR arrives with the Bark integration. Copy the address below."
-        : "On-chain QR arrives with the Bark integration. Copy the address below.";
-    }
-    if (state.rail === "ln" && state.ln && typeof state.ln.fee_estimate_sat === "number") {
-      els.lnFee.textContent = "Lightning gateway fee: about " +
-        state.ln.fee_estimate_sat.toLocaleString("en-US") +
-        " sats, charged by the network — not by this store.";
-      els.lnFee.classList.remove("hidden");
-    } else {
-      els.lnFee.classList.add("hidden");
-    }
-  }
-
-  function selectRail(rail) {
-    state.rail = rail;
-    els.tabArk.setAttribute("aria-selected", String(rail === "ark"));
-    els.tabLn.setAttribute("aria-selected", String(rail === "ln"));
-    els.tabChain.setAttribute("aria-selected", String(rail === "chain"));
-    renderAddress();
-  }
-
-  els.tabLn.addEventListener("click", function () { selectRail("ln"); });
-
-  // Payment-rail extras (Lightning invoice + fee, test-mode banner) live
-  // on a sibling endpoint so the status payload stays stable. A missing
-  // endpoint or an offline fetch just leaves the Lightning tab hidden.
-  function loadRails() {
-    fetch("/i/" + encodeURIComponent(invoiceId) + "/rails", { headers: { "accept": "application/json" } })
-      .then(function (res) { return res.ok ? res.json() : null; })
-      .then(function (rails) {
-        if (!rails) return;
-        if (rails.test_mode) {
-          els.testBanner.classList.remove("hidden");
-        }
-        if (rails.lightning && rails.lightning.bolt11) {
-          state.ln = rails.lightning;
-          els.tabLn.hidden = false;
-          if (state.rail === "ln") renderAddress();
-        }
-      })
-      .catch(function () { /* rail extras are optional */ });
-  }
-  loadRails();
-
-  function tickCountdown() {
-    if (!state.deadline) return;
-    var left = Math.max(0, Math.floor((state.deadline - Date.now()) / 1000));
-    var m = Math.floor(left / 60);
-    var s = left % 60;
-    els.countdown.innerHTML = left > 0
-      ? "Rate locked for <strong>" + m + ":" + String(s).padStart(2, "0") + "</strong>"
-      : "Rate lock expired";
-  }
-
-  function applyStatus(data) {
-    state.data = data;
-    state.deadline = Date.now() + data.expires_in_seconds * 1000;
-
-    els.store.textContent = data.store_name;
-    document.documentElement.style.setProperty("--accent", data.accent_color || "#f7931a");
-
-    if (data.fiat_amount && data.fiat_currency) {
-      els.amount.textContent = data.fiat_amount + " " + data.fiat_currency;
-      els.sats.textContent = fmtSats(data.amount_sats);
-    } else {
-      els.amount.textContent = fmtSats(data.amount_sats);
-      els.sats.textContent = "";
-    }
-
-    if (data.policy_url) {
-      els.policyWrap.classList.remove("hidden");
-      els.policyLink.href = data.policy_url;
-    }
-
-    renderAddress();
-    tickCountdown();
-
-    switch (data.status) {
-      case "pending":
-        els.payCard.classList.remove("hidden");
-        setStatus("Waiting for payment…", "");
-        break;
-      case "paid":
-        els.payCard.classList.add("hidden");
-        setStatus("Paid — thank you. Bitcoin payments are final.", "ok");
-        break;
-      case "overpaid":
-        els.payCard.classList.add("hidden");
-        setStatus("Paid (overpaid) — thank you. The store will be in touch about the difference.", "ok");
-        break;
-      case "underpaid":
-        els.payCard.classList.add("hidden");
-        setStatus("Underpaid — this invoice will expire. Start a new one with the store.", "warn");
-        break;
-      case "expired":
-        els.payCard.classList.add("hidden");
-        setStatus("This invoice expired. Ask the store for a fresh one — the rate has moved on.", "warn");
-        break;
-      case "cancelled":
-        els.payCard.classList.add("hidden");
-        setStatus("This invoice was cancelled by the store.", "err");
-        break;
-      default:
-        setStatus("Unknown invoice state.", "err");
-    }
-
-    if (data.is_final) {
-      // Stop both the status poll and the countdown: without this, a paid
-      // page keeps ticking and eventually says "Rate lock expired".
-      stopPolling();
-      els.countdown.textContent = "";
-    }
-  }
-
-  function stopPolling() {
-    if (state.poll) { clearInterval(state.poll); state.poll = null; }
-    if (state.timer) { clearInterval(state.timer); state.timer = null; }
-  }
-
-  function refresh() {
-    fetch("/i/" + encodeURIComponent(invoiceId) + "/status", { headers: { "accept": "application/json" } })
-      .then(function (res) {
-        if (res.status === 404) {
-          // A missing invoice is not a server outage — say what happened
-          // and stop retrying (spec: plain-language errors).
-          stopPolling();
-          setStatus("This invoice doesn't exist (anymore). Go back to the store and start again.", "err");
-          return null;
-        }
-        if (!res.ok) throw new Error("status " + res.status);
-        return res.json();
-      })
-      .then(function (data) { if (data) applyStatus(data); })
-      .catch(function () {
-        setStatus("Can't reach the payment server. Retrying…", "warn");
-      });
-  }
-
-  els.tabArk.addEventListener("click", function () { selectRail("ark"); });
-  els.tabChain.addEventListener("click", function () { selectRail("chain"); });
-
-  els.address.addEventListener("click", function () {
-    var addr = currentAddress();
-    if (!addr) return;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(addr).then(function () {
-        els.copyHint.textContent = "Copied.";
-      }).catch(function () {
-        els.copyHint.textContent = "Select the address and copy it manually.";
-      });
-    } else {
-      els.copyHint.textContent = "Select the address and copy it manually.";
-    }
-  });
-
-  if (!invoiceId) {
-    setStatus("No invoice in this link.", "err");
-    return;
-  }
-
-  refresh();
-  state.poll = setInterval(refresh, 3000);
-  state.timer = setInterval(tickCountdown, 1000);
+"use strict";
+var id = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+function $(x) { return document.getElementById(x); }
+var els = { store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner") };
+var tabs = { bip321: $("tab-bip321"), ln: $("tab-ln"), ark: $("tab-ark"), chain: $("tab-chain") };
+// Byte Store drill 2026-11-02 (order 56): default = the combined BIP321
+// URI (one QR, one param per enabled rail); tabs are per-rail copies and
+// the old rail selector is the degraded mode (disabled rail: no param, no tab).
+var s = { tab: "bip321", data: null, ln: null, uri: "", deadline: 0, poll: null, delay: 1000, t0: Date.now() };
+function setStatus(t, k) { els.st.textContent = t; els.st.className = "status" + (k ? " " + k : ""); }
+function render() {
+  var m = { bip321: s.uri, ln: s.ln && s.ln.bolt11, ark: s.data && s.data.ark_address, chain: s.data && s.data.onchain_address };
+  els.addr.textContent = (s.data ? m[s.tab] : "") || "—";
+  if (s.tab === "ln" && s.ln && typeof s.ln.fee_estimate_sat === "number") {
+    els.fee.textContent = "Lightning gateway fee: about " + s.ln.fee_estimate_sat.toLocaleString("en-US") + " sats, charged by the network — not by this store.";
+    els.fee.classList.remove("hidden");
+  } else { els.fee.classList.add("hidden"); }
+}
+function select(k) {
+  s.tab = k;
+  Object.keys(tabs).forEach(function (j) { tabs[j].setAttribute("aria-selected", String(j === k)); });
+  render();
+}
+Object.keys(tabs).forEach(function (k) { tabs[k].addEventListener("click", function () { select(k); }); });
+els.addr.addEventListener("click", function () { if (els.addr.textContent !== "—") navigator.clipboard.writeText(els.addr.textContent); });
+fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "application/json" } })
+  .then(function (r) { return r.ok ? r.json() : null; })
+  .then(function (d) {
+    if (!d) { setStatus("Invoice not found.", "err"); return; }
+    s.data = d; s.uri = d.bip321 || ""; s.deadline = d.expires_at_unix || 0;
+    if (d.lightning && d.lightning.bolt11) { s.ln = d.lightning; tabs.ln.hidden = false; }
+    if (d.test_mode) els.banner.classList.remove("hidden");
+    els.store.textContent = d.store_name || "This store";
+    var sats = Number(d.amount_sats).toLocaleString("en-US");
+    els.amount.textContent = d.fiat_amount ? d.fiat_currency + " " + d.fiat_amount : sats + " sats";
+    els.sats.textContent = sats + " sats";
+    render();
+  })
+  .catch(function () { setStatus("Could not load this invoice.", "err"); });
+setInterval(function () {
+  if (!s.deadline) return;
+  var left = Math.max(0, s.deadline - Math.floor(Date.now() / 1000));
+  els.cd.textContent = "Rate locked for " + Math.floor(left / 60) + ":" + ("0" + (left % 60)).slice(-2);
+}, 1000);
+// Byte Store practice: poll /status ~1/s while pending, stop on paid/expired,
+// back off (x2, cap 30s) after 5 minutes.
+function stop() { if (s.poll) { clearTimeout(s.poll); s.poll = null; } }
+function again() {
+  if (Date.now() - s.t0 > 300000) s.delay = Math.min(s.delay * 2, 30000);
+  s.poll = setTimeout(poll, s.delay);
+}
+function poll() {
+  fetch("/i/" + encodeURIComponent(id) + "/status", { headers: { "accept": "application/json" } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (b) {
+      if (!b) throw 0;
+      if (b.status === "paid" || b.status === "overpaid") { setStatus("Paid — thank you! Bitcoin payments are final; refunds follow this store's policy.", "ok"); return stop(); }
+      if (b.status === "expired") { setStatus("Expired — start a new invoice at the current rate.", "err"); return stop(); }
+      again();
+    })
+    .catch(again);
+}
+poll();
 })();
 </script>
 </body>

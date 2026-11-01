@@ -16,6 +16,7 @@ pub mod rates;
 pub mod settings;
 pub mod routes;
 pub mod store;
+pub mod uri;
 pub mod util;
 pub mod wallet;
 pub mod watcher;

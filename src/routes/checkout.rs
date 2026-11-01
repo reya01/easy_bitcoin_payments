@@ -1,73 +1,52 @@
-use axum::extract::{Path, State};
-use axum::response::Html;
-use axum::Json;
-use serde::Serialize;
+//! Public checkout routes (unauthenticated). Byte Store drill 2026-11-02:
+//! the default QR is the combined BIP321 URI (crate::uri) — on-chain path
+//! + ark/lightning params per enabled rail; per-rail tabs are copies.
 
-use crate::error::AppError;
-use crate::invoice;
-use crate::models::InvoiceStatus;
-use crate::routes::AppState;
-use crate::util::{now_unix, to_rfc3339};
+use axum::{extract::{Path, State}, response::Html, routing::get, Json, Router};
+use rusqlite::OptionalExtension;
 
-const CHECKOUT_HTML: &str = include_str!("../../assets/checkout.html");
+use crate::{error::AppError, invoice, routes::AppState, uri};
 
-/// Hosted checkout page. Static shell; the page polls `/i/{id}/status`.
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/i/{id}", get(page))
+        .route("/i/{id}/json", get(invoice_json))
+        .route("/i/{id}/status", get(status))
+}
+
 pub async fn page() -> Html<&'static str> {
-    Html(CHECKOUT_HTML)
+    Html(include_str!("../../assets/checkout.html"))
 }
 
-#[derive(Debug, Serialize)]
-pub struct CheckoutStatus {
-    pub id: String,
-    pub status: InvoiceStatus,
-    pub is_final: bool,
-    pub amount_sats: i64,
-    pub paid_sats: i64,
-    pub fiat_currency: Option<String>,
-    pub fiat_amount: Option<String>,
-    pub ark_address: String,
-    pub onchain_address: String,
-    pub expires_at: String,
-    pub expires_in_seconds: i64,
-    pub store_name: String,
-    pub policy_url: Option<String>,
-    pub accent_color: String,
+/// One payload for everything the page renders once, incl. the default-QR URI.
+async fn invoice_json(Path(id): Path<String>, State(app): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let (inv, store_name) = app.db.call(move |c| invoice::get_public(c, &id)).await?.ok_or(AppError::NotFound)?;
+    let inv_id = inv.id.clone();
+    let bolt11 = app.db.call(move |c| ln_bolt11(c, &inv_id)).await?;
+    let fee = serde_json::from_str::<serde_json::Value>(&inv.metadata_json).ok()
+        .and_then(|m| m.get("lightning_fee_estimate_sat").and_then(|v| v.as_i64()));
+    Ok(Json(serde_json::json!({
+        "store_name": store_name, "status": inv.status.as_str(), "amount_sats": inv.amount_sats,
+        "fiat_currency": inv.fiat_currency, "fiat_amount": inv.fiat_amount,
+        "ark_address": inv.ark_address, "onchain_address": inv.onchain_address, "expires_at_unix": inv.expires_at,
+        "bip321": uri::combined(inv.amount_sats, Some(&inv.onchain_address), bolt11.as_deref(), Some(&inv.ark_address)),
+        "lightning": bolt11.map(|b| serde_json::json!({ "bolt11": b, "fee_estimate_sat": fee })),
+        "test_mode": app.config.mode == "test",
+    })))
 }
 
-pub async fn status(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<CheckoutStatus>, AppError> {
-    let invoice_id = id.clone();
-    let invoice = state
-        .db
-        .call(move |conn| invoice::expire_if_due(conn, &invoice_id))
-        .await?
-        .ok_or(AppError::NotFound)?;
+/// Polled ~1/s while pending (store bundle: te=1e3 ms); the page stops on paid/expired.
+pub async fn status(Path(id): Path<String>, State(app): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let inv = app.db.call(move |c| invoice::expire_if_due(c, &id)).await?.ok_or(AppError::NotFound)?;
+    Ok(Json(serde_json::json!({ "status": inv.status.as_str() })))
+}
 
-    let store_id = invoice.store_id.clone();
-    let store = state
-        .db
-        .call(move |conn| crate::store::get(conn, &store_id))
-        .await?
-        .ok_or(AppError::NotFound)?;
-
-    let now = now_unix();
-
-    Ok(Json(CheckoutStatus {
-        id: invoice.id.clone(),
-        status: invoice.status,
-        is_final: invoice.status.is_terminal(),
-        amount_sats: invoice.amount_sats,
-        paid_sats: invoice.paid_sats,
-        fiat_currency: invoice.fiat_currency.clone(),
-        fiat_amount: invoice.fiat_amount.clone(),
-        ark_address: invoice.ark_address.clone(),
-        onchain_address: invoice.onchain_address.clone(),
-        expires_at: to_rfc3339(invoice.expires_at),
-        expires_in_seconds: (invoice.expires_at - now).max(0),
-        store_name: store.name,
-        policy_url: state.config.checkout_policy_url.clone(),
-        accent_color: state.config.checkout_accent_color.clone(),
-    }))
+/// The BOLT11 issued for this invoice, if any. (The Byte Store correlates
+/// LN payments by payment_hash, and barkd's history metadata carries ours
+/// too — a future option for LN-native attribution. No change now: EBP
+/// attributes by till-issued addresses/VTXOs.)
+fn ln_bolt11(conn: &rusqlite::Connection, invoice_id: &str) -> Result<Option<String>, AppError> {
+    conn.query_row("SELECT bolt11 FROM ln_invoices WHERE invoice_id = ?1", [invoice_id], |r| r.get(0))
+        .optional()
+        .map_err(Into::into)
 }

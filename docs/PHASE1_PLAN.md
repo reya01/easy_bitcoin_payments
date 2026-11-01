@@ -249,6 +249,15 @@ with the 15,000 sat/VTXO exit reserve, Lightning receive via
   backup; barkd datadir snapshot guidance).
 - **Task 12 — setup recipe + the non-technical UX gate.**
 
+## Drill log — Byte Store purchase (2026-11-02, signet)
+
+Real end-to-end purchase: order 56 (1,000 sats) at Second's signet Byte
+Store; BOLT11 paid from our merchant bark wallet over Lightning via the
+ASP gateway (payment_hash e96a8744…); status PAID within seconds —
+received=1000, paid_with=lightning. Observed and adopted: combined BIP321
+default QR (bitcoin:?amount=0.00001&lightning=…&ark=…), per-rail tabs,
+~1/s status polling, BTC-decimal amounts.
+
 ## Remaining (close-out status, 2026-11-01)
 
 Done in code: wizard (routes + UI + gate), LN fee display, test mode,

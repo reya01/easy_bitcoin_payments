@@ -266,3 +266,77 @@ conversion, database migrations, and the watcher's payment application path.
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
+
+## EBP vs. BTCPay Server: an honest comparison
+
+EBP and BTCPay Server share a mission: self-hosted, self-custodial, free Bitcoin
+payments with no middleman between you and your customers. They differ in the
+generation of technology underneath. BTCPay is a first-generation implementation:
+Lightning channels, a mandatory full node, and a C#/.NET codebase with roughly
+seven years of accretion. EBP is a second-generation attempt: Ark instead of
+channels, a single Rust binary instead of a monolith, and a design target of a
+merchant who has never opened a terminal. Both positions carry real tradeoffs.
+This section states them bluntly, including where EBP loses.
+
+| | BTCPay Server | EBP |
+| --- | --- | --- |
+| Stack | C#/.NET monolith, ~7 years of accretion | Rust, single binary + SQLite |
+| Payment rails | Real Lightning channels + on-chain | Ark via a barkd sidecar; Lightning via the ASP gateway; on-chain fallback |
+| Inbound liquidity | Required — the #1 Lightning merchant pain | None — Ark receive is passive |
+| Bitcoin node | Full node required | None |
+| Ops weight | Heavy: chain sync, channel management, multi-service updates | One binary + one sidecar; no chain sync |
+| Wallet model | Server-held Lightning keys | Capped till + automatic sweeps — hot by design, and the UI says so |
+| Setup | Sysadmin-grade | One-click deploys + AI-assisted recipe |
+| Lightning trust | Zero third party on the payment path | ASP dependency + gateway trust window until round refresh |
+| Feature breadth | POS, crowdfunding, pay buttons, plugins | Invoice API, checkout, store connectors |
+| Maturity | Thousands of merchants in production | Pre-release |
+| Management | Desktop-first | iPhone-first |
+
+### Where BTCPay wins — stated honestly
+
+- **Real Lightning channels.** No third party sits on the payment path. EBP's
+  Lightning receive runs through the ASP's gateway and carries a trust window
+  until the received VTXO is refreshed in a round, and Ark itself depends on
+  the ASP for liveness and coordination. On trust-minimization, BTCPay wins.
+- **Battle-tested maturity.** Thousands of merchants, years in production,
+  edge cases found and fixed. EBP is pre-release — barkd's response shapes
+  are not even pinned by CI yet.
+- **Ecosystem breadth.** In-person POS app, crowdfunding, pay buttons, a
+  plugin system. EBP ships an invoice API, a checkout page, and store
+  connectors; POS-lite is v1.x.
+
+If you are a trust-minimization purist, use BTCPay.
+
+### Where EBP wins
+
+- **No node, no channels, no inbound liquidity.** Nothing to sync, nothing to
+  open, nothing to rebalance. The #1 operational barrier to accepting
+  Lightning payments does not exist here.
+- **Setup for people who have never opened a terminal.** One-click deploys
+  are a spec requirement, not an afterthought, with an AI-assisted recipe
+  on top.
+- **iPhone-first management.** Payments, settlement, the expiry queue, and
+  health alerts are designed to be handled from a phone. If a flow cannot
+  be completed on a phone, it does not ship.
+- **Smaller breach blast radius.** The server holds a capped till (default
+  500,000 sats) that is swept to your own wallet automatically — the UI
+  calls it "cash in a till; we empty it into your vault automatically." A
+  compromised server can steal the float, not a full Lightning node's hot
+  wallet.
+- **A modern, maintainable codebase.** One Rust binary and a SQLite file are
+  easier to audit, reason about, and patch than a large C# solution stack.
+
+### Who should pick which
+
+Pick **BTCPay** if you want maximum trust-minimization on Lightning, need
+in-person POS or crowdfunding today, or already run a node and are comfortable
+as a sysadmin. If you enjoy running a full node, BTCPay is the better tool
+for you.
+
+Pick **EBP** if you run (or want to run) an online store, have no node and do
+not want one, do not want to manage channels, value running the whole
+operation from an iPhone, and accept the ASP and gateway trust windows
+documented in the spec.
+
+EBP trades protocol purity for accessibility on purpose — [spec.md](spec.md)
+documents every tradeoff in full.

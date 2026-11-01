@@ -174,8 +174,15 @@ impl fmt::Debug for BarkdConfig {
 }
 
 /// Heuristic for the plain-HTTP warning: is this URL loopback-only?
+/// Parses the host instead of substring-matching, so
+/// `http://127.0.0.1.evil.tld` is NOT treated as loopback.
 fn is_loopback_url(url: &str) -> bool {
-    url.contains("://127.0.0.1") || url.contains("://localhost") || url.contains("://[::1]")
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false; // unparseable: never silence the cleartext warning
+    };
+    let Some(host) = parsed.host_str() else { return false };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host == "localhost" || host == "::1" || host.starts_with("127.")
 }
 
 /// Async REST client for the barkd sidecar.

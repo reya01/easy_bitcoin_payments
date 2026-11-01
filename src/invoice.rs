@@ -36,11 +36,20 @@ pub fn status_after_payment(paid_total: i64, amount_due: i64) -> InvoiceStatus {
     }
 }
 
+/// Hard ceiling on a single invoice: 21M BTC in sats. Anything larger is
+/// a conversion bug or an attack, not an order.
+pub const MAX_INVOICE_SATS: i64 = 2_100_000_000_000_000;
+
 pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> {
     if new.amount_sats <= 0 {
         return Err(AppError::BadRequest(
             "invoice amount must be greater than zero".into(),
         ));
+    }
+    if new.amount_sats > MAX_INVOICE_SATS {
+        return Err(AppError::BadRequest(format!(
+            "invoice amount exceeds the maximum of {MAX_INVOICE_SATS} sats"
+        )));
     }
 
     conn.execute(

@@ -17,7 +17,7 @@ pub fn random_hex(bytes: usize) -> String {
 
 /// Prefixed opaque identifier, e.g. `inv_9f2c...`.
 pub fn new_id(prefix: &str) -> String {
-    format!("{prefix}_{}", random_hex(12))
+    format!("{prefix}_{}", random_hex(16))
 }
 
 /// RFC 3339 / ISO 8601 UTC timestamp with second precision.
@@ -36,7 +36,7 @@ mod tests {
         let a = new_id("inv");
         let b = new_id("inv");
         assert!(a.starts_with("inv_"));
-        assert_eq!(a.len(), 4 + 24);
+        assert_eq!(a.len(), 4 + 32);
         assert_ne!(a, b);
     }
 

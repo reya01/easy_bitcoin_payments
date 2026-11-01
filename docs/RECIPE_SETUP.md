@@ -65,12 +65,18 @@ minute. If it does not, `docker compose logs barkd` says why.
 
 ## Step 2 — First-run setup (the wizard)
 
-Open `http://YOUR-SERVER-ADDRESS:8080/setup` on the iPhone. The wizard
-walks the whole first run — create the till wallet, back up the recovery
-words, verify the barkd token, create the store — and the invoice and
-checkout endpoints stay closed (503 SetupIncomplete) until the backup is
-confirmed. The AI assistant reads each screen aloud and checks the
-expected result; it never sees the recovery words or the token.
+Open the wizard on the iPhone. **Security note: until TLS ships with the
+one-click deploy, wizard pages travel over plain HTTP — and the recovery
+words and barkd token appear on these pages.** On a remote server, do
+first run over an encrypted path (e.g. from your laptop:
+`ssh -L 8080:localhost:8080 your-server`, then open
+`http://localhost:8080/setup`), or accept the risk for signet testing on
+a trusted LAN only. Never run first-run setup over an untrusted network.
+The wizard walks the whole first run — create the till wallet, back up
+the recovery words, verify the barkd token, create the store — and the
+invoice and checkout endpoints stay closed (503 SetupIncomplete) until
+the backup is confirmed. The AI assistant reads each screen aloud and
+checks the expected result; it never sees the recovery words or the token.
 
 **STOP — the recovery words.** The wizard shows them exactly once, when
 the wallet is created. The merchant — not the AI — writes them down on

@@ -165,7 +165,10 @@ impl SettlementEngine {
             return Ok(report);
         }
 
-        let ark = destination.starts_with("ark");
+        // Ark addresses are network-prefixed: `ark1…` (mainnet),
+        // `tark1…` (signet). Route either to the Ark-send path; anything
+        // else is treated as an on-chain destination.
+        let ark = destination.starts_with("ark1") || destination.starts_with("tark1");
         let kind = if ark { "sweep_ark" } else { "sweep_onchain" };
 
         // 3. Exit-reserve gate, checked against /onchain/balance.

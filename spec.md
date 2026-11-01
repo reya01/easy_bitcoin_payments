@@ -154,7 +154,7 @@ POST   /api/v1/stores/rotate-key
 
 ## Data model (outline)
 
-- `stores(id, name, api_key_hash, webhook_url, webhook_secret_hash, policy_json, created_at)` — the data model is store-scoped from day one, even while the v1.0 UI manages a single store.
+- `stores(id, name, api_key_hash, webhook_url, webhook_secret, policy_json, created_at)` — the data model is store-scoped from day one, even while the v1.0 UI manages a single store. API keys are hashed at rest (the server only verifies them). The webhook secret must be recoverable in plaintext to sign outbound deliveries, so it cannot be hashed; the v1.0 target is encryption at rest via `key_encryption_key` (Phase 1: plaintext in the access-restricted SQLite datadir — documented, not hidden).
 - `invoices(id, store_id, order_id, status, amount_sats, fiat_currency, fiat_amount, rate, rate_source, rate_locked_at, ark_address, onchain_address, expires_at, paid_at, paid_sats, confs_required, metadata_json)`
 - `payments(id, invoice_id, rail, amount_sats, vtxo_id | txid, detected_at, confirmed_at)`
 - `settlements(id, kind[sweep|renew|exit], amount_sats, destination, status[proposed|awaiting_approval|broadcast|confirmed|failed], approved_by, created_at, confirmed_at)`
@@ -168,13 +168,16 @@ POST   /api/v1/stores/rotate-key
 A living document, updated at every phase gate. Headline entries:
 
 - **Payment redirection (the realistic attack).** A compromised server can show attacker addresses at checkout. Mitigations: the merchant's phone displays the wallet's own receive addresses for comparison; a guided "verify your checkout" recipe (pay yourself 100 sats) runs at setup and after every update; instant payment notifications show amount and destination; the dashboard has an address page.
-- **Key theft.** The server wallet holds a capped float; a compromise can steal at most the till, never swept funds. Keys encrypted at rest; backups encrypted; no key material in logs, ever.
-- **Forged webhooks / replay.** HMAC + timestamp window + idempotency + store-side verification (above).
+- **Key theft.** The server wallet holds a capped float; a compromise can steal at most the till, never swept funds. As built (Phase 1): wallet keys live in barkd's access-restricted datadir; EBP-side at-rest encryption of webhook secrets is not yet implemented (`key_encryption_key` is a placeholder — tracked); the barkd token is env-only and never logged; the mnemonic is shown once at creation and never stored, logged, or re-read. "Encrypted at rest" (keys, secrets, backups) is a v1.0 target, not a current property — the current control is datadir restriction. No key material in logs, ever — enforced and re-checked at each gate.
+- **Forged webhooks / replay.** HMAC + timestamp window + idempotency + store-side verification (above). As built (Phase 1): a single delivery attempt, no retry/backoff queue yet — the store-side source-of-truth check is what makes that safe; retries, the delivery log, and secret rotation land in Phase 2 as specified.
 - **Data breach.** No customer PII required; minimal logs; encrypted backups; retention controls (see Privacy).
 - **DoS.** Rate limits on public endpoints; static checkout pages; store-side verify keeps orders safe while the server is down (orders queue as unpaid).
 - **ASP misbehavior.** Non-custodial ≠ trustless: the ASP can stall but not steal. Monitoring, health history, exit runbook, own-ASP guide.
 - **Swap counterparty (v1.x Lightning).** Documented trust model, fee display, and stuck-swap runbook are prerequisites for that rail shipping.
 - **AI agent misuse.** Recipes never contain or request secrets; agents never receive keys, seeds, or admin credentials; destructive steps require human confirmation in the product UI.
+- **First-boot window.** The setup wizard is unauthenticated until `setup_complete` (the BTCPay first-run model). On a deployment with a public IP, anyone can race the merchant to wallet creation and receive the mnemonic; wizard pages also carry the mnemonic and barkd token over plain HTTP until TLS is configured. Mitigations: complete setup immediately after first boot; keep the server firewalled or use an encrypted path (SSH tunnel/Tor) for remote first run; treat a wallet that exists before you ran the wizard as compromised (reset the datadir).
+- **Webhook URL as an SSRF surface.** The store's webhook URL is merchant-controlled and the server POSTs to it. Scope: authenticated merchants only, POST-only, no upstream response bodies reflected to the caller; barkd is unreachable without its bearer token, which webhook requests do not carry. Hardening (Phase 1 close-out): reject loopback/link-local/metadata targets by default.
+- **Sweep finality.** Ark sweeps to the merchant's wallet are out-of-round (arkoor) sends: the destination VTXO is spendable immediately but is ASP-attested until the merchant's own wallet boards it in a round. EBP's invoice finality policy governs inbound customer payments; sweeps deliver out-of-round VTXOs by design, and the docs say so at the sweep setting.
 - Every gate's security review explicitly covers: payment redirection, webhook secret handling, custody-level claims, and (when present) the swap path.
 
 ## Privacy, accounting, compliance

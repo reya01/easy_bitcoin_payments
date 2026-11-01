@@ -346,3 +346,30 @@ documented in the spec.
 
 EBP trades protocol purity for accessibility on purpose — [spec.md](spec.md)
 documents every tradeoff in full.
+### Incidents inform design
+
+In August 2026, a BTCPay Server vulnerability let unauthenticated attackers
+read LND admin macaroon files, and they drained merchants' Lightning channels
+(foundationdevices.com and others confirmed losses). The failure class:
+a high-value signing credential reachable through the web tier, guarding a
+hot wallet whose size is a *requirement* of Lightning (channels must hold
+liquidity). EBP is designed against that failure class:
+
+- The server-side wallet is a **capped till** (default 500,000 sats) that is
+  swept automatically to your own wallet. A compromised server exposes the
+  float, not the vault.
+- **You do not have to trust the ASP with your funds — only for liveness.**
+  Ark is self-custody: you hold the keys to your VTXOs. The Ark Service
+  Provider coordinates payment rounds and keeps the service responsive; it
+  cannot spend your money. If the ASP disappears or misbehaves, you take
+  your funds home with a unilateral exit — slower, but yours. The worst an
+  ASP can do to you is *stall* you, not steal from you.
+- The barkd bearer token is the one server credential, bound to loopback,
+  never logged, and its blast radius is the till cap — not a full Lightning
+  node's hot wallet and channels.
+
+The honest counterweight: EBP is unaudited, pre-release, and adds the ASP
+liveness dependency. The capped-till model is how EBP assumes credentials
+leak eventually — it does not claim to be more secure than BTCPay Server
+overall. See `spec.md` for the full threat model.
+

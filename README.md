@@ -346,6 +346,7 @@ documented in the spec.
 
 EBP trades protocol purity for accessibility on purpose — [spec.md](spec.md)
 documents every tradeoff in full.
+
 ### Incidents inform design
 
 In August 2026, a BTCPay Server vulnerability let unauthenticated attackers

@@ -1,13 +1,16 @@
 # Phase 1 — barkd integration plan
 
-**Status:** closed — all twelve tasks below are DONE. Two items remain
-open and gate the phase sign-off: (1) the non-technical UX gate (task 12:
-zero → live signet invoice using only the recipe and an iPhone), and
-(2) cutting the first release — push a `v*` tag and
-`.github/workflows/release.yml` builds the x86_64 + aarch64 musl
-binaries, `SHA256SUMS`, the GitHub release, and the multi-arch ghcr.io
-image that `scripts/install.sh`, `scripts/release.sh`, and the recipe
-resolve.
+**Status:** Phase 1 code-complete (2026-11-01) — all twelve tasks below
+are DONE in code, every client-facing barkd shape is live-verified
+(barkd 0.8.0, signet), and the full suite is green (`cargo test`: 233
+passed, 0 failed). Nothing code-side remains. Two items are left, both
+human, and gate the phase sign-off: (1) the non-technical UX gate (task
+12: zero → live signet invoice using only the recipe and an iPhone),
+and (2) cutting the first release — a human chooses and confirms the
+`v*` tag; pushing it makes `.github/workflows/release.yml` build the
+x86_64 + aarch64 musl binaries, `SHA256SUMS`, the GitHub release, and
+the multi-arch ghcr.io image that `scripts/install.sh`,
+`scripts/release.sh`, and the recipe resolve.
 **Depends on:** Phase 0 spike log (docs/PHASE0_SPIKE_PLAN.md) answered in writing
 **Window:** months 1–3
 
@@ -62,7 +65,7 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 ### 3. Wallet provisioning flow — DONE
 
-> DONE: wizard creates the wallet on an empty datadir via POST /wallet/create; when the create response carries no mnemonic (verified barkd 0.8.0 behavior) the expose-mnemonic ceremony reads GET /wallet/mnemonic once (VERIFIED shape) with a confirm-your-words checkbox, then barkd restarts without the flag; token env-only; rotation runbook in the docs.
+> DONE: wizard creates the wallet on an empty datadir via POST /wallet/create; the create response never carries the words (verified barkd 0.8.0), so the wallet step runs the expose-mnemonic ceremony — barkd restarted with `--expose-mnemonic` (one command), EBP reads GET /wallet/mnemonic exactly once (VERIFIED shape `{"mnemonic": "…"}`), confirm-your-words checkbox, then barkd restarts WITHOUT the flag; token env-only; rotation runbook in the docs.
 
 - **What:** first-run wizard step: create the wallet, back up the mnemonic,
   provision and rotate the API token.

@@ -11,18 +11,19 @@
 //!
 //! Paths and methods are checked against barkd's OpenAPI endpoint list (all
 //! wallet endpoints live under `/api/v1/...`, which is part of
-//! [`BarkdConfig::base_url`]). Response *shapes* are mostly not pinned: the
-//! schema dumps for the endpoints we use are empty, so each parsed response
-//! carries a `VERIFY: field shape` marker and parses defensively — a
-//! missing safety-critical field fails loudly instead of silently reading
-//! zero. Three shapes are now pinned live instead (wizard VERIFY pass
-//! against real barkd 0.8.0 on signet — see the `VERIFIED` markers on the
-//! constants below and `verified_shape_tests`): `/wallet/connected` →
+//! [`BarkdConfig::base_url`]). Response *shapes* are pinned live: with the
+//! final three captures (2026-11-01, real barkd 0.8.0 on signet) all
+//! client-facing shapes are verified — `/wallet/connected` →
 //! `{"connected": true}`, `/wallet/mnemonic` → `{"mnemonic": "…"}`
-//! (only under `--expose-mnemonic`), and `/fees/lightning/receive` → a GET
-//! whose `amount_sat` query parameter is required. Close the remaining
-//! markers when `docs/barkd-openapi.json` includes response schemas; the
-//! path drift CI already runs.
+//! (12 space-separated words, only under `--expose-mnemonic`), and the
+//! `/fees/lightning/receive` success body `{"gross_amount_sat": …,
+//! "fee_sat": …, "net_amount_sat": …, "vtxos_spent": […]}` — see the
+//! `VERIFIED` markers on the constants below, the verbatim bodies in
+//! `barkd/live_shapes.rs`, and `verified_shape_tests`. The one shape
+//! still under `VERIFY` is the wallet-create response (no pass has
+//! captured it — the probe datadir already held a wallet). Every parser
+//! stays defensive regardless: a missing safety-critical field fails
+//! loudly instead of silently reading zero.
 //!
 //! Two entry points:
 //!
@@ -41,11 +42,12 @@
 //! scrubbed from any error message built from a barkd response. It is never
 //! logged. `--expose-mnemonic` stays off in normal operation and no code
 //! here calls GET /wallet/mnemonic — the ONE exception is the setup
-//! wizard's expose-mnemonic ceremony (src/routes/setup.rs), where the
-//! merchant consciously restarts barkd with the flag, EBP reads the words
-//! exactly once (VERIFIED shape `{"mnemonic": "…"}`), the backup checkbox
-//! is confirmed, and barkd is restarted WITHOUT the flag before setup
-//! completes. That ceremony lives in the wizard, not in this client.
+//! wizard's expose-mnemonic ceremony (src/routes/setup.rs), which runs
+//! at wallet-creation time: the merchant restarts barkd with the flag,
+//! EBP reads the words exactly once (VERIFIED shape `{"mnemonic": "…"}`),
+//! the backup checkbox is confirmed, and barkd is restarted WITHOUT the
+//! flag before setup completes. That ceremony lives in the wizard, not
+//! in this client.
 
 use std::future::Future;
 use std::fmt;
@@ -66,9 +68,10 @@ use super::{
 // ---------------------------------------------------------------------------
 // Paths and methods, verified against barkd's OpenAPI endpoint list (all
 // under /api/v1, which is part of BarkdConfig::base_url). Response shapes
-// are pinned only where a live probe pinned them (see the VERIFIED
-// markers); everywhere else the schema dumps are empty, so the response
-// parsers carry a `VERIFY: field shape` marker.
+// are pinned by live probes against a real barkd 0.8.0 on signet (see the
+// VERIFIED markers; the published OpenAPI carries no response schemas,
+// so shapes are captured from the running daemon). The only unpinned
+// shape left is the wallet-create response, which keeps its VERIFY note.
 // ---------------------------------------------------------------------------
 /// Create (or restore) the wallet. POST.
 const PATH_CREATE_WALLET: &str = "/wallet/create";
@@ -109,7 +112,8 @@ const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// wrapper object.
 const PATH_CONNECTED: &str = "/wallet/connected";
 /// The wallet's recovery words. GET. VERIFIED (same pass): answers
-/// `{"mnemonic": "<words>"}` — but ONLY while barkd runs with
+/// `{"mnemonic": "<12 words, space-separated>"}` — a single string
+/// field, no wrapper object — but ONLY while barkd runs with
 /// `--expose-mnemonic`; with the flag off the endpoint refuses (exact
 /// refusal shape not captured — treat any non-2xx as "not exposed").
 /// No code in this client calls it: the one caller is the setup
@@ -120,9 +124,13 @@ const PATH_WALLET_MNEMONIC: &str = "/wallet/mnemonic";
 /// the required `amount_sat` travels in the QUERY STRING — probing
 /// without it returned HTTP 400 with the plain-text body "Failed to
 /// deserialize query string: missing field `amount_sat`" (not JSON).
-/// VERIFY: the success-response shape — the live probe only captured
-/// the missing-parameter error, so the fee parser must stay defensive
-/// until a funded probe pins the fields.
+/// VERIFIED success body (barkd 0.8.0, signet, 2026-11-01,
+/// amount_sat=5000): `{"gross_amount_sat": 5000, "fee_sat": 0,
+/// "net_amount_sat": 5000, "vtxos_spent": []}` — three `_sat` integers
+/// plus a `vtxos_spent` array. The capture ran on an EMPTY wallet, so
+/// `fee_sat` was 0 and `vtxos_spent` was empty; a wallet with spendable
+/// VTXOs can return a nonzero fee and a populated array, so the parser
+/// takes all four fields from the body and assumes none of them.
 const PATH_FEES_LIGHTNING_RECEIVE: &str = "/fees/lightning/receive";
 
 /// Whole-request timeout: barkd is a loopback sidecar, so anything beyond
@@ -144,6 +152,12 @@ pub const ONCHAIN_RESERVE_PER_VTXO_SATS: i64 = 15_000;
 pub fn sweepable_onchain_sats(onchain_sats: i64, vtxo_count: usize) -> i64 {
     (onchain_sats - ONCHAIN_RESERVE_PER_VTXO_SATS * vtxo_count as i64).max(0)
 }
+
+/// The verbatim live-captured response bodies (barkd 0.8.0, signet,
+/// 2026-11-01) that completed shape verification — canonical fixtures
+/// for the mock server and the shape tests. See barkd/live_shapes.rs.
+#[cfg(test)]
+mod live_shapes;
 
 #[cfg(test)]
 mod history_direction_tests {

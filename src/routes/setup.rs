@@ -17,37 +17,44 @@
 //!   applied to the running process (see [`effective_barkd_token`]) and
 //!   is **never persisted to the database** — the durable copy is the
 //!   deployment environment (`EBP_BARKD_TOKEN`), and the wizard says so.
-//!   The wallet mnemonic, when barkd returns one at creation, is shown
-//!   exactly once in the response body (with `Cache-Control: no-store`)
-//!   and never stored or logged. No code path here logs either value.
+//!   The wallet mnemonic is read from barkd exactly once during the
+//!   wallet step's expose-mnemonic ceremony (the create response never
+//!   carries it — verified live on barkd 0.8.0), shown exactly once in
+//!   the response body (with `Cache-Control: no-store`) and never
+//!   stored or logged. No code path here logs either value.
 //! * **The gate.** [`setup_gate`] is the canonical check that returns
 //!   `503 SetupIncomplete` from invoice and checkout routes until setup
 //!   completes; wire it as middleware over those routes (see the Phase 1
 //!   close-out notes for the exact lines). [`gate_response`] is the same
 //!   check as a helper for in-route use.
 //! * **Honesty about barkd.** Wallet creation, token verification, and
-//!   the wallet probe call the barkd REST API directly. Shapes pinned by
-//!   the live wizard VERIFY pass against real barkd 0.8.0 on signet
+//!   the wallet probe call the barkd REST API directly. Shapes pinned
+//!   by the live wizard VERIFY pass against real barkd 0.8.0 on signet
 //!   carry `VERIFIED` comments (`/wallet/mnemonic` → `{"mnemonic": …}`
-//!   only under `--expose-mnemonic`; `/wallet/connected` →
-//!   `{"connected": true}`; `/fees/lightning/receive` → GET with a
-//!   required `amount_sat` query parameter). Everything else stays
-//!   `VERIFY` with the reason. The create response's shape is NOT
-//!   pinned — the live pass could not probe it on the main datadir (a
-//!   wallet already existed) and `bark create` prints no mnemonic — so
-//!   the wizard handles both a mnemonic-bearing and a mnemonic-less
-//!   create response without guessing.
-//! * **The expose-mnemonic ceremony.** When create does not carry the
-//!   words, the wizard directs the merchant to run ONE local command
-//!   restarting barkd with `--expose-mnemonic` and to paste nothing
-//!   anywhere; `POST /setup/wallet/mnemonic` then reads the words
-//!   straight from barkd, shows them exactly once (`no-store`, never
-//!   stored, never logged), and the "I have written down my recovery
-//!   words" checkbox completes the backup. The wizard then instructs
-//!   restarting barkd WITHOUT the flag — after which the endpoint stops
-//!   answering and is never called again. The UI text states exactly
-//!   this, including that barkd is serving the words over its API while
-//!   the flag is on.
+//!   with 12 space-separated words, only under `--expose-mnemonic`;
+//!   `/wallet/connected` → `{"connected": true}`;
+//!   `/fees/lightning/receive` → GET with a required `amount_sat` query
+//!   parameter and success body `{"gross_amount_sat": …, "fee_sat": …,
+//!   "net_amount_sat": …, "vtxos_spent": […]}`). The one shape still
+//!   under `VERIFY` is the wallet-create response — the live pass could
+//!   not probe it on the main datadir (a wallet already existed) — and
+//!   the ceremony no longer depends on it: the words always come from
+//!   the verified mnemonic endpoint, and create is read only for
+//!   success / `already_exists`, defensively.
+//! * **The expose-mnemonic ceremony.** The wallet-creation step never
+//!   prints the words (verified live on barkd 0.8.0: the create
+//!   response carries none), so the step runs as one ceremony under
+//!   `--expose-mnemonic`: the wizard directs the merchant to run ONE
+//!   local command restarting barkd with the flag and to paste nothing
+//!   anywhere; the merchant taps "Show my recovery words" and
+//!   `POST /setup/wallet/mnemonic` reads the words straight from barkd
+//!   exactly ONCE, shows them exactly once (`no-store`, never stored,
+//!   never logged), and the "I have written down my recovery words"
+//!   checkbox completes the backup. The wizard then instructs
+//!   restarting barkd WITHOUT the flag — after which the endpoint
+//!   stops answering and is never called again. The UI text states
+//!   exactly this, including that barkd is serving the words over its
+//!   API while the flag is on.
 //! * **Empty datadir.** The wizard assumes EBP owns a barkd on an EMPTY
 //!   datadir; `already_exists: true` on create means a wallet existed
 //!   before the wizard ran (the first-boot window in the threat model)
@@ -81,9 +88,10 @@ use crate::util::now_unix;
 /// VERIFY: path — the pinned OpenAPI's endpoint list does not pin it, so
 /// the path is confirmed only by the documented recipe call; the RESPONSE
 /// shape is also unpinned (the live VERIFY pass could not probe it on the
-/// main datadir — a wallet already existed — and `bark create` prints no
-/// mnemonic), so the wizard handles both a mnemonic-bearing and a
-/// mnemonic-less response without guessing.
+/// main datadir — a wallet already existed). The ceremony no longer
+/// depends on that shape: the recovery words always come from the VERIFIED
+/// mnemonic endpoint while barkd runs with `--expose-mnemonic`, and the
+/// wizard reads create only for success / `already_exists`, defensively.
 const PATH_WALLET_CREATE: &str = "/wallet/create";
 /// Whether the wallet is connected to its ASP. GET.
 /// VERIFIED (barkd 0.8.0, signet, live wizard VERIFY pass): the response
@@ -94,7 +102,8 @@ const PATH_WALLET_CONNECTED: &str = "/wallet/connected";
 /// "does a wallet exist" probe (any 2xx = yes).
 const PATH_WALLET_BALANCE: &str = "/wallet/balance";
 /// The wallet's recovery words. GET. VERIFIED (same pass): answers
-/// `{"mnemonic": "<words>"}` — but ONLY while barkd runs with
+/// `{"mnemonic": "<12 words, space-separated>"}` — a single string
+/// field, no wrapper object — but ONLY while barkd runs with
 /// `--expose-mnemonic`; with the flag off the endpoint refuses (exact
 /// refusal shape not captured — any non-2xx is treated as "not
 /// exposed"). Called exactly once per wizard, only while setup is

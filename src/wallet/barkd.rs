@@ -384,32 +384,28 @@ impl BarkdClient {
 
     /// On-chain and off-chain balances, tracked separately: the on-chain
     /// part backs the emergency-exit reserve.
-    // VERIFY: field shape — the /wallet/balance dump is empty in the pinned
-    // extract; both spellings we expect from barkd 0.8.0 are accepted, and
-    // a response without either is an error rather than a silent zero.
+    /// Off-chain spendable balance from `/wallet/balance`.
+    /// VERIFIED against live barkd 0.8.0 (signet): the response is a flat
+    /// per-state map — {"spendable_sat":0,"needs_refresh_sat":0,
+    /// "claimable_lightning_receive_sat":0,"pending_in_round_sat":0,...}.
+    /// There is NO aggregate on-chain field: the on-chain side comes from
+    /// `/onchain/balance` (see [`Self::onchain_balance`]).
     pub async fn balances(&self) -> Result<Balances, WalletError> {
         let v: Json = self.get(PATH_BALANCE).await?;
-        let onchain_sats = flex::i64_field(
-            &v,
-            &["onchain_sats", "onchain_balance", "onchain_balance_sats"],
-        )
-        .ok_or_else(|| {
-            WalletError::Rejected(
-                "barkd balance had no on-chain field (VERIFY: field shape)".to_string(),
-            )
-        })?;
-        let offchain_sats = flex::i64_field(
-            &v,
-            &["offchain_sats", "offchain_balance", "offchain_balance_sats"],
-        )
-        .ok_or_else(|| {
-            WalletError::Rejected(
-                "barkd balance had no off-chain field (VERIFY: field shape)".to_string(),
-            )
-        })?;
+        let spendable = flex::i64_field(&v, &["spendable_sat", "spendable"])
+            .ok_or_else(|| {
+                WalletError::Rejected(
+                    "barkd balance had no spendable_sat field (VERIFIED shape)".to_string(),
+                )
+            })?;
+        let claimable =
+            flex::i64_field(&v, &["claimable_lightning_receive_sat"]).unwrap_or(0);
+        // The on-chain side does not exist on this endpoint in barkd 0.8.0;
+        // use [`Self::onchain_balance`]. Report 0 here to keep callers honest.
         Ok(Balances {
-            onchain_sats,
-            offchain_sats,
+            onchain_sats: 0,
+            offchain_sats: spendable,
+            claimable_lightning_sats: claimable,
         })
     }
 
@@ -793,6 +789,8 @@ pub struct HistoryQuery {
 pub struct Balances {
     pub onchain_sats: i64,
     pub offchain_sats: i64,
+    /// Claimable Lightning receives (VERIFIED: claimable_lightning_receive_sat).
+    pub claimable_lightning_sats: i64,
 }
 
 impl Balances {
@@ -859,16 +857,24 @@ fn parse_onchain_balance(v: Json) -> Result<OnchainBalance, WalletError> {
     }
     let confirmed_sats = flex::i64_field(
         &v,
-        &["confirmed_sats", "spendable", "confirmed", "spendable_sats", "total_sats"],
+        &["trusted_spendable_sat", "confirmed_sat", "total_sat", "spendable"],
     )
     .ok_or_else(|| {
         WalletError::Rejected(
             "barkd on-chain balance had no confirmed field (VERIFY: field shape)".to_string(),
         )
     })?;
-    let unconfirmed_sats =
-        flex::i64_field(&v, &["unconfirmed_sats", "pending", "unconfirmed", "pending_sats"])
-            .unwrap_or(0);
+    // VERIFIED: barkd 0.8.0 /onchain/balance exposes total_sat,
+    // trusted_spendable_sat, immature_sat, trusted_pending_sat,
+    // untrusted_pending_sat, confirmed_sat. "Unconfirmed" = everything not
+    // yet trusted-spendable.
+    let unconfirmed_sats = match (
+        flex::i64_field(&v, &["trusted_spendable_sat"]),
+        flex::i64_field(&v, &["total_sat"]),
+    ) {
+        (Some(trusted), Some(total)) => (total - trusted).max(0),
+        _ => 0,
+    };
     Ok(OnchainBalance {
         confirmed_sats,
         unconfirmed_sats,
@@ -1258,7 +1264,7 @@ mod tests {
         let (base, recorded) = mock::spawn(|_| {
             (
                 200,
-                r#"{"onchain_sats": 1, "offchain_sats": 2}"#.to_string(),
+                r#"{"spendable_sat": 2}"#.to_string(),
             )
         });
         client(&base).balances().await.expect("balances");
@@ -1327,29 +1333,30 @@ mod tests {
 
     #[tokio::test]
     async fn parses_balances() {
+        // VERIFIED live shape (barkd 0.8.0 signet): flat per-state map.
         let (base, _) = mock::spawn(|_| {
             (
                 200,
-                r#"{"onchain_sats": 1000, "offchain_sats": 21000}"#.to_string(),
+                r#"{"spendable_sat": 21000, "needs_refresh_sat": 0, "claimable_lightning_receive_sat": 0, "pending_in_round_sat": 0}"#.to_string(),
             )
         });
         let b = client(&base).balances().await.unwrap();
-        assert_eq!(b.onchain_sats, 1000);
         assert_eq!(b.offchain_sats, 21000);
-        assert_eq!(b.total_sats(), 22_000);
+        assert_eq!(b.claimable_lightning_sats, 0);
     }
 
     #[tokio::test]
-    async fn parses_balances_with_alternate_field_names() {
-        // VERIFY: field shape — alternate names accepted defensively.
+    async fn parses_balances_with_claimable_lightning() {
+        // Claimable Lightning receives are added on request.
         let (base, _) = mock::spawn(|_| {
             (
                 200,
-                r#"{"onchain_balance": 5, "offchain_balance": 6}"#.to_string(),
+                r#"{"spendable_sat": 100, "claimable_lightning_receive_sat": 50}"#.to_string(),
             )
         });
         let b = client(&base).balances().await.unwrap();
-        assert_eq!((b.onchain_sats, b.offchain_sats), (5, 6));
+        assert_eq!(b.offchain_sats, 100);
+        assert_eq!(b.claimable_lightning_sats, 50);
     }
 
     #[tokio::test]
@@ -1364,7 +1371,7 @@ mod tests {
         let (base, _) = mock::spawn(|_| {
             (
                 200,
-                r#"{"confirmed_sats": 30000, "unconfirmed_sats": 500}"#.to_string(),
+                r#"{"total_sat": 30500, "trusted_spendable_sat": 30000, "confirmed_sat": 30000}"#.to_string(),
             )
         });
         let b = client(&base).onchain_balance().await.unwrap();

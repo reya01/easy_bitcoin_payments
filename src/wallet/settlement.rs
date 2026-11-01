@@ -286,10 +286,10 @@ mod tests {
                 200,
                 r#"{"spendable": [{"id": "v1", "amount_sats": 150000, "expires_at": 9999999999}], "pending": []}"#.to_string(),
             ),
-            "/api/v1/onchain/balance" => (200, r#"{"confirmed_sats": 20000}"#.to_string()),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
             "/api/v1/wallet/balance" => (
                 200,
-                r#"{"onchain_sats": 20000, "offchain_sats": 150000}"#.to_string(),
+                r#"{"spendable_sat": 150000}"#.to_string(),
             ),
             "/api/v1/wallet/send" => (200, r#"{"sent": true}"#.to_string()),
             _ => (404, "{}".to_string()),
@@ -334,10 +334,10 @@ mod tests {
                 200,
                 r#"{"spendable": [{"id": "v1", "amount_sats": 150000, "expires_at": 9999999999}], "pending": []}"#.to_string(),
             ),
-            "/api/v1/onchain/balance" => (200, r#"{"confirmed_sats": 20000}"#.to_string()),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
             "/api/v1/wallet/balance" => (
                 200,
-                r#"{"onchain_sats": 20000, "offchain_sats": 150000}"#.to_string(),
+                r#"{"spendable_sat": 150000}"#.to_string(),
             ),
             "/api/v1/wallet/offboard/all" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
@@ -371,10 +371,10 @@ mod tests {
                 200,
                 r#"{"spendable": [{"id": "v1", "amount_sats": 200000, "expires_at": 9999999999}, {"id": "v2", "amount_sats": 1, "expires_at": 9999999999}], "pending": []}"#.to_string(),
             ),
-            "/api/v1/onchain/balance" => (200, r#"{"confirmed_sats": 10000}"#.to_string()),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 10000, "trusted_spendable_sat": 10000}"#.to_string()),
             "/api/v1/wallet/balance" => (
                 200,
-                r#"{"onchain_sats": 10000, "offchain_sats": 200001}"#.to_string(),
+                r#"{"spendable_sat": 200001}"#.to_string(),
             ),
             _ => (404, "{}".to_string()),
         });
@@ -419,10 +419,10 @@ mod tests {
                     r#"{{"spendable": [{{"id": "v1", "amount_sats": 1000, "expires_at": {soon}}}], "pending": []}}"#
                 ),
             ),
-            "/api/v1/onchain/balance" => (200, r#"{"confirmed_sats": 15000}"#.to_string()),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 15000, "trusted_spendable_sat": 15000}"#.to_string()),
             "/api/v1/wallet/balance" => (
                 200,
-                r#"{"onchain_sats": 15000, "offchain_sats": 1000}"#.to_string(),
+                r#"{"spendable_sat": 1000}"#.to_string(),
             ),
             "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),

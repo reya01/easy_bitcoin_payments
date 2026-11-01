@@ -1,54 +1,53 @@
 #!/usr/bin/env bash
-# Release plumbing for Easy Bitcoin Payments (Phase 1 close-out).
+# Local release build — the same artifacts .github/workflows/release.yml
+# produces when a v* tag is pushed, but built on your machine. Nothing
+# here publishes anything: it builds the musl targets, writes
+# dist/ebp-<target>.tar.gz and dist/SHA256SUMS, then prints the exact
+# publish step CI performs.
 #
-# Usage: scripts/release.sh <version>   (e.g. scripts/release.sh v0.1.2)
+# Usage:
+#   scripts/release.sh                                  # both targets
+#   scripts/release.sh x86_64-unknown-linux-musl        # one target
 #
-# What it does, in order:
-#   1. builds the release binary (host target)
-#   2. writes dist/SHA256SUMS with the binary's checksum
-#   3. builds and tags the Docker image
-#   4. prints (does not run) the push commands — the registry URL is not
-#      decided yet; fill in REGISTRY below when it is.
-#
-# Multi-arch (x86_64 + arm64) cross-builds and the signed-tag check land
-# with the Phase 3 hardening pass; this script is the single place they
-# will live.
+# aarch64 on an x86_64 host needs a cross toolchain — the workflow avoids
+# that by building on a native arm64 runner; locally, either run this on
+# an arm64 box or use `cross`:
+#   cargo install cross
+#   CROSS_BUILD=1 scripts/release.sh aarch64-unknown-linux-musl
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${1:-}"
-if [ -z "${VERSION}" ]; then
-  echo "usage: scripts/release.sh <version>   (e.g. scripts/release.sh v0.1.2)" >&2
-  exit 1
-fi
-
-# Fill in when the registry is decided, e.g.:
-#   REGISTRY="ghcr.io/easy-bitcoin-payments"
-REGISTRY=""
-
-echo "==> cargo build --release"
-cargo build --release
-
-mkdir -p dist
-cp -f target/release/ebp "dist/ebp-${VERSION}"
-
-echo "==> dist/SHA256SUMS"
-( cd dist && sha256sum "ebp-${VERSION}" > SHA256SUMS )
-cat dist/SHA256SUMS
-
-echo "==> docker build"
-docker build -t "ebp:${VERSION}" -t ebp:latest .
-
-if [ -n "${REGISTRY}" ]; then
-  echo "==> docker tag"
-  docker tag "ebp:${VERSION}" "${REGISTRY}/ebp:${VERSION}"
-  docker tag "ebp:${VERSION}" "${REGISTRY}/ebp:latest"
-  # Review before pushing: the tag must point at the reviewed commit.
-  # docker push "${REGISTRY}/ebp:${VERSION}"
-  # docker push "${REGISTRY}/ebp:latest"
+if [ $# -gt 0 ]; then
+  TARGETS=("$@")
 else
-  echo "==> docker push skipped: REGISTRY is not set (see the comment at the top of this script)"
+  TARGETS=(x86_64-unknown-linux-musl aarch64-unknown-linux-musl)
 fi
 
-echo "==> done. Attach dist/ebp-${VERSION} and dist/SHA256SUMS to the release."
+DIST="dist"
+rm -rf "$DIST"
+mkdir -p "$DIST"
+
+for target in "${TARGETS[@]}"; do
+  echo "==> building $target"
+  rustup target add "$target"
+  if [ "${CROSS_BUILD:-0}" = "1" ]; then
+    cross build --release --target "$target"
+  else
+    cargo build --release --target "$target"
+  fi
+  # VERIFY: the crate's binary is `ebp` (as docker-compose uses).
+  tar -czf "$DIST/ebp-$target.tar.gz" -C "target/$target/release" ebp
+done
+
+(cd "$DIST" && sha256sum ebp-*.tar.gz > SHA256SUMS)
+
+echo
+echo "Artifacts in $DIST/:"
+ls -l "$DIST"
+cat "$DIST/SHA256SUMS"
+echo
+echo "CI publishes these on a v* tag push (nothing here publishes):"
+echo "  git tag v0.1.0 && git push origin v0.1.0"
+echo "The workflow then creates the GitHub release (tarballs + SHA256SUMS)"
+echo "and pushes ghcr.io/<owner>/<repo>:{v0.1.0,latest} for amd64+arm64."

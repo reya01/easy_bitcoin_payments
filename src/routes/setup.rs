@@ -26,10 +26,32 @@
 //!   close-out notes for the exact lines). [`gate_response`] is the same
 //!   check as a helper for in-route use.
 //! * **Honesty about barkd.** Wallet creation, token verification, and
-//!   the wallet probe call the barkd REST API directly. Paths are marked
-//!   `VERIFY` where the pinned OpenAPI does not pin them; response shapes
-//!   are parsed defensively, and a missing mnemonic is reported honestly
-//!   with manual instructions rather than guessed at.
+//!   the wallet probe call the barkd REST API directly. Shapes pinned by
+//!   the live wizard VERIFY pass against real barkd 0.8.0 on signet
+//!   carry `VERIFIED` comments (`/wallet/mnemonic` → `{"mnemonic": …}`
+//!   only under `--expose-mnemonic`; `/wallet/connected` →
+//!   `{"connected": true}`; `/fees/lightning/receive` → GET with a
+//!   required `amount_sat` query parameter). Everything else stays
+//!   `VERIFY` with the reason. The create response's shape is NOT
+//!   pinned — the live pass could not probe it on the main datadir (a
+//!   wallet already existed) and `bark create` prints no mnemonic — so
+//!   the wizard handles both a mnemonic-bearing and a mnemonic-less
+//!   create response without guessing.
+//! * **The expose-mnemonic ceremony.** When create does not carry the
+//!   words, the wizard directs the merchant to run ONE local command
+//!   restarting barkd with `--expose-mnemonic` and to paste nothing
+//!   anywhere; `POST /setup/wallet/mnemonic` then reads the words
+//!   straight from barkd, shows them exactly once (`no-store`, never
+//!   stored, never logged), and the "I have written down my recovery
+//!   words" checkbox completes the backup. The wizard then instructs
+//!   restarting barkd WITHOUT the flag — after which the endpoint stops
+//!   answering and is never called again. The UI text states exactly
+//!   this, including that barkd is serving the words over its API while
+//!   the flag is on.
+//! * **Empty datadir.** The wizard assumes EBP owns a barkd on an EMPTY
+//!   datadir; `already_exists: true` on create means a wallet existed
+//!   before the wizard ran (the first-boot window in the threat model)
+//!   and is treated as compromised, not adopted.
 
 use std::sync::{OnceLock, RwLock};
 
@@ -56,12 +78,29 @@ use crate::util::now_unix;
 // ---------------------------------------------------------------------------
 /// Create (or restore) the wallet. POST. No bearer token: wallet creation
 /// precedes token provisioning (the verified recipe call sends none).
+/// VERIFY: path — the pinned OpenAPI's endpoint list does not pin it, so
+/// the path is confirmed only by the documented recipe call; the RESPONSE
+/// shape is also unpinned (the live VERIFY pass could not probe it on the
+/// main datadir — a wallet already existed — and `bark create` prints no
+/// mnemonic), so the wizard handles both a mnemonic-bearing and a
+/// mnemonic-less response without guessing.
 const PATH_WALLET_CREATE: &str = "/wallet/create";
 /// Whether the wallet is connected to its ASP. GET.
+/// VERIFIED (barkd 0.8.0, signet, live wizard VERIFY pass): the response
+/// is `{"connected": true}` — a bare boolean under `connected`, no
+/// wrapper object.
 const PATH_WALLET_CONNECTED: &str = "/wallet/connected";
 /// On-chain and off-chain balances. GET. Used as a shape-agnostic
 /// "does a wallet exist" probe (any 2xx = yes).
 const PATH_WALLET_BALANCE: &str = "/wallet/balance";
+/// The wallet's recovery words. GET. VERIFIED (same pass): answers
+/// `{"mnemonic": "<words>"}` — but ONLY while barkd runs with
+/// `--expose-mnemonic`; with the flag off the endpoint refuses (exact
+/// refusal shape not captured — any non-2xx is treated as "not
+/// exposed"). Called exactly once per wizard, only while setup is
+/// incomplete, never stored, never logged; the wizard then instructs
+/// restarting barkd WITHOUT the flag so it can never be read again.
+const PATH_WALLET_MNEMONIC: &str = "/wallet/mnemonic";
 
 /// Default ASP in test mode: Second's public signet Ark server.
 const DEFAULT_SIGNET_ASP: &str = "https://ark.signet.2nd.dev";
@@ -186,15 +225,328 @@ pub struct CreateWalletRequest {
     pub asp_url: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// POST /setup/wallet/mnemonic — the expose-mnemonic ceremony
+// ---------------------------------------------------------------------------
+// The verified reality (live wizard VERIFY pass, barkd 0.8.0 on signet):
+// `bark create` prints no mnemonic and the HTTP create response's shape is
+// unpinned, so the words usually do NOT arrive with the create call. The
+// ceremony below is how the wizard gets them to the merchant anyway:
+//
+//   1. The wizard directs the merchant to run ONE local command
+//      restarting barkd with `--expose-mnemonic` — and to paste nothing
+//      anywhere, ever.
+//   2. The merchant taps "Show my recovery words": this route calls
+//      barkd's GET /wallet/mnemonic — VERIFIED shape
+//      `{"mnemonic": "<words>"}`, served ONLY while the flag is on —
+//      and returns the words once with `Cache-Control: no-store`.
+//      They are never stored and never logged.
+//   3. The merchant writes the words down and ticks the "I have written
+//      down my recovery words" checkbox (the existing backup-confirm
+//      step; the `setup_backup_confirmed` setting).
+//   4. The wizard instructs restarting barkd WITHOUT the flag, after
+//      which barkd's endpoint stops answering and this route refuses
+//      forever. The UI text states exactly this — including that barkd
+//      is serving the words over its API while the flag is on.
+//
+// Router wiring (with the other setup routes, same setup-incomplete
+// gate): `.post(setup::wallet_mnemonic)` on `/setup/wallet/mnemonic`.
+// ---------------------------------------------------------------------------
+
+/// VERIFIED (barkd 0.8.0, signet): `GET /wallet/mnemonic` answers
+/// `{"mnemonic": "<words>"}` while `--expose-mnemonic` is on. Parsed
+/// defensively: unknown extra fields are ignored, a missing `mnemonic`
+/// fails loudly.
+#[derive(Debug, Deserialize)]
+struct BarkdMnemonic {
+    mnemonic: String,
+}
+
+/// The ONE local command that starts the ceremony (Docker deploy — the
+/// only supported path): barkd restarted with `--expose-mnemonic`.
+/// VERIFY: exact invocation against the pinned docker-compose.yml — it
+/// assumes the barkd service command is `barkd --datadir /data` and that
+/// a `docker compose run` container inherits the service's network
+/// aliases (compose >= 2.22 `--use-aliases`) so EBP still reaches it.
+const EXPOSE_MNEMONIC_COMMAND: &str = "docker compose stop barkd && docker compose run -d --name barkd-exposed --use-aliases barkd barkd --datadir /data --expose-mnemonic";
+
+/// The command that ENDS the ceremony: barkd back to normal, the words
+/// unreachable over its API for good. Same VERIFY as above.
+const UNEXPOSE_MNEMONIC_COMMAND: &str = "docker rm -f barkd-exposed && docker compose up -d barkd";
+
+/// Body of `POST /setup/wallet/mnemonic`.
+#[derive(Debug, Serialize)]
+pub struct MnemonicResponse {
+    /// The recovery words, shown exactly once. `None` unless barkd is
+    /// currently running with `--expose-mnemonic`.
+    pub mnemonic: Option<String>,
+    /// Word count of `mnemonic`, counted — never assumed: the live
+    /// VERIFY pass observed a 12-word signet wallet, and barkd's word
+    /// count is pinned by nothing we control (so the checkbox copy says
+    /// "recovery words" and shows the count, rather than hardcoding a
+    /// number like 24).
+    pub word_count: Option<usize>,
+    /// Exactly what happens next, in plain language — the honest-UI
+    /// contract: what the flag does, that nothing is ever pasted into
+    /// EBP, that the words are shown once and never stored or logged,
+    /// and which command turns the exposure off for good.
+    pub instructions: String,
+}
+
+impl MnemonicResponse {
+    /// Words in hand: the once-only display plus the honest "exactly
+    /// what happens" text.
+    fn exposed(mnemonic: String) -> Self {
+        let word_count = mnemonic.split_whitespace().count();
+        Self {
+            mnemonic: Some(mnemonic),
+            word_count: Some(word_count),
+            instructions: format!(
+                "barkd is serving these words over its API only because you \
+                 restarted it with --expose-mnemonic. Write all {word_count} \
+                 words down on paper, twice, and keep the two copies in two \
+                 separate safe places. EBP shows them this once and never \
+                 stores or logs them. When you tick \"I have written down my \
+                 recovery words\", restart barkd WITHOUT the flag — \
+                 `{UNEXPOSE_MNEMONIC_COMMAND}` — after which they can never \
+                 be read from barkd again."
+            ),
+        }
+    }
+
+    /// No words: the ONE command to run, and the promise that nothing is
+    /// ever pasted into EBP.
+    fn not_exposed(reason: &str) -> Self {
+        Self {
+            mnemonic: None,
+            word_count: None,
+            instructions: format!(
+                "{reason} Run this ONE command on your server to restart \
+                 barkd with its --expose-mnemonic flag: \
+                 `{EXPOSE_MNEMONIC_COMMAND}` — then tap \"Show my recovery \
+                 words\" again. You never paste the words anywhere: EBP \
+                 reads them straight from barkd, shows them once, and never \
+                 stores or logs them."
+            ),
+        }
+    }
+}
+
+/// POST /setup/wallet/mnemonic — read the recovery words once from the
+/// exposed endpoint (the ceremony above). Wizard-only: 409 once setup is
+/// complete or the backup is already confirmed — the words are never
+/// re-read after either.
+pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
+    let snapshot = match state.db.call(|conn| wizard_snapshot(conn)).await {
+        Ok(snapshot) => snapshot,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(MnemonicResponse::not_exposed(
+                    "Could not read the setup state.",
+                )),
+            )
+                .into_response()
+        }
+    };
+    if snapshot.setup_complete {
+        return (
+            StatusCode::CONFLICT,
+            Json(MnemonicResponse::not_exposed(
+                "Setup is already complete — the recovery words are never \
+                 re-read after setup.",
+            )),
+        )
+            .into_response();
+    }
+    if snapshot.backup_confirmed {
+        // Once-only: the backup was already confirmed; never re-show.
+        return (
+            StatusCode::CONFLICT,
+            Json(MnemonicResponse::not_exposed(
+                "The recovery-word backup is already confirmed — the words \
+                 are shown exactly once.",
+            )),
+        )
+            .into_response();
+    }
+    if !snapshot.wallet_created {
+        return (
+            StatusCode::CONFLICT,
+            Json(MnemonicResponse::not_exposed(
+                "Create the wallet first — the recovery-words step comes \
+                 after the wallet step.",
+            )),
+        )
+            .into_response();
+    }
+
+    let token = effective_barkd_token(&state.config);
+    let base_url = match barkd_base_url(&state.config) {
+        Some(base_url) => base_url,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(MnemonicResponse::not_exposed(
+                    "barkd is not reachable from this server.",
+                )),
+            )
+                .into_response()
+        }
+    };
+
+    // VERIFIED shape: GET /wallet/mnemonic → {"mnemonic": "<words>"},
+    // served only while --expose-mnemonic is on. Any non-2xx (flag off,
+    // or auth — VERIFY: whether the endpoint enforces the bearer token;
+    // the live probe carried one) is reported honestly with the one
+    // command rather than guessed at.
+    let (status, body) =
+        match barkd_get_with_body(&base_url, PATH_WALLET_MNEMONIC, token.as_deref()).await {
+            Some(pair) => pair,
+            None => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(MnemonicResponse::not_exposed(
+                        "barkd did not answer — is the sidecar running?",
+                    )),
+                )
+                    .into_response()
+            }
+        };
+
+    if !status.is_success() {
+        return (
+            StatusCode::OK,
+            Json(MnemonicResponse::not_exposed(&format!(
+                "barkd answered HTTP {status}, so the words are not exposed. \
+                 If you already ran the command below and barkd keeps \
+                 answering 401, finish the wizard's token step first, then \
+                 come back."
+            ))),
+        )
+            .into_response();
+    }
+
+    let parsed: BarkdMnemonic = match serde_json::from_str(&body) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(MnemonicResponse::not_exposed(
+                    "barkd answered in an unexpected shape — that is a bug \
+                     to report, not something to work around.",
+                )),
+            )
+                .into_response()
+        }
+    };
+
+    let mut response = Json(MnemonicResponse::exposed(parsed.mnemonic)).into_response();
+    // Shown exactly once: nothing between barkd and the merchant's
+    // screen may cache it.
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
+/// GET a barkd endpoint, returning `(status, body)`. Mirrors the
+/// module-private `barkd_get` (status only) for the one ceremony call
+/// that needs the body; `None` means barkd did not answer at all.
+async fn barkd_get_with_body(
+    base_url: &str,
+    path: &str,
+    token: Option<&str>,
+) -> Option<(reqwest::StatusCode, String)> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()?;
+    let mut request = client.get(format!("{base_url}{path}"));
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await.ok()?;
+    let status = response.status();
+    let body = response.text().await.ok()?;
+    Some((status, body))
+}
+
+#[cfg(test)]
+mod mnemonic_ceremony_tests {
+    use super::*;
+
+    /// VERIFIED (barkd 0.8.0, signet, live wizard VERIFY pass): the
+    /// exact body GET /wallet/mnemonic answered on the probed wallet.
+    const VERIFIED_MNEMONIC_BODY: &str = r#"{"mnemonic": "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"}"#;
+
+    #[test]
+    fn verified_mnemonic_body_parses_into_the_ceremony_shape() {
+        let parsed: BarkdMnemonic = serde_json::from_str(VERIFIED_MNEMONIC_BODY).unwrap();
+        assert_eq!(
+            parsed.mnemonic,
+            "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"
+        );
+    }
+
+    #[test]
+    fn exposed_instructions_say_exactly_what_happens() {
+        let response = MnemonicResponse::exposed(
+            "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"
+                .to_string(),
+        );
+        // The probed wallet generated 12 words; the copy counts them
+        // instead of hardcoding a word count.
+        assert_eq!(response.word_count, Some(12));
+        let instructions = &response.instructions;
+        // Honest UI: the flag is why the words are readable at all…
+        assert!(instructions.contains("--expose-mnemonic"));
+        // …they are shown once and never stored or logged…
+        assert!(instructions.contains("once"));
+        assert!(instructions.contains("never stores or logs"));
+        // …and the restart WITHOUT the flag ends the exposure for good.
+        assert!(instructions.contains("WITHOUT the flag"));
+        assert!(instructions.contains(UNEXPOSE_MNEMONIC_COMMAND));
+    }
+
+    #[test]
+    fn not_exposed_instructions_carry_the_one_command_and_paste_nothing() {
+        let response = MnemonicResponse::not_exposed("barkd answered HTTP 404.");
+        assert!(response.mnemonic.is_none());
+        assert!(response.word_count.is_none());
+        let instructions = &response.instructions;
+        assert!(instructions.contains("ONE command"));
+        assert!(instructions.contains(EXPOSE_MNEMONIC_COMMAND));
+        assert!(instructions.contains("--expose-mnemonic"));
+        // The merchant pastes nothing, ever.
+        assert!(instructions.contains("never paste"));
+    }
+
+    /// VERIFIED (same pass): GET /wallet/connected → {"connected": true}
+    /// — a bare boolean flag, no wrapper object.
+    #[test]
+    fn verified_connected_body_is_a_bare_boolean() {
+        let value: serde_json::Value = serde_json::from_str(r#"{"connected": true}"#).unwrap();
+        assert_eq!(value["connected"].as_bool(), Some(true));
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct WalletCreatedResponse {
     pub created: bool,
     /// True when a wallet already existed (barkd refuses a second one).
     pub already_exists: bool,
-    /// Recovery words (mnemonic), shown exactly once, never stored. `None`
-    /// when barkd did not return them — see `manual_instructions`.
+    /// Recovery words (mnemonic), shown exactly once, never stored. `Some`
+    /// only if barkd's create response itself carries the words (shape
+    /// unpinned — VERIFY); the live pass observed `bark create` printing
+    /// no mnemonic, so `None` is the expected case and the wizard pivots
+    /// to the expose-mnemonic ceremony (`POST /setup/wallet/mnemonic`)
+    /// instead of guessing.
     pub mnemonic: Option<String>,
-    /// "create-response" or "not-exposed".
+    /// "create-response" when `mnemonic` came from the create response;
+    /// "not-exposed" when the expose-mnemonic ceremony must run to obtain
+    /// the words.
     pub mnemonic_source: &'static str,
     /// Plain-language instructions, shown when `mnemonic` is `None`.
     pub manual_instructions: Option<String>,

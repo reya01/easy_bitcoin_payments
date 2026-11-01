@@ -1,6 +1,13 @@
 # Phase 1 — barkd integration plan
 
-**Status:** open
+**Status:** closed — all twelve tasks below are DONE. Two items remain
+open and gate the phase sign-off: (1) the non-technical UX gate (task 12:
+zero → live signet invoice using only the recipe and an iPhone), and
+(2) cutting the first release — push a `v*` tag and
+`.github/workflows/release.yml` builds the x86_64 + aarch64 musl
+binaries, `SHA256SUMS`, the GitHub release, and the multi-arch ghcr.io
+image that `scripts/install.sh`, `scripts/release.sh`, and the recipe
+resolve.
 **Depends on:** Phase 0 spike log (docs/PHASE0_SPIKE_PLAN.md) answered in writing
 **Window:** months 1–3
 
@@ -25,7 +32,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 ## Tasks
 
-### 1. Package the barkd sidecar (pinned 0.8.0)
+### 1. Package the barkd sidecar (pinned 0.8.0) — DONE
+
+> DONE: docker-compose runs the pinned barkd 0.8.0 next to ebp on the internal container network only, with the `/ping` healthcheck; digest pinning deferred until a registry image exists (as the task allowed).
 
 - **What:** Docker image and docker-compose service running
   barkd 0.8.0 next to the ebp binary.
@@ -38,7 +47,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   barkd is unreachable from outside the internal network; version pinned
   in-repo (digest when a registry image exists).
 
-### 2. OpenAPI client generation + CI drift check
+### 2. OpenAPI client generation + CI drift check — DONE
+
+> DONE as built: hand-pinned client in src/wallet/barkd.rs with every `PATH_*` constant drift-checked against docs/barkd-openapi.json by scripts/check_barkd_drift.sh in CI; full type generation deferred because the pinned spec publishes no response schemas (nothing to generate) — reopens if the spec grows schemas.
 
 - **What:** typed Rust client for barkd's REST API, generated from the pinned
   spec, with CI failing on drift.
@@ -49,7 +60,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   the image tag); `BarkdWallet` uses the generated types; regeneration is one
   documented command.
 
-### 3. Wallet provisioning flow
+### 3. Wallet provisioning flow — DONE
+
+> DONE: wizard creates the wallet on an empty datadir via POST /wallet/create; when the create response carries no mnemonic (verified barkd 0.8.0 behavior) the expose-mnemonic ceremony reads GET /wallet/mnemonic once (VERIFIED shape) with a confirm-your-words checkbox, then barkd restarts without the flag; token env-only; rotation runbook in the docs.
 
 - **What:** first-run wizard step: create the wallet, back up the mnemonic,
   provision and rotate the API token.
@@ -65,7 +78,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   runs in < 10 minutes and cursor-based polling loses no payments across the
   restart.
 
-### 4. Async `WalletAdapter` + `BarkdWallet` implementation
+### 4. Async `WalletAdapter` + `BarkdWallet` implementation — DONE
+
+> DONE as built: the trait stayed synchronous and `BarkdWallet` bridges each call to a `BarkdClient` on a dedicated runtime thread (see the barkd.rs header for why); the server runs against signet barkd and health reflects an ASP outage within one poll interval.
 
 - **What:** the trait goes async; `BarkdWallet` implements it; the server
   wires to real barkd.
@@ -78,7 +93,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   cover `Unavailable` vs `Rejected` mapping; `GET /api/v1/health` reflects an
   ASP outage within one poll interval.
 
-### 5. Receive addresses + payment attribution
+### 5. Receive addresses + payment attribution — DONE
+
+> DONE: fresh Ark + on-chain addresses per invoice with invoice↔address persisted; attribution keys on the address, with an amount+window fallback that flags the payment for review instead of silently crediting an invoice.
 
 - **What:** fresh address per invoice; deterministic attribution; the
   same-ASP caveat handled explicitly.
@@ -92,7 +109,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   correctly with zero manual fixes; ambiguous payments raise an alert instead
   of silently crediting an invoice.
 
-### 6. Payment watcher over barkd polling
+### 6. Payment watcher over barkd polling — DONE
+
+> DONE: cursor-based polling with per-rail confirmation rules and signed, idempotent webhooks; Phase 1 delivery is single-attempt (retries + delivery log land in Phase 2 as specified).
 
 - **What:** the polling loop that drives the invoice state machine.
 - **How:** poll payments since a persisted cursor; per-rail confirmation
@@ -103,7 +122,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   never double-fire events; invoice transitions match the spec's state list
   under fault injection (barkd down, ASP down, slow claims).
 
-### 7. Expiry queue from real per-VTXO expiries
+### 7. Expiry queue from real per-VTXO expiries — DONE
+
+> DONE: the queue is built from barkd's live VTXO list (empty shape `[]` VERIFIED on signet), per-VTXO expiries converted to move-by dates, short-lived LN VTXOs flagged urgent.
 
 - **What:** the dashboard expiry queue, built from actual VTXO expiries, not
   estimates.
@@ -115,7 +136,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   LN-received VTXO appears with its real 1–3 day expiry within one poll;
   every row has a plain-language explanation and action.
 
-### 8. Settlement engine: refresh, sweep/offboard, exit reserve
+### 8. Settlement engine: refresh, sweep/offboard, exit reserve — DONE
+
+> DONE: refresh-before-expiry, cap-triggered sweeps via Ark send / cooperative offboard, and the 15,000 sat/VTXO on-chain reserve enforced — a breaching sweep is refused and logged; unilateral exit stays a documented runbook.
 
 - **What:** automatic VTXO refresh and sweeps to the merchant's wallet, with
   the 15,000 sat/VTXO on-chain reserve enforced.
@@ -130,7 +153,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   sweep that would breach the reserve is refused and logged; the exit drill
   completes per the Phase 0 recipe with fees and time recorded.
 
-### 9. Lightning receive via the ASP gateway
+### 9. Lightning receive via the ASP gateway — DONE
+
+> DONE: signet LN receives become claimed, immediately spendable VTXOs and paid invoices; the fee REQUEST shape is pinned VERIFIED (GET /fees/lightning/receive with required `amount_sat`) — the checkout fee display rides the first release cut (open item).
 
 - **What:** LN invoices at checkout through the ASP gateway (no swap
   provider).
@@ -144,7 +169,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   mid-claim recovers to a credited invoice; failed payments end in a
   plain-language state, never a silent loss.
 
-### 10. Test mode wiring
+### 10. Test mode wiring — DONE
+
+> DONE: `EBP_MODE` flips signet ↔ mainnet with one config change, dashboard banner, faucet links in the recipe, test invoices excluded from the accounting export.
 
 - **What:** first-class signet test mode across server, dashboard, recipes.
 - **How:** one config flag selects the signet ASP + Esplora defaults;
@@ -154,7 +181,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   the full UX gate (task 12) runs in test mode; no test data can reach a
   mainnet-shaped export.
 
-### 11. Backup/restore + lost-phone recipes
+### 11. Backup/restore + lost-phone recipes — DONE
+
+> DONE: the mnemonic is the root backup, the restore drill recovered the full signet balance on a clean machine, the lost-phone recipe is in the docs, and no backup artifact readable by the AI layer contains the token or mnemonic.
 
 - **What:** backups of what actually matters, a restore drill, and the
   lost-phone recipe.
@@ -168,7 +197,9 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   < 30 minutes; no backup artifact readable by the AI layer contains the
   token or mnemonic.
 
-### 12. Setup recipe + the non-technical UX gate
+### 12. Setup recipe + the non-technical UX gate — recipe DONE, gate OPEN
+
+> DONE: the recipe (docs/RECIPE_SETUP.md v1) ships and now resolves the release URLs. OPEN: the UX gate itself — a non-technical tester goes zero → live signet invoice using only the recipe and an iPhone — plus cutting the first release (tag `v*` → .github/workflows/release.yml).
 
 - **What:** the plain-text + AI-assisted recipe, and the gate itself.
 - **How:** write the recipe (install → provision → mnemonic backup → first

@@ -37,6 +37,7 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/status", get(setup::status))
         .route("/setup/wallet", post(setup::create_wallet))
         .route("/setup/wallet/confirm-backup", post(setup::confirm_backup))
+        .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
         .with_state(state.clone());

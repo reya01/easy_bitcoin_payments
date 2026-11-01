@@ -1,0 +1,132 @@
+# Release plumbing (Phase 1 close-out): a v* tag push builds the release
+# binaries, checksums them, publishes the GitHub release, and pushes the
+# multi-arch Docker image to ghcr.io — the URLs that scripts/install.sh,
+# scripts/release.sh, and docs/RECIPE_SETUP.md resolve.
+#
+# Everything authenticates with the workflow's own GITHUB_TOKEN
+# (contents: write to cut the release, packages: write to push the
+# image) — no extra secrets are required.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  binaries:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runner per architecture — no cross toolchain needed.
+          # VERIFY: if arm64 runners are unavailable to this repo, swap
+          # the aarch64 leg to ubuntu-latest and build with `cross`
+          # (cargo install cross); the artifact names stay identical.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Test (offline suite, mocked barkd shapes)
+        run: cargo test
+
+      # VERIFY: this assumes reqwest is built with rustls (no openssl) so
+      # the musl binaries link statically; if the build fails on TLS,
+      # Cargo.toml is the line to fix.
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          # VERIFY: the crate's binary is `ebp` (as docker-compose uses);
+          # adjust here if the [[bin]] name ever differs.
+          tar -czf "dist/ebp-${{ matrix.target }}.tar.gz" \
+            -C "target/${{ matrix.target }}/release" ebp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ebp-${{ matrix.target }}
+          path: dist/ebp-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: publish the GitHub release
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum ebp-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            dist/ebp-*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  docker:
+    name: push the multi-arch image
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the image name (ghcr requires lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+            ${{ env.IMAGE }}:latest

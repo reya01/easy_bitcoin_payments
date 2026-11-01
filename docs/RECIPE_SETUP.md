@@ -1,6 +1,8 @@
 # Setup recipe — zero to a live testnet invoice
 
-Recipe version: v1 (matches release: unreleased)
+Recipe version: v1 (matches the first `v*` release cut by
+`.github/workflows/release.yml`; version and upgrade notes:
+docs/UPGRADING.md)
 
 This is the AI-assisted runbook for Easy Bitcoin Payments (EBP). It walks a
 merchant who has never opened a terminal from a fresh server to a paid
@@ -41,13 +43,22 @@ report it; every stumble becomes a fix.
 
 ## Step 1 — Install the server
 
-The supported deploy is the Docker one-liner on a VPS. Until the
-one-command installer ships, the Docker path is:
+The supported deploy is the Docker one-liner on a VPS. Check out a
+release tag — never run an untagged checkout in production:
 
 ```
-git clone https://github.com/easy-bitcoin-payments/ebp.git
-cd ebp
+git clone https://github.com/reya01/easy_bitcoin_payments.git
+cd easy_bitcoin_payments
+git checkout "$(git describe --tags --abbrev=0)"   # latest release tag
 ```
+
+Releases are cut by pushing a `v*` tag: the release workflow builds the
+x86_64 + aarch64 musl binaries with `SHA256SUMS`, publishes them at
+https://github.com/reya01/easy_bitcoin_payments/releases, and pushes the
+multi-arch server image to `ghcr.io/reya01/easy_bitcoin_payments:<tag>`.
+Advanced self-hosters can install the bare binary with
+`scripts/install.sh` (it detects the architecture and verifies the
+checksum). Version and upgrade notes: docs/UPGRADING.md.
 
 Docker Compose insists the barkd token variable exists before it will
 start anything, so set a placeholder now — it is replaced with the real
@@ -77,12 +88,19 @@ invoice and checkout endpoints stay closed (503 SetupIncomplete) until
 the backup is confirmed. The AI assistant reads each screen aloud and
 checks the expected result; it never sees the recovery words or the token.
 
-**STOP — the recovery words.** The wizard shows them exactly once, when
-the wallet is created. The merchant — not the AI — writes them down on
-paper, twice, and stores the two copies in two separate safe places.
-This is the root backup of the till: with it, the wallet can be rebuilt
-on any machine. Never paste it into a chat, a document, or the AI. The
-AI must not ask what it says.
+**STOP — the recovery words.** The wizard shows them exactly once.
+Verified live on signet (barkd 0.8.0): the wallet-create step does not
+print them, so the wizard directs the merchant to run ONE command on the
+server restarting barkd with `--expose-mnemonic`, then tap "Show my
+recovery words" — EBP reads them straight from barkd, shows them once,
+and never stores or logs them; the merchant pastes nothing anywhere.
+After the "I have written down my recovery words" checkbox, the wizard
+says to restart barkd WITHOUT the flag — from then on the words can
+never be read from the server again. The merchant — not the AI — writes
+them down on paper, twice, and stores the two copies in two separate
+safe places. This is the root backup of the till: with it, the wallet
+can be rebuilt on any machine. Never paste it into a chat, a document,
+or the AI. The AI must not ask what it says.
 
 **STOP — two secrets at the end.** The wizard shows the store's API key
 and webhook signing secret exactly once. The merchant saves both in a
@@ -114,12 +132,29 @@ docker compose exec barkd curl -fsS -X POST http://127.0.0.1:3000/api/v1/wallet/
 version's own OpenAPI; the pinned spec may not include request schemas
 yet. If a wallet already exists, this errors; that is fine, skip ahead.)
 
-**STOP — the recovery words.** The answer includes the wallet's recovery
-words (mnemonic), shown exactly once. The merchant — not the AI — reads
-them off the screen and writes them down on paper, twice, and stores the
-two copies in two separate safe places. This is the root backup of the
-till: with it, the wallet can be rebuilt on any machine. Never paste it
-into a chat, a document, or the AI. The AI must not ask what it says.
+**STOP — the recovery words.** Verified live on signet (barkd 0.8.0):
+the create answer does NOT include the recovery words — nothing prints
+them. To see them exactly once, restart barkd with `--expose-mnemonic`,
+read the verified endpoint, then restart barkd without the flag (the
+wizard performs this same ceremony with one command and one checkbox —
+prefer it):
+
+```
+docker compose stop barkd
+docker compose run -d --name barkd-exposed --use-aliases barkd barkd --datadir /data --expose-mnemonic
+docker exec barkd-exposed curl -fsS \
+  -H "authorization: Bearer $(docker exec barkd-exposed barkd --datadir /data secret show)" \
+  http://127.0.0.1:3000/api/v1/wallet/mnemonic
+docker rm -f barkd-exposed && docker compose up -d barkd
+```
+
+The merchant — not the AI — reads them off the screen and writes them
+down on paper, twice, and stores the two copies in two separate safe
+places. This is the root backup of the till: with it, the wallet can be
+rebuilt on any machine. Never paste it into a chat, a document, or the
+AI. The AI must not ask what it says. (VERIFY: the `docker compose run`
+form assumes the pinned compose file's barkd service command is
+`barkd --datadir /data` and compose >= 2.22 for `--use-aliases`.)
 
 ### 2b. Get the barkd token
 

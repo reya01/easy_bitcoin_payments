@@ -11,12 +11,18 @@
 //!
 //! Paths and methods are checked against barkd's OpenAPI endpoint list (all
 //! wallet endpoints live under `/api/v1/...`, which is part of
-//! [`BarkdConfig::base_url`]). Response *shapes* are not pinned: the schema
-//! dumps for every endpoint we use are empty, so each parsed response carries
-//! a `VERIFY: field shape` marker and parses defensively — a missing
-//! safety-critical field fails loudly instead of silently reading zero.
-//! Close the markers when `docs/barkd-openapi.json` includes response
-//! schemas; the path drift CI already runs.
+//! [`BarkdConfig::base_url`]). Response *shapes* are mostly not pinned: the
+//! schema dumps for the endpoints we use are empty, so each parsed response
+//! carries a `VERIFY: field shape` marker and parses defensively — a
+//! missing safety-critical field fails loudly instead of silently reading
+//! zero. Three shapes are now pinned live instead (wizard VERIFY pass
+//! against real barkd 0.8.0 on signet — see the `VERIFIED` markers on the
+//! constants below and `verified_shape_tests`): `/wallet/connected` →
+//! `{"connected": true}`, `/wallet/mnemonic` → `{"mnemonic": "…"}`
+//! (only under `--expose-mnemonic`), and `/fees/lightning/receive` → a GET
+//! whose `amount_sat` query parameter is required. Close the remaining
+//! markers when `docs/barkd-openapi.json` includes response schemas; the
+//! path drift CI already runs.
 //!
 //! Two entry points:
 //!
@@ -33,7 +39,13 @@
 //! Token hygiene: the bearer token lives in a private field, is redacted in
 //! `Debug`, is marked sensitive in the `Authorization` header, and is
 //! scrubbed from any error message built from a barkd response. It is never
-//! logged. Never call GET /wallet/mnemonic: --expose-mnemonic stays off.
+//! logged. `--expose-mnemonic` stays off in normal operation and no code
+//! here calls GET /wallet/mnemonic — the ONE exception is the setup
+//! wizard's expose-mnemonic ceremony (src/routes/setup.rs), where the
+//! merchant consciously restarts barkd with the flag, EBP reads the words
+//! exactly once (VERIFIED shape `{"mnemonic": "…"}`), the backup checkbox
+//! is confirmed, and barkd is restarted WITHOUT the flag before setup
+//! completes. That ceremony lives in the wizard, not in this client.
 
 use std::future::Future;
 use std::fmt;
@@ -54,8 +66,9 @@ use super::{
 // ---------------------------------------------------------------------------
 // Paths and methods, verified against barkd's OpenAPI endpoint list (all
 // under /api/v1, which is part of BarkdConfig::base_url). Response shapes
-// are NOT pinned: the schema dumps for these endpoints are empty, so every
-// response parser below carries a `VERIFY: field shape` marker.
+// are pinned only where a live probe pinned them (see the VERIFIED
+// markers); everywhere else the schema dumps are empty, so the response
+// parsers carry a `VERIFY: field shape` marker.
 // ---------------------------------------------------------------------------
 /// Create (or restore) the wallet. POST.
 const PATH_CREATE_WALLET: &str = "/wallet/create";
@@ -63,11 +76,18 @@ const PATH_CREATE_WALLET: &str = "/wallet/create";
 const PATH_ADDRESS_NEXT: &str = "/wallet/addresses/next";
 /// Fresh on-chain receive address. POST.
 const PATH_ONCHAIN_ADDRESS_NEXT: &str = "/onchain/addresses/next";
-/// On-chain and off-chain balances. GET.
+/// On-chain and off-chain balances. GET. VERIFIED (barkd 0.8.0, signet,
+/// live wizard VERIFY pass) empty-wallet shape: `{"spendable_sat": 0,
+/// "needs_refresh_sat": 0, "pending_lightning_send_sat": 0,
+/// "claimable_lightning_receive_sat": 0, "pending_in_round_sat": 0,
+/// "pending_board_sat": 0, "pending_arkoor_send_sat": 0,
+/// "pending_offboard_sat": 0, "pending_exit_sat": 0}` — every counter is
+/// an `_sat`-suffixed integer.
 const PATH_BALANCE: &str = "/wallet/balance";
 /// Confirmed on-chain balance — the emergency-exit reserve. GET.
 const PATH_ONCHAIN_BALANCE: &str = "/onchain/balance";
-/// VTXO list with per-VTXO expiry. GET.
+/// VTXO list with per-VTXO expiry. GET. VERIFIED (same pass) empty
+/// shape: a bare JSON array `[]` — no wrapper object.
 const PATH_VTXOS: &str = "/wallet/vtxos";
 /// Cursored wallet history (the watcher's payment source). GET.
 const PATH_HISTORY: &str = "/wallet/history";
@@ -84,7 +104,26 @@ const PATH_REFRESH_VTXOS: &str = "/wallet/refresh/vtxos";
 /// Lightning invoice via the ASP gateway. POST.
 const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// Whether the wallet is connected to its ASP. GET.
+/// VERIFIED (barkd 0.8.0, signet, live wizard VERIFY pass): the response
+/// is `{"connected": true}` — a bare boolean under `connected`, no
+/// wrapper object.
 const PATH_CONNECTED: &str = "/wallet/connected";
+/// The wallet's recovery words. GET. VERIFIED (same pass): answers
+/// `{"mnemonic": "<words>"}` — but ONLY while barkd runs with
+/// `--expose-mnemonic`; with the flag off the endpoint refuses (exact
+/// refusal shape not captured — treat any non-2xx as "not exposed").
+/// No code in this client calls it: the one caller is the setup
+/// wizard's expose-mnemonic ceremony (src/routes/setup.rs), which reads
+/// the words once and then has barkd restarted WITHOUT the flag.
+const PATH_WALLET_MNEMONIC: &str = "/wallet/mnemonic";
+/// The ASP gateway's Lightning receive fee. GET. VERIFIED (same pass):
+/// the required `amount_sat` travels in the QUERY STRING — probing
+/// without it returned HTTP 400 with the plain-text body "Failed to
+/// deserialize query string: missing field `amount_sat`" (not JSON).
+/// VERIFY: the success-response shape — the live probe only captured
+/// the missing-parameter error, so the fee parser must stay defensive
+/// until a funded probe pins the fields.
+const PATH_FEES_LIGHTNING_RECEIVE: &str = "/fees/lightning/receive";
 
 /// Whole-request timeout: barkd is a loopback sidecar, so anything beyond
 /// this is a hung daemon, not a slow network.
@@ -130,6 +169,78 @@ mod history_direction_tests {
         }))
         .unwrap();
         assert!(entry.into_wallet_payment().is_none());
+    }
+}
+
+#[cfg(test)]
+mod verified_shape_tests {
+    //! Fixtures pinned by the live wizard VERIFY pass against real barkd
+    //! 0.8.0 on signet. Every parser that touches these endpoints must
+    //! keep passing against these exact bodies; when a shape drifts,
+    //! re-pin the fixture with a new live probe — never by guessing.
+
+    use super::*;
+
+    /// VERIFIED: GET /wallet/connected → {"connected": true}
+    const CONNECTED_BODY: &str = r#"{"connected": true}"#;
+
+    /// VERIFIED: GET /wallet/mnemonic (only with --expose-mnemonic) →
+    /// {"mnemonic": "<12 words on the probed signet wallet>"}
+    const MNEMONIC_BODY: &str = r#"{"mnemonic": "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"}"#;
+
+    /// VERIFIED: GET /fees/lightning/receive without its REQUIRED
+    /// amount_sat query parameter → HTTP 400 with this plain-text body.
+    /// The success shape was NOT captured — VERIFY before parsing fees.
+    const FEES_MISSING_AMOUNT_BODY: &str =
+        "Failed to deserialize query string: missing field `amount_sat`";
+
+    /// VERIFIED: an empty wallet's balance is all-zero `_sat` counters.
+    const BALANCE_EMPTY_BODY: &str = r#"{"spendable_sat": 0, "needs_refresh_sat": 0, "pending_lightning_send_sat": 0, "claimable_lightning_receive_sat": 0, "pending_in_round_sat": 0, "pending_board_sat": 0, "pending_arkoor_send_sat": 0, "pending_offboard_sat": 0, "pending_exit_sat": 0}"#;
+
+    #[test]
+    fn connected_is_a_bare_boolean_flag() {
+        let value: serde_json::Value = serde_json::from_str(CONNECTED_BODY).unwrap();
+        assert_eq!(value["connected"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn mnemonic_is_a_bare_string_field() {
+        let value: serde_json::Value = serde_json::from_str(MNEMONIC_BODY).unwrap();
+        let words = value["mnemonic"].as_str().expect("mnemonic is a string");
+        // The probed wallet generated 12 words. Nothing pins barkd's
+        // word count, so callers must count rather than assume a number.
+        assert_eq!(words.split_whitespace().count(), 12);
+    }
+
+    #[test]
+    fn fee_error_body_is_plain_text_not_json() {
+        // Pins the observed failure mode: the 400 body is plain text, so
+        // fee-error handling must not assume JSON.
+        assert!(serde_json::from_str::<serde_json::Value>(FEES_MISSING_AMOUNT_BODY).is_err());
+        assert!(FEES_MISSING_AMOUNT_BODY.contains("amount_sat"));
+    }
+
+    #[test]
+    fn empty_balance_is_all_zero_sat_counters() {
+        let value: serde_json::Value = serde_json::from_str(BALANCE_EMPTY_BODY).unwrap();
+        for (key, v) in value.as_object().unwrap() {
+            assert!(key.ends_with("_sat"), "balance key {key}");
+            assert_eq!(v.as_i64(), Some(0), "balance field {key}");
+        }
+    }
+
+    #[test]
+    fn empty_vtxo_list_is_a_bare_array() {
+        // VERIFIED: GET /wallet/vtxos on an empty wallet → []
+        let value: serde_json::Value = serde_json::from_str("[]").unwrap();
+        assert_eq!(value, serde_json::Value::Array(vec![]));
+    }
+
+    #[test]
+    fn verified_paths_match_the_live_probe() {
+        assert_eq!(PATH_CONNECTED, "/wallet/connected");
+        assert_eq!(PATH_WALLET_MNEMONIC, "/wallet/mnemonic");
+        assert_eq!(PATH_FEES_LIGHTNING_RECEIVE, "/fees/lightning/receive");
     }
 }
 

@@ -13,6 +13,7 @@ pub mod error;
 pub mod invoice;
 pub mod models;
 pub mod rates;
+pub mod settings;
 pub mod routes;
 pub mod store;
 pub mod util;

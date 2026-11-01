@@ -32,9 +32,12 @@
 //!   with manual instructions rather than guessed at.
 
 use std::sync::{OnceLock, RwLock};
+
+const SETUP_HTML: &str = include_str!("../../assets/setup.html");
 use std::time::Duration;
 
 use axum::extract::State;
+use axum::response::Html;
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -124,6 +127,11 @@ pub struct SetupStatus {
     pub setup_complete: bool,
     /// `"test"` (signet, play money) or `"live"`.
     pub mode: String,
+}
+
+/// GET /setup — the mobile-first wizard page.
+pub async fn page() -> Html<&'static str> {
+    Html(SETUP_HTML)
 }
 
 pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, AppError> {
@@ -562,7 +570,7 @@ pub async fn create_store(
         already_exists: created.is_none(),
         store_id: created.as_ref().map(|store| store.store_id.clone()),
         store_name: created.as_ref().map(|store| store.store_name.clone()),
-        api_key: created.map(|store| store.api_key),
+        api_key: created.as_ref().map(|store| store.api_key.clone()),
         webhook_secret: created.map(|store| store.webhook_secret),
         setup_complete,
     };
@@ -604,30 +612,18 @@ fn insert_first_store(
         return Ok(None);
     }
 
-    let store_id = crate::util::new_id("store");
-    let api_key = crate::util::new_id("ebp");
-    let webhook_secret = crate::util::new_id("whsec");
-    let api_key_hash = hex_sha256(&api_key);
-
-    conn.execute(
-        "INSERT INTO stores (id, name, api_key_hash, webhook_url, webhook_secret_hash, \
-         policy_json, created_at)
-         VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6)",
-        rusqlite::params![
-            store_id,
-            name,
-            api_key_hash,
-            webhook_secret,
-            "{}",
-            now_unix(),
-        ],
-    )?;
+    // Delegate to the canonical store::create so the API-key/webhook-secret
+    // hashing scheme is IDENTICAL to the one auth and webhooks use. (The
+    // hand-rolled version stored the webhook secret verbatim — fixed.)
+    let (store, api_key, webhook_secret) = crate::store::create(conn, name, None)?;
 
     Ok(Some(CreatedStore {
-        store_id,
-        store_name: name.to_string(),
+        store_id: store.id,
+        store_name: store.name.clone(),
         api_key,
-        webhook_secret,
+        // No webhook URL at wizard time -> no webhook secret yet; the
+        // merchant gets one when they connect a store webhook later.
+        webhook_secret: webhook_secret.unwrap_or_default(),
     }))
 }
 
@@ -768,17 +764,27 @@ mod tests {
     /// In-memory DB with the stores table (settings self-heals).
     fn memory_db() -> rusqlite::Connection {
         let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
-        conn.execute(
+        conn.execute_batch(
             "CREATE TABLE stores (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                api_key_hash TEXT NOT NULL,
                 webhook_url TEXT,
                 webhook_secret_hash TEXT,
+                webhook_secret TEXT,
                 policy_json TEXT NOT NULL,
                 created_at INTEGER NOT NULL
-            )",
-            [],
+            );
+            CREATE TABLE api_keys (
+                id TEXT PRIMARY KEY,
+                store_id TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                label TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )"
         )
         .expect("stores table");
         conn
@@ -882,8 +888,10 @@ mod tests {
         let conn = memory_db();
         let first = insert_first_store(&conn, "First").unwrap().expect("created");
         assert!(!first.api_key.is_empty());
-        assert!(!first.webhook_secret.is_empty());
-        assert_eq!(hex_sha256(&first.api_key).len(), 64);
+        // Delegated to store::create: no webhook URL at wizard time, so no
+        // webhook secret yet — and the secret is never stored verbatim.
+        assert!(first.webhook_secret.is_empty());
+        assert_eq!(crate::auth::hash_secret(&first.api_key).len(), 64);
 
         let second = insert_first_store(&conn, "Second").unwrap();
         assert!(second.is_none(), "the wizard never creates a second store");

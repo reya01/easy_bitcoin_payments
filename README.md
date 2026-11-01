@@ -16,13 +16,13 @@ parser carries a `VERIFY: field shape` marker in `src/wallet/barkd.rs`.
 
 ---
 
-## What Phase 0 ships
+## What ships today
 
-- **Rust server skeleton** — axum 0.8 + SQLite (rusqlite, bundled), single binary, MIT licensed, CI on every push.
+- **Rust server skeleton** — axum 0.8 + SQLite (rusqlite, bundled), single binary, MIT licensed, CI on main and pull requests.
 - **Invoice API** — create / get / list / cancel, authenticated with per-store API keys (hashed at rest).
 - **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
 - **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
-- **Signed webhook emitter** — `X-EBP-Signature: t=<unix>, v1=<HMAC_SHA256>` with a replay window.
+- **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
 - **Merchant dashboard placeholder** — mobile-first shell at `/dashboard`.
 - **Config** — env vars plus an optional TOML file, with sane defaults.
 - **Deployment** — multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
@@ -243,7 +243,7 @@ conversion, database migrations, and the watcher's payment application path.
 
 ---
 
-## Security notes for Phase 0
+## Security notes
 
 - **API keys are hashed at rest** (SHA-256) and shown exactly once at creation.
 - **Secrets are never logged.** Webhook secrets and API keys do not appear in

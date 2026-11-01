@@ -42,9 +42,9 @@ TOKEN="$(barkd --datadir "$BARKD_DATADIR" secret show)"
 # path per the pinned OpenAPI spec). Second's public signet endpoints:
 #   ASP:     https://ark.signet.2nd.dev
 #   Esplora: https://esplora.signet.2nd.dev (automatic when no chain_source)
-curl -sS -X POST http://127.0.0.1:3000/api/v1/wallet \
+curl -sS -X POST http://127.0.0.1:3000/api/v1/wallet/create \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"server_address": "https://ark.signet.2nd.dev"}'
+  -d '{"network": "signet", "ark": "https://ark.signet.2nd.dev"}'
 # For regtest, run a local Ark server (ark-server) and pass its address here.
 ```
 

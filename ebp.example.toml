@@ -1,7 +1,7 @@
 # Easy Bitcoin Payments — example configuration.
 #
 # Copy to `ebp.toml` (or point EBP_CONFIG at it) and edit.
-# Every value here can also be set with an EBP_* environment variable,
+# Most scalar values here can also be set with an EBP_* environment variable,
 # which takes precedence over this file.
 
 # Address the HTTP server binds to.

@@ -15,7 +15,7 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 ## Prerequisites
 
-- Phase 0 spike log complete: Q1–Q4 answered with exact versions, commands,
+- Phase 0 spike log complete: Q1–Q5 answered with exact versions, commands,
   and observed outputs; its open questions are inputs here.
 - `docs/barkd-openapi.json` pinned from barkd 0.8.0 (`GET /api-docs/openapi.json`).
 - Second's public signet ASP (`https://ark.signet.2nd.dev`) reachable; a
@@ -32,8 +32,8 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 - **How:** build from the 0.8.0 source tag or checksum-verified release
   binary; datadir on a named volume; bind to the internal container network
   only (plain HTTP, loopback-grade trust per barkd_start.md); no published
-  ports; healthcheck against the status endpoint; image digest pinned in
-  compose and in the Umbrel manifest.
+  ports; healthcheck against `/ping`; version pinned in
+  compose (digest pinning deferred until a registry image exists) and in the Umbrel manifest.
 - **Done when:** `docker compose up` on a fresh machine starts ebp + barkd;
   barkd is unreachable from outside the internal network; Umbrel install from
   the manifest works on real hardware; version and digest pinned in-repo.
@@ -97,8 +97,8 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 - **What:** the polling loop that drives the invoice state machine.
 - **How:** poll payments since a persisted cursor; per-rail confirmation
   rules (Ark: VTXO present; on-chain: N confirmations; LN: claimed VTXO);
-  emit signed, idempotent, replay-safe events to the internal outbox (store
-  webhook delivery is Phase 2).
+  emit signed, idempotent, replay-safe webhooks to the store (retries and the
+  delivery log remain future work).
 - **Done when:** a restart mid-payment loses nothing; duplicate poll results
   never double-fire events; invoice transitions match the spec's state list
   under fault injection (barkd down, ASP down, slow claims).

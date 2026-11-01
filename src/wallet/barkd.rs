@@ -106,6 +106,33 @@ pub fn sweepable_onchain_sats(onchain_sats: i64, vtxo_count: usize) -> i64 {
     (onchain_sats - ONCHAIN_RESERVE_PER_VTXO_SATS * vtxo_count as i64).max(0)
 }
 
+#[cfg(test)]
+mod history_direction_tests {
+    use super::*;
+
+    /// Drill 2026-11-01, payer side (fields the mapper reads): an outbound
+    /// `bark.lightning_send` — negative intended balance, destination in
+    /// `sent_to`, `received_on: []` — must never become a payment, so it can
+    /// never credit the invoice whose BOLT11 it paid; the same guard drops
+    /// `bark.arkoor` kind=send sweeps.
+    #[test]
+    fn outbound_send_movement_is_never_attributed_to_an_invoice() {
+        // VERIFIED live shape (LN drill): a send movement carries subsystem
+        // kind "send" and a negative intended balance.
+        let entry: HistoryEntry = serde_json::from_value(serde_json::json!({
+            "subsystem": {"name": "bark.lightning_send", "kind": "send"},
+            "intended_balance_sat": -5000,
+            "sent_to": [{
+                "destination": {"type": "invoice", "value": "lntbs50u1p4w0fpq"},
+                "amount_sat": 5000
+            }],
+            "received_on": []
+        }))
+        .unwrap();
+        assert!(entry.into_wallet_payment().is_none());
+    }
+}
+
 /// Raw JSON response, used where the pinned spec's shape is not yet
 /// modelled (create wallet, send/offboard receipts).
 pub type Json = serde_json::Value;
@@ -744,6 +771,42 @@ pub struct HistoryEntry {
     /// Movement direction/kind, when barkd reports one.
     #[serde(default, alias = "kind", alias = "type")]
     pub direction: Option<String>,
+    /// VERIFIED live shape: subsystem {name, kind} — kind "send"/"receive".
+    #[serde(default)]
+    pub subsystem: Option<serde_json::Value>,
+    /// VERIFIED live shape: intended_balance_sat is negative on outbound.
+    #[serde(default, alias = "intended_balance")]
+    pub intended_balance_sat: Option<i64>,
+    /// VERIFIED live shape: sends carry sent_to non-empty; receives carry
+    /// received_on non-empty (LN receives included).
+    #[serde(default)]
+    pub sent_to: Option<serde_json::Value>,
+    #[serde(default)]
+    pub received_on: Option<serde_json::Value>,
+}
+
+impl HistoryEntry {
+    /// Best-effort direction for the outbound filter: explicit direction,
+    /// else subsystem.kind, else the balance sign / sent_to presence.
+    pub fn effective_direction(&self) -> String {
+        if let Some(d) = self.direction.as_deref() {
+            return d.to_ascii_lowercase();
+        }
+        if let Some(k) = self.subsystem.as_ref().and_then(|s| s.get("kind")).and_then(|k| k.as_str()) {
+            return k.to_ascii_lowercase();
+        }
+        if let Some(b) = self.intended_balance_sat {
+            if b < 0 {
+                return "send".into();
+            }
+        }
+        if let Some(s) = self.sent_to.as_ref() {
+            if s.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                return "send".into();
+            }
+        }
+        String::new()
+    }
 }
 
 impl HistoryEntry {
@@ -752,11 +815,7 @@ impl HistoryEntry {
     /// is an outbound movement, or is not a positive receive — never credit
     /// an invoice from those.
     pub fn into_wallet_payment(self) -> Option<WalletPayment> {
-        let direction = self
-            .direction
-            .as_deref()
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let direction = self.effective_direction();
         if ["send", "sent", "offboard", "exit"]
             .iter()
             .any(|d| direction.contains(d))

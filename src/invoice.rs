@@ -234,13 +234,21 @@ pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
 }
 
 /// Find the pending invoice that a received payment belongs to, by address.
+///
+/// Till-issued keys only: the Ark receive address, the on-chain fallback,
+/// or — for LN receives, whose movements carry the BOLT11 in `received_on`
+/// (drill 2026-11-01: destination type "invoice") — the BOLT11 this server
+/// issued into `ln_invoices`. `sent_to` is never searched.
 pub fn find_pending_by_address(
     conn: &Connection,
     address: &str,
 ) -> Result<Option<Invoice>, AppError> {
     conn.query_row(
         "SELECT * FROM invoices
-         WHERE status = 'pending' AND (ark_address = ?1 OR onchain_address = ?1)
+         WHERE status = 'pending'
+           AND (ark_address = ?1 OR onchain_address = ?1
+                OR id = (SELECT invoice_id FROM ln_invoices
+                         WHERE bolt11 = ?1 LIMIT 1))
          ORDER BY created_at DESC LIMIT 1",
         params![address],
         row_to_invoice,

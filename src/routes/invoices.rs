@@ -45,6 +45,10 @@ pub struct InvoiceResponse {
     /// Estimated Lightning gateway fee for this invoice, in sats, fetched
     /// from the ASP's live fee table at creation time. `null` when LN
     /// receive is off or the fee could not be determined — never guessed.
+    /// The fee is the PAYER's: the customer's wallet sends amount + fee
+    /// (drill 2026-11-01: 5,020 sent for a 5,000-sat invoice,
+    /// `offchain_fee_sat: 20` on the payer, 0 on the payee), so the payee
+    /// receives the full invoice amount — never deducted from the payout.
     pub lightning_fee_estimate_sat: Option<i64>,
     pub expires_at: String,
     pub created_at: String,

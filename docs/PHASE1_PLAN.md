@@ -251,3 +251,22 @@ with the 15,000 sat/VTXO exit reserve, Lightning receive via
   backup; barkd datadir snapshot guidance).
 - **Task 12 — setup recipe + the non-technical UX gate.**
 - **Umbrel manifest** (task 1's second target).
+
+## Remaining (close-out status, 2026-11-01)
+
+Done in code: wizard (routes + UI + gate), LN fee display, test mode,
+backup/lost-phone recipes, drift check (paths + methods), release script,
+Umbrel package, install script, recipe v1, live signet verification of the
+barkd client (balances, vtxos, boarding, LN invoice), webhook E2E test,
+LiveRates provider, expiry sweep, doc-sync + security sweeps.
+
+Still open before Phase 1 is declared done:
+- **Live VERIFY pass** on a running wizard: `/wallet/create` mnemonic field
+  shape, `/fees/lightning/receive` shape, `/wallet/connected` body.
+- **Round-flip drill**: confirm the watcher sees the till's boarded VTXOs
+  become spendable after a round, and run one sweep/offboard to the
+  merchant wallet (till currently holds 29,987 spendable signet sats).
+- **UX gate (task 12)**: a non-technical tester goes zero -> live signet
+  invoice using only docs/RECIPE_SETUP.md and an iPhone.
+- Release assets: publish binaries + images so install.sh/Umbrel URLs resolve
+  (requires cutting the first tag).

@@ -212,10 +212,10 @@ impl Config {
             self.hot_wallet_cap_sats = parse_int("EBP_HOT_WALLET_CAP_SATS", &v)?;
         }
         if let Some(v) = lookup("EBP_WATCHER_INTERVAL_SECS") {
-            self.watcher_interval_secs = parse_int("EBP_WATCHER_INTERVAL_SECS", &v)? as u64;
+            self.watcher_interval_secs = positive_u64("EBP_WATCHER_INTERVAL_SECS", &v)?;
         }
         if let Some(v) = lookup("EBP_WEBHOOK_TIMEOUT_SECS") {
-            self.webhook_timeout_secs = parse_int("EBP_WEBHOOK_TIMEOUT_SECS", &v)? as u64;
+            self.webhook_timeout_secs = positive_u64("EBP_WEBHOOK_TIMEOUT_SECS", &v)?;
         }
         if let Some(v) = lookup("EBP_LOG_LEVEL") {
             self.log_level = v;
@@ -301,6 +301,19 @@ fn parse_int(key: &str, value: &str) -> Result<i64, ConfigError> {
         key: key.to_string(),
         value: value.to_string(),
     })
+}
+
+/// Parse a strictly positive integer. Rejects zero and negatives before the
+/// `as u64` cast can silently turn them into near-unbounded intervals.
+fn positive_u64(key: &str, value: &str) -> Result<u64, ConfigError> {
+    let parsed = parse_int(key, value)?;
+    if parsed < 1 {
+        return Err(ConfigError::Invalid {
+            key: key.to_string(),
+            value: value.to_string(),
+        });
+    }
+    Ok(parsed as u64)
 }
 
 #[cfg(test)]

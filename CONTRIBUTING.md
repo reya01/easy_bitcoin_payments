@@ -1,0 +1,48 @@
+# Contributing to Easy Bitcoin Payments
+
+EBP is free, open-source software (MIT — see `LICENSE`). Contributions are
+welcome: code, docs, testing, and especially feedback from non-technical
+merchants.
+
+## Ground rules
+
+- **`spec.md` is authoritative.** Where code and spec disagree, the code
+  changes. PRs that intentionally deviate must say so and update the spec
+  first.
+- **Phase 0 is foundations.** The wallet layer is deliberately a stub; every
+  Bark integration point is marked `// BARK INTEGRATION` in the source. Do
+  not wire real funds in before the Phase 0 spike
+  (`docs/PHASE0_SPIKE_PLAN.md`) is answered.
+- **Out of scope by design:** refund tooling, watch-only/external-signing
+  custody, Lightning send, Shopify, standalone storefront mode (see the
+  spec's "Explicitly not v1.0" list). Don't build these in PRs.
+- **No secrets in logs, ever.** API keys, webhook secrets, and seeds must
+  never appear in log lines, error messages, or test output. If a change
+  touches secret handling, call it out in the PR description.
+- **UX gates are real.** No feature ships until a non-technical tester
+  completes its flow unassisted; PRs touching user-facing flows should note
+  how that will be tested.
+
+## Development
+
+```bash
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+cargo test --all
+```
+
+CI runs all three on every push; a PR that fails them is not reviewed.
+
+- Keep unit tests next to the logic they cover. Modules with logic (invoice
+  state machine, auth, webhook signing, rates, migrations, watcher) carry
+  their own tests.
+- Migrations are append-only: add `migrations/000N_*.sql` and register it in
+  `src/db.rs`. Never edit a migration that has shipped.
+- PRs describe what changed and why, and call out anything touching custody,
+  secrets, or webhooks.
+
+## Reporting security issues
+
+Please do not open public issues for security problems. Use GitHub's private
+security advisories on this repository (Security → Advisories) so fixes can
+be coordinated before disclosure.

@@ -125,6 +125,17 @@ impl PollingWatcher {
             self.emit_invoice_event(&store_id, &updated, status).await;
         }
 
+        // Expire invoices whose rate lock has lapsed even when no checkout
+        // page is open to notice, so stores receive `invoice.expired` and
+        // `GET /api/v1/invoices/{id}` stops reporting `pending` for dead
+        // invoices.
+        let expired = self.db.call(|conn| invoice::expire_due(conn)).await?;
+        for invoice in expired {
+            tracing::info!(invoice_id = %invoice.id, "invoice expired");
+            self.emit_invoice_event(&invoice.store_id, &invoice, InvoiceStatus::Expired)
+                .await;
+        }
+
         if let Ok(mut cursor) = self.cursor.lock() {
             *cursor = newest.max(now_unix() - 1);
         }

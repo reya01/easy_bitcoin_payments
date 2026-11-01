@@ -6,7 +6,8 @@ FROM rust:1.82-bookworm AS builder
 WORKDIR /src
 
 # Build dependencies first so source edits do not invalidate the dep cache.
-COPY Cargo.toml ./
+# The lockfile is copied so image builds are reproducible and match CI.
+COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && \
     printf 'fn main() {}\n' > src/main.rs && \
     printf '' > src/lib.rs && \

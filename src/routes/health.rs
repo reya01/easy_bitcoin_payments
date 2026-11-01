@@ -8,7 +8,6 @@ use crate::wallet::AspStatus;
 #[derive(Debug, Serialize)]
 pub struct WalletHealthView {
     pub reachable: bool,
-    pub balance_sats: Option<i64>,
     pub detail: String,
 }
 
@@ -42,9 +41,13 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         status: overall,
         version: crate::VERSION,
         database: if db_ok { "ok" } else { "down" },
+        // Note: the till balance is deliberately NOT exposed here. This
+        // endpoint is public (Docker healthcheck, store probes) and the spec
+        // defines it as "server, wallet, ASP reachability" — broadcasting the
+        // hot-float size tells attackers exactly how much is stealable.
+        // Balances belong to the authenticated dashboard (Phase 1).
         wallet: WalletHealthView {
             reachable: wallet.reachable,
-            balance_sats: wallet.balance_sats,
             detail: wallet.detail,
         },
         asp: match wallet.asp {

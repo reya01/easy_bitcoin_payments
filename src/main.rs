@@ -53,6 +53,15 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    if config.key_encryption_key.is_some() {
+        // The key is accepted but unused until Phase 1. Say so loudly rather
+        // than let an operator believe secrets are encrypted at rest.
+        tracing::warn!(
+            "EBP_KEY_ENCRYPTION_KEY is set but at-rest encryption is not implemented yet \
+             (Phase 1); webhook secrets are still stored as documented in the README"
+        );
+    }
+
     let db = Db::open(&config.database_path)?;
 
     // BARK INTEGRATION: Phase 1 replaces `StubWallet` with a `BarkWallet`

@@ -180,7 +180,13 @@ pub async fn get_one(
     let store_id = auth.store.id.clone();
     let invoice = state
         .db
-        .call(move |conn| invoice::get(conn, &store_id, &id))
+        .call(move |conn| {
+            // This endpoint is the store's source of truth: an invoice past
+            // its rate-lock deadline must read as `expired`, not `pending`,
+            // even if the customer never opened the checkout page.
+            invoice::expire_if_due(conn, &id)?;
+            invoice::get(conn, &store_id, &id)
+        })
         .await?
         .ok_or(AppError::NotFound)?;
 

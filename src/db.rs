@@ -6,7 +6,10 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// Embedded migrations, applied in order and tracked with `PRAGMA user_version`.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_init.sql"),
+    include_str!("../migrations/0002_payments_txid_guard.sql"),
+];
 
 /// A tiny SQLite handle.
 ///

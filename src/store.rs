@@ -8,8 +8,10 @@ use crate::util::{new_id, now_unix};
 /// Create a store plus its first API key.
 ///
 /// Returns the store, the plaintext API key, and (if a webhook URL was given)
-/// the plaintext webhook signing secret. Both plaintext values are shown to the
-/// merchant exactly once and never stored in plaintext (the API key) or logged.
+/// the plaintext webhook signing secret. Both values are shown to the merchant
+/// exactly once and never logged. The API key is stored only as a hash; the
+/// webhook secret is stored in plaintext until Phase 1 at-rest encryption lands
+/// (see the custody note in `migrations/0001_init.sql`).
 pub fn create(
     conn: &Connection,
     name: &str,

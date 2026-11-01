@@ -157,7 +157,7 @@ pub fn cancel(conn: &Connection, store_id: &str, id: &str) -> Result<Invoice, Ap
     get(conn, store_id, id)?.ok_or(AppError::NotFound)
 }
 
-/// Lazily expire a pending invoice whose rate lock has lapsed.
+/// Lazily expire a pending or underpaid invoice whose rate lock has lapsed.
 pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, AppError> {
     let Some(invoice) = conn
         .query_row(
@@ -170,9 +170,13 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
         return Ok(None);
     };
 
-    if invoice.status == InvoiceStatus::Pending && now_unix() >= invoice.expires_at {
+    // Per the spec's state machine, `underpaid` also expires when the
+    // countdown ends — there is no partial-payment top-up path in v1.0.
+    if matches!(invoice.status, InvoiceStatus::Pending | InvoiceStatus::Underpaid)
+        && now_unix() >= invoice.expires_at
+    {
         conn.execute(
-            "UPDATE invoices SET status = ?1 WHERE id = ?2 AND status = 'pending'",
+            "UPDATE invoices SET status = ?1 WHERE id = ?2 AND status IN ('pending', 'underpaid')",
             params![InvoiceStatus::Expired.as_str(), id],
         )?;
         return conn
@@ -186,6 +190,38 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
     }
 
     Ok(Some(invoice))
+}
+
+/// Expire every pending or underpaid invoice whose rate lock has lapsed.
+///
+/// Returns the invoices flipped to `expired` by this call with their `status`
+/// field already updated, so the watcher can emit `invoice.expired` webhooks
+/// from them. Without this sweep, an invoice whose checkout page is never
+/// opened would stay `pending` in the database forever.
+pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
+    let now = now_unix();
+    let due: Vec<Invoice> = {
+        let mut stmt = conn.prepare(
+            "SELECT * FROM invoices
+             WHERE status IN ('pending', 'underpaid') AND expires_at <= ?1",
+        )?;
+        let rows = stmt.query_map(params![now], row_to_invoice)?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    let mut expired = Vec::with_capacity(due.len());
+    for mut invoice in due {
+        let changed = conn.execute(
+            "UPDATE invoices SET status = ?1
+             WHERE id = ?2 AND status IN ('pending', 'underpaid')",
+            params![InvoiceStatus::Expired.as_str(), invoice.id],
+        )?;
+        if changed == 1 {
+            invoice.status = InvoiceStatus::Expired;
+            expired.push(invoice);
+        }
+    }
+    Ok(expired)
 }
 
 /// Find the pending invoice that a received payment belongs to, by address.

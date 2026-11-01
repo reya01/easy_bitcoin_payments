@@ -268,19 +268,33 @@
         setStatus("Unknown invoice state.", "err");
     }
 
-    if (data.is_final && state.poll) {
-      clearInterval(state.poll);
-      state.poll = null;
+    if (data.is_final) {
+      // Stop both the status poll and the countdown: without this, a paid
+      // page keeps ticking and eventually says "Rate lock expired".
+      stopPolling();
+      els.countdown.textContent = "";
     }
+  }
+
+  function stopPolling() {
+    if (state.poll) { clearInterval(state.poll); state.poll = null; }
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
   }
 
   function refresh() {
     fetch("/i/" + encodeURIComponent(invoiceId) + "/status", { headers: { "accept": "application/json" } })
       .then(function (res) {
+        if (res.status === 404) {
+          // A missing invoice is not a server outage — say what happened
+          // and stop retrying (spec: plain-language errors).
+          stopPolling();
+          setStatus("This invoice doesn't exist (anymore). Go back to the store and start again.", "err");
+          return null;
+        }
         if (!res.ok) throw new Error("status " + res.status);
         return res.json();
       })
-      .then(applyStatus)
+      .then(function (data) { if (data) applyStatus(data); })
       .catch(function () {
         setStatus("Can't reach the payment server. Retrying…", "warn");
       });

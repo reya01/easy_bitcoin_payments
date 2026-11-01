@@ -52,3 +52,12 @@ jobs:
           tags: easy-bitcoin-payments:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  barkd-drift:
+    name: barkd openapi drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the barkd client's paths against the pinned OpenAPI spec
+        run: sh scripts/check_barkd_drift.sh

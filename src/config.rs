@@ -49,6 +49,11 @@ pub struct Config {
     pub renewal_lead_time_secs: u64,
     /// Create a Lightning invoice (ASP gateway) for each checkout invoice.
     pub lightning_receive_enabled: bool,
+    /// Rate provider selection: `static` (the configured `static_rates`) or
+    /// `live` (median of public APIs, cached briefly).
+    pub rates_provider: String,
+    /// Per-source timeout for the live rate provider.
+    pub rates_timeout_secs: u64,
 }
 
 impl Default for Config {
@@ -81,6 +86,8 @@ impl Default for Config {
             settlement_interval_secs: 300,
             renewal_lead_time_secs: 604_800,
             lightning_receive_enabled: true,
+            rates_provider: "static".to_string(),
+            rates_timeout_secs: 5,
         }
     }
 }
@@ -126,6 +133,8 @@ struct FileConfig {
     settlement_interval_secs: Option<u64>,
     renewal_lead_time_secs: Option<u64>,
     lightning_receive_enabled: Option<bool>,
+    rates_provider: Option<String>,
+    rates_timeout_secs: Option<u64>,
 }
 
 impl Config {
@@ -222,6 +231,12 @@ impl Config {
         if let Some(v) = file.lightning_receive_enabled {
             self.lightning_receive_enabled = v;
         }
+        if let Some(v) = file.rates_provider {
+            self.rates_provider = v.trim().to_lowercase();
+        }
+        if let Some(v) = file.rates_timeout_secs {
+            self.rates_timeout_secs = v;
+        }
         Ok(())
     }
 
@@ -287,6 +302,12 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_RENEWAL_LEAD_TIME_SECS") {
             self.renewal_lead_time_secs = positive_u64("EBP_RENEWAL_LEAD_TIME_SECS", &v)?;
+        }
+        if let Some(v) = lookup("EBP_RATES_PROVIDER") {
+            self.rates_provider = v.trim().to_lowercase();
+        }
+        if let Some(v) = lookup("EBP_RATES_TIMEOUT_SECS") {
+            self.rates_timeout_secs = positive_u64("EBP_RATES_TIMEOUT_SECS", &v)?;
         }
         if let Some(v) = lookup("EBP_LIGHTNING_RECEIVE_ENABLED") {
             self.lightning_receive_enabled = parse_bool("EBP_LIGHTNING_RECEIVE_ENABLED", &v)?;

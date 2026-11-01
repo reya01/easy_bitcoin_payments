@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use easy_bitcoin_payments::config::Config;
 use easy_bitcoin_payments::db::Db;
-use easy_bitcoin_payments::rates::StaticRateProvider;
+use easy_bitcoin_payments::rates::{LiveRateProvider, RateProvider, StaticRateProvider};
 use easy_bitcoin_payments::routes::{router, AppState};
 use easy_bitcoin_payments::store;
 use easy_bitcoin_payments::wallet::StubWallet;
@@ -80,7 +80,19 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-    let rates = Arc::new(StaticRateProvider::new(config.static_rates.clone()));
+    // Rate provider: "static" serves the configured rates (default, offline);
+    // "live" takes the median of public spot APIs (see src/rates.rs).
+    let rates: Arc<dyn RateProvider> = match config.rates_provider.as_str() {
+        "live" => {
+            tracing::info!(
+                timeout_secs = %config.rates_timeout_secs,
+                "using the live rate provider (median of public APIs)"
+            );
+            Arc::new(LiveRateProvider::new(config.rates_timeout_secs))
+        }
+        "static" => Arc::new(StaticRateProvider::new(config.static_rates.clone())),
+        other => return Err(format!("unknown rates_provider: {other} (use static or live)").into()),
+    };
     let webhooks = Arc::new(WebhookEmitter::new(config.webhook_timeout_secs));
 
     let state = AppState {

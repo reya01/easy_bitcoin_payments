@@ -370,7 +370,11 @@ liquidity). EBP is designed against that failure class:
   node's hot wallet and channels.
 
 The honest counterweight: EBP is unaudited, pre-release, and adds the ASP
-liveness dependency. The capped-till model is how EBP assumes credentials
-leak eventually — it does not claim to be more secure than BTCPay Server
-overall. See `spec.md` for the full threat model.
+liveness dependency. To be precise about the security claim: **we do not
+think EBP is more secure than BTCPay Server.** We think it is **lower risk,
+on purpose** — an intentional tradeoff that puts a smaller amount of money
+in harm's way and constrains what the exposed components can do. A smaller
+attack surface with a smaller prize is not the same thing as a stronger
+vault; it is a different bet, made deliberately and documented in
+`spec.md`.
 

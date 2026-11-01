@@ -171,8 +171,8 @@ Stores must verify the HMAC with their per-store secret, reject timestamps older
 than 5 minutes, dedupe on the idempotency key, and treat
 `GET /api/v1/invoices/{id}` as the source of truth before fulfilling.
 
-Phase 0 performs a single delivery attempt. Retries with backoff, the delivery
-log, and one-tap re-send are Phase 1 work.
+The webhook emitter performs a single delivery attempt. Retries with backoff,
+the delivery log, and one-tap re-send are future work.
 
 ---
 

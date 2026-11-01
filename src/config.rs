@@ -10,7 +10,7 @@ use serde::Deserialize;
 ///   1. built-in defaults
 ///   2. optional TOML file (`EBP_CONFIG`, else `./ebp.toml` if present)
 ///   3. `EBP_*` environment variables
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_path: String,
@@ -18,8 +18,9 @@ pub struct Config {
     pub default_expiry_minutes: i64,
     pub max_expiry_minutes: i64,
     pub default_currency: String,
-    /// Static fiat-per-BTC rates used by the Phase 0 rate provider.
-    /// Phase 1 replaces this with a live median-of-sources provider.
+    /// Static fiat-per-BTC rates used when `rates_provider = "static"`
+    /// (the default); `rates_provider = "live"` uses the median of public
+    /// spot APIs instead.
     pub static_rates: HashMap<String, f64>,
     pub hot_wallet_cap_sats: i64,
     pub watcher_interval_secs: u64,

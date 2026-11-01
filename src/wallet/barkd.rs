@@ -15,8 +15,8 @@
 //! dumps for every endpoint we use are empty, so each parsed response carries
 //! a `VERIFY: field shape` marker and parses defensively — a missing
 //! safety-critical field fails loudly instead of silently reading zero.
-//! Close the markers when `docs/barkd-openapi.json` is filled in and the
-//! drift CI (plan task 2) runs.
+//! Close the markers when `docs/barkd-openapi.json` includes response
+//! schemas; the path drift CI already runs.
 //!
 //! Two entry points:
 //!

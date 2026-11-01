@@ -69,9 +69,9 @@ pub enum WebhookError {
 
 /// Delivers signed webhook events to a store.
 ///
-/// Phase 0 performs a single delivery attempt with a timeout. Retries with
-/// backoff (1m / 5m / 30m / 2h / 12h), the delivery log, and one-tap re-send
-/// are Phase 1 work and require the `webhook_deliveries` table.
+/// The emitter performs a single delivery attempt with a timeout. Retries
+/// with backoff (1m / 5m / 30m / 2h / 12h), the delivery log, and one-tap
+/// re-send are future work and require the `webhook_deliveries` table.
 pub struct WebhookEmitter {
     client: reqwest::Client,
 }

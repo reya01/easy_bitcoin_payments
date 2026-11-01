@@ -5,7 +5,8 @@
 //! placeholder addresses and observes no payments. Phase 1 replaces it with
 //! [`barkd::BarkdWallet`], a reqwest client of the barkd sidecar's REST API
 //! (docs: barkd_index.md) — no other module changes. bark-wallet is NOT
-//! embedded: barkd already owns refresh scheduling, exits, and backups.
+//! embedded: barkd owns the wallet, exits, and backups; EBP schedules
+//! refreshes via its API.
 
 use crate::models::Rail;
 

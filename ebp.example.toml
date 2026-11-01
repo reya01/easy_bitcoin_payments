@@ -21,8 +21,8 @@ max_expiry_minutes = 1440
 # Currency used when a request does not specify one.
 default_currency = "EUR"
 
-# Phase 0 rate source: static fiat-per-BTC values.
-# Phase 1 replaces this with a live median-of-sources provider.
+# Static fiat-per-BTC values used when rates_provider = "static" (the
+# default). Set rates_provider = "live" to use the median of public APIs.
 [static_rates]
 EUR = 95000.0
 USD = 88000.0

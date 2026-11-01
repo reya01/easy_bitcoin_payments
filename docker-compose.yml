@@ -41,6 +41,7 @@ services:
       # Provision once: docker compose exec barkd barkd --datadir /data secret show
       EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:?export EBP_BARKD_TOKEN first (see the line above)}
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
+      EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}
     ports:
       - "8080:8080"
     volumes:

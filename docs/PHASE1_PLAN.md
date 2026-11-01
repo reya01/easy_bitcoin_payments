@@ -36,7 +36,8 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   compose (digest pinning deferred until a registry image exists) and in the Umbrel manifest.
 - **Done when:** `docker compose up` on a fresh machine starts ebp + barkd;
   barkd is unreachable from outside the internal network; Umbrel install from
-  the manifest works on real hardware; version and digest pinned in-repo.
+  the manifest works on real hardware; version pinned in-repo (digest when a
+  registry image exists).
 
 ### 2. OpenAPI client generation + CI drift check
 
@@ -53,13 +54,13 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 - **What:** first-run wizard step: create the wallet, back up the mnemonic,
   provision and rotate the API token.
-- **How:** `POST /api/v1/wallet` with the ASP address (per the pinned spec);
-  mnemonic shown once from the create response — `--expose-mnemonic` stays
-  off and `GET /api/v1/wallet/mnemonic` is never called; written-down
+- **How:** `POST /api/v1/wallet/create` with the ASP address (per the pinned
+  spec); mnemonic shown once from the create response — `--expose-mnemonic`
+  stays off and `GET /api/v1/wallet/mnemonic` is never called; written-down
   confirmation required before receiving is enabled; token from
-  `barkd secret show` passed to ebp via `EBP_BARKD_TOKEN` or a root-only
-  secret file, never logged; rotation = `barkd secret refresh` + restart +
-  update ebp, written as a runbook.
+  `barkd secret show` passed to ebp via `EBP_BARKD_TOKEN` (env-only), never
+  logged; rotation = `barkd secret refresh` + restart + update ebp, written
+  as a runbook.
 - **Done when:** a fresh install provisions a wallet with no terminal use;
   the mnemonic ceremony blocks receive until confirmed; the rotation drill
   runs in < 10 minutes and cursor-based polling loses no payments across the

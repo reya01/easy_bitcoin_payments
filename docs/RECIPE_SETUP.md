@@ -78,13 +78,12 @@ pointed at Second's public signet Ark server:
 ```
 docker compose exec barkd curl -fsS -X POST http://127.0.0.1:3000/api/v1/wallet/create \
   -H 'content-type: application/json' \
-  -d '{"asp_url": "https://ark.signet.2nd.dev"}'
+  -d '{"network": "signet", "ark": "https://ark.signet.2nd.dev"}'
 ```
 
-(If barkd answers that the request shape is wrong, the pinned spec —
-`docs/barkd-openapi.json`, entry `POST /api/v1/wallet/create` — is the
-source of truth for the field names. If a wallet already exists, this
-errors; that is fine, skip ahead.)
+(If barkd answers that the request shape is wrong, check the barkd
+version's own OpenAPI; the pinned spec may not include request schemas
+yet. If a wallet already exists, this errors; that is fine, skip ahead.)
 
 **STOP — the recovery words.** The answer includes the wallet's recovery
 words (mnemonic), shown exactly once. The merchant — not the AI — reads
@@ -171,12 +170,12 @@ and the payment appears in the dashboard at
 ## Step 5 — Verify the sweep
 
 The till automatically empties into your own wallet when it passes the
-holding cap. For the test, set the cap just above what you just received
+holding cap. For the test, set the cap just below what you just received
 so the sweep triggers now — the merchant runs (keeping the exports from
 step 2 in the same terminal):
 
 ```
-export EBP_HOT_WALLET_CAP_SATS=60000
+export EBP_HOT_WALLET_CAP_SATS=40000
 docker compose up -d
 ```
 

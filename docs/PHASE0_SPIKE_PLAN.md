@@ -3,7 +3,7 @@
 **Status:** open
 **Owner:** TBD
 **Gate:** Phase 0 acceptance requires this document to be answered in writing,
-with a regtest demo of receive → renew → exit and one real testnet sweep.
+with a regtest demo of receive → refresh → exit and one real testnet sweep.
 
 The spike answers five questions. Each answer must be recorded with the exact
 `bark` / `barkd` version, the network, the commands run, and the observed
@@ -107,16 +107,16 @@ derived from observed expiry windows and observed fees, not guessed.
 
 ```bash
 # Observe the VTXO lifetime the ASP actually grants on regtest.
-bark --network regtest --datadir "$BARK_DATA_DIR" vtxos list --json \
+bark --network regtest --datadir "$BARKD_DATADIR" vtxos list --json \
   | jq '.[] | {id, amount_sats, expiry_height, expiry_at}'
 
-# Observe renewal cost at different mempool conditions.
-bark --network regtest --datadir "$BARK_DATA_DIR" vtxos renew --all --dry-run
-bark --network regtest --datadir "$BARK_DATA_DIR" estimate-fee --vtxos 1
-bark --network regtest --datadir "$BARK_DATA_DIR" estimate-fee --vtxos 10
+# Observe refresh cost at different mempool conditions.
+bark --network regtest --datadir "$BARKD_DATADIR" vtxos refresh --all --dry-run
+bark --network regtest --datadir "$BARKD_DATADIR" estimate-fee --vtxos 1
+bark --network regtest --datadir "$BARKD_DATADIR" estimate-fee --vtxos 10
 
 # Observe exit cost — the worst case the cap must bound.
-bark --network regtest --datadir "$BARK_DATA_DIR" exit --all --dry-run
+bark --network regtest --datadir "$BARKD_DATADIR" exit --all --dry-run
 ```
 
 **Record in the log:**

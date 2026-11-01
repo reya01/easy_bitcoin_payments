@@ -1,0 +1,55 @@
+# Easy Bitcoin Payments — Phase 1 stack: the ebp server plus its barkd
+# sidecar (Second's reference Bark wallet daemon).
+#
+# barkd is pinned to the 0.8.0 source tag (docker/barkd.Dockerfile) because
+# Second publishes no registry image we can digest-pin yet — when one
+# appears, replace the build block with `image: <registry>/barkd@sha256:…`.
+# Its datadir lives on the barkd-data volume; the API is plain HTTP bound to
+# the internal compose network only — no `ports:` mapping, so barkd is
+# unreachable from outside and every /api/v1 call still requires the bearer
+# token (barkd_start.md). `--expose-mnemonic` is deliberately NOT passed:
+# GET /wallet/mnemonic stays disabled and ebp never calls it.
+
+services:
+  barkd:
+    build:
+      context: .
+      dockerfile: docker/barkd.Dockerfile
+      args:
+        BARK_VERSION: "0.8.0"
+    image: ebp-barkd:0.8.0
+    # --host 0.0.0.0 binds inside the container only; without a `ports:`
+    # mapping nothing outside the compose network can reach it.
+    command: ["--datadir", "/data", "--host", "0.0.0.0", "--port", "3000"]
+    volumes:
+      - barkd-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ebp:
+    build: .
+    environment:
+      EBP_BIND_ADDR: 0.0.0.0:8080
+      EBP_DATABASE_PATH: /data/ebp.sqlite3
+      EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
+      EBP_BARKD_URL: http://barkd:3000/api/v1
+      # Provision once: docker compose exec barkd barkd --datadir /data secret show
+      EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:?export EBP_BARKD_TOKEN first (see the line above)}
+      EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ebp-data:/data
+    depends_on:
+      barkd:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  barkd-data:
+  ebp-data:

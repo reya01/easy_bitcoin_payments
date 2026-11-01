@@ -219,3 +219,34 @@ zero to a live testnet invoice using only the recipe and an iPhone.
   completed on a phone isn't done.
 - **Principle 8:** every recipe has a plain-text fallback; the AI layer never
   handles secrets.
+
+## Remaining (Phase 1 close-out)
+
+Landed in this pass: sidecar packaging (compose + pinned Dockerfile), the
+watcher over `/wallet/history` with a persisted cursor, the VTXO expiry queue
+from `/wallet/vtxos`, settlement sweeps (`/wallet/send`, `/wallet/offboard/all`)
+with the 15,000 sat/VTXO exit reserve, Lightning receive via
+`/lightning/receives/invoice`, and mock-HTTP tests. Still open, by plan task:
+
+- **Task 2 — drift-check CI**: the client is hand-written against the pinned
+  endpoint list; the CI job that boots barkd 0.8.0, fetches
+  `/api-docs/openapi.json`, and diffs it against `docs/barkd-openapi.json` is
+  not wired. Every `VERIFY: field shape` marker in `src/wallet/barkd.rs` is
+  closed by that job's first run.
+- **Task 3 — provisioning wizard**: wallet creation is a documented curl
+  call; the first-run wizard (create wallet, mnemonic ceremony, token
+  rotation runbook) is unbuilt. `--expose-mnemonic` stays off and
+  `GET /wallet/mnemonic` is never called.
+- **Task 4 — async `WalletAdapter`**: the trait is still synchronous behind
+  the bridge thread; the async migration is mechanical but unbuilt.
+- **Task 5 — attribution drill**: the 20-payment signet attribution run
+  (incl. >=5 same-ASP, >=5 on-chain) has not been executed.
+- **Task 8 leftovers**: expiry-driven and oldest-VTXO-age sweep triggers;
+  partial on-chain sweeps via `/wallet/offboard/vtxos`.
+- **Task 9 leftovers**: LN fee display from `GET /fees/lightning/receive` at
+  invoice time; stuck-HTLC and restart-mid-claim runbooks.
+- **Task 10 — test mode**: the one-flag signet switch and dashboard banner.
+- **Task 11 — backup/restore + lost-phone recipes** (mnemonic is the root
+  backup; barkd datadir snapshot guidance).
+- **Task 12 — setup recipe + the non-technical UX gate.**
+- **Umbrel manifest** (task 1's second target).

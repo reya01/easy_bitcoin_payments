@@ -53,3 +53,36 @@ log_level = "info,tower_http=info"
 
 # Checkout accent colour (merchant branding).
 checkout_accent_color = "#f7931a"
+
+# --- barkd sidecar (Phase 1) -------------------------------------------------
+#
+# The wallet layer is a client of the barkd sidecar's REST API. The URL
+# points at the loopback daemon (or the internal container network); barkd
+# serves plain HTTP, so keep it off the public internet.
+# barkd_url = "http://127.0.0.1:3000/api/v1"
+
+# The bearer token is env-only on purpose (EBP_BARKD_TOKEN) so it never
+# lands in a config file or a backup:
+#   barkd --datadir <path> secret show
+
+# --- settlement (Phase 1) ------------------------------------------------------
+#
+# Where the settlement engine sweeps the till to: your own wallet. An Ark
+# address on the same ASP (e.g. your Arké wallet) sweeps via an Ark send; a
+# Bitcoin on-chain address sweeps via cooperative offboarding. Leave unset to
+# disable automatic settlement.
+# settlement_destination = "ark1..."
+
+# How often the settlement engine runs.
+settlement_interval_secs = 300
+
+# Renew or settle VTXOs this long before their per-VTXO expiry (7 days).
+# Lightning-received VTXOs live only 1-3 days and are always treated as
+# urgent by the expiry queue.
+renewal_lead_time_secs = 604800
+
+# --- lightning receive (Phase 1) ----------------------------------------------
+#
+# Create a Lightning invoice (ASP gateway) for every checkout invoice, best
+# effort — checkout stays functional over Ark and on-chain without it.
+lightning_receive_enabled = true

@@ -1,12 +1,23 @@
-//! Payment watcher skeleton.
+//! Payment watcher: polls the wallet's payment history and drives the
+//! invoice state machine; keeps the VTXO expiry queue in sync with the
+//! wallet's live VTXO list.
 //!
-//! Polling today; a subscription adapter can be added later behind the same
-//! `tick` contract. The loop, address matching, state transitions, and webhook
-//! emission are real and unit-tested — only the wallet source is stubbed.
+//! Polling today (barkd exposes no subscription we rely on); a subscription
+//! adapter can be added later behind the same `tick` contract. The loop,
+//! address matching, state transitions, and webhook emission are real and
+//! unit-tested — the wallet source is injected through `WalletAdapter`
+//! (barkd in production, fakes in tests).
+//!
+//! The history cursor is persisted in the `settings` table so a restart
+//! loses nothing; re-delivered payments are deduped by the payments table's
+//! unique VTXO/txid guards, so at-least-once polling is safe.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
+
+use rusqlite::{params, Connection};
 
 use crate::db::Db;
 use crate::error::AppError;
@@ -14,8 +25,11 @@ use crate::invoice;
 use crate::models::InvoiceStatus;
 use crate::store;
 use crate::util::{now_unix, to_rfc3339};
-use crate::wallet::{WalletAdapter, WalletPayment};
+use crate::wallet::{WalletAdapter, WalletPayment, WalletVtxo};
 use crate::webhook::WebhookEmitter;
+
+/// `settings` key holding the persisted history cursor (UNIX seconds).
+const HISTORY_CURSOR_KEY: &str = "watcher.history_cursor";
 
 pub struct PollingWatcher {
     wallet: Arc<dyn WalletAdapter>,
@@ -23,6 +37,9 @@ pub struct PollingWatcher {
     webhooks: Arc<WebhookEmitter>,
     interval: Duration,
     cursor: Mutex<i64>,
+    /// Renewal lead time in seconds; each expiry-queue row's `renew_by` is
+    /// its per-VTXO expiry minus this.
+    renewal_lead_secs: i64,
 }
 
 impl PollingWatcher {
@@ -31,6 +48,7 @@ impl PollingWatcher {
         db: Db,
         webhooks: Arc<WebhookEmitter>,
         interval: Duration,
+        renewal_lead_secs: i64,
     ) -> Self {
         Self {
             wallet,
@@ -38,11 +56,37 @@ impl PollingWatcher {
             webhooks,
             interval,
             cursor: Mutex::new(0),
+            renewal_lead_secs,
         }
     }
 
     /// Run forever, polling on the configured interval.
     pub async fn run(self) {
+        // Resume from the persisted cursor so a restart mid-payment loses
+        // nothing (re-deliveries are deduped, never double-credited).
+        match self
+            .db
+            .call(|conn| crate::db::get_setting(conn, HISTORY_CURSOR_KEY))
+            .await
+        {
+            Ok(Some(raw)) => match raw.parse::<i64>() {
+                Ok(resume_from) => {
+                    if let Ok(mut cursor) = self.cursor.lock() {
+                        *cursor = resume_from;
+                    }
+                    tracing::info!(
+                        cursor = resume_from,
+                        "watcher resumed from the persisted history cursor"
+                    );
+                }
+                Err(_) => {
+                    tracing::warn!("persisted watcher cursor was not an integer; starting from 0")
+                }
+            },
+            Ok(None) => {}
+            Err(err) => tracing::warn!(error = %err, "could not load the persisted watcher cursor"),
+        }
+
         let mut ticker = tokio::time::interval(self.interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -125,6 +169,33 @@ impl PollingWatcher {
             self.emit_invoice_event(&store_id, &updated, status).await;
         }
 
+        // Advance and persist the cursor. Persisting after applying means a
+        // crash mid-tick re-delivers payments; the unique VTXO/txid guards
+        // turn that into a no-op instead of a double credit.
+        let next_cursor = newest.max(now_unix() - 1);
+        if next_cursor > since {
+            if let Ok(mut cursor) = self.cursor.lock() {
+                *cursor = next_cursor;
+            }
+            let value = next_cursor.to_string();
+            self.db
+                .call(move |conn| crate::db::set_setting(conn, HISTORY_CURSOR_KEY, &value))
+                .await?;
+        }
+
+        // Keep the VTXO expiry queue in sync with the wallet's live list.
+        // Every VTXO carries its own expiry: board/refresh VTXOs live ~28
+        // days, Lightning-received VTXOs only 1-3 days (learn_lifetime.md).
+        match self.wallet.vtxos() {
+            Ok(vtxos) => {
+                let lead = self.renewal_lead_secs;
+                self.db
+                    .call(move |conn| upsert_vtxo_expiry(conn, &vtxos, lead))
+                    .await?;
+            }
+            Err(err) => tracing::warn!(error = %err, "could not refresh the vtxo expiry queue"),
+        }
+
         // Expire invoices whose rate lock has lapsed even when no checkout
         // page is open to notice, so stores receive `invoice.expired` and
         // `GET /api/v1/invoices/{id}` stops reporting `pending` for dead
@@ -134,10 +205,6 @@ impl PollingWatcher {
             tracing::info!(invoice_id = %invoice.id, "invoice expired");
             self.emit_invoice_event(&invoice.store_id, &invoice, InvoiceStatus::Expired)
                 .await;
-        }
-
-        if let Ok(mut cursor) = self.cursor.lock() {
-            *cursor = newest.max(now_unix() - 1);
         }
 
         Ok(applied)
@@ -195,6 +262,56 @@ impl PollingWatcher {
     }
 }
 
+/// Rebuild the expiry queue from the wallet's live VTXO list: upsert every
+/// reported VTXO with its real per-VTXO expiry, and mark rows the wallet no
+/// longer reports as `gone` (spent, swept, or exited).
+fn upsert_vtxo_expiry(
+    conn: &Connection,
+    vtxos: &[WalletVtxo],
+    renewal_lead_secs: i64,
+) -> Result<(), AppError> {
+    let now = now_unix();
+
+    let mut stmt = conn.prepare("SELECT id FROM vtxo_expiry WHERE status = 'live'")?;
+    let live_ids: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+
+    let present: HashSet<&str> = vtxos.iter().map(|v| v.id.as_str()).collect();
+    for id in &live_ids {
+        if !present.contains(id.as_str()) {
+            conn.execute(
+                "UPDATE vtxo_expiry SET status = 'gone', updated_at = ?1 WHERE id = ?2",
+                params![now, id],
+            )?;
+        }
+    }
+
+    for v in vtxos {
+        // Unknown expiries (0) get renew_by = now: the queue treats them as
+        // urgent rather than guessing a lifetime.
+        let renew_by = if v.expires_at > 0 {
+            v.expires_at - renewal_lead_secs
+        } else {
+            now
+        };
+        conn.execute(
+            "INSERT INTO vtxo_expiry (id, amount_sats, expiry_at, renew_by, likely_lightning, status, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'live', ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                amount_sats = excluded.amount_sats,
+                expiry_at = excluded.expiry_at,
+                renew_by = excluded.renew_by,
+                likely_lightning = excluded.likely_lightning,
+                status = 'live',
+                updated_at = excluded.updated_at",
+            params![v.id, v.amount_sats, v.expires_at, renew_by, v.likely_lightning, now],
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,6 +321,7 @@ mod tests {
 
     struct FakeWallet {
         payments: Vec<WalletPayment>,
+        vtxos: Vec<WalletVtxo>,
     }
 
     impl WalletAdapter for FakeWallet {
@@ -229,6 +347,10 @@ mod tests {
                 asp: AspStatus::Ok,
                 detail: "fake".into(),
             }
+        }
+
+        fn vtxos(&self) -> Result<Vec<WalletVtxo>, WalletError> {
+            Ok(self.vtxos.clone())
         }
     }
 
@@ -291,10 +413,12 @@ mod tests {
                     detected_at: now_unix(),
                     confirmed_at: None,
                 }],
+                vtxos: vec![],
             }),
             db.clone(),
             Arc::new(WebhookEmitter::new(1)),
             Duration::from_secs(1),
+            604_800,
         );
 
         let applied = watcher.tick().await.unwrap();
@@ -323,10 +447,12 @@ mod tests {
                     detected_at: now_unix(),
                     confirmed_at: None,
                 }],
+                vtxos: vec![],
             }),
             db,
             Arc::new(WebhookEmitter::new(1)),
             Duration::from_secs(1),
+            604_800,
         );
 
         assert_eq!(watcher.tick().await.unwrap(), 0);
@@ -348,13 +474,129 @@ mod tests {
         let watcher = PollingWatcher::new(
             Arc::new(FakeWallet {
                 payments: vec![payment.clone()],
+                vtxos: vec![],
             }),
             db,
             Arc::new(WebhookEmitter::new(1)),
             Duration::from_secs(1),
+            604_800,
         );
 
         assert_eq!(watcher.tick().await.unwrap(), 1);
         assert_eq!(watcher.tick().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn tick_persists_the_history_cursor() {
+        let (db, _) = setup(vec![]).await;
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![WalletPayment {
+                    address: "ark1qinv_1".to_string(),
+                    rail: Rail::Ark,
+                    amount_sats: 1000,
+                    vtxo_id: Some("vtxo_1".to_string()),
+                    txid: None,
+                    detected_at: now_unix(),
+                    confirmed_at: None,
+                }],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        watcher.tick().await.unwrap();
+
+        let saved = db
+            .call(|conn| crate::db::get_setting(conn, HISTORY_CURSOR_KEY))
+            .await
+            .unwrap()
+            .expect("cursor persisted");
+        assert_eq!(
+            saved.parse::<i64>().unwrap(),
+            *watcher.cursor.lock().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn tick_builds_and_prunes_the_vtxo_expiry_queue() {
+        let (db, _) = setup(vec![]).await;
+        let now = now_unix();
+        let v1 = WalletVtxo {
+            id: "v1".into(),
+            amount_sats: 50_000,
+            expires_at: now + 28 * 86_400,
+            likely_lightning: false,
+        };
+        let v2 = WalletVtxo {
+            id: "v2".into(),
+            amount_sats: 2_100,
+            expires_at: now + 2 * 86_400,
+            likely_lightning: true,
+        };
+
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![],
+                vtxos: vec![v1.clone(), v2.clone()],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        watcher.tick().await.unwrap();
+
+        let rows: Vec<(String, i64, i64, String)> = db
+            .call(|conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, renew_by, likely_lightning, status FROM vtxo_expiry ORDER BY id",
+                )?;
+                let rows = stmt
+                    .query_map([], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+
+        // The Lightning-received VTXO (1-3 day lifetime) is flagged and its
+        // renew_by is already past: urgent.
+        let (id, renew_by, likely_ln, status) = rows.last().unwrap().clone();
+        assert_eq!(id, "v2");
+        assert_eq!(likely_ln, 1);
+        assert_eq!(status, "live");
+        assert!(renew_by < now);
+        // The 28-day VTXO renews three weeks out.
+        assert!(rows[0].1 > now);
+
+        // A VTXO the wallet no longer reports leaves the live queue.
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![],
+                vtxos: vec![v2],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        watcher.tick().await.unwrap();
+        let v1_status: String = db
+            .call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT status FROM vtxo_expiry WHERE id = 'v1'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(v1_status, "gone");
     }
 }

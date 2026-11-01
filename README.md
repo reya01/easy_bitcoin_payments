@@ -6,8 +6,13 @@ Easy Bitcoin Payments (EBP) is a single Rust binary plus SQLite that sits betwee
 your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
-This repository is at **Phase 0 — Foundations**. It is a working server with a
-stubbed wallet layer, not a production payment system yet.
+This repository is at **Phase 1 — barkd integration**. The wallet layer talks
+to a [barkd](https://second.tech/docs/barkd_index.md) sidecar (Second's
+reference Bark wallet daemon) over its local REST API: Ark + on-chain +
+Lightning receive, a polling payment watcher with a persisted cursor, a
+per-VTXO expiry queue, and a settlement engine that sweeps the capped till to
+your own wallet. barkd's response shapes are not yet pinned by CI, so every
+parser carries a `VERIFY: field shape` marker in `src/wallet/barkd.rs`.
 
 ---
 
@@ -16,19 +21,32 @@ stubbed wallet layer, not a production payment system yet.
 - **Rust server skeleton** — axum 0.8 + SQLite (rusqlite, bundled), single binary, MIT licensed, CI on every push.
 - **Invoice API** — create / get / list / cancel, authenticated with per-store API keys (hashed at rest).
 - **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
-- **Payment watcher skeleton** — polling adapter trait, address matching, idempotent payment recording.
+- **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
 - **Signed webhook emitter** — `X-EBP-Signature: t=<unix>, v1=<HMAC_SHA256>` with a replay window.
 - **Merchant dashboard placeholder** — mobile-first shell at `/dashboard`.
 - **Config** — env vars plus an optional TOML file, with sane defaults.
 - **Deployment** — multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
 
-### What is deliberately stubbed
+### The wallet layer: the barkd sidecar
 
-The wallet layer is a stub (`StubWallet`). It derives deterministic placeholder
-addresses and observes no payments, so **no Bitcoin moves in Phase 0**. Every
-integration point is marked `// BARK INTEGRATION` in the source. The Bark spike
-plan that decides how those points get filled in lives in
-[`docs/PHASE0_SPIKE_PLAN.md`](docs/PHASE0_SPIKE_PLAN.md).
+Payments run through a **barkd sidecar** — Second's reference Bark wallet
+daemon — on the internal network. barkd holds the keys (Custody Level 0: a
+capped hot "till" on the server; everything the server sweeps is already
+yours). The server authenticates with a bearer token:
+
+```bash
+# barkd generates the token on first start and stores it in its datadir.
+export EBP_BARKD_TOKEN="$(barkd --datadir /path/to/bark secret show)"
+```
+
+The token is env-only (`EBP_BARKD_TOKEN`), never written to a config file and
+never logged. Rotate it with `barkd secret refresh` + a restart of both
+daemons. `--expose-mnemonic` stays off: the server never calls
+`GET /wallet/mnemonic`.
+
+Without a token the server boots on the Phase 0 stub wallet (deterministic
+placeholder addresses, no payments observed) so development and tests never
+need a running barkd.
 
 ---
 
@@ -77,9 +95,36 @@ curl -sS -X POST http://localhost:8080/api/v1/invoices/inv_.../cancel \
 curl -sS http://localhost:8080/api/v1/health
 ```
 
+### With the barkd sidecar (Phase 1)
+
+```bash
+# 1. Run barkd (see https://second.tech/docs/barkd/install.md) and get its token.
+barkd --datadir ~/.bark-ebp &
+export EBP_BARKD_TOKEN="$(barkd --datadir ~/.bark-ebp secret show)"
+
+# 2. Point ebp at it and start the server.
+export EBP_BARKD_URL="http://127.0.0.1:3000/api/v1"
+cargo run -- serve
+
+# 3. Create the wallet (signet + Second's public ASP). TODO(Phase 1): the
+#    setup wizard does this; until then it is one curl call. If the response
+#    contains a mnemonic, write it down and store it offline — EBP never
+#    reads it back.
+curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
+  -H "Authorization: Bearer $EBP_BARKD_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"network": "signet", "ark": "https://ark.signet.2nd.dev"}'
+```
+
+With the sidecar running, invoices get real Ark + on-chain addresses and a
+Lightning invoice (best effort, via the ASP gateway), the watcher polls
+`/wallet/history` with a persisted cursor, and the settlement engine sweeps
+the till to `EBP_SETTLEMENT_DESTINATION` while keeping a 15,000 sat/VTXO
+on-chain emergency-exit reserve.
+
 ---
 
-## API (Phase 0 surface)
+## API
 
 All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>`.
 
@@ -143,6 +188,12 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_KEY_ENCRYPTION_KEY` | unset | At-rest encryption key (**Phase 1**) |
 | `EBP_CHECKOUT_POLICY_URL` | unset | Refund policy link on checkout |
 | `EBP_CHECKOUT_ACCENT_COLOR` | `#f7931a` | Checkout branding |
+| `EBP_BARKD_URL` | `http://127.0.0.1:3000/api/v1` | barkd sidecar REST API |
+| `EBP_BARKD_TOKEN` | unset | barkd bearer token (`barkd secret show`); env-only |
+| `EBP_SETTLEMENT_DESTINATION` | unset | Merchant's Ark or on-chain sweep destination |
+| `EBP_SETTLEMENT_INTERVAL_SECS` | `300` | Settlement engine cadence |
+| `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | Renew/settle VTXOs this long before expiry |
+| `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
 
 ---
 
@@ -156,6 +207,25 @@ docker run --rm -v ebp-data:/data easy-bitcoin-payments store create --name "My 
 
 The image runs as a non-root user, stores its database on the `/data` volume,
 and exposes a healthcheck against `/api/v1/health`.
+
+### Full stack with the barkd sidecar
+
+```bash
+# 1. Start barkd alone and read its token (generated on first start).
+docker compose up -d barkd
+export EBP_BARKD_TOKEN="$(docker compose exec barkd barkd --datadir /data secret show)"
+
+# 2. Bring up the whole stack.
+EBP_PUBLIC_BASE_URL=https://pay.example.com \
+EBP_SETTLEMENT_DESTINATION=ark1your-arke-wallet \
+docker compose up -d
+```
+
+`docker-compose.yml` pins barkd to the 0.8.0 source tag, keeps its datadir on
+the `barkd-data` volume, healthchecks it against `GET /ping`, and publishes no
+barkd ports — it is reachable only on the internal compose network, and every
+`/api/v1` call still needs the bearer token. `--expose-mnemonic` is
+deliberately absent.
 
 ---
 
@@ -184,9 +254,12 @@ conversion, database migrations, and the watcher's payment application path.
   the change is additive.
 - **No customer PII is required.** An invoice needs an amount and an opaque
   order reference.
-- **The wallet is a stub.** No keys exist yet, so no custody risk exists yet.
-  The Level 0 till design (capped float, automatic sweeps) is specified in the
-  project spec and validated by the Phase 0 spike.
+- **Custody, Phase 1 (Level 0).** barkd holds the keys on the server; the
+  server's bearer token can spend the capped hot float but cannot touch
+  anything already swept to your wallet. Sweeps go out automatically on the
+  hot cap and ahead of VTXO expiry, and the engine refuses any sweep that
+  would breach the 15,000 sat/VTXO on-chain emergency-exit reserve. A
+  compromised server can steal at most the float.
 
 ---
 

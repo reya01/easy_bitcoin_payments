@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::AppError;
 
@@ -9,6 +9,7 @@ use crate::error::AppError;
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_init.sql"),
     include_str!("../migrations/0002_payments_txid_guard.sql"),
+    include_str!("../migrations/0003_settlement.sql"),
 ];
 
 /// A tiny SQLite handle.
@@ -70,6 +71,27 @@ impl Db {
         .await
         .map_err(|e| AppError::Internal(format!("database task failed: {e}")))?
     }
+}
+
+/// Read one row from the `settings` table (Phase 1: watcher cursor, policies).
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, AppError> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Upsert one row into the `settings` table.
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params![key, value, crate::util::now_unix()],
+    )?;
+    Ok(())
 }
 
 fn migrate(conn: &mut Connection) -> Result<(), rusqlite::Error> {

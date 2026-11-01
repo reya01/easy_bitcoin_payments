@@ -240,6 +240,38 @@ pub fn find_pending_by_address(
     .map_err(Into::into)
 }
 
+/// Store the Lightning invoice issued for a checkout invoice (Phase 1).
+pub fn set_lightning_invoice(
+    conn: &Connection,
+    invoice_id: &str,
+    bolt11: &str,
+    identifier: Option<&str>,
+) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO ln_invoices (invoice_id, bolt11, identifier, created_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(invoice_id) DO UPDATE SET
+            bolt11 = excluded.bolt11,
+            identifier = excluded.identifier",
+        params![invoice_id, bolt11, identifier, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// The BOLT11 Lightning invoice issued for a checkout invoice, if any.
+pub fn get_lightning_invoice(
+    conn: &Connection,
+    invoice_id: &str,
+) -> Result<Option<String>, AppError> {
+    conn.query_row(
+        "SELECT bolt11 FROM ln_invoices WHERE invoice_id = ?1",
+        params![invoice_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// Record an observed payment and advance the invoice state machine.
 ///
 /// Returns `Ok(None)` when the invoice does not exist, is not pending, or the

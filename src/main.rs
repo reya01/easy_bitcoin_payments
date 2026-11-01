@@ -64,11 +64,21 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     let db = Db::open(&config.database_path)?;
 
-    // BARK INTEGRATION: Phase 1 replaces `StubWallet` with a `BarkWallet`
-    // adapter backed by bark-wallet / barkd. Nothing else in the server
-    // changes — the trait boundary is the whole integration surface.
+    // BARK INTEGRATION (Phase 1): the wallet layer is a client of the barkd
+    // sidecar's REST API (bearer token from `barkd secret show`, passed via
+    // EBP_BARKD_TOKEN). Without a token the server still boots on the stub
+    // wallet — no payments are observed, nothing can move.
     let wallet: Arc<dyn easy_bitcoin_payments::wallet::WalletAdapter> =
-        Arc::new(StubWallet::new());
+        match easy_bitcoin_payments::wallet::barkd::BarkdWallet::from_app_config(&config) {
+            Ok(barkd) => Arc::new(barkd),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "barkd wallet unavailable; serving with the stub wallet (no payments will be observed)"
+                );
+                Arc::new(StubWallet::new())
+            }
+        };
 
     let rates = Arc::new(StaticRateProvider::new(config.static_rates.clone()));
     let webhooks = Arc::new(WebhookEmitter::new(config.webhook_timeout_secs));
@@ -90,8 +100,27 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         db.clone(),
         webhooks,
         std::time::Duration::from_secs(config.watcher_interval_secs),
+        config.renewal_lead_time_secs as i64,
     );
     let watcher_handle = tokio::spawn(watcher.run());
+
+    // Settlement engine (Phase 1): refreshes VTXOs ahead of their per-VTXO
+    // expiry and sweeps the capped till to the merchant's own wallet, while
+    // keeping the on-chain emergency-exit reserve. Needs the barkd token;
+    // without it (or without a settlement destination) it stays idle.
+    match easy_bitcoin_payments::wallet::barkd::BarkdClient::from_app_config(&config) {
+        Ok(client) => {
+            let engine = easy_bitcoin_payments::wallet::settlement::SettlementEngine::new(
+                client,
+                db.clone(),
+                Arc::new(config.clone()),
+            );
+            tokio::spawn(engine.run());
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "settlement engine idle (set EBP_BARKD_TOKEN to enable)")
+        }
+    }
 
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;

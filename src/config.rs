@@ -38,6 +38,17 @@ pub struct Config {
     pub barkd_token: Option<String>,
     pub checkout_policy_url: Option<String>,
     pub checkout_accent_color: String,
+    /// Where the settlement engine sweeps the till to: the merchant's own
+    /// wallet. An Ark address on the same ASP (e.g. Arké) sweeps via an Ark
+    /// send; a Bitcoin on-chain address sweeps via cooperative offboarding.
+    /// Unset (or empty) disables automatic settlement.
+    pub settlement_destination: Option<String>,
+    /// How often the settlement engine runs.
+    pub settlement_interval_secs: u64,
+    /// Renew or settle VTXOs this long before their per-VTXO expiry.
+    pub renewal_lead_time_secs: u64,
+    /// Create a Lightning invoice (ASP gateway) for each checkout invoice.
+    pub lightning_receive_enabled: bool,
 }
 
 impl Default for Config {
@@ -66,6 +77,10 @@ impl Default for Config {
             barkd_token: None,
             checkout_policy_url: None,
             checkout_accent_color: "#f7931a".to_string(),
+            settlement_destination: None,
+            settlement_interval_secs: 300,
+            renewal_lead_time_secs: 604_800,
+            lightning_receive_enabled: true,
         }
     }
 }
@@ -107,6 +122,10 @@ struct FileConfig {
     barkd_url: Option<String>,
     checkout_policy_url: Option<String>,
     checkout_accent_color: Option<String>,
+    settlement_destination: Option<String>,
+    settlement_interval_secs: Option<u64>,
+    renewal_lead_time_secs: Option<u64>,
+    lightning_receive_enabled: Option<bool>,
 }
 
 impl Config {
@@ -191,6 +210,18 @@ impl Config {
         if let Some(v) = file.checkout_accent_color {
             self.checkout_accent_color = v;
         }
+        if let Some(v) = file.settlement_destination {
+            self.settlement_destination = Some(v.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        if let Some(v) = file.settlement_interval_secs {
+            self.settlement_interval_secs = v;
+        }
+        if let Some(v) = file.renewal_lead_time_secs {
+            self.renewal_lead_time_secs = v;
+        }
+        if let Some(v) = file.lightning_receive_enabled {
+            self.lightning_receive_enabled = v;
+        }
         Ok(())
     }
 
@@ -248,6 +279,18 @@ impl Config {
         if let Some(v) = lookup("EBP_CHECKOUT_ACCENT_COLOR") {
             self.checkout_accent_color = v;
         }
+        if let Some(v) = lookup("EBP_SETTLEMENT_DESTINATION") {
+            self.settlement_destination = Some(v.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        if let Some(v) = lookup("EBP_SETTLEMENT_INTERVAL_SECS") {
+            self.settlement_interval_secs = positive_u64("EBP_SETTLEMENT_INTERVAL_SECS", &v)?;
+        }
+        if let Some(v) = lookup("EBP_RENEWAL_LEAD_TIME_SECS") {
+            self.renewal_lead_time_secs = positive_u64("EBP_RENEWAL_LEAD_TIME_SECS", &v)?;
+        }
+        if let Some(v) = lookup("EBP_LIGHTNING_RECEIVE_ENABLED") {
+            self.lightning_receive_enabled = parse_bool("EBP_LIGHTNING_RECEIVE_ENABLED", &v)?;
+        }
         Ok(())
     }
 
@@ -290,6 +333,18 @@ impl Config {
                 });
             }
         }
+        if self.settlement_interval_secs == 0 {
+            return Err(ConfigError::Invalid {
+                key: "settlement_interval_secs".into(),
+                value: "0".into(),
+            });
+        }
+        if self.renewal_lead_time_secs == 0 {
+            return Err(ConfigError::Invalid {
+                key: "renewal_lead_time_secs".into(),
+                value: "0".into(),
+            });
+        }
         Ok(())
     }
 }
@@ -317,6 +372,18 @@ fn parse_int(key: &str, value: &str) -> Result<i64, ConfigError> {
         key: key.to_string(),
         value: value.to_string(),
     })
+}
+
+/// Parse a boolean from the usual spellings.
+fn parse_bool(key: &str, value: &str) -> Result<bool, ConfigError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(ConfigError::Invalid {
+            key: key.to_string(),
+            value: value.to_string(),
+        }),
+    }
 }
 
 /// Parse a strictly positive integer. Rejects zero and negatives before the
@@ -368,6 +435,22 @@ mod tests {
             .apply_env(|k| (k == "EBP_BIND_ADDR").then(|| "not-an-addr".to_string()))
             .unwrap_err();
         assert!(matches!(err, ConfigError::Invalid { .. }));
+    }
+
+    #[test]
+    fn settlement_env_overrides_defaults() {
+        let mut c = Config::default();
+        let env: HashMap<&str, &str> = HashMap::from([
+            ("EBP_SETTLEMENT_DESTINATION", "ark1merchant"),
+            ("EBP_SETTLEMENT_INTERVAL_SECS", "60"),
+            ("EBP_RENEWAL_LEAD_TIME_SECS", "86400"),
+            ("EBP_LIGHTNING_RECEIVE_ENABLED", "false"),
+        ]);
+        c.apply_env(|k| env.get(k).map(|v| v.to_string())).unwrap();
+        assert_eq!(c.settlement_destination.as_deref(), Some("ark1merchant"));
+        assert_eq!(c.settlement_interval_secs, 60);
+        assert_eq!(c.renewal_lead_time_secs, 86_400);
+        assert!(!c.lightning_receive_enabled);
     }
 
     #[test]

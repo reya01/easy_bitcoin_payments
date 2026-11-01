@@ -10,6 +10,7 @@
 use crate::models::Rail;
 
 pub mod barkd;
+pub mod settlement;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiveAddresses {
@@ -27,6 +28,31 @@ pub struct WalletPayment {
     pub txid: Option<String>,
     pub detected_at: i64,
     pub confirmed_at: Option<i64>,
+}
+
+/// A VTXO currently held by the wallet, with its own expiry — the source of
+/// the dashboard's expiry queue. Per-VTXO expiries are real, not estimated:
+/// board/refresh VTXOs live ~28 days, Lightning-received VTXOs 1-3 days, and
+/// spend VTXOs inherit their parent's expiry (learn_lifetime.md).
+#[derive(Debug, Clone)]
+pub struct WalletVtxo {
+    /// barkd's VTXO id/outpoint.
+    pub id: String,
+    pub amount_sats: i64,
+    /// UNIX seconds; 0 when unknown (the queue treats unknown as urgent).
+    pub expires_at: i64,
+    /// Heuristic flag: a lifetime of 1-3 days at first sight means the VTXO
+    /// probably arrived via Lightning and belongs in the urgent queue.
+    pub likely_lightning: bool,
+}
+
+/// A Lightning invoice created through the ASP's gateway.
+#[derive(Debug, Clone)]
+pub struct LightningInvoice {
+    /// The BOLT11 payment request.
+    pub bolt11: String,
+    /// barkd's identifier for polling `GET /lightning/receives/{identifier}`.
+    pub identifier: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +109,27 @@ pub trait WalletAdapter: Send + Sync {
 
     /// Wallet and ASP reachability for `GET /api/v1/health`.
     fn health(&self) -> WalletHealth;
+
+    /// VTXOs currently held, each with its own expiry — the source of the
+    /// dashboard's expiry queue. Wallets that do not track VTXOs return an
+    /// empty list.
+    fn vtxos(&self) -> Result<Vec<WalletVtxo>, WalletError> {
+        Ok(Vec::new())
+    }
+
+    /// Best-effort Lightning invoice via the ASP's gateway. Callers must
+    /// degrade gracefully when this fails: checkout stays functional with
+    /// Ark and on-chain alone.
+    fn lightning_invoice(
+        &self,
+        amount_sats: i64,
+        description: &str,
+    ) -> Result<LightningInvoice, WalletError> {
+        let _ = (amount_sats, description);
+        Err(WalletError::Rejected(
+            "this wallet cannot create lightning invoices".to_string(),
+        ))
+    }
 }
 
 /// Phase 0 placeholder wallet.

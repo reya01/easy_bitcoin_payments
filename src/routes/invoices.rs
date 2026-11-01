@@ -40,6 +40,8 @@ pub struct InvoiceResponse {
     pub checkout_url: String,
     pub ark_address: String,
     pub onchain_address: String,
+    /// BOLT11 invoice from the ASP's Lightning gateway, when one exists.
+    pub lightning_invoice: Option<String>,
     pub expires_at: String,
     pub created_at: String,
     pub paid_at: Option<String>,
@@ -47,7 +49,11 @@ pub struct InvoiceResponse {
     pub metadata: serde_json::Value,
 }
 
-fn to_response(invoice: &Invoice, base_url: &str) -> InvoiceResponse {
+fn to_response(
+    invoice: &Invoice,
+    base_url: &str,
+    lightning_invoice: Option<String>,
+) -> InvoiceResponse {
     let metadata = serde_json::from_str(&invoice.metadata_json)
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
 
@@ -68,6 +74,7 @@ fn to_response(invoice: &Invoice, base_url: &str) -> InvoiceResponse {
         ),
         ark_address: invoice.ark_address.clone(),
         onchain_address: invoice.onchain_address.clone(),
+        lightning_invoice,
         expires_at: to_rfc3339(invoice.expires_at),
         created_at: to_rfc3339(invoice.created_at),
         paid_at: invoice.paid_at.map(to_rfc3339),
@@ -168,7 +175,47 @@ pub async fn create(
         .call(move |conn| invoice::insert(conn, &new_invoice))
         .await?;
 
-    let response = to_response(&invoice, &state.config.public_base_url);
+    // Lightning receive (Phase 1): ask the wallet for an LN invoice through
+    // the ASP's gateway. Best effort — when the gateway is unavailable the
+    // checkout still works over Ark and on-chain.
+    let lightning_invoice = if state.config.lightning_receive_enabled {
+        match state
+            .wallet
+            .lightning_invoice(amount_sats, &format!("invoice {}", invoice.id))
+        {
+            Ok(ln) => {
+                let bolt11 = ln.bolt11.clone();
+                let identifier = ln.identifier.clone();
+                let invoice_id = invoice.id.clone();
+                let stored = state
+                    .db
+                    .call(move |conn| {
+                        invoice::set_lightning_invoice(
+                            conn,
+                            &invoice_id,
+                            &bolt11,
+                            identifier.as_deref(),
+                        )
+                    })
+                    .await;
+                if let Err(err) = stored {
+                    tracing::warn!(error = %err, "could not persist the lightning invoice");
+                }
+                Some(ln.bolt11)
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "lightning invoice unavailable; checkout continues with ark + on-chain"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let response = to_response(&invoice, &state.config.public_base_url, lightning_invoice);
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -190,7 +237,17 @@ pub async fn get_one(
         .await?
         .ok_or(AppError::NotFound)?;
 
-    Ok(Json(to_response(&invoice, &state.config.public_base_url)))
+    let invoice_id = invoice.id.clone();
+    let lightning_invoice = state
+        .db
+        .call(move |conn| invoice::get_lightning_invoice(conn, &invoice_id))
+        .await?;
+
+    Ok(Json(to_response(
+        &invoice,
+        &state.config.public_base_url,
+        lightning_invoice,
+    )))
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,7 +283,7 @@ pub async fn list(
     Ok(Json(
         invoices
             .iter()
-            .map(|invoice| to_response(invoice, base_url))
+            .map(|invoice| to_response(invoice, base_url, None))
             .collect(),
     ))
 }
@@ -242,5 +299,9 @@ pub async fn cancel(
         .call(move |conn| invoice::cancel(conn, &store_id, &id))
         .await?;
 
-    Ok(Json(to_response(&invoice, &state.config.public_base_url)))
+    Ok(Json(to_response(
+        &invoice,
+        &state.config.public_base_url,
+        None,
+    )))
 }

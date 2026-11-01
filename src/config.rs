@@ -55,6 +55,11 @@ pub struct Config {
     pub rates_provider: String,
     /// Per-source timeout for the live rate provider.
     pub rates_timeout_secs: u64,
+    /// Deployment mode: `"test"` (default — signet, play money, test
+    /// invoices flagged in metadata and excluded from the accounting
+    /// export) or `"live"` (mainnet). Set via `mode` in the config file or
+    /// the `EBP_MODE` environment variable.
+    pub mode: String,
 }
 
 impl Default for Config {
@@ -89,6 +94,7 @@ impl Default for Config {
             lightning_receive_enabled: true,
             rates_provider: "static".to_string(),
             rates_timeout_secs: 5,
+            mode: "test".to_string(),
         }
     }
 }
@@ -109,6 +115,41 @@ pub enum ConfigError {
     },
     #[error("invalid value for {key}: {value}")]
     Invalid { key: String, value: String },
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn mode_defaults_to_test() {
+        assert_eq!(Config::default().mode, "test");
+    }
+
+    #[test]
+    fn mode_accepts_test_and_live_case_insensitively() {
+        assert_eq!(Config::parse_mode("live").unwrap(), "live");
+        assert_eq!(Config::parse_mode(" TEST ").unwrap(), "test");
+    }
+
+    #[test]
+    fn mode_rejects_unknown_values() {
+        assert!(Config::parse_mode("prod").is_err());
+        assert!(Config::parse_mode("").is_err());
+    }
+
+    #[test]
+    fn mode_flows_through_the_config_file_layer() {
+        let file: FileConfig = toml::from_str("mode = \"live\"").unwrap();
+        let mut config = Config::default();
+        config.apply_file(file).unwrap();
+        assert_eq!(config.mode, "live");
+
+        // Unknown modes are rejected at apply time (parse_mode), not TOML time.
+        let mut bad_config = Config::default();
+        let bad_file: FileConfig = toml::from_str("mode = \"production\"").unwrap();
+        assert!(bad_config.apply_file(bad_file).is_err());
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -136,6 +177,7 @@ struct FileConfig {
     lightning_receive_enabled: Option<bool>,
     rates_provider: Option<String>,
     rates_timeout_secs: Option<u64>,
+    mode: Option<String>,
 }
 
 impl Config {
@@ -164,6 +206,11 @@ impl Config {
             config.apply_file(file)?;
         }
         config.apply_env(|key| std::env::var(key).ok())?;
+        // `mode` is parsed here rather than inside `apply_env` so the env
+        // override shares the same validation as the config file.
+        if let Ok(v) = std::env::var("EBP_MODE") {
+            config.mode = Config::parse_mode(&v)?;
+        }
         config.validate()?;
         Ok(config)
     }
@@ -238,7 +285,24 @@ impl Config {
         if let Some(v) = file.rates_timeout_secs {
             self.rates_timeout_secs = v;
         }
+        if let Some(v) = file.mode {
+            self.mode = Config::parse_mode(&v)?;
+        }
         Ok(())
+    }
+
+    /// Parse and validate `mode`: `"test"` or `"live"`
+    /// (case-insensitive). Anything else is a configuration error, not a
+    /// silent fallback — a typo must never quietly run mainnet.
+    fn parse_mode(raw: &str) -> Result<String, ConfigError> {
+        let mode = raw.trim().to_lowercase();
+        match mode.as_str() {
+            "test" | "live" => Ok(mode),
+            _ => Err(ConfigError::Invalid {
+                key: "mode".to_string(),
+                value: raw.to_string(),
+            }),
+        }
     }
 
     /// Apply `EBP_*` environment variables. Takes a lookup function so the

@@ -42,6 +42,10 @@ pub struct InvoiceResponse {
     pub onchain_address: String,
     /// BOLT11 invoice from the ASP's Lightning gateway, when one exists.
     pub lightning_invoice: Option<String>,
+    /// Estimated Lightning gateway fee for this invoice, in sats, fetched
+    /// from the ASP's live fee table at creation time. `null` when LN
+    /// receive is off or the fee could not be determined — never guessed.
+    pub lightning_fee_estimate_sat: Option<i64>,
     pub expires_at: String,
     pub created_at: String,
     pub paid_at: Option<String>,
@@ -75,11 +79,211 @@ fn to_response(
         ark_address: invoice.ark_address.clone(),
         onchain_address: invoice.onchain_address.clone(),
         lightning_invoice,
+        lightning_fee_estimate_sat: metadata
+            .get("lightning_fee_estimate_sat")
+            .and_then(|value| value.as_i64()),
         expires_at: to_rfc3339(invoice.expires_at),
         created_at: to_rfc3339(invoice.created_at),
         paid_at: invoice.paid_at.map(to_rfc3339),
         order_id: invoice.order_id.clone(),
         metadata,
+    }
+}
+
+/// Lightning receive fee table on the ASP gateway. GET.
+///
+/// VERIFY: path + response shape — `/fees/lightning/receive` is not in
+/// the pinned `docs/barkd-openapi.json` endpoint list, so the path is
+/// verified against a live barkd before this marker comes off. The
+/// response is parsed defensively (see [`parse_lightning_fee_estimate`]):
+/// an unrecognised shape yields `None` (shown as "fee unknown"), never a
+/// guess. This lives here rather than on `BarkdClient` so the invoice
+/// route stays self-contained until the async `WalletAdapter` migration
+/// (plan task 4) gives it a natural home.
+const PATH_LN_RECEIVE_FEES: &str = "/fees/lightning/receive";
+
+/// Ask barkd for the ASP gateway's Lightning receive fee for `amount_sats`.
+/// Best effort: any transport or HTTP failure is logged (without secrets)
+/// and yields `None` — the checkout stays usable over Ark and on-chain.
+async fn fetch_lightning_fee_estimate(
+    config: &crate::config::Config,
+    amount_sats: i64,
+) -> Option<i64> {
+    let token = config.barkd_token.as_deref()?;
+
+    let url = format!(
+        "{}{}",
+        config.barkd_url.trim_end_matches('/'),
+        PATH_LN_RECEIVE_FEES
+    );
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let mut header = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).ok()?;
+    header.set_sensitive(true);
+
+    let response = client
+        .get(&url)
+        .header(reqwest::header::AUTHORIZATION, header)
+        .send()
+        .await
+        .ok()?;
+
+    if !response.status().is_success() {
+        tracing::warn!(status = %response.status(), "lightning fee table unavailable");
+        return None;
+    }
+
+    match response.json::<serde_json::Value>().await {
+        Ok(body) => parse_lightning_fee_estimate(&body, amount_sats),
+        Err(err) => {
+            tracing::warn!(error = %err, "lightning fee table was not valid JSON");
+            None
+        }
+    }
+}
+
+/// Pull a sats fee estimate for `amount_sats` out of the fee-table JSON.
+/// Recognised shapes (VERIFY against a live barkd):
+///   {"fee_sat": 12} | {"fee_sats": 12} | {"fee": 12}
+///   {"fees": {"receive": 12}} | {"fees": {"fee_sat": 12}}
+///   {"fee_percent": 0.5}  → ceil(amount × percent / 100)
+/// Anything else → `None`.
+fn parse_lightning_fee_estimate(body: &serde_json::Value, amount_sats: i64) -> Option<i64> {
+    fn as_sats(value: &serde_json::Value) -> Option<i64> {
+        value
+            .as_i64()
+            .or_else(|| value.as_f64().map(|fee| fee as i64))
+            .map(|sats| sats.max(0))
+    }
+
+    for key in ["fee_sat", "fee_sats", "fee"] {
+        if let Some(fee) = body.get(key).and_then(as_sats) {
+            return Some(fee);
+        }
+    }
+
+    if let Some(fees) = body.get("fees") {
+        for key in ["receive", "fee_sat", "fee_sats"] {
+            if let Some(fee) = fees.get(key).and_then(as_sats) {
+                return Some(fee);
+            }
+        }
+    }
+
+    if let Some(percent) = body.get("fee_percent").and_then(|value| value.as_f64()) {
+        if percent.is_finite() && percent >= 0.0 {
+            let estimate = (amount_sats as f64 * percent / 100.0).ceil();
+            if estimate.is_finite() && estimate >= 0.0 && estimate <= i64::MAX as f64 {
+                return Some(estimate as i64);
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod lightning_fee_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    use super::*;
+
+    #[test]
+    fn fee_estimate_parses_known_shapes() {
+        let cases = [
+            (r#"{"fee_sat": 12}"#, Some(12i64)),
+            (r#"{"fee_sats": 12}"#, Some(12)),
+            (r#"{"fee": 12}"#, Some(12)),
+            (r#"{"fees": {"receive": 12}}"#, Some(12)),
+            (r#"{"fees": {"fee_sat": 12}}"#, Some(12)),
+            (r#"{"fee_percent": 0.5}"#, Some(250)), // 0.5% of 50_000
+        ];
+        for (body, expected) in cases {
+            let parsed: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(
+                parse_lightning_fee_estimate(&parsed, 50_000),
+                expected,
+                "body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn fee_estimate_is_none_for_unknown_shapes() {
+        for body in [
+            r#"{}"#,
+            r#"{"min": 1000}"#,
+            r#"{"fee_percent": -1}"#,
+            r#"{"fee": "cheap"}"#,
+        ] {
+            let parsed: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(
+                parse_lightning_fee_estimate(&parsed, 50_000),
+                None,
+                "body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn fee_estimate_is_fetched_from_mock_barkd_over_http() {
+        // Mock barkd: one GET, one canned fee table, then done.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            let mut buf = [0u8; 4096];
+            while !request.contains("\r\n\r\n") {
+                let n = stream.read(&mut buf).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.push_str(&String::from_utf8_lossy(&buf[..n]));
+            }
+            assert!(
+                request.starts_with("GET /api/v1/fees/lightning/receive"),
+                "unexpected request: {request}"
+            );
+            let body = r#"{"fee_sat": 12}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let mut config = crate::config::Config::default();
+        config.barkd_url = format!("http://127.0.0.1:{port}/api/v1");
+        config.barkd_token = Some("test-token".to_string());
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let fee = runtime.block_on(fetch_lightning_fee_estimate(&config, 50_000));
+
+        assert_eq!(fee, Some(12));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn fee_estimate_is_none_without_a_token() {
+        let config = crate::config::Config::default();
+        assert!(config.barkd_token.is_none());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert_eq!(
+            runtime.block_on(fetch_lightning_fee_estimate(&config, 50_000)),
+            None
+        );
     }
 }
 
@@ -138,6 +342,16 @@ pub async fn create(
             (Some(_), Some(_)) => unreachable!("guarded above"),
         };
 
+    // Lightning gateway fee (Phase 1 close-out): fetched from the ASP's
+    // live fee table at invoice time when LN receive is on. Best effort —
+    // an unavailable or unrecognised fee is reported as `null`, never
+    // guessed, and never blocks checkout.
+    let lightning_fee_estimate_sat = if state.config.lightning_receive_enabled {
+        fetch_lightning_fee_estimate(&state.config, amount_sats).await
+    } else {
+        None
+    };
+
     let invoice_id = new_id("inv");
     let now = now_unix();
 
@@ -147,11 +361,29 @@ pub async fn create(
         .receive_addresses(&invoice_id)
         .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))?;
 
-    let metadata_json = req
+    // Metadata carries the store's own key/value data plus two internal
+    // markers: `test` (set in test mode; test invoices are excluded from
+    // the accounting export — see invoice::is_test_invoice) and
+    // `lightning_fee_estimate_sat` (the LN fee shown at checkout). Both
+    // ride in metadata_json so every reader of the invoice — API,
+    // checkout, export — sees the same flags. A store that sends
+    // non-object metadata keeps it verbatim and the markers are skipped.
+    let mut metadata = req
         .metadata
-        .as_ref()
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "{}".to_string());
+        .clone()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    if let Some(fields) = metadata.as_object_mut() {
+        if state.config.mode == "test" {
+            fields.insert("test".to_string(), serde_json::Value::Bool(true));
+        }
+        if let Some(fee) = lightning_fee_estimate_sat {
+            fields.insert(
+                "lightning_fee_estimate_sat".to_string(),
+                serde_json::Value::from(fee),
+            );
+        }
+    }
+    let metadata_json = metadata.to_string();
 
     let new_invoice = NewInvoice {
         id: invoice_id.clone(),

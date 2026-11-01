@@ -119,11 +119,23 @@
   .status.err { border-color: var(--err); color: var(--err); }
   footer { margin-top: 26px; font-size: 13px; color: var(--muted); }
   footer a { color: inherit; }
+  .test-banner {
+    margin: 14px 0 0;
+    padding: 10px 14px;
+    border: 1px solid var(--warn);
+    border-radius: 10px;
+    color: var(--warn);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .ln-fee { margin-top: 10px; font-size: 13px; color: var(--muted); }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <main>
+  <div class="test-banner hidden" id="test-banner" role="note">TEST MODE — signet. Play money; nothing here moves real value.</div>
   <header>
     <span class="dot" aria-hidden="true"></span>
     <span class="store" id="store-name">Loading…</span>
@@ -136,6 +148,7 @@
   <section class="card" id="pay-card">
     <div class="tabs" role="tablist" aria-label="Payment rail">
       <button class="tab" role="tab" id="tab-ark" aria-selected="true" aria-controls="panel">Ark (instant)</button>
+      <button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden>Lightning</button>
       <button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel">On-chain</button>
     </div>
     <div class="qr" id="qr">
@@ -144,6 +157,7 @@
     </div>
     <button class="address" id="address" type="button" title="Tap to copy">—</button>
     <p class="hint" id="copy-hint">Tap the address to copy it.</p>
+    <p class="ln-fee hidden" id="ln-fee"></p>
   </section>
 
   <div class="status" id="status" role="status" aria-live="polite">Waiting for payment…</div>
@@ -170,12 +184,15 @@
     copyHint: document.getElementById("copy-hint"),
     status: document.getElementById("status"),
     tabArk: document.getElementById("tab-ark"),
+    tabLn: document.getElementById("tab-ln"),
     tabChain: document.getElementById("tab-chain"),
+    lnFee: document.getElementById("ln-fee"),
+    testBanner: document.getElementById("test-banner"),
     policyWrap: document.getElementById("policy-wrap"),
     policyLink: document.getElementById("policy-link")
   };
 
-  var state = { rail: "ark", data: null, deadline: 0, timer: null, poll: null };
+  var state = { rail: "ark", data: null, deadline: 0, timer: null, poll: null, ln: null };
 
   function fmtSats(n) {
     return Number(n).toLocaleString("en-US") + " sats";
@@ -188,23 +205,60 @@
 
   function currentAddress() {
     if (!state.data) return "";
+    if (state.rail === "ln") return state.ln ? state.ln.bolt11 : "";
     return state.rail === "ark" ? state.data.ark_address : state.data.onchain_address;
   }
 
   function renderAddress() {
     var addr = currentAddress();
     els.address.textContent = addr || "—";
-    els.qr.textContent = state.rail === "ark"
-      ? "Ark QR arrives with the Bark integration. Copy the address below."
-      : "On-chain QR arrives with the Bark integration. Copy the address below.";
+    if (state.rail === "ln") {
+      els.qr.textContent = "Lightning QR arrives with the Bark integration. Copy the invoice below into your Lightning wallet.";
+    } else {
+      els.qr.textContent = state.rail === "ark"
+        ? "Ark QR arrives with the Bark integration. Copy the address below."
+        : "On-chain QR arrives with the Bark integration. Copy the address below.";
+    }
+    if (state.rail === "ln" && state.ln && typeof state.ln.fee_estimate_sat === "number") {
+      els.lnFee.textContent = "Lightning gateway fee: about " +
+        state.ln.fee_estimate_sat.toLocaleString("en-US") +
+        " sats, charged by the network — not by this store.";
+      els.lnFee.classList.remove("hidden");
+    } else {
+      els.lnFee.classList.add("hidden");
+    }
   }
 
   function selectRail(rail) {
     state.rail = rail;
     els.tabArk.setAttribute("aria-selected", String(rail === "ark"));
+    els.tabLn.setAttribute("aria-selected", String(rail === "ln"));
     els.tabChain.setAttribute("aria-selected", String(rail === "chain"));
     renderAddress();
   }
+
+  els.tabLn.addEventListener("click", function () { selectRail("ln"); });
+
+  // Payment-rail extras (Lightning invoice + fee, test-mode banner) live
+  // on a sibling endpoint so the status payload stays stable. A missing
+  // endpoint or an offline fetch just leaves the Lightning tab hidden.
+  function loadRails() {
+    fetch("/i/" + encodeURIComponent(invoiceId) + "/rails", { headers: { "accept": "application/json" } })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (rails) {
+        if (!rails) return;
+        if (rails.test_mode) {
+          els.testBanner.classList.remove("hidden");
+        }
+        if (rails.lightning && rails.lightning.bolt11) {
+          state.ln = rails.lightning;
+          els.tabLn.hidden = false;
+          if (state.rail === "ln") renderAddress();
+        }
+      })
+      .catch(function () { /* rail extras are optional */ });
+  }
+  loadRails();
 
   function tickCountdown() {
     if (!state.deadline) return;

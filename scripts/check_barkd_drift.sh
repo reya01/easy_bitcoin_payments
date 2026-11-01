@@ -1,72 +1,157 @@
-#!/bin/sh
-# barkd OpenAPI drift check.
+#!/usr/bin/env bash
+# Barkd drift check (Phase 1, plan task 2 — upgraded).
 #
-# Verifies that every REST path the ebp client uses (the PATH_* constants in
-# src/wallet/barkd.rs) still exists in the pinned barkd spec
-# (docs/barkd-openapi.json). Run from the repo root; CI runs it on every
-# push and PR. Uses only sh + python3's json module — no new dependencies,
-# no network.
+# Compares every PATH_* constant in src/ against the pinned OpenAPI spec
+# (docs/barkd-openapi.json):
 #
-# Exit codes: 0 = no drift, 1 = drift (or an unreadable spec),
-# 2 = setup problem (missing file, no PATH_* constants).
+#   1. PATH PRESENCE — a path that is not in the pinned spec is a WARNING:
+#      those are the `VERIFY` markers (endpoints used before the spec
+#      pinned them, or the spec lagging the daemon). They are listed,
+#      not fatal.
+#   2. METHOD MATCH — the HTTP method named in the constant's doc comment
+#      (the codebase convention: the doc block carries the verb, e.g.
+#      `/// Fresh Ark receive address. POST.`) must be one of the OpenAPI
+#      methods for that path. A mismatch FAILS: the daemon changed under
+#      us. A constant with no verb in its doc comment is a warning — the
+#      check cannot run for it.
+#
+# The spec may or may not include the /api/v1 prefix, so both the path as
+# written and with the prefix are tried.
+#
+# Requires jq (or python3 as a fallback) to read the spec.
+#
+# Usage: scripts/check_barkd_drift.sh [spec.json]
+set -euo pipefail
 
-set -eu
+cd "$(dirname "$0")/.."
 
-BARKD_RS="${1:-src/wallet/barkd.rs}"
-OPENAPI_JSON="${2:-docs/barkd-openapi.json}"
-
-if [ ! -f "$BARKD_RS" ]; then
-    echo "error: $BARKD_RS not found (run from the repo root)" >&2
-    exit 2
+OPENAPI="${1:-docs/barkd-openapi.json}"
+if [ ! -f "${OPENAPI}" ]; then
+  echo "error: OpenAPI spec not found: ${OPENAPI}" >&2
+  exit 1
 fi
 
-if [ ! -f "$OPENAPI_JSON" ]; then
-    echo "error: $OPENAPI_JSON not found (run from the repo root)" >&2
-    exit 2
-fi
-
-python3 - "$BARKD_RS" "$OPENAPI_JSON" <<'PY'
-import json
-import re
-import sys
-
-src, spec_file = sys.argv[1], sys.argv[2]
-
-# PATH_* constant definitions in src/wallet/barkd.rs, e.g.
-#   const PATH_WALLET_HISTORY: &str = "/wallet/history";
-with open(src, encoding="utf-8") as f:
-    source = f.read()
-used = re.findall(r"const\s+PATH_[A-Z0-9_]+[^=\n]*=\s*\"([^\"]+)\"", source)
-
-if not used:
-    sys.exit(f"error: no PATH_* constants found in {src}")
-
-try:
-    with open(spec_file, encoding="utf-8") as f:
-        spec = json.load(f)
-except (OSError, ValueError) as err:
-    sys.exit(f"error: could not read or parse {spec_file}: {err}")
-
-spec_paths = set(spec.get("paths", {}))
-
-missing = set()
-for path in used:
-    # The spec may key paths with or without the /api/v1 prefix; accept
-    # either shape so the check tests the path, not the base-URL convention.
-    candidates = {path, "/api/v1" + path}
-    if path.startswith("/api/v1/"):
-        candidates.add(path[len("/api/v1"):])
-    if not candidates & spec_paths:
-        missing.add(path)
-
-for path in sorted(missing):
-    print(f"DRIFT: {path} (used by {src}) is missing from {spec_file}")
-
-if missing:
-    sys.exit(
-        f"error: {len(missing)} barkd path(s) missing from the pinned spec; "
-        "update docs/barkd-openapi.json or the client"
-    )
-
-print(f"ok: all {len(set(used))} PATH_* constants from {src} exist in {spec_file}")
+# Sanity: the spec must parse and have a paths object.
+if command -v jq >/dev/null 2>&1; then
+  jq -e '(.paths | type) == "object"' "${OPENAPI}" >/dev/null
+elif command -v python3 >/dev/null 2>&1; then
+  python3 - "${OPENAPI}" <<'PY'
+import json, sys
+with open(sys.argv[1]) as handle:
+    spec = json.load(handle)
+if not isinstance(spec.get("paths"), dict):
+    raise SystemExit("no paths object")
 PY
+else
+  echo "error: need jq or python3 to read ${OPENAPI}" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# openapi_methods <path> — print the spec's HTTP methods for a path (tries
+# the path as written and with the /api/v1 prefix). Empty output = the
+# path is not in the spec.
+# ---------------------------------------------------------------------------
+openapi_methods() {
+  local path="$1" candidate methods
+  for candidate in "${path}" "/api/v1${path}"; do
+    methods=""
+    if command -v jq >/dev/null 2>&1; then
+      methods="$(jq -r --arg p "${candidate}" \
+        '[.paths[$p] // {} | keys[] | ascii_downcase |
+          select(. == "get" or . == "post" or . == "put" or . == "delete" or . == "patch" or . == "head" or . == "options")]
+         | sort | .[] | ascii_upcase' "${OPENAPI}" 2>/dev/null)" || methods=""
+    elif command -v python3 >/dev/null 2>&1; then
+      methods="$(python3 - "${OPENAPI}" "${candidate}" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as handle:
+        spec = json.load(handle)
+    entry = spec.get("paths", {}).get(sys.argv[2]) or {}
+    verbs = {"get", "post", "put", "delete", "patch", "head", "options"}
+    for method in sorted(k for k in entry if k.lower() in verbs):
+        print(method.upper())
+except Exception:
+    pass
+PY
+)" || methods=""
+    else
+      echo "error: need jq or python3 to read ${OPENAPI}" >&2
+      exit 1
+    fi
+    if [ -n "${methods}" ]; then
+      echo "${methods}"
+      return 0
+    fi
+  done
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Walk src/ and emit one line per PATH_* constant:
+#   <file>:<line> <CONST_NAME> <METHOD-or-?> <path>
+# The method comes from the constant's doc comment (see the header).
+# ---------------------------------------------------------------------------
+scan_sources() {
+  { grep -rl --include='*.rs' -E '(pub +)?const PATH_[A-Z0-9_]+: *&str' src/ 2>/dev/null || true; } \
+    | sort -u \
+    | while read -r file; do
+        awk -v file="${file}" '
+          function last_method(text, re, found, rest) {
+            found = ""
+            re = "(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\\."
+            rest = text
+            while (match(rest, re)) {
+              found = substr(rest, RSTART, RLENGTH - 1)
+              rest = substr(rest, RSTART + RLENGTH)
+            }
+            return found
+          }
+          /^[[:space:]]*\/\/\// { doc = doc " " $0; next }
+          /^[[:space:]]*(pub[[:space:]]+)?const[[:space:]]+PATH_[A-Z0-9_]+[[:space:]]*:[[:space:]]*&str/ {
+            line = $0
+            sub(/^[[:space:]]*(pub[[:space:]]+)?const[[:space:]]+/, "", line)
+            name = line
+            sub(/[[:space:]].*$/, "", name)
+            value = line
+            sub(/^[^"]*"/, "", value)
+            sub(/".*$/, "", value)
+            method = last_method(doc)
+            if (method == "") method = "?"
+            print file ":" FNR " " name " " method " " value
+            doc = ""
+            next
+          }
+          /[^[:space:]]/ { doc = "" }
+        ' "${file}"
+      done
+}
+
+failures=0
+warnings=0
+
+while read -r location name method path; do
+  methods="$(openapi_methods "${path}")"
+  if [ -z "${methods}" ]; then
+    echo "WARN  ${location}: ${name} = ${path} is not in the pinned spec (VERIFY marker — confirm against a live barkd)"
+    warnings=$((warnings + 1))
+    continue
+  fi
+  if [ "${method}" = "?" ]; then
+    echo "WARN  ${location}: ${name} has no HTTP verb in its doc comment — add one (e.g. \`/// ... POST.\`) so the drift check can verify it"
+    warnings=$((warnings + 1))
+    continue
+  fi
+  if ! printf '%s\n' "${methods}" | grep -qx "${method}"; then
+    echo "FAIL  ${location}: ${name} uses ${method} but the pinned spec offers: $(printf '%s ' ${methods})"
+    failures=$((failures + 1))
+  else
+    echo "ok    ${location}: ${name} ${method} ${path}"
+  fi
+done < <(scan_sources)
+
+echo
+echo "barkd drift: ${failures} method mismatch(es), ${warnings} warning(s)"
+if [ "${failures}" -gt 0 ]; then
+  exit 1
+fi

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>Set up Bitcoin payments</title>
+<style>
+  :root {
+    --accent: #f7931a;
+    --bg: #ffffff;
+    --fg: #14161a;
+    --muted: #5b6472;
+    --line: #e3e6eb;
+    --ok: #12855b;
+    --warn: #a35a00;
+    --err: #b3261e;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --fg: #f2f4f8;
+      --muted: #9aa4b2;
+      --line: #242a33;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 18px 40px; }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--line);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+  .title { font-weight: 600; font-size: 15px; }
+  .banner {
+    margin: 14px 0 0; padding: 10px 14px; border: 1px solid var(--warn);
+    border-radius: 10px; color: var(--warn); font-size: 13px; font-weight: 600; text-align: center;
+  }
+  .steps { display: flex; gap: 6px; margin: 18px 0 8px; }
+  .steps span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+  .steps span.done { background: var(--ok); }
+  .steps span.now { background: var(--accent); }
+  h1 { font-size: 22px; letter-spacing: -0.01em; margin: 18px 0 6px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-top: 14px; }
+  .card a { color: var(--fg); font-weight: 600; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: transparent; color: var(--fg);
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  input.name { font-family: inherit; }
+  button.primary {
+    display: block; width: 100%; margin-top: 18px; padding: 14px; border-radius: 10px;
+    border: none; background: var(--accent); color: #14161a; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  .words {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 14px 0; padding: 14px;
+    border: 1px dashed var(--line); border-radius: 12px;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+  }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 14px; }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: 0 0 auto; }
+  .check label { margin: 0; color: var(--fg); font-size: 14px; }
+  .secret {
+    padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-all; background: transparent; color: var(--fg);
+  }
+  .cmd {
+    display: block; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+    margin-top: 10px;
+  }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .error { margin-top: 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--err); color: var(--err); font-size: 14px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="dot" aria-hidden="true"></span>
+    <span class="title">Easy Bitcoin Payments</span>
+  </header>
+
+  <div class="banner hidden" id="test-banner" role="note">TEST MODE — signet. Play money; nothing here is real.</div>
+
+  <div class="steps" aria-hidden="true">
+    <span id="s1"></span><span id="s2"></span><span id="s3"></span><span id="s4"></span>
+  </div>
+
+  <section id="step-wallet">
+    <h1>Create your wallet</h1>
+    <p class="sub">This server holds a small "till" wallet — like cash in a register — that receives payments and empties into your own wallet automatically. It lives in the barkd sidecar next to this server.</p>
+    <div class="card">
+      <label for="asp">Ark server (ASP)</label>
+      <input type="text" id="asp" value="https://ark.signet.2nd.dev" autocomplete="off">
+      <label for="network">Network</label>
+      <input type="text" id="network" value="signet" autocomplete="off">
+      <button class="primary" id="btn-wallet" type="button">Create the wallet</button>
+    </div>
+    <div class="error hidden" id="wallet-error"></div>
+  </section>
+
+  <section id="step-backup" class="hidden">
+    <h1>Write down your recovery words</h1>
+    <p class="sub">These words are the root backup of the till: with them, the wallet can be rebuilt on any machine. They are shown <strong>once</strong>. Never paste them into a chat, a document, or an AI assistant.</p>
+    <div class="card">
+      <div class="words" id="words"></div>
+      <p class="note hidden" id="words-manual"></p>
+      <div class="check">
+        <input type="checkbox" id="backup-check">
+        <label for="backup-check">I wrote the words down on paper, twice, and stored the two copies in two separate safe places.</label>
+      </div>
+      <button class="primary" id="btn-backup" type="button" disabled>Confirm the backup</button>
+    </div>
+    <div class="error hidden" id="backup-error"></div>
+  </section>
+
+  <section id="step-token" class="hidden">
+    <h1>Connect to the wallet</h1>
+    <p class="sub">The payments server talks to the wallet with a token. Run this on the machine running barkd and paste the result — the AI never sees it:</p>
+    <div class="card">
+      <code class="cmd">docker compose exec barkd barkd --datadir /data secret show</code>
+      <label for="token">barkd token</label>
+      <input type="password" id="token" autocomplete="off">
+      <button class="primary" id="btn-token" type="button">Verify and save</button>
+      <p class="note hidden" id="token-note"></p>
+    </div>
+    <div class="error hidden" id="token-error"></div>
+  </section>
+
+  <section id="step-store" class="hidden">
+    <h1>Name your store</h1>
+    <p class="sub">The store is what your shop (or the WooCommerce plugin, later) authenticates as when it creates invoices.</p>
+    <div class="card">
+      <label for="store">Store name</label>
+      <input type="text" id="store" class="name" placeholder="My store">
+      <button class="primary" id="btn-store" type="button">Create the store</button>
+      <div class="hidden" id="store-secrets">
+        <p class="note">API key — shown once, save it in a password manager:</p>
+        <div class="secret" id="api-key"></div>
+        <p class="note">Webhook signing secret — shown once:</p>
+        <div class="secret" id="webhook-secret"></div>
+      </div>
+      <button class="primary hidden" id="btn-done" type="button">Continue</button>
+    </div>
+    <div class="error hidden" id="store-error"></div>
+  </section>
+
+  <section id="step-done" class="hidden">
+    <h1>Setup complete</h1>
+    <p class="sub">Your server can now take payments. Open the dashboard to watch them arrive — and to see the till empty into your own wallet.</p>
+    <div class="card"><a href="/dashboard">Go to the dashboard</a></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var els = {
+    testBanner: document.getElementById("test-banner"),
+    steps: [
+      document.getElementById("s1"),
+      document.getElementById("s2"),
+      document.getElementById("s3"),
+      document.getElementById("s4")
+    ],
+    wallet: document.getElementById("step-wallet"),
+    asp: document.getElementById("asp"),
+    network: document.getElementById("network"),
+    btnWallet: document.getElementById("btn-wallet"),
+    walletError: document.getElementById("wallet-error"),
+    backup: document.getElementById("step-backup"),
+    words: document.getElementById("words"),
+    wordsManual: document.getElementById("words-manual"),
+    backupCheck: document.getElementById("backup-check"),
+    btnBackup: document.getElementById("btn-backup"),
+    backupError: document.getElementById("backup-error"),
+    token: document.getElementById("step-token"),
+    tokenInput: document.getElementById("token"),
+    btnToken: document.getElementById("btn-token"),
+    tokenNote: document.getElementById("token-note"),
+    tokenError: document.getElementById("token-error"),
+    store: document.getElementById("step-store"),
+    storeName: document.getElementById("store"),
+    btnStore: document.getElementById("btn-store"),
+    storeSecrets: document.getElementById("store-secrets"),
+    apiKey: document.getElementById("api-key"),
+    webhookSecret: document.getElementById("webhook-secret"),
+    btnDone: document.getElementById("btn-done"),
+    storeError: document.getElementById("store-error"),
+    done: document.getElementById("step-done")
+  };
+
+  var sections = ["wallet", "backup", "token", "store", "done"];
+
+  function show(name) {
+    sections.forEach(function (section) {
+      els[section].classList.toggle("hidden", section !== name);
+    });
+  }
+
+  function markStep(step) {
+    els.steps.forEach(function (element, index) {
+      element.className = index < step ? "done" : index === step ? "now" : "";
+    });
+  }
+
+  function fail(element, message) {
+    element.textContent = message;
+    element.classList.remove("hidden");
+  }
+
+  function clearFail(element) {
+    element.classList.add("hidden");
+  }
+
+  function api(method, path, body) {
+    return fetch(path, {
+      method: method,
+      headers: { "content-type": "application/json", "accept": "application/json" },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "The server answered HTTP " + res.status + ".");
+        }
+        return data;
+      });
+    });
+  }
+
+  function resume(status) {
+    if (status.mode === "test") els.testBanner.classList.remove("hidden");
+    if (status.mode === "live") {
+      els.network.value = "mainnet";
+      els.asp.value = "";
+      els.asp.placeholder = "https://your-asp.example";
+    }
+    if (status.setup_complete) { markStep(4); show("done"); return; }
+    if (!status.wallet_created) { markStep(0); show("wallet"); return; }
+    if (!status.backup_confirmed) {
+      markStep(1);
+      show("backup");
+      els.words.classList.add("hidden");
+      els.wordsManual.textContent = "The recovery words were shown when the wallet was created — they are not shown again. If you did not write them down, follow barkd's wallet-export instructions on the server now, write them down, and only then confirm.";
+      els.wordsManual.classList.remove("hidden");
+      return;
+    }
+    if (!status.config_written) { markStep(2); show("token"); return; }
+    markStep(3);
+    show("store");
+  }
+
+  api("GET", "/setup/status")
+    .then(resume)
+    .catch(function (err) {
+      fail(els.walletError, "Could not read the setup status: " + err.message);
+    });
+
+  els.btnWallet.addEventListener("click", function () {
+    clearFail(els.walletError);
+    els.btnWallet.disabled = true;
+    api("POST", "/setup/wallet", {
+      asp_url: els.asp.value.trim(),
+      network: els.network.value.trim()
+    })
+      .then(function (result) {
+        if (result.mnemonic) {
+          els.words.textContent = "";
+          result.mnemonic.trim().split(/\s+/).forEach(function (word, index) {
+            var item = document.createElement("span");
+            item.textContent = (index + 1) + ". " + word;
+            els.words.appendChild(item);
+          });
+        } else {
+          els.words.classList.add("hidden");
+          els.wordsManual.textContent = result.manual_instructions ||
+            "barkd did not return the recovery words. Follow barkd's own wallet-export instructions on the server to see them.";
+          els.wordsManual.classList.remove("hidden");
+        }
+        markStep(1);
+        show("backup");
+      })
+      .catch(function (err) { fail(els.walletError, err.message); })
+      .finally(function () { els.btnWallet.disabled = false; });
+  });
+
+  els.backupCheck.addEventListener("change", function () {
+    els.btnBackup.disabled = !els.backupCheck.checked;
+  });
+
+  els.btnBackup.addEventListener("click", function () {
+    clearFail(els.backupError);
+    els.btnBackup.disabled = true;
+    api("POST", "/setup/wallet/confirm-backup", { confirmed: true })
+      .then(function () { markStep(2); show("token"); })
+      .catch(function (err) { fail(els.backupError, err.message); })
+      .finally(function () { els.btnBackup.disabled = false; });
+  });
+
+  els.btnToken.addEventListener("click", function () {
+    clearFail(els.tokenError);
+    var token = els.tokenInput.value.trim();
+    if (!token) {
+      fail(els.tokenError, "Paste the token from `barkd secret show` first.");
+      return;
+    }
+    els.btnToken.disabled = true;
+    api("POST", "/setup/token", { token: token })
+      .then(function (result) {
+        els.tokenNote.textContent = result.verified
+          ? ("Verified. " + (result.restart_required
+              ? "Now add EBP_BARKD_TOKEN to your deployment environment (docker-compose environment or systemd unit) and restart the payments server, so the token survives restarts. The wizard's copy works until then."
+              : "The token is already in this server's environment — nothing more to do."))
+          : "Not verified.";
+        els.tokenNote.classList.remove("hidden");
+        els.tokenInput.value = "";
+        markStep(3);
+        show("store");
+      })
+      .catch(function (err) { fail(els.tokenError, err.message); })
+      .finally(function () { els.btnToken.disabled = false; });
+  });
+
+  els.btnStore.addEventListener("click", function () {
+    clearFail(els.storeError);
+    var name = els.storeName.value.trim();
+    if (!name) {
+      fail(els.storeError, "Give the store a name first.");
+      return;
+    }
+    els.btnStore.disabled = true;
+    api("POST", "/setup/store", { name: name })
+      .then(function (result) {
+        if (result.api_key) {
+          els.apiKey.textContent = result.api_key;
+          els.webhookSecret.textContent = result.webhook_secret || "—";
+          els.storeSecrets.classList.remove("hidden");
+          els.btnStore.classList.add("hidden");
+          els.btnDone.classList.remove("hidden");
+        } else {
+          markStep(4);
+          show("done");
+        }
+      })
+      .catch(function (err) { fail(els.storeError, err.message); })
+      .finally(function () { els.btnStore.disabled = false; });
+  });
+
+  els.btnDone.addEventListener("click", function () {
+    markStep(4);
+    show("done");
+  });
+})();
+</script>
+</body>
+</html>

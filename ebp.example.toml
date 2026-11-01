@@ -1,88 +1,89 @@
 # Easy Bitcoin Payments — example configuration.
 #
-# Copy to `ebp.toml` (or point EBP_CONFIG at it) and edit.
-# Most scalar values here can also be set with an EBP_* environment variable,
-# which takes precedence over this file.
+# Copy to ebp.toml (or point EBP_CONFIG at it) and edit. Every key is
+# optional; anything unset falls back to the built-in default shown here.
+# EBP_* environment variables override the file — see src/config.rs.
+#
+# The barkd bearer token is deliberately NOT a file key: it is env-only
+# (EBP_BARKD_TOKEN), set in your deployment environment, never in a file
+# that might get committed or backed up.
 
-# Address the HTTP server binds to.
+# Where the server listens. Keep it behind a reverse proxy with TLS.
 bind_addr = "0.0.0.0:8080"
 
-# SQLite database file. The parent directory is created automatically.
+# SQLite database file.
 database_path = "./data/ebp.sqlite3"
 
-# Public URL of this server. Used to build checkout links returned by the API.
-# Set this to your real https:// domain in production.
+# The address customers and your phone open — used to build checkout URLs.
 public_base_url = "http://localhost:8080"
 
-# Invoice lifetime (the BTC rate is locked for this long).
+# "test" (default; signet, play money, test invoices flagged and excluded
+# from the accounting export) or "live" (mainnet). One flag flips the
+# deployment — read docs/RECIPE_SETUP.md before going live.
+mode = "test"
+
+# Invoice lifetime (minutes): the default per invoice, and the ceiling a
+# store may ask for.
 default_expiry_minutes = 20
 max_expiry_minutes = 1440
 
-# Currency used when a request does not specify one.
+# Default fiat currency when an invoice does not name one.
 default_currency = "EUR"
 
-# Static fiat-per-BTC values used when rates_provider = "static" (the
-# default). Set rates_provider = "live" to use the median of public APIs.
+# "static" (use the static_rates below — deterministic, offline) or "live"
+# (median of public spot APIs, cached briefly; the source is recorded per
+# invoice).
+rates_provider = "static"
+
+# Per-source timeout for the live rate provider.
+rates_timeout_secs = 5
+
+# The till: the server's capped hot wallet. When the off-chain balance
+# passes this, the settlement engine sweeps to settlement_destination.
+hot_wallet_cap_sats = 500000
+
+# How often the payment watcher polls barkd.
+watcher_interval_secs = 10
+
+# Timeout for webhook deliveries to the store.
+webhook_timeout_secs = 10
+
+# Log level (RUST_LOG syntax).
+log_level = "info,tower_http=info"
+
+# Master key for encrypting wallet material and webhook secrets at rest.
+# Unset = at-rest encryption not yet enabled (documented TODO, Phase 1).
+# key_encryption_key = "…"
+
+# Admin token for the dashboard session, if you use one.
+# admin_token = "…"
+
+# The barkd sidecar REST API. Loopback / internal container network only —
+# barkd serves plain HTTP.
+barkd_url = "http://127.0.0.1:3000/api/v1"
+
+# Checkout theming.
+checkout_policy_url = "https://example.com/refund-policy"
+checkout_accent_color = "#f7931a"
+
+# Where the settlement engine sweeps the till to: your own wallet. An Ark
+# address on the same ASP (e.g. Arké) sweeps via an Ark send; a Bitcoin
+# on-chain address sweeps via cooperative offboarding. Unset disables
+# automatic settlement.
+# settlement_destination = "ark1…"
+
+# How often the settlement engine runs.
+settlement_interval_secs = 300
+
+# Renew or settle VTXOs this long before their per-VTXO expiry.
+renewal_lead_time_secs = 604800
+
+# Create a Lightning invoice (ASP gateway) for each checkout invoice.
+lightning_receive_enabled = true
+
+# BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).
 [static_rates]
 EUR = 95000.0
 USD = 88000.0
 GBP = 82000.0
 CHF = 99000.0
-
-# Custody Level 0: the server till is capped at this many sats.
-hot_wallet_cap_sats = 500000
-
-# How often the payment watcher polls the wallet adapter.
-watcher_interval_secs = 10
-
-# Timeout for a single webhook delivery attempt.
-webhook_timeout_secs = 10
-
-# Log filter (tracing EnvFilter syntax).
-log_level = "info,tower_http=info"
-
-# Master key for encrypting wallet material and webhook secrets at rest.
-# TODO(Phase 1): at-rest encryption is not implemented yet. Leave unset for now.
-# key_encryption_key = ""
-
-# Optional admin token for the dashboard (Phase 1 wires this up).
-# admin_token = ""
-
-# Shown on the checkout page as the merchant's refund policy link.
-# checkout_policy_url = "https://shop.example.com/refund-policy"
-
-# Checkout accent colour (merchant branding).
-checkout_accent_color = "#f7931a"
-
-# --- barkd sidecar (Phase 1) -------------------------------------------------
-#
-# The wallet layer is a client of the barkd sidecar's REST API. The URL
-# points at the loopback daemon (or the internal container network); barkd
-# serves plain HTTP, so keep it off the public internet.
-# barkd_url = "http://127.0.0.1:3000/api/v1"
-
-# The bearer token is env-only on purpose (EBP_BARKD_TOKEN) so it never
-# lands in a config file or a backup:
-#   barkd --datadir <path> secret show
-
-# --- settlement (Phase 1) ------------------------------------------------------
-#
-# Where the settlement engine sweeps the till to: your own wallet. An Ark
-# address on the same ASP (e.g. your Arké wallet) sweeps via an Ark send; a
-# Bitcoin on-chain address sweeps via cooperative offboarding. Leave unset to
-# disable automatic settlement.
-# settlement_destination = "ark1..."
-
-# How often the settlement engine runs.
-settlement_interval_secs = 300
-
-# Renew or settle VTXOs this long before their per-VTXO expiry (7 days).
-# Lightning-received VTXOs live only 1-3 days and are always treated as
-# urgent by the expiry queue.
-renewal_lead_time_secs = 604800
-
-# --- lightning receive (Phase 1) ----------------------------------------------
-#
-# Create a Lightning invoice (ASP gateway) for every checkout invoice, best
-# effort — checkout stays functional over Ark and on-chain without it.
-lightning_receive_enabled = true

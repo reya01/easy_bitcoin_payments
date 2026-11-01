@@ -9,10 +9,10 @@ testnet (signet) invoice and a verified sweep to their own wallet — about
 exercised against that release before it is tagged.
 
 Every step has a plain-text fallback: you can follow this document with no
-AI at all. Where the in-product setup wizard has not shipped yet, the step
-is marked **[WIZARD PENDING]** and gives the manual commands that do the
-same job today. If anything you see does not match what this recipe says,
-that is a bug in the recipe — report it; every stumble becomes a fix.
+AI at all. Steps the product does not cover yet are marked **[PENDING]**
+and give the manual commands that do the same job today. If anything you
+see does not match what this recipe says, that is a bug in the recipe —
+report it; every stumble becomes a fix.
 
 ## Rules for the AI assistant (read before anything else)
 
@@ -63,12 +63,36 @@ minute. If it does not, `docker compose logs barkd` says why.
 
 **STOP** — confirm barkd is healthy before continuing.
 
-## Step 2 — First-run setup **[WIZARD PENDING]**
+## Step 2 — First-run setup (the wizard)
 
-When the wizard ships, it opens on first run, asks three plain questions
-(where is your store, where will this run, what email gets alerts), then
-creates the wallet, walks the backup, wires the token, and creates your
-store — no terminal. Until then, do the same by hand in 2a–2d below.
+Open `http://YOUR-SERVER-ADDRESS:8080/setup` on the iPhone. The wizard
+walks the whole first run — create the till wallet, back up the recovery
+words, verify the barkd token, create the store — and the invoice and
+checkout endpoints stay closed (503 SetupIncomplete) until the backup is
+confirmed. The AI assistant reads each screen aloud and checks the
+expected result; it never sees the recovery words or the token.
+
+**STOP — the recovery words.** The wizard shows them exactly once, when
+the wallet is created. The merchant — not the AI — writes them down on
+paper, twice, and stores the two copies in two separate safe places.
+This is the root backup of the till: with it, the wallet can be rebuilt
+on any machine. Never paste it into a chat, a document, or the AI. The
+AI must not ask what it says.
+
+**STOP — two secrets at the end.** The wizard shows the store's API key
+and webhook signing secret exactly once. The merchant saves both in a
+password manager. The AI never sees them.
+
+**Expected:** the wizard finishes on a screen that says setup is
+complete. If it does not, `http://YOUR-SERVER-ADDRESS:8080/setup/status`
+says which step is missing.
+
+After the wizard: add `EBP_BARKD_TOKEN` (the same token you pasted) to
+the deployment environment and restart the payments server, so the token
+survives restarts — the wizard says so on its token screen.
+
+Manual fallback (scripted installs, or if anything is wrong with the
+wizard): the same steps by hand, exactly as in 2a–2d below.
 
 ### 2a. Create the till wallet
 
@@ -201,15 +225,16 @@ Two honest notes:
 | health endpoint unreachable | ebp did not start | `docker compose logs ebp` |
 | invoice stays pending after paying | the payment has not been observed yet | wait one watcher tick (~10 s); confirm the health endpoint shows the wallet reachable; confirm you paid on signet, not mainnet |
 | sweep did not arrive | reserve guard or timing | check `docker compose logs ebp` for settlement lines; the engine runs every few minutes |
+| invoice API answers 503 SetupIncomplete | first-run setup is not finished | open `/setup` and finish the wizard; `/setup/status` says which step is missing |
 
 ## Where to go next
 
 - Going live (mainnet) is a config change plus a funded wallet — read the
   docs first; the custody statement explains exactly what the server can
   and cannot do at this phase.
-- The lost-phone runbook and the backup/restore drill ship with the
-  wizard; the recovery words from step 2a are the root backup in the
-  meantime.
+- The lost-phone runbook and the backup/restore drill live in
+  `docs/RECIPE_BACKUP.md`; the recovery words from step 2 are the root
+  backup.
 
 ## For the AI assistant: when this recipe ends
 

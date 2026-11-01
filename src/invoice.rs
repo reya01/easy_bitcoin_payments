@@ -272,6 +272,37 @@ pub fn get_lightning_invoice(
     .map_err(Into::into)
 }
 
+/// Whether this invoice was created in test mode — the `test: true`
+/// metadata marker set at creation when `mode = "test"`. Test invoices are
+/// excluded from the accounting CSV export so no test data can reach a
+/// mainnet-shaped export. Non-object metadata is never flagged (the
+/// creation path only adds markers to objects).
+pub fn is_test_invoice(metadata_json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(metadata_json)
+        .ok()
+        .and_then(|metadata| metadata.get("test").and_then(|value| value.as_bool()))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod test_mode_tests {
+    use super::is_test_invoice;
+
+    #[test]
+    fn the_test_marker_is_detected() {
+        assert!(is_test_invoice(r#"{"test": true}"#));
+        assert!(is_test_invoice(r#"{"order_id": "wc-1", "test": true}"#));
+    }
+
+    #[test]
+    fn anything_else_is_not_a_test_invoice() {
+        assert!(!is_test_invoice(r#"{"order_id": "wc-1"}"#));
+        assert!(!is_test_invoice("{}"));
+        assert!(!is_test_invoice(r#"{"test": false}"#));
+        assert!(!is_test_invoice("not json at all"));
+    }
+}
+
 /// Record an observed payment and advance the invoice state machine.
 ///
 /// Returns `Ok(None)` when the invoice does not exist, is not pending, or the

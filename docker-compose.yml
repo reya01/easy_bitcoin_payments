@@ -39,7 +39,11 @@ services:
       EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
       EBP_BARKD_URL: http://barkd:3000/api/v1
       # Provision once: docker compose exec barkd barkd --datadir /data secret show
-      EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:?export EBP_BARKD_TOKEN first (see the line above)}
+            # Empty by default: the token does not exist until the setup wizard
+      # provisions it. After the wizard's token step, put the token in a
+      # `.env` file next to this compose file (EBP_BARKD_TOKEN=...) and run
+      # `docker compose up -d` again to hand it to the server.
+      EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:-}
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
       EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}
     ports:

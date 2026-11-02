@@ -220,6 +220,8 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | Ping returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry |
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |
 | `set: Illegal option -o pipefail` | script run with `sh` instead of `bash` | fixed in repo; use `bash scripts/...` |
+| `ebp` container says `Restarting`, no ping on 8080 | migration 0004 (settings table) was missing from the migration list — fixed in repo | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build ebp && sudo docker compose up -d` |
+| barkd unhealthy / ebp waits on it | old cached barkd image | `sudo docker compose build --no-cache barkd` then `up -d` |
 
 **Universal debugging pattern:** run the failing command again, copy the
 LAST 10 lines of output, send them. Never retype an error by hand.

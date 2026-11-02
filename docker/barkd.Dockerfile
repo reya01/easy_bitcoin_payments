@@ -1,30 +1,33 @@
 # syntax=docker/dockerfile:1
 #
-# barkd sidecar for Easy Bitcoin Payments, pinned to a bark source tag.
+# barkd sidecar for Easy Bitcoin Payments, pinned to Second's PREBUILT
+# barkd 0.8.0 release binary (GitLab release assets — the same binaries we
+# live-verified on signet). Compiling Bark from source inside a small VPS
+# build is slow and memory-hungry; the release binary avoids that.
 #
-# Second publishes no registry image we can digest-pin, so we build from the
-# tag. Before trusting this image with mainnet funds, verify the tag's commit
-# hash against Second's signed release notes and record it here. When a
-# registry image appears, replace this file's use in docker-compose.yml
-# with `image: <registry>/barkd@sha256:<digest>`.
+# Before trusting this image with mainnet funds: verify the downloaded
+# binary against the SHA256SUMS published with the GitLab release
+# (https://gitlab.com/ark-bitcoin/bark/-/releases) and record the hash here.
 
-ARG BARK_VERSION=0.8.0
-
-FROM rust:1-bookworm AS builder
-ARG BARK_VERSION
-# VERIFY: tag format — Second tags bark releases as v<version>.
-RUN git clone --depth 1 --branch "v${BARK_VERSION}" https://github.com/second-tech/bark.git /src
-WORKDIR /src
-RUN cargo build --release -p barkd
+ARG TARGETARCH
 
 FROM debian:bookworm-slim
+ARG TARGETARCH
+# GitLab release-asset arch names differ from Docker's TARGETARCH values.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
+ && case "$TARGETARCH" in \
+      amd64) BARK_ARCH=x86_64 ;; \
+      arm64) BARK_ARCH=aarch64 ;; \
+      *) echo "unsupported arch: $TARGETARCH" && exit 1 ;; \
+    esac \
+ && curl -fsSL "https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-0.8.0/barkd-0.8.0-linux-${BARK_ARCH}" \
+      -o /usr/local/bin/barkd \
+ && chmod +x /usr/local/bin/barkd \
  && useradd --system --uid 10002 --create-home --home-dir /home/barkd barkd \
  && mkdir -p /data \
  && chown barkd:barkd /data
-COPY --from=builder /src/target/release/barkd /usr/local/bin/barkd
 USER barkd
 VOLUME ["/data"]
 EXPOSE 3000

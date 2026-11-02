@@ -214,6 +214,8 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | `required variable EBP_BARKD_TOKEN is missing` | old compose file demanded the token before the wizard created it | fixed in the repo; `git pull`, retry. Manual fallback: `echo "EBP_BARKD_TOKEN=" > ~/easy_bitcoin_payments/.env` then `docker compose up -d` |
 | `cd: no such file or directory .../deploy` | the compose file is at the repo ROOT | `cd ~/easy_bitcoin_payments` (no /deploy) |
 | Build ends with `Killed` | out of RAM (t4g.small) | use t4g.medium, rebuild |
+| `could not read Username for 'https://github.com'` during build | old barkd Dockerfile cloned a nonexistent GitHub repo | fixed in the repo — `cd ~/easy_bitcoin_payments && git pull`, rebuild |
+| `failed to solve` during build (general) | read the LAST error line above it | send the last 10 lines to the developer |
 | Ping returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry |
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |
 | `set: Illegal option -o pipefail` | script run with `sh` instead of `bash` | fixed in repo; use `bash scripts/...` |

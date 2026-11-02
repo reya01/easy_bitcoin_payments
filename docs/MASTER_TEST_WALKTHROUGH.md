@@ -127,7 +127,7 @@ cd ~/easy_bitcoin_payments
 ```
 sudo docker compose build
 ```
-→ **15–25 minutes** of scrolling text. Normal. If it ends with **Killed**:
+→ **~5–10 minutes** (the barkd sidecar is now a prebuilt binary download; only the EBP server compiles). If it ends with **Killed**:
 out of memory — your instance is not t4g.medium; fix per Part 1.4 and redo
 from `docker compose build`.
 
@@ -214,7 +214,8 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | `required variable EBP_BARKD_TOKEN is missing` | old compose file demanded the token before the wizard created it | fixed in the repo; `git pull`, retry. Manual fallback: `echo "EBP_BARKD_TOKEN=" > ~/easy_bitcoin_payments/.env` then `docker compose up -d` |
 | `cd: no such file or directory .../deploy` | the compose file is at the repo ROOT | `cd ~/easy_bitcoin_payments` (no /deploy) |
 | Build ends with `Killed` | out of RAM (t4g.small) | use t4g.medium, rebuild |
-| `could not read Username for 'https://github.com'` during build | old barkd Dockerfile cloned a nonexistent GitHub repo | fixed in the repo — `cd ~/easy_bitcoin_payments && git pull`, rebuild |
+| `could not read Username for 'https://github.com'` during build | old barkd Dockerfile cloned a nonexistent GitHub repo | fixed — `cd ~/easy_bitcoin_payments && git pull`, rebuild |
+| `manifest unknown` or 404 during build | arm64 asset-name mismatch (fixed) | `git pull` and rebuild |
 | `failed to solve` during build (general) | read the LAST error line above it | send the last 10 lines to the developer |
 | Ping returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry |
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |

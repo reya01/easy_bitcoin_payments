@@ -10,6 +10,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_init.sql"),
     include_str!("../migrations/0002_payments_txid_guard.sql"),
     include_str!("../migrations/0003_settlement.sql"),
+    include_str!("../migrations/0004_settings.sql"),
 ];
 
 /// A tiny SQLite handle.

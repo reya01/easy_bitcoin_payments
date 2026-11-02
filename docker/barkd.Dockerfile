@@ -10,7 +10,7 @@
 
 ARG BARK_VERSION=0.8.0
 
-FROM rust:1.82-bookworm AS builder
+FROM rust:1-bookworm AS builder
 ARG BARK_VERSION
 # VERIFY: tag format — Second tags bark releases as v<version>.
 RUN git clone --depth 1 --branch "v${BARK_VERSION}" https://github.com/second-tech/bark.git /src

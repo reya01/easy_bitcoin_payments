@@ -23,7 +23,8 @@ pub(crate) const BODY_MNEMONIC: &str = r#"{"mnemonic":"faint toss city dinner sa
 /// values, NOT constants. A wallet with spendable VTXOs can return a
 /// nonzero fee and a populated `vtxos_spent`; the parser must take all
 /// four fields from the body and assume none of them.
-pub(crate) const BODY_LN_FEE_EMPTY_WALLET: &str = r#"{"gross_amount_sat":5000,"fee_sat":0,"net_amount_sat":5000,"vtxos_spent":[]}"#;
+pub(crate) const BODY_LN_FEE_EMPTY_WALLET: &str =
+    r#"{"gross_amount_sat":5000,"fee_sat":0,"net_amount_sat":5000,"vtxos_spent":[]}"#;
 
 #[cfg(test)]
 mod shape_tests {
@@ -57,7 +58,11 @@ mod shape_tests {
         assert_eq!(v["net_amount_sat"], 5000);
         assert_eq!(v["vtxos_spent"].as_array().unwrap().len(), 0);
         for field in ["gross_amount_sat", "fee_sat", "net_amount_sat"].iter() {
-            assert!(v[*field].is_i64(), "{} must be an integer, not a string", field);
+            assert!(
+                v[*field].is_i64(),
+                "{} must be an integer, not a string",
+                field
+            );
         }
     }
 }

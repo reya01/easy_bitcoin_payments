@@ -181,8 +181,10 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
 
     // Per the spec's state machine, `underpaid` also expires when the
     // countdown ends — there is no partial-payment top-up path in v1.0.
-    if matches!(invoice.status, InvoiceStatus::Pending | InvoiceStatus::Underpaid)
-        && now_unix() >= invoice.expires_at
+    if matches!(
+        invoice.status,
+        InvoiceStatus::Pending | InvoiceStatus::Underpaid
+    ) && now_unix() >= invoice.expires_at
     {
         conn.execute(
             "UPDATE invoices SET status = ?1 WHERE id = ?2 AND status IN ('pending', 'underpaid')",
@@ -607,7 +609,16 @@ mod tests {
 
         let (invoice, status) = db
             .call(|conn| {
-                record_payment(conn, "inv_1", "ark", 1500, Some("vtxo_1"), None, now_unix(), None)
+                record_payment(
+                    conn,
+                    "inv_1",
+                    "ark",
+                    1500,
+                    Some("vtxo_1"),
+                    None,
+                    now_unix(),
+                    None,
+                )
             })
             .await
             .unwrap()
@@ -627,7 +638,16 @@ mod tests {
 
         let (invoice, status) = db
             .call(|conn| {
-                record_payment(conn, "inv_1", "ark", 400, Some("vtxo_1"), None, now_unix(), None)
+                record_payment(
+                    conn,
+                    "inv_1",
+                    "ark",
+                    400,
+                    Some("vtxo_1"),
+                    None,
+                    now_unix(),
+                    None,
+                )
             })
             .await
             .unwrap()
@@ -647,14 +667,32 @@ mod tests {
             .unwrap();
 
         db.call(|conn| {
-            record_payment(conn, "inv_1", "ark", 1000, Some("vtxo_1"), None, now_unix(), None)
+            record_payment(
+                conn,
+                "inv_1",
+                "ark",
+                1000,
+                Some("vtxo_1"),
+                None,
+                now_unix(),
+                None,
+            )
         })
         .await
         .unwrap();
 
         let second = db
             .call(|conn| {
-                record_payment(conn, "inv_1", "ark", 1000, Some("vtxo_1"), None, now_unix(), None)
+                record_payment(
+                    conn,
+                    "inv_1",
+                    "ark",
+                    1000,
+                    Some("vtxo_1"),
+                    None,
+                    now_unix(),
+                    None,
+                )
             })
             .await
             .unwrap();
@@ -676,7 +714,16 @@ mod tests {
 
         let result = db
             .call(|conn| {
-                record_payment(conn, "inv_1", "ark", 1000, Some("vtxo_9"), None, now_unix(), None)
+                record_payment(
+                    conn,
+                    "inv_1",
+                    "ark",
+                    1000,
+                    Some("vtxo_9"),
+                    None,
+                    now_unix(),
+                    None,
+                )
             })
             .await
             .unwrap();

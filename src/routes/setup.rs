@@ -66,8 +66,8 @@ const SETUP_HTML: &str = include_str!("../../assets/setup.html");
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::response::Html;
 use axum::http::{header, StatusCode};
+use axum::response::Html;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -127,7 +127,11 @@ fn runtime_token_cell() -> &'static RwLock<Option<String>> {
 /// The barkd token available to the running process: the wizard-applied
 /// token if one was set, else the boot-time env token. Never logged.
 pub fn effective_barkd_token(config: &crate::config::Config) -> Option<String> {
-    if let Some(token) = runtime_token_cell().read().ok().and_then(|cell| cell.clone()) {
+    if let Some(token) = runtime_token_cell()
+        .read()
+        .ok()
+        .and_then(|cell| cell.clone())
+    {
         return Some(token);
     }
     config.barkd_token.clone()
@@ -192,7 +196,8 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
     // by the wallet/token steps.
     if !snapshot.wallet_created && token.is_some() {
         if let Some(base_url) = barkd_base_url(&state.config) {
-            if let Some(status) = barkd_get(&base_url, PATH_WALLET_BALANCE, token.as_deref()).await {
+            if let Some(status) = barkd_get(&base_url, PATH_WALLET_BALANCE, token.as_deref()).await
+            {
                 if status.is_success() {
                     snapshot.wallet_created = true;
                 }
@@ -634,7 +639,10 @@ pub async fn create_wallet(
 
     // no-store: the mnemonic must not live in any cache.
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
     Ok((StatusCode::OK, headers, Json(response)).into_response())
 }
 
@@ -673,7 +681,9 @@ async fn create_till_wallet(
 
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(|err| {
-            AppError::Internal(format!("barkd's wallet-create answer was not valid JSON: {err}"))
+            AppError::Internal(format!(
+                "barkd's wallet-create answer was not valid JSON: {err}"
+            ))
         })?;
         // VERIFY: field name — the recipe says the answer includes the
         // recovery words; the field name is not pinned by the spec.
@@ -684,7 +694,11 @@ async fn create_till_wallet(
             .map(str::trim)
             .filter(|words| !words.is_empty())
             .map(str::to_string);
-        return Ok(CreateWalletOutcome { created: true, already_exists: false, mnemonic });
+        return Ok(CreateWalletOutcome {
+            created: true,
+            already_exists: false,
+            mnemonic,
+        });
     }
 
     // barkd refused. A wallet may already exist (the manual recipe path,
@@ -938,7 +952,10 @@ pub async fn create_store(
 
     // no-store: the API key and webhook secret are shown exactly once.
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
     Ok((StatusCode::OK, headers, Json(response)).into_response())
 }
 
@@ -1107,7 +1124,11 @@ fn recompute_setup_complete(conn: &rusqlite::Connection) -> Result<bool, AppErro
     let token = settings::get_bool(conn, "setup_token_verified")?;
     let stores: i64 = conn.query_row("SELECT COUNT(*) FROM stores", [], |row| row.get(0))?;
     let complete = wallet && backup && token && stores > 0;
-    settings::set(conn, "setup_complete", if complete { "true" } else { "false" })?;
+    settings::set(
+        conn,
+        "setup_complete",
+        if complete { "true" } else { "false" },
+    )?;
     Ok(complete)
 }
 
@@ -1145,7 +1166,7 @@ mod tests {
             CREATE TABLE settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            )"
+            )",
         )
         .expect("stores table");
         conn
@@ -1247,7 +1268,9 @@ mod tests {
     #[test]
     fn second_store_is_refused_and_secrets_are_prepared_once() {
         let conn = memory_db();
-        let first = insert_first_store(&conn, "First").unwrap().expect("created");
+        let first = insert_first_store(&conn, "First")
+            .unwrap()
+            .expect("created");
         assert!(!first.api_key.is_empty());
         // Delegated to store::create: no webhook URL at wizard time, so no
         // webhook secret yet — and the secret is never stored verbatim.
@@ -1290,8 +1313,13 @@ mod tests {
             "200 OK",
             r#"{"mnemonic": "word one two three four five six seven eight nine ten eleven twelve"}"#,
         );
-        let outcome =
-            block_on(create_till_wallet(&base_url, "signet", DEFAULT_SIGNET_ASP, None)).unwrap();
+        let outcome = block_on(create_till_wallet(
+            &base_url,
+            "signet",
+            DEFAULT_SIGNET_ASP,
+            None,
+        ))
+        .unwrap();
         assert!(outcome.created);
         assert!(!outcome.already_exists);
         assert_eq!(
@@ -1303,8 +1331,13 @@ mod tests {
     #[test]
     fn wallet_create_is_honest_when_barkd_hides_the_mnemonic() {
         let base_url = spawn_barkd("200 OK", r#"{"ok": true}"#);
-        let outcome =
-            block_on(create_till_wallet(&base_url, "signet", DEFAULT_SIGNET_ASP, None)).unwrap();
+        let outcome = block_on(create_till_wallet(
+            &base_url,
+            "signet",
+            DEFAULT_SIGNET_ASP,
+            None,
+        ))
+        .unwrap();
         assert!(outcome.created);
         assert!(outcome.mnemonic.is_none(), "never guessed, never faked");
     }

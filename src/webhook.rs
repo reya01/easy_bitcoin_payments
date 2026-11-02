@@ -11,8 +11,8 @@ pub const DEFAULT_TOLERANCE_SECS: i64 = 300;
 /// Build the `X-EBP-Signature` header value:
 /// `t=<unix>, v1=<hex HMAC_SHA256(secret, "<t>.<body>")>`
 pub fn sign_payload(secret: &str, timestamp: i64, body: &[u8]) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts keys of any length");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts keys of any length");
     mac.update(format!("{timestamp}.").as_bytes());
     mac.update(body);
     let signature = hex::encode(mac.finalize().into_bytes());
@@ -178,7 +178,13 @@ mod tests {
         let now = 1_700_000_000;
         assert!(!verify_signature(SECRET, "", b"x", now, 300));
         assert!(!verify_signature(SECRET, "v1=abc", b"x", now, 300));
-        assert!(!verify_signature(SECRET, "t=notanumber,v1=abc", b"x", now, 300));
+        assert!(!verify_signature(
+            SECRET,
+            "t=notanumber,v1=abc",
+            b"x",
+            now,
+            300
+        ));
         assert!(!verify_signature(SECRET, "t=1700000000", b"x", now, 300));
     }
 }

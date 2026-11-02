@@ -60,4 +60,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Check the barkd client's paths against the pinned OpenAPI spec
-        run: sh scripts/check_barkd_drift.sh
+        run: bash scripts/check_barkd_drift.sh

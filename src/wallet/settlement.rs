@@ -113,7 +113,11 @@ impl SettlementEngine {
         };
 
         let vtxos = self.client.vtxos().await.map_err(AppError::from)?;
-        let onchain = self.client.onchain_balance().await.map_err(AppError::from)?;
+        let onchain = self
+            .client
+            .onchain_balance()
+            .await
+            .map_err(AppError::from)?;
         let balances = self.client.balances().await.map_err(AppError::from)?;
 
         let now = now_unix();
@@ -284,7 +288,8 @@ mod tests {
 
     #[tokio::test]
     async fn sweeps_excess_over_the_cap_via_ark_send() {
-        let (base, recorded) = mock::spawn(|req| match req.route() {
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
                 r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
@@ -296,8 +301,12 @@ mod tests {
             ),
             "/api/v1/wallet/send" => (200, r#"{"sent": true}"#.to_string()),
             _ => (404, "{}".to_string()),
+        }
         });
-        let client = crate::wallet::barkd::BarkdClient::new(crate::wallet::barkd::BarkdConfig::new(&base, "t")).unwrap();
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
         let db = Db::open(":memory:").unwrap();
         let engine = SettlementEngine::new(
             client,
@@ -332,7 +341,8 @@ mod tests {
 
     #[tokio::test]
     async fn onchain_destinations_offboard_the_whole_till() {
-        let (base, recorded) = mock::spawn(|req| match req.route() {
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
                 r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
@@ -344,8 +354,12 @@ mod tests {
             ),
             "/api/v1/wallet/offboard/all" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
+        }
         });
-        let client = crate::wallet::barkd::BarkdClient::new(crate::wallet::barkd::BarkdConfig::new(&base, "t")).unwrap();
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
         let db = Db::open(":memory:").unwrap();
         let engine = SettlementEngine::new(
             client,
@@ -369,7 +383,8 @@ mod tests {
     async fn refuses_a_sweep_that_would_breach_the_exit_reserve() {
         // Two spendable VTXOs need 30,000 sats of reserve; the till holds
         // 10,000 confirmed on-chain. The sweep must be refused and logged.
-        let (base, recorded) = mock::spawn(|req| match req.route() {
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
                 r#"[{"id": "v1", "amount_sat": 200000, "expires_at": 9999999999, "state": {"type": "spendable"}}, {"id": "v2", "amount_sat": 1, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
@@ -380,8 +395,12 @@ mod tests {
                 r#"{"spendable_sat": 200001}"#.to_string(),
             ),
             _ => (404, "{}".to_string()),
+        }
         });
-        let client = crate::wallet::barkd::BarkdClient::new(crate::wallet::barkd::BarkdConfig::new(&base, "t")).unwrap();
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
         let db = Db::open(":memory:").unwrap();
         let engine = SettlementEngine::new(
             client,
@@ -422,15 +441,18 @@ mod tests {
                     r#"[{{"id": "v1", "amount_sat": 1000, "expires_at": {soon}, "state": {{"type": "spendable"}}}}]"#
                 ),
             ),
-            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 15000, "trusted_spendable_sat": 15000}"#.to_string()),
-            "/api/v1/wallet/balance" => (
+            "/api/v1/onchain/balance" => (
                 200,
-                r#"{"spendable_sat": 1000}"#.to_string(),
+                r#"{"total_sat": 15000, "trusted_spendable_sat": 15000}"#.to_string(),
             ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 1000}"#.to_string()),
             "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
         });
-        let client = crate::wallet::barkd::BarkdClient::new(crate::wallet::barkd::BarkdConfig::new(&base, "t")).unwrap();
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
         let db = Db::open(":memory:").unwrap();
         let engine = SettlementEngine::new(
             client,
@@ -454,7 +476,10 @@ mod tests {
     #[tokio::test]
     async fn without_a_destination_the_engine_stays_idle() {
         let (base, recorded) = mock::spawn(|_| (200, "{}".to_string()));
-        let client = crate::wallet::barkd::BarkdClient::new(crate::wallet::barkd::BarkdConfig::new(&base, "t")).unwrap();
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
         let db = Db::open(":memory:").unwrap();
         let engine = SettlementEngine::new(client, db, test_config(None, 100_000));
         let report = engine.tick().await.unwrap();

@@ -91,7 +91,9 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(LiveRateProvider::new(config.rates_timeout_secs))
         }
         "static" => Arc::new(StaticRateProvider::new(config.static_rates.clone())),
-        other => return Err(format!("unknown rates_provider: {other} (use static or live)").into()),
+        other => {
+            return Err(format!("unknown rates_provider: {other} (use static or live)").into())
+        }
     };
     let webhooks = Arc::new(WebhookEmitter::new(config.webhook_timeout_secs));
 

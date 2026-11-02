@@ -589,11 +589,11 @@ mod tests {
         watcher.tick().await.unwrap();
         let v1_status: String = db
             .call(|conn| {
-                Ok(conn.query_row(
-                    "SELECT status FROM vtxo_expiry WHERE id = 'v1'",
-                    [],
-                    |r| r.get(0),
-                )?)
+                Ok(
+                    conn.query_row("SELECT status FROM vtxo_expiry WHERE id = 'v1'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
             })
             .await
             .unwrap();

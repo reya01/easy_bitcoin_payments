@@ -123,9 +123,8 @@ mod tests {
         let db = memory_db();
         let tables: Vec<String> = db
             .call(|conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
-                )?;
+                let mut stmt = conn
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?;
                 let rows = stmt
                     .query_map([], |row| row.get::<_, String>(0))?
                     .collect::<Result<Vec<_>, _>>()?;

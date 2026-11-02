@@ -1,9 +1,9 @@
 pub mod checkout;
+pub mod checkout_rails;
 pub mod dashboard;
 pub mod health;
 pub mod invoices;
 pub mod setup;
-pub mod checkout_rails;
 
 use std::sync::Arc;
 

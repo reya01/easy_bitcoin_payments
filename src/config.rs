@@ -235,10 +235,7 @@ impl Config {
             self.default_currency = v.to_uppercase();
         }
         if let Some(v) = file.static_rates {
-            self.static_rates = v
-                .into_iter()
-                .map(|(k, v)| (k.to_uppercase(), v))
-                .collect();
+            self.static_rates = v.into_iter().map(|(k, v)| (k.to_uppercase(), v)).collect();
         }
         if let Some(v) = file.hot_wallet_cap_sats {
             self.hot_wallet_cap_sats = v;

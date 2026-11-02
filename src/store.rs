@@ -54,9 +54,8 @@ pub fn create(
 
     tx.commit()?;
 
-    let store = get(conn, &store_id)?.ok_or_else(|| {
-        AppError::Internal("store disappeared immediately after creation".into())
-    })?;
+    let store = get(conn, &store_id)?
+        .ok_or_else(|| AppError::Internal("store disappeared immediately after creation".into()))?;
 
     Ok((store, api_key, webhook_secret))
 }
@@ -142,10 +141,7 @@ mod tests {
     #[tokio::test]
     async fn revoked_keys_stop_working() {
         let db = db().await;
-        let (store, api_key, _) = db
-            .call(|conn| create(conn, "Shop", None))
-            .await
-            .unwrap();
+        let (store, api_key, _) = db.call(|conn| create(conn, "Shop", None)).await.unwrap();
 
         db.call(move |conn| {
             conn.execute(
@@ -168,10 +164,7 @@ mod tests {
     #[tokio::test]
     async fn empty_name_is_rejected() {
         let db = db().await;
-        let err = db
-            .call(|conn| create(conn, "   ", None))
-            .await
-            .unwrap_err();
+        let err = db.call(|conn| create(conn, "   ", None)).await.unwrap_err();
         assert!(matches!(err, AppError::BadRequest(_)));
     }
 }

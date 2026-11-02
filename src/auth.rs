@@ -70,7 +70,9 @@ impl FromRequestParts<AppState> for StoreAuth {
             .call(move |conn| store::find_by_api_key_hash(conn, &key_hash))
             .await?;
 
-        store.map(|store| StoreAuth { store }).ok_or(AppError::Unauthorized)
+        store
+            .map(|store| StoreAuth { store })
+            .ok_or(AppError::Unauthorized)
     }
 }
 

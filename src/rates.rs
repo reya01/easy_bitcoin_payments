@@ -42,9 +42,10 @@ impl StaticRateProvider {
 impl RateProvider for StaticRateProvider {
     fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
         let currency = currency.trim().to_uppercase();
-        let rate = *self.rates.get(&currency).ok_or_else(|| {
-            AppError::BadRequest(format!("unsupported currency: {currency}"))
-        })?;
+        let rate = *self
+            .rates
+            .get(&currency)
+            .ok_or_else(|| AppError::BadRequest(format!("unsupported currency: {currency}")))?;
 
         if !rate.is_finite() || rate <= 0.0 {
             return Err(AppError::Internal(
@@ -233,7 +234,9 @@ impl RateProvider for LiveRateProvider {
     fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
         let currency = currency.trim().to_uppercase();
         if currency.len() != 3 || !currency.chars().all(|c| c.is_ascii_alphabetic()) {
-            return Err(AppError::BadRequest(format!("unsupported currency: {currency}")));
+            return Err(AppError::BadRequest(format!(
+                "unsupported currency: {currency}"
+            )));
         }
 
         let (reply, responses) = std::sync::mpsc::channel();
@@ -241,7 +244,9 @@ impl RateProvider for LiveRateProvider {
             .send(LiveRatesRequest { currency, reply })
             .map_err(|_| AppError::Internal("rates worker stopped".into()))?;
 
-        responses.recv().map_err(|_| AppError::Internal("rates worker stopped".into()))?
+        responses
+            .recv()
+            .map_err(|_| AppError::Internal("rates worker stopped".into()))?
     }
 }
 
@@ -253,7 +258,10 @@ fn rates_worker(
     sources: Vec<RateSourceKind>,
     timeout_secs: u64,
 ) {
-    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(err) => {
             tracing::error!(error = %err, "could not start the rates runtime");
@@ -377,7 +385,10 @@ mod tests {
             "USD": 65_432.1,
             "EUR": 60_111.0
         });
-        assert_eq!(RateSourceKind::MempoolSpace.parse(&body, "EUR"), Some(60_111.0));
+        assert_eq!(
+            RateSourceKind::MempoolSpace.parse(&body, "EUR"),
+            Some(60_111.0)
+        );
         assert_eq!(RateSourceKind::MempoolSpace.parse(&body, "GBP"), None);
     }
 
@@ -387,15 +398,24 @@ mod tests {
             "USD": {"15m": 65_000.0, "last": 65_432.1, "buy": 65_400.0, "sell": 65_500.0, "symbol": "$"},
             "EUR": {"15m": 60_000.0, "last": 60_111.0, "buy": 60_100.0, "sell": 60_200.0, "symbol": "EUR"}
         });
-        assert_eq!(RateSourceKind::BlockchainInfo.parse(&body, "USD"), Some(65_432.1));
+        assert_eq!(
+            RateSourceKind::BlockchainInfo.parse(&body, "USD"),
+            Some(65_432.1)
+        );
         assert_eq!(RateSourceKind::BlockchainInfo.parse(&body, "CHF"), None);
     }
 
     #[test]
     fn coingecko_payload_parses() {
         let body = serde_json::json!({"bitcoin": {"usd": 65_432.1, "eur": 60_111.0}});
-        assert_eq!(RateSourceKind::CoinGecko.parse(&body, "USD"), Some(65_432.1));
-        assert_eq!(RateSourceKind::CoinGecko.parse(&body, "eur"), Some(60_111.0));
+        assert_eq!(
+            RateSourceKind::CoinGecko.parse(&body, "USD"),
+            Some(65_432.1)
+        );
+        assert_eq!(
+            RateSourceKind::CoinGecko.parse(&body, "eur"),
+            Some(60_111.0)
+        );
         assert_eq!(RateSourceKind::CoinGecko.parse(&body, "GBP"), None);
     }
 
@@ -403,7 +423,10 @@ mod tests {
     fn live_provider_rejects_malformed_currencies_before_fetching() {
         let provider = LiveRateProvider::new(5);
         for bad in ["us", "euro", "EU1", ""] {
-            assert!(matches!(provider.quote(bad).unwrap_err(), AppError::BadRequest(_)));
+            assert!(matches!(
+                provider.quote(bad).unwrap_err(),
+                AppError::BadRequest(_)
+            ));
         }
     }
 }

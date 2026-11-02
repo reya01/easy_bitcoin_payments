@@ -28,7 +28,9 @@ fn header<'a>(request: &'a CapturedRequest, name: &str) -> &'a str {
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 /// Read one full HTTP request (headers plus Content-Length body) from the
@@ -79,10 +81,16 @@ fn read_one_request(stream: &mut std::net::TcpStream, status: &str) -> CapturedR
     body.truncate(content_length);
 
     let response = format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
-    stream.write_all(response.as_bytes()).expect("write response");
+    stream
+        .write_all(response.as_bytes())
+        .expect("write response");
     stream.flush().expect("flush response");
 
-    CapturedRequest { method, headers, body }
+    CapturedRequest {
+        method,
+        headers,
+        body,
+    }
 }
 
 /// Spawn a loopback listener that captures one request per connection and
@@ -156,12 +164,20 @@ async fn emitter_delivers_a_verifiable_signed_webhook() {
     let signature = header(&request, "x-ebp-signature");
     assert!(signature.starts_with("t="));
     let timestamp = timestamp_from(signature);
-    assert!(verify_signature(secret, signature, &request.body, timestamp, 300));
+    assert!(verify_signature(
+        secret,
+        signature,
+        &request.body,
+        timestamp,
+        300
+    ));
 
     // A tampered payload must fail the same verification.
     let mut tampered = request.body.clone();
     tampered[0] ^= 0x20;
-    assert!(!verify_signature(secret, signature, &tampered, timestamp, 300));
+    assert!(!verify_signature(
+        secret, signature, &tampered, timestamp, 300
+    ));
 }
 
 #[tokio::test]

@@ -75,11 +75,7 @@ fn to_response(
         rate: invoice.rate.clone(),
         rate_source: invoice.rate_source.clone(),
         rate_locked_at: invoice.rate_locked_at.map(to_rfc3339),
-        checkout_url: format!(
-            "{}/i/{}",
-            base_url.trim_end_matches('/'),
-            invoice.id
-        ),
+        checkout_url: format!("{}/i/{}", base_url.trim_end_matches('/'), invoice.id),
         ark_address: invoice.ark_address.clone(),
         onchain_address: invoice.onchain_address.clone(),
         lightning_invoice,

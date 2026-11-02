@@ -1,6 +1,7 @@
-#![allow(dead_code)] // create_wallet / refresh_all / client() are consumed by
-                     // the provisioning wizard and admin routes in a later
-                     // milestone; until then the unit tests exercise them.
+#![allow(dead_code)]
+// create_wallet / refresh_all / client() are consumed by
+// the provisioning wizard and admin routes in a later
+// milestone; until then the unit tests exercise them.
 
 //! Phase 1: `WalletAdapter` over the barkd sidecar's REST API.
 //!
@@ -49,8 +50,8 @@
 //! flag before setup completes. That ceremony lives in the wizard, not
 //! in this client.
 
-use std::future::Future;
 use std::fmt;
+use std::future::Future;
 use std::sync::{mpsc, Mutex};
 use std::time::Duration;
 
@@ -332,7 +333,9 @@ fn is_loopback_url(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url) else {
         return false; // unparseable: never silence the cleartext warning
     };
-    let Some(host) = parsed.host_str() else { return false };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
     let host = host.trim_start_matches('[').trim_end_matches(']');
     host == "localhost" || host == "::1" || host.starts_with("127.")
 }
@@ -359,14 +362,13 @@ impl fmt::Debug for BarkdClient {
 impl BarkdClient {
     pub fn new(config: BarkdConfig) -> Result<Self, WalletError> {
         let mut headers = HeaderMap::new();
-        let mut value = HeaderValue::from_str(&format!("Bearer {}", config.token())).map_err(
-            |_| {
+        let mut value =
+            HeaderValue::from_str(&format!("Bearer {}", config.token())).map_err(|_| {
                 WalletError::Rejected(
                     "barkd token contains characters that are invalid in an HTTP header"
                         .to_string(),
                 )
-            },
-        )?;
+            })?;
         value.set_sensitive(true);
         headers.insert(AUTHORIZATION, value);
 
@@ -519,14 +521,11 @@ impl BarkdClient {
         let v: Json = self
             .post(PATH_ONCHAIN_ADDRESS_NEXT, &serde_json::json!({}))
             .await?;
-        flex::str_field(&v, &["address", "onchain_address", "bitcoin_address"]).ok_or_else(
-            || {
-                WalletError::Rejected(
-                    "barkd address response had no address field (VERIFY: field shape)"
-                        .to_string(),
-                )
-            },
-        )
+        flex::str_field(&v, &["address", "onchain_address", "bitcoin_address"]).ok_or_else(|| {
+            WalletError::Rejected(
+                "barkd address response had no address field (VERIFY: field shape)".to_string(),
+            )
+        })
     }
 
     /// Fresh receive pair for an invoice (Ark + on-chain fallback).
@@ -551,14 +550,12 @@ impl BarkdClient {
     /// `/onchain/balance` (see [`Self::onchain_balance`]).
     pub async fn balances(&self) -> Result<Balances, WalletError> {
         let v: Json = self.get(PATH_BALANCE).await?;
-        let spendable = flex::i64_field(&v, &["spendable_sat", "spendable"])
-            .ok_or_else(|| {
-                WalletError::Rejected(
-                    "barkd balance had no spendable_sat field (VERIFIED shape)".to_string(),
-                )
-            })?;
-        let claimable =
-            flex::i64_field(&v, &["claimable_lightning_receive_sat"]).unwrap_or(0);
+        let spendable = flex::i64_field(&v, &["spendable_sat", "spendable"]).ok_or_else(|| {
+            WalletError::Rejected(
+                "barkd balance had no spendable_sat field (VERIFIED shape)".to_string(),
+            )
+        })?;
+        let claimable = flex::i64_field(&v, &["claimable_lightning_receive_sat"]).unwrap_or(0);
         // The on-chain side does not exist on this endpoint in barkd 0.8.0;
         // use [`Self::onchain_balance`]. Report 0 here to keep callers honest.
         Ok(Balances {
@@ -613,13 +610,11 @@ impl BarkdClient {
                 }
             }
             let vtxo = serde_json::from_value(item).map_err(|e| {
-                WalletError::Rejected(format!(
-                    "unparseable vtxo entry: {e} (VERIFIED shape)"
-                ))
+                WalletError::Rejected(format!("unparseable vtxo entry: {e} (VERIFIED shape)"))
             })?;
             match state.as_deref() {
                 Some("spendable") => spendable.push(vtxo),
-                Some("spent") => {} // history, not a live VTXO
+                Some("spent") => {}      // history, not a live VTXO
                 _ => pending.push(vtxo), // "pending", "locked", unknown
             }
         }
@@ -747,8 +742,7 @@ impl BarkdClient {
     pub async fn ark_send(&self, destination: &str, amount_sats: i64) -> Result<Json, WalletError> {
         // VERIFY: field shape — the /wallet/send dump is empty in the pinned
         // extract; destination/amount_sats is our best-effort model.
-        let body =
-            serde_json::json!({ "destination": destination, "amount_sats": amount_sats });
+        let body = serde_json::json!({ "destination": destination, "amount_sats": amount_sats });
         self.post(PATH_ARK_SEND, &body).await
     }
 
@@ -793,11 +787,10 @@ impl BarkdClient {
         let v: Json = self.post(PATH_LN_INVOICE, &body).await?;
         let bolt11 = flex::str_field(&v, &["invoice", "payment_request", "bolt11", "ln_invoice"])
             .ok_or_else(|| {
-                WalletError::Rejected(
-                    "barkd lightning invoice had no bolt11 field (VERIFY: field shape)"
-                        .to_string(),
-                )
-            })?;
+            WalletError::Rejected(
+                "barkd lightning invoice had no bolt11 field (VERIFY: field shape)".to_string(),
+            )
+        })?;
         Ok(LightningInvoice {
             bolt11,
             identifier: flex::str_field(&v, &["identifier", "id"]),
@@ -917,7 +910,12 @@ impl HistoryEntry {
         if let Some(d) = self.direction.as_deref() {
             return d.to_ascii_lowercase();
         }
-        if let Some(k) = self.subsystem.as_ref().and_then(|s| s.get("kind")).and_then(|k| k.as_str()) {
+        if let Some(k) = self
+            .subsystem
+            .as_ref()
+            .and_then(|s| s.get("kind"))
+            .and_then(|k| k.as_str())
+        {
             return k.to_ascii_lowercase();
         }
         if let Some(b) = self.intended_balance_sat {
@@ -1064,7 +1062,12 @@ fn parse_onchain_balance(v: Json) -> Result<OnchainBalance, WalletError> {
     }
     let confirmed_sats = flex::i64_field(
         &v,
-        &["trusted_spendable_sat", "confirmed_sat", "total_sat", "spendable"],
+        &[
+            "trusted_spendable_sat",
+            "confirmed_sat",
+            "total_sat",
+            "spendable",
+        ],
     )
     .ok_or_else(|| {
         WalletError::Rejected(
@@ -1093,9 +1096,7 @@ fn parse_onchain_balance(v: Json) -> Result<OnchainBalance, WalletError> {
 fn parse_history_page(v: Json) -> Result<HistoryPage, WalletError> {
     let items = flex::array_field(&v, &["history", "payments", "entries", "movements"])
         .ok_or_else(|| {
-            WalletError::Rejected(
-                "barkd history had no list (VERIFY: field shape)".to_string(),
-            )
+            WalletError::Rejected("barkd history had no list (VERIFY: field shape)".to_string())
         })?;
     let entries = items
         .into_iter()
@@ -1206,9 +1207,7 @@ impl BarkdWallet {
                 }
             })
             .map_err(|err| {
-                WalletError::Unavailable(format!(
-                    "could not spawn the barkd bridge thread: {err}"
-                ))
+                WalletError::Unavailable(format!("could not spawn the barkd bridge thread: {err}"))
             })?;
         Ok(Self {
             client,
@@ -1227,10 +1226,7 @@ impl BarkdWallet {
         &self.client
     }
 
-    fn block_on<T: Send + 'static, F: Future<Output = T> + Send + 'static>(
-        &self,
-        fut: F,
-    ) -> T {
+    fn block_on<T: Send + 'static, F: Future<Output = T> + Send + 'static>(&self, fut: F) -> T {
         let (tx, rx) = mpsc::channel();
         let job: Job = Box::new(move |rt| {
             let _ = tx.send(rt.block_on(fut));
@@ -1261,8 +1257,7 @@ impl WalletAdapter for BarkdWallet {
 
     fn poll_payments(&self, since: i64) -> Result<Vec<WalletPayment>, WalletError> {
         let client = self.client.clone();
-        let entries = self
-            .block_on(async move { client.payments_since(since).await })?;
+        let entries = self.block_on(async move { client.payments_since(since).await })?;
         Ok(entries
             .into_iter()
             .filter_map(HistoryEntry::into_wallet_payment)
@@ -1400,9 +1395,7 @@ pub(crate) mod mock {
         (format!("http://{addr}/api/v1"), recorded)
     }
 
-    fn read_request(
-        stream: &mut TcpStream,
-    ) -> Option<(String, String, Option<String>, String)> {
+    fn read_request(stream: &mut TcpStream) -> Option<(String, String, Option<String>, String)> {
         let mut buf: Vec<u8> = Vec::new();
         let mut chunk = [0u8; 4096];
         let header_end = loop {
@@ -1468,12 +1461,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_request_carries_the_bearer_token() {
-        let (base, recorded) = mock::spawn(|_| {
-            (
-                200,
-                r#"{"spendable_sat": 2}"#.to_string(),
-            )
-        });
+        let (base, recorded) = mock::spawn(|_| (200, r#"{"spendable_sat": 2}"#.to_string()));
         client(&base).balances().await.expect("balances");
         let all = recorded.lock().unwrap();
         assert_eq!(all.len(), 1);
@@ -1496,12 +1484,7 @@ mod tests {
 
     #[tokio::test]
     async fn unauthorized_maps_to_rejected_without_echoing_the_body() {
-        let (base, _) = mock::spawn(|_| {
-            (
-                401,
-                r#"{"error":"bad token test-token"}"#.to_string(),
-            )
-        });
+        let (base, _) = mock::spawn(|_| (401, r#"{"error":"bad token test-token"}"#.to_string()));
         let err = client(&base).balances().await.unwrap_err();
         match err {
             WalletError::Rejected(msg) => {
@@ -1524,12 +1507,7 @@ mod tests {
 
     #[tokio::test]
     async fn error_bodies_have_the_token_scrubbed() {
-        let (base, _) = mock::spawn(|_| {
-            (
-                400,
-                "invalid request for test-token".to_string(),
-            )
-        });
+        let (base, _) = mock::spawn(|_| (400, "invalid request for test-token".to_string()));
         let err = client(&base).balances().await.unwrap_err();
         let msg = match err {
             WalletError::Rejected(m) | WalletError::Unavailable(m) => m,
@@ -1578,7 +1556,8 @@ mod tests {
         let (base, _) = mock::spawn(|_| {
             (
                 200,
-                r#"{"total_sat": 30500, "trusted_spendable_sat": 30000, "confirmed_sat": 30000}"#.to_string(),
+                r#"{"total_sat": 30500, "trusted_spendable_sat": 30000, "confirmed_sat": 30000}"#
+                    .to_string(),
             )
         });
         let b = client(&base).onchain_balance().await.unwrap();
@@ -1610,10 +1589,7 @@ mod tests {
                 200,
                 r#"[{"id": "v1", "amount_sats": 100, "expiry_height": 900}]"#.to_string(),
             ),
-            "/api/v1/bitcoin/tip" => (
-                200,
-                r#"{"height": 800, "timestamp": 1000000}"#.to_string(),
-            ),
+            "/api/v1/bitcoin/tip" => (200, r#"{"height": 800, "timestamp": 1000000}"#.to_string()),
             _ => (404, "{}".to_string()),
         });
         let queue = client(&base).vtxo_queue().await.unwrap();
@@ -1640,7 +1616,11 @@ mod tests {
 
         let all = recorded.lock().unwrap();
         assert_eq!(all.len(), 2);
-        assert!(all[0].path.contains("since=99"), "first page: {}", all[0].path);
+        assert!(
+            all[0].path.contains("since=99"),
+            "first page: {}",
+            all[0].path
+        );
         assert!(
             all[1].path.contains("cursor=cursor-2"),
             "second page: {}",
@@ -1660,11 +1640,10 @@ mod tests {
         assert_eq!(ark.amount_sats, 1000);
         assert!(matches!(ark.rail, Rail::Ark));
 
-        let onchain = entry(
-            r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11}"#,
-        )
-        .into_wallet_payment()
-        .unwrap();
+        let onchain =
+            entry(r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11}"#)
+                .into_wallet_payment()
+                .unwrap();
         assert!(matches!(onchain.rail, Rail::Onchain));
         assert_eq!(onchain.detected_at, 11);
 
@@ -1675,23 +1654,30 @@ mod tests {
         )
         .into_wallet_payment()
         .is_none());
-        assert!(entry(r#"{"amount_sats": 1, "vtxo_id": "v", "detected_at": 1}"#)
-            .into_wallet_payment()
-            .is_none());
-        assert!(entry(r#"{"address": "a", "amount_sats": 1, "detected_at": 1}"#)
-            .into_wallet_payment()
-            .is_none());
-        assert!(entry(
-            r#"{"address": "a", "amount_sats": 0, "vtxo_id": "v", "detected_at": 1}"#
-        )
-        .into_wallet_payment()
-        .is_none());
+        assert!(
+            entry(r#"{"amount_sats": 1, "vtxo_id": "v", "detected_at": 1}"#)
+                .into_wallet_payment()
+                .is_none()
+        );
+        assert!(
+            entry(r#"{"address": "a", "amount_sats": 1, "detected_at": 1}"#)
+                .into_wallet_payment()
+                .is_none()
+        );
+        assert!(
+            entry(r#"{"address": "a", "amount_sats": 0, "vtxo_id": "v", "detected_at": 1}"#)
+                .into_wallet_payment()
+                .is_none()
+        );
     }
 
     #[tokio::test]
     async fn ark_send_posts_destination_and_amount() {
         let (base, recorded) = mock::spawn(|_| (200, r#"{"sent": true}"#.to_string()));
-        client(&base).ark_send("ark1merchant", 50_000).await.unwrap();
+        client(&base)
+            .ark_send("ark1merchant", 50_000)
+            .await
+            .unwrap();
         let all = recorded.lock().unwrap();
         assert_eq!(all[0].method, "POST");
         assert_eq!(all[0].path, "/api/v1/wallet/send");

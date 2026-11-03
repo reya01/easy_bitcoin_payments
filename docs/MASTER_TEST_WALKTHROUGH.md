@@ -1,6 +1,6 @@
 # MASTER INSTRUCTIONS — Easy Bitcoin Payments on AWS (iPhone only)
 
-**Version: 4 — updated 2026-11-03. This file is the single source of truth for
+**Version: 5 — updated 2026-11-03. This file is the single source of truth for
 human testers. It is updated every time a new error or fix is discovered.**
 
 > ⚠️ EBP is EXPERIMENTAL. Signet (play-money) only. Never point it at real
@@ -17,7 +17,8 @@ and take one test payment from a phone wallet. Budget ~90 minutes.
 2. This document
 3. Paper and a pen (for recovery words — the most important step)
 4. ~90 minutes of quiet time
-5. A GitHub account (free — github.com)
+5. A GitHub account (free — github.com) — needed to log in to the signet
+   faucet in Part 7 (the repo itself is public; the clone needs no account)
 
 ---
 
@@ -34,7 +35,10 @@ and take one test payment from a phone wallet. Budget ~90 minutes.
      out of memory during the build (that failure = "Killed" in the logs)
    - Key pair: **Create new** → name `mykey` → RSA → .pem → Create (file
      downloads to iPhone → Files/Downloads)
-   - Network settings → Edit → tick **SSH**, **HTTP**, **HTTPS**
+   - Network settings → Edit → tick **SSH** only. Everything you use
+     (dashboard, wizard, checkout) travels through the SSH tunnel from
+     Part 5; leaving HTTP/HTTPS/8080 closed to the internet keeps the
+     setup wizard — which shows your recovery words — unreachable publicly.
    - Storage: **16 GiB**
    - **Launch instance**
 5. Tick the instance → wait for **✓ 2/2 checks passed**
@@ -80,7 +84,7 @@ Check:
 ```
 docker --version
 ```
-→ prints `Docker version 25...`? Continue.
+→ prints a Docker version line (any version number)? Continue.
 
 **Install Docker Compose + Buildx** (two plugins Docker needs; they are NOT
 included in the default install — this bit our first two testers):
@@ -113,7 +117,9 @@ docker buildx version
 cd ~
 ```
 ```
-rm -rf easy_bitcoin_payments
+rm -rf easy_bitcoin_payments   # FIRST SETUP ONLY — a re-run would delete
+                               # your .env (the barkd token). If this server
+                               # is already set up, use `git pull` instead.
 ```
 ```
 git clone https://github.com/reya01/easy_bitcoin_payments.git
@@ -127,7 +133,9 @@ cd ~/easy_bitcoin_payments
 ```
 sudo docker compose build
 ```
-→ **~5–10 minutes** (the barkd sidecar is now a prebuilt binary download; only the EBP server compiles). If it ends with **Killed**:
+→ **~15–30 minutes** on the first build (the barkd sidecar is a prebuilt
+binary download; the EBP server itself compiles). Scrolling output is normal
+— silence is what a hang looks like. If it ends with **Killed**:
 out of memory — your instance is not t4g.medium; fix per Part 1.4 and redo
 from `docker compose build`.
 
@@ -142,9 +150,9 @@ sudo docker compose ps
 → Two services, both `Up` (one may say `health: starting` — fine).
 
 ```
-curl -s http://localhost:8080/ping ; echo
+curl -s http://localhost:8080/api/v1/health ; echo
 ```
-→ **`pong`**. If not, see TROUBLESHOOTING (bottom).
+→ **JSON status output** (any JSON = pass). If not, see TROUBLESHOOTING (bottom).
 
 ## PART 5 — Secure tunnel — 5 min
 
@@ -154,7 +162,8 @@ The setup wizard must only travel over an encrypted path.
    - Local port: `8080`, Bind: `127.0.0.1`
    - Destination: `127.0.0.1`, port: `8080`
    - Save → tap it → **Activate**
-2. Keep the forwarding active for the whole wizard.
+2. Keep the forwarding active whenever you use the app (wizard, dashboard,
+   checkout — not just during setup).
 
 ## PART 6 — The setup wizard — 15 min
 
@@ -211,7 +220,7 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | `Authentication failed` on git clone | repo was private (fixed — it is now public) | just retry the clone |
 | `compose is not a docker command` | Compose plugin missing | Part 3, compose curl block |
 | `compose build requires buildx 0.17.0 or later` | Buildx plugin missing | Part 3, buildx curl block |
-| `required variable EBP_BARKD_TOKEN is missing` | old compose file demanded the token before the wizard created it | fixed in the repo; `git pull`, retry. Manual fallback: `echo "EBP_BARKD_TOKEN=" > ~/easy_bitcoin_payments/.env` then `docker compose up -d` |
+| `required variable EBP_BARKD_TOKEN is missing` | HISTORICAL (pre-2026-11-02 compose) — fixed in repo | `git pull`, retry. Do NOT run `echo "EBP_BARKD_TOKEN=" > .env` on an already-set-up server — it would erase the provisioned token (re-coverable via `docker compose exec barkd barkd --datadir /data secret show`) |
 | `cd: no such file or directory .../deploy` | the compose file is at the repo ROOT | `cd ~/easy_bitcoin_payments` (no /deploy) |
 | Build ends with `Killed` | out of RAM (t4g.small) | use t4g.medium, rebuild |
 | `could not read Username for 'https://github.com'` during build | old barkd Dockerfile cloned a nonexistent GitHub repo | fixed — `cd ~/easy_bitcoin_payments && git pull`, rebuild |
@@ -220,8 +229,7 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | Ping returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry |
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |
 | `set: Illegal option -o pipefail` | script run with `sh` instead of `bash` | fixed in repo; use `bash scripts/...` |
-| `ebp` container says `Restarting`, no ping on 8080 | migration 0004 (settings table) was missing from the migration list — fixed in repo | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build ebp && sudo docker compose up -d` |
-| `ebp` restart-loops for hours, `docker inspect` shows ExitCode 0, and `docker run --rm easy_bitcoin_payments-ebp ebp --help` prints NOTHING | the image shipped the build-system's placeholder binary instead of the real server | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build --no-cache ebp`, then CHECK it: `sudo docker run --rm easy_bitcoin_payments-ebp ebp --help` must print a USAGE block, then `sudo docker compose up -d` |
+| `ebp` restart-loops, `docker inspect` shows ExitCode 0, and `docker run --rm easy_bitcoin_payments-ebp --help` prints NOTHING | the image shipped the build system's placeholder binary (cargo skipped the real rebuild over stale file timestamps — fixed in the repo) | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build ebp` (must pass the build's own usage check), verify `sudo docker run --rm easy_bitcoin_payments-ebp --help` prints a usage block, then `sudo docker compose up -d` |
 | barkd unhealthy / ebp waits on it | old cached barkd image | `sudo docker compose build --no-cache barkd` then `up -d` |
 
 **Universal debugging pattern:** run the failing command again, copy the

@@ -1,106 +1,58 @@
 # Known issues
 
-## RESOLVED (pending tester rebuild) — VPS aarch64 container restart-loop (~60s)
+## RESOLVED & CONFIRMED — VPS aarch64 container restart-loop (~60s, 22h duration)
 
-**Status:** root cause identified 2026-11-03; fix = clean rebuild + new
-Dockerfile smoke test. Blocks VPS sign-off until the tester's rebuild confirms.
+**Status:** root cause proven 2026-11-03, fix committed and **confirmed on the
+VPS** the same night: the tester rebuilt (`git pull` → `docker compose build`
+passing the new smoke test) and ebp now boots, logs "Easy Bitcoin Payments
+listening", and stays up.
 
 **Root cause: the deployed image contained the dependency-cache STUB binary,
 not ebp.** The Dockerfile's dep-cache step builds `fn main() {}` as a
-placeholder; the real build replaces it. The tester's arm64 image (built
-2026-11-02T04:27Z) shipped the stub: `ebp --help` inside it prints NOTHING and
-exits 0 (a real binary prints the USAGE block). An empty main exits instantly
-and cleanly — which is why the container showed `Restarting (0)` every ~60s
-(Docker's restart-backoff cap) for 22 hours with no logs, OOM=false, and no
-core change. Proven 2026-11-03 via `docker run --rm easy_bitcoin_payments-ebp
-ebp --help` → silent, exit 0. Cross-checks: the pre-fix source at the
-image-time commit (0e9fd88) boots and serves fine on x86_64, and the exit
-matrix (config/bind/db error=1, panic=101, OOM=137) eliminated all three
-earlier suspects. The exact shipping mechanism (interrupted real build vs
-cache) is unproven; the new `RUN ./target/release/ebp --help | grep -q USAGE`
-smoke test in the Dockerfile makes the class impossible to ship again.
-`docker events` over 26h confirms NO kill/stop precedes any death — bare
-`die` events, `execDuration=0 exitCode=0`, ~60.3s apart: the loop is entirely
-self-exit + restart-backoff, not an external signaler.
+placeholder; the real build replaces it. The tester's arm64 image shipped the
+stub instead: `ebp --help` inside it printed NOTHING and exited 0 (a real
+binary prints the USAGE block). An empty main exits instantly and cleanly —
+hence `Restarting (0)` on a ~60s cadence (Docker's restart-backoff cap) for
+22 hours, with no logs, OOM=false, and no change to barkd (healthy throughout
+— its image downloads a prebuilt binary, so the trap can't touch it).
 
-**Mechanism proven 2026-11-03 (local repro):** cargo skips relinking when
-source mtimes are OLDER than the cached stub binary. git clone/pull stamps
-sources with the clone time; Docker COPY preserves those old mtimes; so on
-every VPS rebuild the real `cargo build` was a 1s no-op and the stub shipped.
-A first `--no-cache` rebuild with the smoke test reproduced the trap (build
-failed exactly as designed). Fix: `RUN find src -type f -exec touch {} +`
-before the real build forces the recompile. Consequence: the tester's very
-first-run loop was almost certainly the same stub — the earlier "no such
-table: settings" diagnosis (90a8a95) was code inspection, never an observed
-error; that migration fix remains correct but was not this bug.
+**Mechanism (proven locally 2026-11-03):** cargo skips relinking when source
+mtimes are OLDER than the cached stub binary. git clone/pull stamps sources
+with the clone time and Docker COPY preserves those old mtimes, so on every
+VPS rebuild the real `cargo build` was a ~1s no-op and the stub shipped. A
+`--no-cache` rebuild with the new smoke test reproduced the trap (build
+failed exactly as designed); `find src -type f -exec touch {} +` before the
+real build forces the recompile (proven: 7m real recompile → real 8.1MB
+binary).
 
-**Environment:** tester’s AWS **t4g** instance (**aarch64**). After
-`docker compose up -d`, the **ebp container restart-loops roughly every 60s**
-and `/ping` never answers. Locally on **x86_64 at the same commit**, ebp runs
-fine with an empty `EBP_BARKD_TOKEN` (401 warnings only, no crash).
+**Evidence chain (all 2026-11-03):**
+- `docker inspect`: exit 0, OOM=false, RestartCount 1360, Started/Finished
+  297ms apart — instant clean death, ~58s apart ≈ backoff cap.
+- `docker events` over 26h: bare `die` events, `execDuration=0 exitCode=0`,
+  ~60.3s apart, NO kill/stop before any die — the loop was self-exit +
+  restart policy, not an external signaler.
+- `docker run --rm easy_bitcoin_payments-ebp ebp --help` → silent, exit 0
+  (stub); local build of the exact image-time commit (0e9fd88) boots and
+  serves fine on x86_64 → source was never the problem.
+- Exit-code matrix eliminated every earlier suspect: config/bind/db error=1,
+  panic=101, OOM=137, exec failure=126/127 — none can print 0.
 
-**Symptoms to confirm:**
+**History correction (recorded so it isn't repeated):** the 2026-11-02
+commits (90a8a95, b264da9) attributed the loop to "crashed on 'no such
+table: settings', found via tester's first-run". That was code inspection
+presented as an observation — no error text was ever captured, `settings` is
+read from wizard routes (not boot), and the first image was already a stub
+that cannot query anything. The `"/ping never answers"` symptom was also
+trivially true: `/ping` does not exist; the health endpoint is
+`/api/v1/health`. The 0004 migration registration fix remains correct as a
+real latent bug (it would have broken the setup wizard on fresh databases)
+but was never the cause of the loop.
 
-- `docker compose ps` shows `ebp` restarting / unhealthy.
-- `docker compose logs ebp` ends abruptly or repeats boot lines every ~60s.
-- `curl http://localhost:8080/api/v1/health` or `/ping` never answers.
-- `docker inspect <ebp>` shows a rising `RestartCount`; check `OOMKilled` and
-  `State.ExitCode`.
-
-**Suspected causes (not yet proven):**
-
-1. **OOM.** The tester originally used `t4g.small`; they may still be on small.
-   Rust + SQLite + barkd sidecar can exceed small-instance memory under load.
-2. **ARM panic.** An aarch64-specific panic/illegal instruction in a dependency
-   or in the musl/ARM build path.
-3. **Pre-existing half-migrated db volume.** A volume created by an older
-   schema/migration state can make startup fail before health checks answer.
-
-**Debug procedure (do this before deleting data):**
-
-1. Record host facts:
-   ```bash
-   uname -m
-   free -m
-   docker info --format '{{.Architecture}} {{.MemTotal}}'
-   ```
-2. Capture compose state and logs:
-   ```bash
-   docker compose ps
-   docker compose logs --tail=300 ebp
-   docker compose logs --tail=300 barkd
-   ```
-3. Capture the overnight crashwatch log (path depends on the VPS setup; check
-   the tester’s notes / `~/ebp-crashwatch.log` / `journalctl`). Record the last
-   exit reason and whether it repeats at a fixed interval.
-4. Inspect the container:
-   ```bash
-   docker inspect <ebp-container> \
-     --format '{{.State.ExitCode}} {{.State.OOMKilled}} {{.RestartCount}}'
-   ```
-5. Check kernel/memory events:
-   ```bash
-   dmesg -T | tail -200
-   journalctl -k -n 200 --no-pager
-   ```
-   Look for OOM killer, segfault, illegal instruction, or cgroup memory kills.
-6. Reproduce with an empty token to separate barkd/token failures from core
-   startup:
-   ```bash
-   EBP_BARKD_TOKEN= docker compose up -d ebp
-   docker compose logs --tail=200 ebp
-   ```
-7. Inspect the db volume without deleting it:
-   ```bash
-   docker volume ls
-   docker compose exec ebp ls -l /data
-   docker compose exec ebp sqlite3 /data/ebp.sqlite3 'PRAGMA integrity_check;'
-   ```
-   If the volume is half-migrated, back it up first, then test a fresh volume on
-   a throwaway instance.
-8. If OOM is suspected, retry on `t4g.medium` or set explicit memory limits and
-   watch `docker stats`.
-9. If ARM panic is suspected, capture a backtrace/debug build and record the
-   exact panic line; do not assume x86_64 behavior carries over.
-10. Record findings here and in [docs/HANDOFF.md](HANDOFF.md). Do **not** delete
-    production data without a backup.
+**Guards now in the Dockerfile (b0fc908, b698768):**
+1. `RUN find src -type f -exec touch {} + && cargo build --release` — mtime
+   refresh forces the crate recompile; dep cache untouched.
+2. The dep-cache step deletes the stub binary after warming (`rm -f
+   target/release/ebp`) — a skipped real build leaves no binary at all.
+3. `RUN timeout 10 ./target/release/ebp --help 2>&1 | grep -qi usage` — the
+   build refuses to ship anything that can't print a usage block.
+4. The barkd image checksum-pins its prebuilt binary.

@@ -18,7 +18,7 @@ This repository is at **Phase 1 code-complete** (2026-11-01) and remains
 **EXPERIMENTAL — not for real funds**. The full suite is green (`cargo test`:
 **130 passed, 0 failed**). All client-facing barkd response shapes are
 live-verified against **barkd 0.8.0 on signet** and pinned in
-[`src/wallet/live_shapes.rs`](src/wallet/live_shapes.rs) with shape tests;
+[`src/wallet/barkd/live_shapes.rs`](src/wallet/barkd/live_shapes.rs) with shape tests;
 remaining `VERIFY` markers are limited to request/edge shapes the pinned
 OpenAPI does not schema. The wallet layer talks to a
 [barkd](https://second.tech/docs/barkd_index.md) sidecar (Second's reference
@@ -26,10 +26,11 @@ Bark wallet daemon) over its local REST API: Ark + on-chain + Lightning
 receive, a polling payment watcher with a persisted cursor, a per-VTXO expiry
 queue, and a settlement engine that sweeps the capped till to your own wallet.
 
-**Known open issue:** the tester's AWS t4g (aarch64) VPS restart-loops the ebp
-container roughly every 60s after `docker compose up -d`; see
-[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) for the crashwatch/debug
-procedure before deploying to a VPS.
+**RESOLVED 2026-11-03:** the tester's AWS t4g (aarch64) VPS restart-loop was
+caused by the Dockerfile's dependency-cache placeholder binary shipping
+instead of the server (a cargo mtime-skip trap; mechanism + fix in
+[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md), which now also carries a build
+smoke test guarding against the class). Rebuilt and serving on the VPS.
 
 ### Documentation map
 

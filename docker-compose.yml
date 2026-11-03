@@ -1,9 +1,10 @@
 # Easy Bitcoin Payments — Phase 1 stack: the ebp server plus its barkd
 # sidecar (Second's reference Bark wallet daemon).
 #
-# barkd is pinned to the 0.8.0 source tag (docker/barkd.Dockerfile) because
-# Second publishes no registry image we can digest-pin yet — when one
-# appears, replace the build block with `image: <registry>/barkd@sha256:…`.
+# barkd runs Second's PREBUILT 0.8.0 release binary (docker/barkd.Dockerfile,
+# checksum-pinned) because Second publishes no registry image we can
+# digest-pin yet — when one appears, replace the build block with
+# `image: <registry>/barkd@sha256:…`.
 # Its datadir lives on the barkd-data volume; the API is plain HTTP bound to
 # the internal compose network only — no `ports:` mapping, so barkd is
 # unreachable from outside and every /api/v1 call still requires the bearer
@@ -15,8 +16,6 @@ services:
     build:
       context: .
       dockerfile: docker/barkd.Dockerfile
-      args:
-        BARK_VERSION: "0.8.0"
     image: ebp-barkd:0.8.0
     # --host 0.0.0.0 binds inside the container only; without a `ports:`
     # mapping nothing outside the compose network can reach it.
@@ -39,7 +38,7 @@ services:
       EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
       EBP_BARKD_URL: http://barkd:3000/api/v1
       # Provision once: docker compose exec barkd barkd --datadir /data secret show
-            # Empty by default: the token does not exist until the setup wizard
+      # Empty by default: the token does not exist until the setup wizard
       # provisions it. After the wizard's token step, put the token in a
       # `.env` file next to this compose file (EBP_BARKD_TOKEN=...) and run
       # `docker compose up -d` again to hand it to the server.

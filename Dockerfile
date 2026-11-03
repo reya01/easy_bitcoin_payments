@@ -12,7 +12,11 @@ RUN mkdir -p src && \
     printf 'fn main() {}\n' > src/main.rs && \
     printf '' > src/lib.rs && \
     cargo build --release && \
+    rm -f target/release/ebp && \
     rm -rf src
+# rm -f above: the stub binary is deleted after warming the dep cache, so if
+# the real build below were ever skipped, NO binary exists and the smoke test
+# (and the COPY --from) fails the build loudly instead of shipping a stub.
 
 COPY src ./src
 COPY migrations ./migrations
@@ -30,7 +34,7 @@ RUN find src -type f -exec touch {} + && cargo build --release
 # replace it, the stub ships and the container exits 0 instantly with no
 # logs — an undebuggable 22-hour restart loop (see docs/KNOWN_ISSUES.md).
 # The real binary prints a USAGE block; the stub prints nothing.
-RUN ./target/release/ebp --help | grep -q USAGE
+RUN timeout 10 ./target/release/ebp --help 2>&1 | grep -qi usage
 
 # ---- runtime stage ---------------------------------------------------------
 FROM debian:bookworm-slim AS runtime

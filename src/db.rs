@@ -134,7 +134,7 @@ mod tests {
             .await
             .unwrap();
 
-        for expected in ["api_keys", "invoices", "payments", "stores"] {
+        for expected in ["api_keys", "invoices", "payments", "settings", "stores"] {
             assert!(
                 tables.iter().any(|t| t == expected),
                 "missing table {expected}, got {tables:?}"

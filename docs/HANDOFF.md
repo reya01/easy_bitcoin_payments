@@ -7,9 +7,10 @@ live-verified against **barkd 0.8.0 on signet** and pinned in
 Remaining `VERIFY` markers are limited to request/edge shapes the pinned OpenAPI
 does not schema.
 
-**Known open issue:** the tester’s AWS t4g (aarch64) VPS restart-loops the ebp
-container roughly every 60s after `docker compose up -d`; `/ping` never answers.
-See [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) before deploying to a VPS.
+**Resolved 2026-11-03:** the tester's AWS t4g (aarch64) VPS restart-loop was
+the Dockerfile's dependency-cache placeholder binary shipping instead of the
+server (cargo mtime-skip trap; fix + build smoke test in place; rebuilt and
+serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Read first
 
@@ -90,11 +91,10 @@ See [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) before deploying to a VPS.
    `scripts/install.sh`, `scripts/release.sh`, and the recipe.
 2. **UX gate.** A non-technical tester must go zero → live signet invoice using
    only [docs/RECIPE_SETUP.md](RECIPE_SETUP.md) and an iPhone.
-3. **VPS restart-loop diagnosis.** The AWS t4g/aarch64 restart-loop is open.
-   Follow [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md): capture
-   `docker compose ps/logs`, the overnight crashwatch log, `docker inspect`
-   (`OOMKilled`, exit code, restart count), and `dmesg`/`journalctl -k` before
-   changing the db volume or instance size.
+3. **VPS sign-off.** The restart-loop is resolved (stub-binary root cause,
+   fixed + confirmed). What remains on the VPS is the tester finishing the
+   first-run wizard (wallet + recovery-words ceremony) and the walkthrough's
+   Part 7 test payment — the formal UX gate (also listed as #2).
 
 ## Cold-start commands
 

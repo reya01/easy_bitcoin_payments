@@ -19,6 +19,9 @@ matrix (config/bind/db error=1, panic=101, OOM=137) eliminated all three
 earlier suspects. The exact shipping mechanism (interrupted real build vs
 cache) is unproven; the new `RUN ./target/release/ebp --help | grep -q USAGE`
 smoke test in the Dockerfile makes the class impossible to ship again.
+`docker events` over 26h confirms NO kill/stop precedes any death — bare
+`die` events, `execDuration=0 exitCode=0`, ~60.3s apart: the loop is entirely
+self-exit + restart-backoff, not an external signaler.
 
 **Environment:** tester’s AWS **t4g** instance (**aarch64**). After
 `docker compose up -d`, the **ebp container restart-loops roughly every 60s**

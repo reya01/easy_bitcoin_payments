@@ -16,7 +16,7 @@ your coins, your server.
 
 This repository is at **Phase 1 code-complete** (2026-11-01) and remains
 **EXPERIMENTAL — not for real funds**. The full suite is green (`cargo test`:
-**130 passed, 0 failed**). All client-facing barkd response shapes are
+**134 passed, 0 failed**). All client-facing barkd response shapes are
 live-verified against **barkd 0.8.0 on signet** and pinned in
 [`src/wallet/barkd/live_shapes.rs`](src/wallet/barkd/live_shapes.rs) with shape tests;
 remaining `VERIFY` markers are limited to request/edge shapes the pinned

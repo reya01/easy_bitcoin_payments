@@ -1,7 +1,7 @@
 # Handoff — Easy Bitcoin Payments (EBP)
 
 **Status:** Phase 1 code-complete (2026-11-01), **EXPERIMENTAL — not for real funds**.
-`cargo test`: **130 passed, 0 failed**. All client-facing barkd response shapes are
+`cargo test`: **134 passed, 0 failed**. All client-facing barkd response shapes are
 live-verified against **barkd 0.8.0 on signet** and pinned in
 [`src/wallet/barkd/live_shapes.rs`](../src/wallet/barkd/live_shapes.rs) with shape tests.
 Remaining `VERIFY` markers are limited to request/edge shapes the pinned OpenAPI
@@ -53,14 +53,50 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 ## Verified live shapes
 
 - Pointer: [`src/wallet/barkd/live_shapes.rs`](../src/wallet/barkd/live_shapes.rs).
-- Pinned against: **barkd 0.8.0, signet**, 2026-11-01.
+- Pinned against: **barkd 0.8.0, signet** (responses 2026-11-01; the full
+  `/wallet/history` page 2026-11-03).
 - Covered: wallet mnemonic (`{"mnemonic": "…"}` under `--expose-mnemonic`),
   wallet connected (`{"connected": true}`), Lightning receive fee body, VTXO
   list empty shape (`[]`), and the other client-facing response bodies used by
-  the watcher/settlement/setup paths.
+  the watcher/settlement/setup paths — plus the REAL history-entry shape:
+  receives carry `subsystem.kind`, `received_on[]` (destination objects:
+  LN = type "invoice" + the BOLT11 string; amount in `amount_sat`),
+  `metadata.htlc_vtxos` (dedupe key), `time.completed_at` (RFC 3339), and
+  `status` ("successful" required before crediting). There is NO
+  entry-level address/amount/id.
+- **Crediting is FAIL-CLOSED**: an invoice is credited only on live-verified
+  receive evidence (`subsystem.kind = "receive"`, non-empty `received_on`,
+  or an explicit `direction: "receive"`). Round/send/board movements and
+  signal-less entries NEVER credit; a refused payment-looking entry logs a
+  loud pin-me warning. STILL UNPINNED: the on-chain receive entry's exact
+  shape — watch for that warning in any on-chain drill.
 - Drift check: [`scripts/check_barkd_drift.sh`](../scripts/check_barkd_drift.sh)
   verifies every `PATH_*` constant against
-  [`docs/barkd-openapi.json`](barkd-openapi.json) in CI.
+  [`docs/barkd-openapi.json`](barkd-openapi.json) in CI (and fails loudly if
+  the scanner itself matches nothing).
+
+## Hardening + ops (added 2026-11-03)
+
+- **Build guards**: the Dockerfile's dep-cache step (which builds a throwaway
+  stub binary) deletes the stub after warming, refreshes source mtimes before
+  the real build, and runs a usage smoke test — the stub-ship failure class
+  that caused the 22h restart-loop cannot ship again
+  ([docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) has the full forensic record).
+- **CI**: builds BOTH release architectures (amd64 + arm64 via QEMU),
+  shellchecks every shipped script, clippy `-D warnings`, drift check,
+  tests. Verify CI is GREEN after every push — it once went red for a day
+  unnoticed.
+- **Backups**: `scripts/backup.sh` — consistent online SQLite snapshot +
+  barkd datadir tarball (wallet secrets; 600 perms), integrity-checked,
+  14-snapshot retention, flock-guarded. The paper recovery words remain the
+  only human-verifiable wallet backup.
+- **Schema ownership**: the `settings` table (key/value/`updated_at NOT NULL`)
+  is owned by `src/settings.rs`; `db.rs`'s `get_setting`/`set_setting` are
+  aliases. Migration 0003 creates the table; 0004's `IF NOT EXISTS` copy
+  no-ops. Never add a second settings implementation.
+- **Wiring test**: `tests/routes_wiring.rs` serves the real composed router
+  and asserts the checkout page's fetched routes (`/i/{id}/json` once slipped
+  through unwired), the setup gate (503 pre-setup), and API auth (401).
 
 ## Drills performed and what they proved
 

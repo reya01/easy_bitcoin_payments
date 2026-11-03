@@ -140,10 +140,23 @@ impl PollingWatcher {
                 confirmed_at: payment.confirmed_at,
             };
 
-            let outcome = self
+            // A determinically-rejected payment (amount <= 0, or an illegal
+            // transition) can never succeed: log it and move on so the
+            // cursor advances past it. Aborting the tick here would freeze
+            // the cursor on the same batch forever — a silent,
+            // permanent payment-processing outage on one bad entry.
+            let outcome = match self
                 .db
                 .call(move |conn| invoice::record_payment(conn, &observed))
-                .await?;
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(err @ AppError::BadRequest(_)) | Err(err @ AppError::Conflict(_)) => {
+                    tracing::warn!(error = %err, "payment rejected as permanently unrecordable; skipping it");
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
 
             let Some((updated, status)) = outcome else {
                 continue;
@@ -163,7 +176,12 @@ impl PollingWatcher {
         // Advance and persist the cursor. Persisting after applying means a
         // crash mid-tick re-delivers payments; the unique VTXO/txid guards
         // turn that into a no-op instead of a double credit.
-        let next_cursor = newest.max(now_unix() - 1);
+        //
+        // Advance ONLY to the newest wallet-reported timestamp — never to
+        // local now(): local clock and wallet timestamps are different
+        // clocks, and a capped/truncated page must never let the cursor
+        // jump past entries it never saw.
+        let next_cursor = newest;
         if next_cursor > since {
             if let Ok(mut cursor) = self.cursor.lock() {
                 *cursor = next_cursor;

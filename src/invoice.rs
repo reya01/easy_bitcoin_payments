@@ -158,10 +158,24 @@ pub fn cancel(conn: &Connection, store_id: &str, id: &str) -> Result<Invoice, Ap
         )));
     }
 
-    conn.execute(
-        "UPDATE invoices SET status = ?1 WHERE id = ?2 AND store_id = ?3",
-        params![InvoiceStatus::Cancelled.as_str(), id, store_id],
+    // Status-guarded: with the single-connection Mutex this is redundant,
+    // but if Db ever swaps to a pool, the guard keeps a concurrent `paid`
+    // transition from being overwritten with `cancelled` (money in the till
+    // with a cancelled invoice).
+    let changed = conn.execute(
+        "UPDATE invoices SET status = ?1 WHERE id = ?2 AND store_id = ?3 AND status = ?4",
+        params![
+            InvoiceStatus::Cancelled.as_str(),
+            id,
+            store_id,
+            invoice.status.as_str()
+        ],
     )?;
+    if changed == 0 {
+        return Err(AppError::Conflict(
+            "invoice state changed concurrently; reload and retry".into(),
+        ));
+    }
 
     get(conn, store_id, id)?.ok_or(AppError::NotFound)
 }
@@ -403,7 +417,10 @@ pub fn record_payment(
         return Err(err.into());
     }
 
-    let paid_total = current.paid_sats + amount_sats;
+    let paid_total = current
+        .paid_sats
+        .checked_add(amount_sats)
+        .ok_or_else(|| AppError::BadRequest("payment amount overflows the invoice total".into()))?;
     let next = status_after_payment(paid_total, current.amount_sats);
 
     if !current.status.can_transition_to(next) {
@@ -415,12 +432,24 @@ pub fn record_payment(
 
     let paid_at = next.is_settled().then(now_unix);
 
-    tx.execute(
+    let changed = tx.execute(
         "UPDATE invoices
          SET status = ?1, paid_sats = ?2, paid_at = COALESCE(?3, paid_at)
-         WHERE id = ?4",
-        params![next.as_str(), paid_total, paid_at, invoice_id],
+         WHERE id = ?4 AND status = ?5",
+        params![
+            next.as_str(),
+            paid_total,
+            paid_at,
+            invoice_id,
+            current.status.as_str()
+        ],
     )?;
+    if changed == 0 {
+        // Raced with a concurrent transition (possible once Db ever swaps
+        // its single Mutex connection for a pool). Treat as a no-op: the
+        // payment row is already durably recorded above.
+        return Ok(None);
+    }
 
     let updated = tx.query_row(
         "SELECT * FROM invoices WHERE id = ?1",
@@ -436,7 +465,8 @@ pub fn record_payment(
 fn is_unique_violation(err: &rusqlite::Error) -> bool {
     matches!(
         err,
-        rusqlite::Error::SqliteFailure(e, _) if e.code == rusqlite::ErrorCode::ConstraintViolation
+        rusqlite::Error::SqliteFailure(e, _)
+            if e.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
     )
 }
 

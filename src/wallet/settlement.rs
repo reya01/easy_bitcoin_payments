@@ -103,14 +103,10 @@ impl SettlementEngine {
     pub async fn tick(&self) -> Result<TickReport, AppError> {
         let mut report = TickReport::default();
 
-        let Some(destination) = self
-            .config
-            .settlement_destination
-            .clone()
-            .filter(|d| !d.trim().is_empty())
-        else {
-            return Ok(report);
-        };
+        // NOTE: the sweep destination guard lives right before the sweep
+        // section, NOT here. A missing destination disables SWEEPING, never
+        // renewal — renewal is what keeps boarded/received funds alive, and
+        // it must run regardless of where sweeps would go.
 
         let vtxos = self.client.vtxos().await.map_err(AppError::from)?;
         let onchain = self
@@ -142,14 +138,13 @@ impl SettlementEngine {
                 Ok(_) => {
                     let amount: i64 = due.iter().map(|v| v.amount_sats).sum();
                     let count = due_ids.len();
-                    let dest = destination.clone();
                     self.db
                         .call(move |conn| {
                             record(
                                 conn,
                                 "renew",
                                 amount,
-                                &dest,
+                                "", // renewal does not send anywhere; no destination to record
                                 "broadcast",
                                 Some(&format!("refreshed {count} vtxos ahead of expiry")),
                             )
@@ -162,7 +157,18 @@ impl SettlementEngine {
         }
 
         // 2. Cap-driven sweep: move the excess above the hot cap to the
-        //    merchant's own wallet.
+        //    merchant's own wallet. Requires a configured destination; an
+        //    unset/blank one means sweeping stays off (renewal above is
+        //    unaffected).
+        let Some(destination) = self
+            .config
+            .settlement_destination
+            .clone()
+            .filter(|d| !d.trim().is_empty())
+        else {
+            return Ok(report);
+        };
+
         let offchain = balances.offchain_sats;
         let excess = offchain.saturating_sub(self.config.hot_wallet_cap_sats);
         if excess <= 0 {
@@ -484,8 +490,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_a_destination_the_engine_stays_idle() {
-        let (base, recorded) = mock::spawn(|_| (200, "{}".to_string()));
+    async fn without_a_destination_renewal_still_runs_and_sweeping_stays_off() {
+        // A missing sweep destination disables SWEEPING, never renewal.
+        let (base, recorded) = mock::spawn(|req| {
+            if req.route().contains("/wallet/vtxos") {
+                (
+                    200,
+                    format!(
+                        r#"[{{"id": "v1", "amount_sat": 50000, "state": {{"type": "spendable"}}, "expiry_timestamp": {}}}]"#,
+                        crate::util::now_unix() + 3_600
+                    ),
+                )
+            } else if req.route().contains("/onchain/balance") {
+                (200, r#"{"confirmed_sat": 30000}"#.to_string())
+            } else if req.route().contains("/wallet/balance") {
+                (
+                    200,
+                    r#"{"spendable_sat": 0, "pending_incoming_sat": 0, "claimable_lightning_receive_sat": 0}"#
+                        .to_string(),
+                )
+            } else {
+                (200, "{}".to_string()) // refresh
+            }
+        });
         let client = crate::wallet::barkd::BarkdClient::new(
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
@@ -493,8 +520,17 @@ mod tests {
         let db = Db::open(":memory:").unwrap();
         let engine = SettlementEngine::new(client, db, test_config(None, 100_000));
         let report = engine.tick().await.unwrap();
+        assert_eq!(
+            report.refreshed_vtxos, 1,
+            "renewal must run without a destination"
+        );
         assert!(report.swept_sats.is_none());
         assert!(report.sweep_refused.is_none());
-        assert!(recorded.lock().unwrap().is_empty());
+        let all = recorded.lock().unwrap();
+        assert!(
+            all.iter()
+                .all(|r| r.method == "GET" || r.route().contains("refresh")),
+            "no sweep may be sent without a destination"
+        );
     }
 }

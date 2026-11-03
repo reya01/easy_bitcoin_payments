@@ -337,7 +337,13 @@ fn is_loopback_url(url: &str) -> bool {
         return false;
     };
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    host == "localhost" || host == "::1" || host.starts_with("127.")
+    // Parse as an IP, not a prefix: `127.0.0.1.evil.tld` starts with "127."
+    // but is a public DNS name that must NOT silence the cleartext warning.
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
 }
 
 /// Async REST client for the barkd sidecar.
@@ -601,14 +607,8 @@ impl BarkdClient {
                 .pointer("/state/type")
                 .and_then(Json::as_str)
                 .map(str::to_string);
-            // barkd 0.8.0 names the amount `amount_sat`; alias it so the
-            // Vtxo struct parses with or without a serde rename.
-            let mut item = item;
-            if let Some(amount) = item.get("amount_sat").cloned() {
-                if let Some(obj) = item.as_object_mut() {
-                    obj.entry("amount_sats".to_string()).or_insert(amount);
-                }
-            }
+            // barkd 0.8.0 names the amount `amount_sat`; the serde alias on
+            // Vtxo.amount_sats covers it — no manual injection needed.
             let vtxo = serde_json::from_value(item).map_err(|e| {
                 WalletError::Rejected(format!("unparseable vtxo entry: {e} (VERIFIED shape)"))
             })?;
@@ -726,11 +726,12 @@ impl BarkdClient {
                 None => return Ok(out),
             }
         }
-        tracing::warn!(
-            pages = MAX_HISTORY_PAGES,
-            "barkd history exceeded the page cap; returning partial history"
-        );
-        Ok(out)
+        // Fail, don't truncate: a partial page returned as success would let
+        // the caller advance its watermark and permanently skip the
+        // unreturned tail (paid-but-uncredited invoices).
+        Err(WalletError::Unavailable(format!(
+            "barkd history exceeded {MAX_HISTORY_PAGES} pages — refusing to return partial history"
+        )))
     }
 
     // -- Settlement ---------------------------------------------------------
@@ -857,9 +858,12 @@ pub struct VtxoSet {
 // height or a timestamp.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Vtxo {
-    #[serde(default, alias = "outpoint", alias = "vtxo_id")]
+    // No serde default on id/amount: a vtxo entry missing either is a shape
+    // we do not understand — parsing must FAIL loudly, never enter the
+    // expiry/refresh queue as a 0-sat or empty-id entry.
+    #[serde(alias = "outpoint", alias = "vtxo_id")]
     pub id: String,
-    #[serde(default, alias = "amount", alias = "sats")]
+    #[serde(alias = "amount", alias = "sats", alias = "amount_sat")]
     pub amount_sats: i64,
     #[serde(default, alias = "expiry", alias = "expires_at_height")]
     pub expiry_height: Option<u64>,
@@ -904,45 +908,70 @@ pub struct HistoryEntry {
 }
 
 impl HistoryEntry {
-    /// Best-effort direction for the outbound filter: explicit direction,
-    /// else subsystem.kind, else the balance sign / sent_to presence.
-    pub fn effective_direction(&self) -> String {
-        if let Some(d) = self.direction.as_deref() {
-            return d.to_ascii_lowercase();
-        }
-        if let Some(k) = self
+    /// POSITIVE receive evidence only. Crediting is fail-closed: an entry
+    /// is an invoice-paying receive ONLY when barkd says so — the explicit
+    /// `direction` field, the verified `subsystem.kind == "receive"`, or a
+    /// non-empty `received_on` (all live-verified on the LN drill; see
+    /// `live_shapes.rs`). Anything else — sends, refresh/board/round
+    /// movements, entries with no direction signal at all, or
+    /// speculative top-level `type`/`kind` discriminators that are not
+    /// directions — is never credited. Absence of send evidence is NOT
+    /// receive evidence.
+    pub fn is_inbound_credit(&self) -> bool {
+        let explicit = self
+            .direction
+            .as_deref()
+            .map(|d| d.eq_ignore_ascii_case("receive"))
+            .unwrap_or(false);
+        let subsystem_kind = self
             .subsystem
             .as_ref()
             .and_then(|s| s.get("kind"))
-            .and_then(|k| k.as_str())
-        {
-            return k.to_ascii_lowercase();
+            .and_then(Json::as_str)
+            .map(|k| k.eq_ignore_ascii_case("receive"))
+            .unwrap_or(false);
+        let received_on = self
+            .received_on
+            .as_ref()
+            .and_then(|r| r.as_array())
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+        explicit || subsystem_kind || received_on
+    }
+
+    /// Kept for the module's historical "outbound filter" name; now a
+    /// strict pass-through of the positive-evidence check (an entry that
+    /// is not an inbound credit is, for crediting purposes, outbound or
+    /// unattributable — both never credit).
+    pub fn effective_direction(&self) -> String {
+        if self.is_inbound_credit() {
+            "receive".into()
+        } else {
+            String::new()
         }
-        if let Some(b) = self.intended_balance_sat {
-            if b < 0 {
-                return "send".into();
-            }
-        }
-        if let Some(s) = self.sent_to.as_ref() {
-            if s.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
-                return "send".into();
-            }
-        }
-        String::new()
     }
 }
 
 impl HistoryEntry {
     /// Map to the watcher's payment shape. `None` when the entry cannot be
     /// attributed (no address), cannot be deduped (no VTXO id and no txid),
-    /// is an outbound movement, or is not a positive receive — never credit
-    /// an invoice from those.
+    /// has no positive receive evidence, or is not a positive amount —
+    /// never credit an invoice from those.
     pub fn into_wallet_payment(self) -> Option<WalletPayment> {
-        let direction = self.effective_direction();
-        if ["send", "sent", "offboard", "exit"]
-            .iter()
-            .any(|d| direction.contains(d))
-        {
+        let looks_like_a_payment = self.amount_sats > 0
+            && self.address.is_some()
+            && (self.vtxo_id.is_some() || self.txid.is_some());
+        if !self.is_inbound_credit() {
+            if looks_like_a_payment {
+                // Loud, not silent: an amount+address+id entry we refuse to
+                // credit means an unpinned receive shape — pin it (live
+                // drill) before ever crediting on inference.
+                tracing::warn!(
+                    address = ?self.address,
+                    amount_sats = self.amount_sats,
+                    "history entry looks like a payment but carries no receive evidence (subsystem.kind/direction/received_on) — NOT credited; if this was a real payment, live-pin this barkd history shape"
+                );
+            }
             return None;
         }
         if self.amount_sats <= 0 {
@@ -1631,8 +1660,12 @@ mod tests {
     #[test]
     fn history_entries_map_to_wallet_payments() {
         let entry = |json: &str| serde_json::from_str::<HistoryEntry>(json).unwrap();
+        // POSITIVE receive evidence is REQUIRED (fail-closed): the credit
+        // path accepts only entries barkd itself marks as receives —
+        // subsystem.kind "receive" (verified live, LN drill), received_on
+        // non-empty (verified live), or an explicit direction field.
         let ark = entry(
-            r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 10}"#,
+            r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 10, "subsystem": {"name": "lightning", "kind": "receive"}}"#,
         )
         .into_wallet_payment()
         .unwrap();
@@ -1640,35 +1673,60 @@ mod tests {
         assert_eq!(ark.amount_sats, 1000);
         assert!(matches!(ark.rail, Rail::Ark));
 
-        let onchain =
-            entry(r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11}"#)
-                .into_wallet_payment()
-                .unwrap();
+        let onchain = entry(
+            r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11, "received_on": ["bc1qinv"]}"#,
+        )
+        .into_wallet_payment()
+        .unwrap();
         assert!(matches!(onchain.rail, Rail::Onchain));
         assert_eq!(onchain.detected_at, 11);
 
-        // Outbound movements, unattributable entries, entries without a
-        // dedupe key, and non-positive amounts are never credited.
+        let explicit = entry(
+            r#"{"address": "a", "amount_sats": 7, "txid": "t2", "detected_at": 1, "direction": "receive"}"#,
+        )
+        .into_wallet_payment()
+        .unwrap();
+        assert_eq!(explicit.amount_sats, 7);
+
+        // NEVER credited (fail-closed), each for its own reason:
+        // outbound send (verified live shape: subsystem.kind "send").
         assert!(entry(
-            r#"{"address": "a", "amount_sats": 1, "vtxo_id": "v", "detected_at": 1, "kind": "send"}"#
+            r#"{"address": "a", "amount_sats": 1, "vtxo_id": "v", "detected_at": 1, "subsystem": {"name": "wallet", "kind": "send"}}"#,
         )
         .into_wallet_payment()
         .is_none());
+        // speculative top-level type/kind discriminators are NOT directions
+        assert!(entry(
+            r#"{"address": "a", "amount_sats": 1, "vtxo_id": "v", "detected_at": 1, "type": "vtxo"}"#,
+        )
+        .into_wallet_payment()
+        .is_none());
+        // no receive signal at all (round movements look exactly like this)
         assert!(
             entry(r#"{"amount_sats": 1, "vtxo_id": "v", "detected_at": 1}"#)
                 .into_wallet_payment()
                 .is_none()
         );
+        // amount but no dedupe key / no address / non-positive amount
         assert!(
             entry(r#"{"address": "a", "amount_sats": 1, "detected_at": 1}"#)
                 .into_wallet_payment()
                 .is_none()
         );
         assert!(
-            entry(r#"{"address": "a", "amount_sats": 0, "vtxo_id": "v", "detected_at": 1}"#)
-                .into_wallet_payment()
-                .is_none()
+            entry(
+                r#"{"address": "a", "amount_sats": 0, "vtxo_id": "v", "detected_at": 1, "subsystem": {"kind": "receive"}}"#,
+            )
+            .into_wallet_payment()
+            .is_none()
         );
+        // a SEND entry wearing a positive amount and an invoice-like
+        // address (the fake-payment vector) never credits
+        assert!(entry(
+            r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v9", "detected_at": 10, "intended_balance_sat": -1000, "sent_to": ["ark1qother"]}"#,
+        )
+        .into_wallet_payment()
+        .is_none());
     }
 
     #[tokio::test]
@@ -1716,7 +1774,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_bridge_maps_history_to_wallet_payments() {
-        let page = r#"{"payments": [{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 42}]}"#;
+        let page = r#"{"payments": [{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 42, "subsystem": {"name": "lightning", "kind": "receive"}}]}"#;
         let (base, _) = mock::spawn(move |_| (200, page.to_string()));
         let wallet = BarkdWallet::new(BarkdConfig::new(base, "test-token")).unwrap();
         // Called from inside a tokio context on purpose: the bridge must

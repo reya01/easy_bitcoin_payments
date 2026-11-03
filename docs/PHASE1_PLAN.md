@@ -2,7 +2,7 @@
 
 **Status:** Phase 1 code-complete (2026-11-01) — all twelve tasks below
 are DONE in code, every client-facing barkd shape is live-verified
-(barkd 0.8.0, signet), and the full suite is green (`cargo test`: 233
+(barkd 0.8.0, signet), and the full suite is green (`cargo test`: 130
 passed, 0 failed). Nothing code-side remains. Two items are left, both
 human, and gate the phase sign-off: (1) the non-technical UX gate (task
 12: zero → live signet invoice using only the recipe and an iPhone),

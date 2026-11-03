@@ -14,13 +14,36 @@ Easy Bitcoin Payments (EBP) is a single Rust binary plus SQLite that sits betwee
 your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
-This repository is at **Phase 1 — barkd integration**. The wallet layer talks
-to a [barkd](https://second.tech/docs/barkd_index.md) sidecar (Second's
-reference Bark wallet daemon) over its local REST API: Ark + on-chain +
-Lightning receive, a polling payment watcher with a persisted cursor, a
-per-VTXO expiry queue, and a settlement engine that sweeps the capped till to
-your own wallet. barkd's response shapes are not yet pinned by CI, so every
-parser carries a `VERIFY: field shape` marker in `src/wallet/barkd.rs`.
+This repository is at **Phase 1 code-complete** (2026-11-01) and remains
+**EXPERIMENTAL — not for real funds**. The full suite is green (`cargo test`:
+**130 passed, 0 failed**). All client-facing barkd response shapes are
+live-verified against **barkd 0.8.0 on signet** and pinned in
+[`src/wallet/live_shapes.rs`](src/wallet/live_shapes.rs) with shape tests;
+remaining `VERIFY` markers are limited to request/edge shapes the pinned
+OpenAPI does not schema. The wallet layer talks to a
+[barkd](https://second.tech/docs/barkd_index.md) sidecar (Second's reference
+Bark wallet daemon) over its local REST API: Ark + on-chain + Lightning
+receive, a polling payment watcher with a persisted cursor, a per-VTXO expiry
+queue, and a settlement engine that sweeps the capped till to your own wallet.
+
+**Known open issue:** the tester's AWS t4g (aarch64) VPS restart-loops the ebp
+container roughly every 60s after `docker compose up -d`; see
+[docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) for the crashwatch/debug
+procedure before deploying to a VPS.
+
+### Documentation map
+
+- [docs/HANDOFF.md](docs/HANDOFF.md) — one-stop context for a new developer/agent.
+- [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — open issues and debug procedures.
+- [docs/PHASE0_SPIKE_PLAN.md](docs/PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions and log.
+- [docs/PHASE1_PLAN.md](docs/PHASE1_PLAN.md) — Phase 1 tasks, status, and close-out.
+- [docs/RECIPE_SETUP.md](docs/RECIPE_SETUP.md) — zero-to-live-testnet-invoice recipe.
+- [docs/RECIPE_BACKUP.md](docs/RECIPE_BACKUP.md) — backup/restore recipe.
+- [docs/UPGRADING.md](docs/UPGRADING.md) — version and upgrade notes.
+- [docs/MASTER_TEST_WALKTHROUGH.md](docs/MASTER_TEST_WALKTHROUGH.md) — beginner AWS + iPhone walkthrough.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, and contribution rules.
+- [ebp.example.toml](ebp.example.toml) — every config key.
+- [LICENSE](LICENSE) — MIT.
 
 ---
 
@@ -114,10 +137,10 @@ export EBP_BARKD_TOKEN="$(barkd --datadir ~/.bark-ebp secret show)"
 export EBP_BARKD_URL="http://127.0.0.1:3000/api/v1"
 cargo run -- serve
 
-# 3. Create the wallet (signet + Second's public ASP). TODO(Phase 1): the
-#    setup wizard does this; until then it is one curl call. If the response
-#    contains a mnemonic, write it down and store it offline — EBP never
-#    reads it back.
+# 3. Create the wallet (signet + Second's public ASP). The first-run wizard
+#    at /setup does this; the manual curl below is the fallback. If the
+#    response contains a mnemonic, write it down and store it offline — EBP
+#    never reads it back.
 curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
   -H "Authorization: Bearer $EBP_BARKD_TOKEN" \
   -H "content-type: application/json" \
@@ -193,7 +216,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_HOT_WALLET_CAP_SATS` | `500000` | Custody Level 0 till cap |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
 | `EBP_LOG_LEVEL` | `info,tower_http=info` | `tracing` filter |
-| `EBP_KEY_ENCRYPTION_KEY` | unset | At-rest encryption key (**Phase 1**) |
+| `EBP_KEY_ENCRYPTION_KEY` | unset | Reserved; at-rest encryption is not implemented yet (schema columns exist) |
 | `EBP_CHECKOUT_POLICY_URL` | unset | Refund policy link on checkout |
 | `EBP_CHECKOUT_ACCENT_COLOR` | `#f7931a` | Checkout branding |
 | `EBP_BARKD_URL` | `http://127.0.0.1:3000/api/v1` | barkd sidecar REST API |

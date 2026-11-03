@@ -45,6 +45,11 @@ pub fn router(state: AppState) -> Router {
     // Invoice + checkout routes sit behind the setup gate.
     let gated = Router::new()
         .route("/i/{id}", get(checkout::page))
+        // The checkout page's own first data fetch (assets/checkout.html
+        // calls /i/{id}/json before polling /status) — this route existed
+        // only inside a never-merged router() until the overnight review
+        // caught the 404.
+        .route("/i/{id}/json", get(checkout::invoice_json))
         .route("/i/{id}/status", get(checkout::status))
         .route("/i/{id}/rails", get(checkout_rails::rails))
         .route(

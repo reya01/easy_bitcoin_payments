@@ -317,7 +317,13 @@ pub struct MnemonicResponse {
 impl std::fmt::Debug for MnemonicResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MnemonicResponse")
-            .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED — recovery words never logged]"))
+            .field(
+                "mnemonic",
+                &self
+                    .mnemonic
+                    .as_ref()
+                    .map(|_| "[REDACTED — recovery words never logged]"),
+            )
             .field("word_count", &self.word_count)
             .field("instructions", &self.instructions)
             .finish()
@@ -598,7 +604,10 @@ impl std::fmt::Debug for WalletCreatedResponse {
             .field("already_exists", &self.already_exists)
             .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED]"))
             .field("mnemonic_source", &self.mnemonic_source)
-            .field("manual_instructions", &self.manual_instructions.as_ref().map(|_| "<present>"))
+            .field(
+                "manual_instructions",
+                &self.manual_instructions.as_ref().map(|_| "<present>"),
+            )
             .field("network", &self.network)
             .field("asp_url", &self.asp_url)
             .finish()
@@ -619,7 +628,11 @@ pub async fn create_wallet(
     // Funds-safety allowlist: a test-mode (play-money) server must never
     // create a mainnet wallet governed by test-mode assumptions, and vice
     // versa. The networks are exact — not free text.
-    let allowed = if state.config.mode == "live" { "mainnet" } else { "signet" };
+    let allowed = if state.config.mode == "live" {
+        "mainnet"
+    } else {
+        "signet"
+    };
     if network != allowed {
         return Err(AppError::BadRequest(format!(
             "network \"{network}\" does not match this server's mode ({}) — expected \"{allowed}\"",

@@ -5,26 +5,18 @@
 use axum::{
     extract::{Path, State},
     response::Html,
-    routing::get,
-    Json, Router,
+    Json,
 };
 use rusqlite::OptionalExtension;
 
 use crate::{error::AppError, invoice, routes::AppState, uri};
-
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/i/{id}", get(page))
-        .route("/i/{id}/json", get(invoice_json))
-        .route("/i/{id}/status", get(status))
-}
 
 pub async fn page() -> Html<&'static str> {
     Html(include_str!("../../assets/checkout.html"))
 }
 
 /// One payload for everything the page renders once, incl. the default-QR URI.
-async fn invoice_json(
+pub async fn invoice_json(
     Path(id): Path<String>,
     State(app): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {

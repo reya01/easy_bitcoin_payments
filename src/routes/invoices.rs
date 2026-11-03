@@ -334,6 +334,13 @@ pub async fn create(
                         "sats must be greater than zero".into(),
                     ));
                 }
+                // Upper bound = the entire bitcoin money supply in sats;
+                // anything above is a typo, not an invoice.
+                if sats > 2_100_000_000_000_000 {
+                    return Err(AppError::BadRequest(
+                        "sats is out of the supported range".into(),
+                    ));
+                }
                 (sats, None, None, None, None, None)
             }
             (None, None) => {
@@ -375,6 +382,12 @@ pub async fn create(
         .clone()
         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
     if let Some(fields) = metadata.as_object_mut() {
+        // Reserved keys are server-set: a merchant could otherwise fake
+        // `test: true` (their invoice silently vanishes from the accounting
+        // export) or inject a bogus `lightning_fee_estimate_sat` that
+        // checkout would display as authoritative.
+        fields.remove("test");
+        fields.remove("lightning_fee_estimate_sat");
         if state.config.mode == "test" {
             fields.insert("test".to_string(), serde_json::Value::Bool(true));
         }

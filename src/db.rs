@@ -74,25 +74,16 @@ impl Db {
     }
 }
 
-/// Read one row from the `settings` table (Phase 1: watcher cursor, policies).
+// The settings table has ONE owner (src/settings.rs) — schema, ensure, and
+// accessors. The watcher's cursor goes through these aliases; do not add a
+// second settings implementation (that split is how the wizard's writes
+// broke against the migration schema).
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, AppError> {
-    conn.query_row(
-        "SELECT value FROM settings WHERE key = ?1",
-        params![key],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(Into::into)
+    crate::settings::get(conn, key)
 }
 
-/// Upsert one row into the `settings` table.
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), AppError> {
-    conn.execute(
-        "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-        params![key, value, crate::util::now_unix()],
-    )?;
-    Ok(())
+    crate::settings::set(conn, key, value)
 }
 
 fn migrate(conn: &mut Connection) -> Result<(), rusqlite::Error> {

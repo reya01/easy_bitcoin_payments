@@ -82,7 +82,11 @@ impl WebhookEmitter {
             .timeout(Duration::from_secs(timeout_secs.max(1)))
             .user_agent(concat!("ebp/", env!("CARGO_PKG_VERSION")))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            // Builder::build only fails on TLS-backend init (system-wide
+            // breakage). A fallback WITHOUT a timeout would let one hung
+            // merchant endpoint stall emit() forever — panic loudly at
+            // startup instead.
+            .expect("reqwest client TLS backend unavailable");
         Self { client }
     }
 

@@ -183,7 +183,7 @@ mod history_direction_tests {
             "received_on": []
         }))
         .unwrap();
-        assert!(entry.into_wallet_payment().is_none());
+        assert!(entry.into_wallet_payments().is_none());
     }
 }
 
@@ -344,6 +344,16 @@ fn is_loopback_url(url: &str) -> bool {
             .parse::<std::net::IpAddr>()
             .map(|ip| ip.is_loopback())
             .unwrap_or(false)
+}
+
+/// Rail from an address/destination string by network prefix (ark1/tark1 =
+/// Ark off-chain; anything else treated as on-chain).
+fn rail_from_address(value: &str) -> Rail {
+    if value.starts_with("ark1") || value.starts_with("tark1") {
+        Rail::Ark
+    } else {
+        Rail::Onchain
+    }
 }
 
 /// Async REST client for the barkd sidecar.
@@ -886,8 +896,16 @@ pub struct HistoryEntry {
     pub vtxo_id: Option<String>,
     #[serde(default, alias = "tx_id")]
     pub txid: Option<String>,
-    #[serde(default, alias = "created_at", alias = "timestamp", alias = "time")]
+    // NOTE: no "time" alias — real barkd 0.8.0 history entries carry `time`
+    // as an OBJECT ({created_at/updated_at/completed_at, RFC 3339 strings});
+    // an alias here would fail every real page's deserialization. The
+    // completed_at unix value is parsed from the object instead.
+    #[serde(default, alias = "created_at", alias = "timestamp")]
     pub detected_at: Option<i64>,
+    /// Entry status (pinned live: "successful"). A non-successful entry is
+    /// never credited.
+    #[serde(default)]
+    pub status: Option<String>,
     #[serde(default)]
     pub confirmed_at: Option<i64>,
     /// Movement direction/kind, when barkd reports one.
@@ -903,8 +921,19 @@ pub struct HistoryEntry {
     /// received_on non-empty (LN receives included).
     #[serde(default)]
     pub sent_to: Option<serde_json::Value>,
+    /// VERIFIED live shape (LN receive drill): an array of objects
+    /// `{destination: {type, value}, amount_sat}` — for LN receives the
+    /// destination type is "invoice" and value is the BOLT11 string.
     #[serde(default)]
     pub received_on: Option<serde_json::Value>,
+    /// Pinned live: {htlc_vtxos: [outpoint], payment_hash, payment_preimage}
+    /// on LN receives; the htlc outpoint is the natural dedupe key.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    /// Pinned live: {created_at, updated_at, completed_at} — RFC 3339
+    /// strings. The watcher's cursor runs on completed_at (unix).
+    #[serde(default)]
+    pub time: Option<serde_json::Value>,
 }
 
 impl HistoryEntry {
@@ -952,40 +981,169 @@ impl HistoryEntry {
     }
 }
 
+/// One creditable destination inside a receive entry's `received_on` array
+/// (pinned live: `{destination: {type, value}, amount_sat}`).
+pub struct ReceiveDestination {
+    /// Pinned kinds: "invoice" (LN, value = BOLT11 string). "address" is
+    /// handled defensively for on-chain/ark receives (value = the address).
+    pub kind: String,
+    pub value: String,
+    pub amount_sats: i64,
+}
+
 impl HistoryEntry {
-    /// Map to the watcher's payment shape. `None` when the entry cannot be
-    /// attributed (no address), cannot be deduped (no VTXO id and no txid),
-    /// has no positive receive evidence, or is not a positive amount —
-    /// never credit an invoice from those.
-    pub fn into_wallet_payment(self) -> Option<WalletPayment> {
-        let looks_like_a_payment = self.amount_sats > 0
-            && self.address.is_some()
-            && (self.vtxo_id.is_some() || self.txid.is_some());
+    /// Parse the pinned `received_on` shape. `None` when the field is
+    /// absent/empty or its entries do not carry a destination value AND an
+    /// amount — a destination we cannot read is one we cannot credit.
+    fn receive_destinations(&self) -> Option<Vec<ReceiveDestination>> {
+        let arr = self.received_on.as_ref()?.as_array()?;
+        if arr.is_empty() {
+            return None;
+        }
+        let mut out = Vec::new();
+        for item in arr {
+            let value = item
+                .pointer("/destination/value")
+                .and_then(Json::as_str)
+                .map(str::to_string);
+            let kind = item
+                .pointer("/destination/type")
+                .and_then(Json::as_str)
+                .unwrap_or("address")
+                .to_string();
+            let amount = item
+                .get("amount_sat")
+                .and_then(Json::as_i64)
+                // fallbacks: the entry-level fields a differently-shaped
+                // receive might use — never guessed beyond these pinned names
+                .or_else(|| (self.amount_sats > 0).then_some(self.amount_sats))
+                .or(self.intended_balance_sat.filter(|b| *b > 0));
+            if let (Some(value), Some(amount)) = (value, amount) {
+                if amount > 0 {
+                    out.push(ReceiveDestination {
+                        kind,
+                        value,
+                        amount_sats: amount,
+                    });
+                }
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// The watcher's cursor timestamp: `time.completed_at` first (pinned
+    /// live, RFC 3339), then updated_at / created_at, then an entry-level
+    /// unix `detected_at` (defensive for non-live shapes).
+    fn detected_at_unix(&self) -> Option<i64> {
+        let from_time = self.time.as_ref().and_then(|t| {
+            ["completed_at", "updated_at", "created_at"]
+                .iter()
+                .find_map(|k| {
+                    let s = t.get(*k)?.as_str()?;
+                    chrono::DateTime::parse_from_rfc3339(s)
+                        .ok()
+                        .map(|dt| dt.timestamp())
+                })
+        });
+        from_time.or(self.detected_at)
+    }
+
+    /// The dedupe key for a receive entry: the HTLC outpoint(s) (pinned on
+    /// LN receives), else the first output vtxo, else an entry-level
+    /// vtxo_id. Payments without ANY of these cannot be deduped and are
+    /// never credited (the unique index needs a key).
+    fn dedupe_key(&self) -> Option<String> {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.get("htlc_vtxos"))
+            .and_then(Json::as_array)
+            .and_then(|a| a.first())
+            .and_then(Json::as_str)
+            .map(str::to_string)
+            // NO fallback to the destination value (a bolt11): that is
+            // unique per INVOICE, not per payment — an MPP split (two HTLCs
+            // paying one invoice) would dedupe-swallow the second payment.
+            // No htlc/output key means we cannot dedupe safely: fail closed.
+            .or_else(|| self.vtxo_id.clone())
+            .or_else(|| self.txid.clone())
+    }
+
+    /// Map a receive entry to the watcher's payment shape — ONE payment per
+    /// `received_on` destination (a multi-destination receive credits each
+    /// destination separately; the DB's unique guards dedupe re-delivery).
+    ///
+    /// `None` when the entry must not or cannot be credited: no positive
+    /// receive evidence, a non-successful status, no readable timestamp, no
+    /// dedupe key, or no parseable destination. NEVER credit an invoice
+    /// from inference.
+    pub fn into_wallet_payments(self) -> Option<Vec<WalletPayment>> {
+        let looks_like_a_payment =
+            self.amount_sats > 0 || self.intended_balance_sat.map(|b| b > 0).unwrap_or(false);
         if !self.is_inbound_credit() {
             if looks_like_a_payment {
-                // Loud, not silent: an amount+address+id entry we refuse to
+                // Loud, not silent: an amount-bearing entry we refuse to
                 // credit means an unpinned receive shape — pin it (live
                 // drill) before ever crediting on inference.
                 tracing::warn!(
-                    address = ?self.address,
-                    amount_sats = self.amount_sats,
-                    "history entry looks like a payment but carries no receive evidence (subsystem.kind/direction/received_on) — NOT credited; if this was a real payment, live-pin this barkd history shape"
+                    entry_status = ?self.status,
+                    "history entry carries a positive amount but no receive evidence (subsystem.kind/direction/received_on) — NOT credited; if this was a real payment, live-pin this barkd history shape"
                 );
             }
+            return None;
+        }
+        if self
+            .status
+            .as_deref()
+            .map(|s| s != "successful")
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        let detected_at = self.detected_at_unix()?;
+        let dedupe = self.dedupe_key()?;
+
+        if let Some(destinations) = self.receive_destinations() {
+            let payments = destinations
+                .into_iter()
+                .map(|d| {
+                    // Rail: an "invoice" destination is a Lightning receive
+                    // via the ASP gateway — its HTLC settles as an Ark VTXO,
+                    // so it rides the Ark rail (pinned by the LN drill).
+                    // An "address" destination is arkon/offchain by prefix.
+                    let rail = if d.kind == "invoice" {
+                        Rail::Ark
+                    } else {
+                        rail_from_address(&d.value)
+                    };
+                    WalletPayment {
+                        // For LN the "address" is the BOLT11 string this
+                        // server issued; find_pending_by_address joins
+                        // ln_invoices on it (documented there).
+                        address: d.value,
+                        rail,
+                        amount_sats: d.amount_sats,
+                        vtxo_id: Some(dedupe.clone()),
+                        txid: None,
+                        detected_at,
+                        confirmed_at: self.confirmed_at,
+                    }
+                })
+                .collect();
+            return Some(payments);
+        }
+
+        // Defensive legacy/defensive shape: an entry-level address with a
+        // dedupe key and a positive amount (possible on unpinned on-chain
+        // receive entries).
+        let address = self.address?;
+        if self.vtxo_id.is_none() && self.txid.is_none() {
             return None;
         }
         if self.amount_sats <= 0 {
             return None;
         }
-        let address = self.address?;
-        if self.vtxo_id.is_none() && self.txid.is_none() {
-            return None;
-        }
-        Some(WalletPayment {
+        Some(vec![WalletPayment {
             address,
-            // LN-received VTXOs also carry a vtxo_id and settle under the
-            // same confirmation rule; distinguishing them needs a
-            // discriminator in barkd's history payload (VERIFY: field shape).
             rail: if self.vtxo_id.is_some() {
                 Rail::Ark
             } else {
@@ -994,9 +1152,9 @@ impl HistoryEntry {
             amount_sats: self.amount_sats,
             vtxo_id: self.vtxo_id,
             txid: self.txid,
-            detected_at: self.detected_at.unwrap_or_else(crate::util::now_unix),
+            detected_at,
             confirmed_at: self.confirmed_at,
-        })
+        }])
     }
 }
 
@@ -1289,7 +1447,8 @@ impl WalletAdapter for BarkdWallet {
         let entries = self.block_on(async move { client.payments_since(since).await })?;
         Ok(entries
             .into_iter()
-            .filter_map(HistoryEntry::into_wallet_payment)
+            .filter_map(HistoryEntry::into_wallet_payments)
+            .flatten()
             .collect())
     }
 
@@ -1667,57 +1826,59 @@ mod tests {
         let ark = entry(
             r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 10, "subsystem": {"name": "lightning", "kind": "receive"}}"#,
         )
-        .into_wallet_payment()
+        .into_wallet_payments()
         .unwrap();
+        let ark = &ark[0];
         assert_eq!(ark.address, "ark1qinv");
         assert_eq!(ark.amount_sats, 1000);
         assert!(matches!(ark.rail, Rail::Ark));
 
         let onchain = entry(
-            r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11, "received_on": ["bc1qinv"]}"#,
+            r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11, "received_on": [{"destination": {"type": "address", "value": "bc1qinv"}, "amount_sat": 5}]}"#,
         )
-        .into_wallet_payment()
+        .into_wallet_payments()
         .unwrap();
+        let onchain = &onchain[0];
         assert!(matches!(onchain.rail, Rail::Onchain));
         assert_eq!(onchain.detected_at, 11);
 
         let explicit = entry(
             r#"{"address": "a", "amount_sats": 7, "txid": "t2", "detected_at": 1, "direction": "receive"}"#,
         )
-        .into_wallet_payment()
+        .into_wallet_payments()
         .unwrap();
-        assert_eq!(explicit.amount_sats, 7);
+        assert_eq!(explicit[0].amount_sats, 7);
 
         // NEVER credited (fail-closed), each for its own reason:
         // outbound send (verified live shape: subsystem.kind "send").
         assert!(entry(
             r#"{"address": "a", "amount_sats": 1, "vtxo_id": "v", "detected_at": 1, "subsystem": {"name": "wallet", "kind": "send"}}"#,
         )
-        .into_wallet_payment()
+        .into_wallet_payments()
         .is_none());
         // speculative top-level type/kind discriminators are NOT directions
         assert!(entry(
             r#"{"address": "a", "amount_sats": 1, "vtxo_id": "v", "detected_at": 1, "type": "vtxo"}"#,
         )
-        .into_wallet_payment()
+        .into_wallet_payments()
         .is_none());
         // no receive signal at all (round movements look exactly like this)
         assert!(
             entry(r#"{"amount_sats": 1, "vtxo_id": "v", "detected_at": 1}"#)
-                .into_wallet_payment()
+                .into_wallet_payments()
                 .is_none()
         );
         // amount but no dedupe key / no address / non-positive amount
         assert!(
             entry(r#"{"address": "a", "amount_sats": 1, "detected_at": 1}"#)
-                .into_wallet_payment()
+                .into_wallet_payments()
                 .is_none()
         );
         assert!(
             entry(
                 r#"{"address": "a", "amount_sats": 0, "vtxo_id": "v", "detected_at": 1, "subsystem": {"kind": "receive"}}"#,
             )
-            .into_wallet_payment()
+            .into_wallet_payments()
             .is_none()
         );
         // a SEND entry wearing a positive amount and an invoice-like
@@ -1725,7 +1886,7 @@ mod tests {
         assert!(entry(
             r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v9", "detected_at": 10, "intended_balance_sat": -1000, "sent_to": ["ark1qother"]}"#,
         )
-        .into_wallet_payment()
+        .into_wallet_payments()
         .is_none());
     }
 
@@ -1770,6 +1931,234 @@ mod tests {
         assert_eq!(all[0].path, "/api/v1/lightning/receives/invoice");
         let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
         assert_eq!(body["amount_sats"], 21_000);
+    }
+
+    #[tokio::test]
+    async fn live_history_page_credits_exactly_the_real_receive() {
+        // VERBATIM /wallet/history capture (barkd 0.8.0, signet, till
+        // wallet, 2026-11-03; identifiers genericized). This is the ground
+        // truth the fail-closed credit path must satisfy: one creditable
+        // receive (LN, 5000 sat, bolt11 destination), and NOT ONE round
+        // movement, send, or board crediting anything.
+        let page: &str = r#"[
+ {
+  "id": 6,
+  "status": "successful",
+  "subsystem": {
+   "name": "bark.round",
+   "kind": "refresh"
+  },
+  "metadata": {
+   "funding_txid": "f897b21a5ea98a4a47a584136aab88ceeb27372ead90b29d32e28eb05513477b"
+  },
+  "intended_balance_sat": 0,
+  "effective_balance_sat": 0,
+  "offchain_fee_sat": 0,
+  "sent_to": [],
+  "received_on": [],
+  "input_vtxos": [
+   "3e09c14cedfe39f983fb0fb3fbd298487ac2cf9f6eec9ebddb766dc246d5ac30:0",
+   "4055b76ff8b6a80996c90f92dcdcdf39ba3e39d23fc7125af021c8410b0a30a4:0",
+   "e6e1f92ebea7467fa4b41c1dd75ffc9f309854052f7803b744a28edc5a2b5f1b:0"
+  ],
+  "output_vtxos": [
+   "f046feb28d59eab17f3ee789763c2ff26d9ec7cea6a126e314deb4bced9809f6:0"
+  ],
+  "exited_vtxos": [],
+  "time": {
+   "created_at": "2026-11-02T23:05:17.727256603Z",
+   "updated_at": "2026-11-02T23:38:20.304381817Z",
+   "completed_at": "2026-11-02T23:38:20.304413147Z"
+  }
+ },
+ {
+  "id": 5,
+  "status": "successful",
+  "subsystem": {
+   "name": "bark.arkoor",
+   "kind": "send"
+  },
+  "intended_balance_sat": -100,
+  "effective_balance_sat": -100,
+  "offchain_fee_sat": 0,
+  "sent_to": [
+   {
+    "destination": {
+     "type": "ark",
+     "value": "tark1pem36wcfzqqprsstt96uns3qeguj6prrga76saqctvqr43tew5ngutrgets0686pzqypqhh3e5z4udx7238nv4k3zmn4nxnet9kqt9l93g0x0gak8v8fztkg92xgy3"
+    },
+    "amount_sat": 100
+   }
+  ],
+  "received_on": [],
+  "input_vtxos": [
+   "92df110cb81559d0103d6dc6e0e96fcc929d36bdb498371a1490eba67e4829f7:0"
+  ],
+  "output_vtxos": [
+   "3e09c14cedfe39f983fb0fb3fbd298487ac2cf9f6eec9ebddb766dc246d5ac30:0",
+   "4055b76ff8b6a80996c90f92dcdcdf39ba3e39d23fc7125af021c8410b0a30a4:0",
+   "e6e1f92ebea7467fa4b41c1dd75ffc9f309854052f7803b744a28edc5a2b5f1b:0"
+  ],
+  "exited_vtxos": [],
+  "time": {
+   "created_at": "2026-11-02T04:39:18.826066767Z",
+   "updated_at": "2026-11-02T04:39:19.301089477Z",
+   "completed_at": "2026-11-02T04:39:19.303103567Z"
+  }
+ },
+ {
+  "id": 4,
+  "status": "successful",
+  "subsystem": {
+   "name": "bark.round",
+   "kind": "refresh"
+  },
+  "metadata": {
+   "funding_txid": "96da230e67cba7dd4fc568cd5803d7cbecd75b6e030b1ae1e37853efe40400a6"
+  },
+  "intended_balance_sat": 0,
+  "effective_balance_sat": 0,
+  "offchain_fee_sat": 0,
+  "sent_to": [],
+  "received_on": [],
+  "input_vtxos": [
+   "593e00f8f1a6fbd9c7f6c95f6b16ce32b8be45de023ef774d94babbbdd57937f:0"
+  ],
+  "output_vtxos": [
+   "92df110cb81559d0103d6dc6e0e96fcc929d36bdb498371a1490eba67e4829f7:0"
+  ],
+  "exited_vtxos": [],
+  "time": {
+   "created_at": "2026-11-01T23:20:17.422331748Z",
+   "updated_at": "2026-11-01T23:23:23.874179698Z",
+   "completed_at": "2026-11-01T23:23:23.874206298Z"
+  }
+ },
+ {
+  "id": 3,
+  "status": "successful",
+  "subsystem": {
+   "name": "bark.lightning_receive",
+   "kind": "receive"
+  },
+  "metadata": {
+   "htlc_vtxos": [
+    "6c5b7874d683bb81470f1fb0347f3e2ffef3c60e631dcccfad33639dc14845a8:0"
+   ],
+   "payment_hash": "e4eb9547e8ec588cc8da67a491858d74b4951ced632a2daefdaeeda4743ac975",
+   "payment_preimage": "dd192d67869a1e31201c3f3312dbdeb1469a90fcb78add71cee566e9eac92044"
+  },
+  "intended_balance_sat": 5000,
+  "effective_balance_sat": 5000,
+  "offchain_fee_sat": 0,
+  "sent_to": [],
+  "received_on": [
+   {
+    "destination": {
+     "type": "invoice",
+     "value": "lntbs50u1GENERICIZED-invoice-string-replace-me"
+    },
+    "amount_sat": 5000
+   }
+  ],
+  "input_vtxos": [],
+  "output_vtxos": [
+   "593e00f8f1a6fbd9c7f6c95f6b16ce32b8be45de023ef774d94babbbdd57937f:0"
+  ],
+  "exited_vtxos": [],
+  "time": {
+   "created_at": "2026-11-01T20:42:10.928527754Z",
+   "updated_at": "2026-11-01T20:42:11.695904825Z",
+   "completed_at": "2026-11-01T20:42:11.695905935Z"
+  }
+ },
+ {
+  "id": 2,
+  "status": "successful",
+  "subsystem": {
+   "name": "bark.arkoor",
+   "kind": "send"
+  },
+  "intended_balance_sat": -29987,
+  "effective_balance_sat": -29987,
+  "offchain_fee_sat": 0,
+  "sent_to": [
+   {
+    "destination": {
+     "type": "ark",
+     "value": "tark1pem36wcfzqqphhrqsra04qzz7v3ds3kn66djwkad0nw886aq729yvl0v86829g7ezqypwqjfxnscfselgr33vq6vuxqhdcufup9ue9a54qd0h7sm0we7nncsduzdxw"
+    },
+    "amount_sat": 29987
+   }
+  ],
+  "received_on": [],
+  "input_vtxos": [
+   "fbbda5bf2306aaaecb70093e8b59be4a81d054a8d417a0c0e5759b5873061650:0"
+  ],
+  "output_vtxos": [],
+  "exited_vtxos": [],
+  "time": {
+   "created_at": "2026-11-01T18:31:34.211412168Z",
+   "updated_at": "2026-11-01T18:31:34.211412168Z",
+   "completed_at": "2026-11-01T18:31:34.520475478Z"
+  }
+ },
+ {
+  "id": 1,
+  "status": "successful",
+  "subsystem": {
+   "name": "bark.board",
+   "kind": "board"
+  },
+  "metadata": {
+   "chain_anchor": "734cf3347d7c2bd73e93fc52487f1743a5239f04a7bae1926d06944743cc8367:0",
+   "onchain_fee_sat": 13
+  },
+  "intended_balance_sat": 29987,
+  "effective_balance_sat": 29987,
+  "offchain_fee_sat": 0,
+  "sent_to": [],
+  "received_on": [],
+  "input_vtxos": [],
+  "output_vtxos": [
+   "fbbda5bf2306aaaecb70093e8b59be4a81d054a8d417a0c0e5759b5873061650:0"
+  ],
+  "exited_vtxos": [],
+  "time": {
+   "created_at": "2026-11-01T13:50:21.463235443Z",
+   "updated_at": "2026-11-01T13:50:21.467817643Z",
+   "completed_at": "2026-11-01T14:15:51.255260130Z"
+  }
+ }
+]"#;
+        let (base, _) = mock::spawn(move |_| (200, page.to_string()));
+        let entries = client(&base).payments_since(0).await.unwrap();
+        let credited: Vec<WalletPayment> = entries
+            .into_iter()
+            .filter_map(HistoryEntry::into_wallet_payments)
+            .flatten()
+            .collect();
+        assert_eq!(
+            credited.len(),
+            1,
+            "exactly the real receive credits: {credited:?}"
+        );
+        let p = &credited[0];
+        assert!(
+            p.address.starts_with("lntbs"),
+            "LN receive attributes by its BOLT11: {}",
+            p.address
+        );
+        assert_eq!(p.amount_sats, 5000);
+        assert!(matches!(p.rail, Rail::Ark));
+        assert!(
+            p.vtxo_id.as_deref().unwrap_or("").contains(':'),
+            "dedupe key is the HTLC outpoint"
+        );
+        assert!(
+            p.detected_at > 1_700_000_000,
+            "cursor timestamp parsed from time.completed_at"
+        );
     }
 
     #[tokio::test]

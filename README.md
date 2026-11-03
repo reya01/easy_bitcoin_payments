@@ -2,7 +2,7 @@
 
 > **⚠ EXPERIMENTAL STATUS — NOT FOR REAL FUNDS.** EBP is pre-release software
 > under active development. Its wallet integration has not been audited, its
-> response shapes are not pinned by CI, and no security review has been
+> response shapes are pinned by fixture tests, not a security audit; nothing here has been
 > completed. **Do not connect it to mainnet or real bitcoin.** Use signet or
 > regtest only until this notice is removed.
 
@@ -226,12 +226,18 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_SETTLEMENT_INTERVAL_SECS` | `300` | Settlement engine cadence |
 | `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | Renew/settle VTXOs this long before expiry |
 | `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
+| `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is not yet supported and is refused by the EXPERIMENTAL banner |
+| `EBP_RATES_PROVIDER` | `static` | `static` (deterministic, offline) or `live` (median of public APIs) |
+| `EBP_RATES_TIMEOUT_SECS` | `5` | Live-rate fetch timeout |
+| `EBP_MAX_EXPIRY_MINUTES` | `60` | Upper bound on invoice lifetime |
+| `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
+| `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
 ---
 
 ## Docker (VPS-first)
 
-The supported deployment is a Docker one-liner on a VPS with a public IP, DNS, and TLS; home/Tor-only hosting is out of scope.
+The supported deployment is a Docker Compose stack on a VPS with a public IP; TLS terminates at your own reverse proxy (automated one-click TLS is a v1.0 gate); home/Tor-only hosting is out of scope.
 
 ```bash
 docker build -t easy-bitcoin-payments .
@@ -255,7 +261,7 @@ EBP_SETTLEMENT_DESTINATION=ark1your-arke-wallet \
 docker compose up -d
 ```
 
-`docker-compose.yml` pins barkd to the 0.8.0 source tag, keeps its datadir on
+`docker-compose.yml` runs barkd from a checksum-pinned prebuilt 0.8.0 binary, keeps its datadir on
 the `barkd-data` volume, healthchecks it against `GET /ping`, and publishes no
 barkd ports — it is reachable only on the internal compose network, and every
 `/api/v1` call still needs the bearer token. `--expose-mnemonic` is
@@ -334,7 +340,7 @@ This section states them bluntly, including where EBP loses.
   the ASP for liveness and coordination. On trust-minimization, BTCPay wins.
 - **Battle-tested maturity.** Thousands of merchants, years in production,
   edge cases found and fixed. EBP is pre-release — barkd's response shapes
-  are not even pinned by CI yet.
+  have fixture tests, but no independent audit yet.
 - **Ecosystem breadth.** In-person POS app, crowdfunding, pay buttons, a
   plugin system. EBP ships an invoice API, a checkout page, and store
   connectors; POS-lite is v1.x.

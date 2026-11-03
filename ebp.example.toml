@@ -64,7 +64,7 @@ log_level = "info,tower_http=info"
 barkd_url = "http://127.0.0.1:3000/api/v1"
 
 # Checkout theming.
-checkout_policy_url = "https://example.com/refund-policy"
+# checkout_policy_url = "https://example.com/refund-policy"
 checkout_accent_color = "#f7931a"
 
 # Where the settlement engine sweeps the till to: your own wallet. An Ark

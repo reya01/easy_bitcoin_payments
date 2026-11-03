@@ -253,7 +253,13 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 - **Principle 8:** every recipe has a plain-text fallback; the AI layer never
   handles secrets.
 
-## Remaining (Phase 1 close-out)
+## Remaining (Phase 1 close-out) — SUPERSEDED, kept for history
+
+> **SUPERSEDED 2026-11-01:** the block below predates the Phase 1 close-out
+> build. Everything it lists as unbuilt (wizard, test mode, LN fee display,
+> expiry sweep, drift CI, backup recipes) LANED in the 264bbf5..c410294
+> commits and the close-out block further down is the ground truth. Read it
+> instead; this block is retained only as the original plan-of-record trail.
 
 Landed in this pass: sidecar packaging (compose + pinned Dockerfile), the
 watcher over `/wallet/history` with a persisted cursor, the VTXO expiry queue
@@ -292,21 +298,31 @@ received=1000, paid_with=lightning. Observed and adopted: combined BIP321
 default QR (bitcoin:?amount=0.00001&lightning=…&ark=…), per-rail tabs,
 ~1/s status polling, BTC-decimal amounts.
 
-## Remaining (close-out status, 2026-11-01)
+## Remaining (close-out status, 2026-11-01 — updated 2026-11-03)
 
 Done in code: wizard (routes + UI + gate), LN fee display, test mode,
 backup/lost-phone recipes, drift check (paths + methods), release script,
 install script, recipe v1, live signet verification of the
-barkd client (balances, vtxos, boarding, LN invoice), webhook E2E test,
-LiveRates provider, expiry sweep, doc-sync + security sweeps.
+barkd client (balances, vtxos, boarding, LN invoice, connected, mnemonic,
+LN-fee shapes — the 2026-11-01 live VERIFY pass pinned all of them in
+`src/wallet/barkd/live_shapes.rs`), webhook E2E test, LiveRates provider,
+expiry sweep, doc-sync + security sweeps.
 
 Still open before Phase 1 is declared done:
-- **Live VERIFY pass** on a running wizard: `/wallet/create` mnemonic field
-  shape, `/fees/lightning/receive` shape, `/wallet/connected` body.
+- **UX gate (task 12)**: a non-technical tester goes zero → live signet
+  invoice using docs/MASTER_TEST_WALKTHROUGH.md (v5) and an iPhone.
+  Status 2026-11-03: the VPS deploy path is UNBLOCKED and verified
+  (restart-loop root-caused + fixed, see docs/KNOWN_ISSUES.md); the tester
+  is at the wizard step (wallet creation pending).
+- **Real-history attribution drill (task 5)**: 2026-11-03's live capture of
+  the REAL `/wallet/history` receive shape proved the previously-pinned
+  inbound crediting path never matched reality (no address/amount/id at
+  entry level); the parser now implements the real shape fail-closed with a
+  verbatim fixture. Still open: an on-chain receive entry shape is UNPINNED
+  (LN receive is pinned) — an on-chain payment in the UX gate drill must be
+  watched for the "no receive evidence" warn line.
 - **Round-flip drill**: confirm the watcher sees the till's boarded VTXOs
   become spendable after a round, and run one sweep/offboard to the
-  merchant wallet (till currently holds 29,987 spendable signet sats).
-- **UX gate (task 12)**: a non-technical tester goes zero -> live signet
-  invoice using only docs/RECIPE_SETUP.md and an iPhone.
+  merchant wallet (requires EBP_SETTLEMENT_DESTINATION — unset by default).
 - Release assets: publish binaries + images so install.sh URLs resolve
-  (requires cutting the first tag).
+  (requires cutting the next tag).

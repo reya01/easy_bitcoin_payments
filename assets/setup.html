@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <meta name="referrer" content="no-referrer">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
@@ -137,7 +138,7 @@
     <div class="card">
       <code class="cmd">docker compose exec barkd barkd --datadir /data secret show</code>
       <label for="token">barkd token</label>
-      <input type="password" id="token" autocomplete="off">
+      <input type="password" id="token" autocomplete="new-password">
       <button class="primary" id="btn-token" type="button">Verify and save</button>
       <p class="note hidden" id="token-note"></p>
     </div>
@@ -310,7 +311,15 @@
     clearFail(els.backupError);
     els.btnBackup.disabled = true;
     api("POST", "/setup/wallet/confirm-backup", { confirmed: true })
-      .then(function () { markStep(2); show("token"); })
+      .then(function () {
+        // Shown-exactly-once, honored in the DOM too: the words leave the
+        // page as soon as the backup is confirmed (and stay gone through
+        // back/forward cache — see the pageshow wipe below).
+        els.words.textContent = "";
+        els.words.classList.add("hidden");
+        els.wordsManual.textContent = "";
+        markStep(2); show("token");
+      })
       .catch(function (err) { fail(els.backupError, err.message); })
       .finally(function () { els.btnBackup.disabled = false; });
   });
@@ -365,8 +374,25 @@
   });
 
   els.btnDone.addEventListener("click", function () {
+    // The API key and webhook secret were shown exactly once: blank them
+    // here so they do not linger in the DOM (or bfcache) after this step.
+    els.apiKey.textContent = "";
+    els.webhookSecret.textContent = "";
+    els.storeSecrets.classList.add("hidden");
     markStep(4);
     show("done");
+  });
+
+  // Back/forward cache restore would resurrect any secret still in the
+  // DOM: wipe them on every persisted pageshow.
+  window.addEventListener("pageshow", function (event) {
+    if (event.persisted) {
+      if (els.words) { els.words.textContent = ""; els.words.classList.add("hidden"); }
+      if (els.wordsManual) { els.wordsManual.textContent = ""; }
+      if (els.apiKey) { els.apiKey.textContent = ""; }
+      if (els.webhookSecret) { els.webhookSecret.textContent = ""; }
+      if (els.storeSecrets) { els.storeSecrets.classList.add("hidden"); }
+    }
   });
 })();
 </script>

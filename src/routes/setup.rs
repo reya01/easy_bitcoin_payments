@@ -290,7 +290,11 @@ const EXPOSE_MNEMONIC_COMMAND: &str = "docker compose stop barkd && docker compo
 const UNEXPOSE_MNEMONIC_COMMAND: &str = "docker rm -f barkd-exposed && docker compose up -d barkd";
 
 /// Body of `POST /setup/wallet/mnemonic`.
-#[derive(Debug, Serialize)]
+///
+/// Manual Debug impl: the recovery words must NEVER reach a log line, a
+/// panic message, or a `{:?}` — the honest contract ("never stored, never
+/// logged") has to hold structurally, not by convention.
+#[derive(Serialize)]
 pub struct MnemonicResponse {
     /// The recovery words, shown exactly once. `None` unless barkd is
     /// currently running with `--expose-mnemonic`.
@@ -306,6 +310,18 @@ pub struct MnemonicResponse {
     /// EBP, that the words are shown once and never stored or logged,
     /// and which command turns the exposure off for good.
     pub instructions: String,
+}
+
+// Same rule for the response body that shows the words (Serialize yes,
+// Debug never).
+impl std::fmt::Debug for MnemonicResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MnemonicResponse")
+            .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED — recovery words never logged]"))
+            .field("word_count", &self.word_count)
+            .field("instructions", &self.instructions)
+            .finish()
+    }
 }
 
 impl MnemonicResponse {
@@ -492,23 +508,26 @@ async fn barkd_get_with_body(
 mod mnemonic_ceremony_tests {
     use super::*;
 
-    /// VERIFIED (barkd 0.8.0, signet, live wizard VERIFY pass): the
-    /// exact body GET /wallet/mnemonic answered on the probed wallet.
-    const VERIFIED_MNEMONIC_BODY: &str = r#"{"mnemonic": "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"}"#;
+    /// The BODY SHAPE is what matters here ({"mnemonic": "<12 words>"}).
+    /// Fixture: the canonical BIP39 all-abandon test vector — NEVER a real
+    /// wallet's words. A real mnemonic in source is a leaked secret even on
+    /// signet (BIP39-valid words can hold real funds if the seed is ever
+    /// reused); the historical fixture that violated this was replaced.
+    const VERIFIED_MNEMONIC_BODY: &str = r#"{"mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"}"#;
 
     #[test]
     fn verified_mnemonic_body_parses_into_the_ceremony_shape() {
         let parsed: BarkdMnemonic = serde_json::from_str(VERIFIED_MNEMONIC_BODY).unwrap();
         assert_eq!(
             parsed.mnemonic,
-            "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         );
     }
 
     #[test]
     fn exposed_instructions_say_exactly_what_happens() {
         let response = MnemonicResponse::exposed(
-            "faint toss city dinner satoshi remember voyage mistake surface glide swear hen"
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
                 .to_string(),
         );
         // The probed wallet generated 12 words; the copy counts them
@@ -547,7 +566,7 @@ mod mnemonic_ceremony_tests {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct WalletCreatedResponse {
     pub created: bool,
     /// True when a wallet already existed (barkd refuses a second one).
@@ -569,6 +588,23 @@ pub struct WalletCreatedResponse {
     pub asp_url: String,
 }
 
+// Manual Debug (Serialize is unaffected): the mnemonic field — present
+// whenever barkd's create response carries words — must never reach a log
+// line, panic message, or `{:?}`.
+impl std::fmt::Debug for WalletCreatedResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WalletCreatedResponse")
+            .field("created", &self.created)
+            .field("already_exists", &self.already_exists)
+            .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED]"))
+            .field("mnemonic_source", &self.mnemonic_source)
+            .field("manual_instructions", &self.manual_instructions.as_ref().map(|_| "<present>"))
+            .field("network", &self.network)
+            .field("asp_url", &self.asp_url)
+            .finish()
+    }
+}
+
 pub async fn create_wallet(
     State(state): State<AppState>,
     Json(req): Json<CreateWalletRequest>,
@@ -580,6 +616,16 @@ pub async fn create_wallet(
         None if state.config.mode == "live" => "mainnet".to_string(),
         None => "signet".to_string(),
     };
+    // Funds-safety allowlist: a test-mode (play-money) server must never
+    // create a mainnet wallet governed by test-mode assumptions, and vice
+    // versa. The networks are exact — not free text.
+    let allowed = if state.config.mode == "live" { "mainnet" } else { "signet" };
+    if network != allowed {
+        return Err(AppError::BadRequest(format!(
+            "network \"{network}\" does not match this server's mode ({}) — expected \"{allowed}\"",
+            state.config.mode
+        )));
+    }
 
     let asp_url = match req.asp_url.as_deref() {
         Some(url) => url.trim().trim_end_matches('/').to_string(),

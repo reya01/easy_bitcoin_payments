@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# ebp backup — consistent snapshots of the payments stack, safe to run while
-# the server is live (SQLite online-backup API; read-only volume mounts).
+# ebp backup — snapshots of the payments stack. The SQLite snapshot is
+# consistent while the server is live (online-backup API, read-only mount);
+# the barkd datadir tarball is crash-consistent at best (a plain tar of a
+# live datadir) — the paper recovery words remain the authoritative wallet
+# backup. Read-only volume mounts throughout.
 #
 # Usage:   bash scripts/backup.sh [BACKUP_DIR]     # default ~/ebp-backups
 # Run:     ON THE VPS, as a user in the `docker` group (or with sudo).
@@ -25,6 +28,7 @@ DEST="${1:-$HOME/ebp-backups}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 KEEP=14
 mkdir -p "$DEST"
+chmod 700 "$DEST"
 
 # Resolve the compose volumes from the RUNNING containers; fall back to the
 # default compose project name when the stack is stopped.
@@ -39,29 +43,34 @@ for vol in "$ebp_vol" "$barkd_vol"; do
     || { echo "ERROR: volume '$vol' not found — is the stack deployed with this compose project?" >&2; exit 1; }
 done
 
+# The alpine base image ships NO sqlite3: every container that touches the
+# db must `apk add sqlite` first — a bare-alpine verify silently exits 127
+# and a naive `test` gate then reports a false "integrity failed".
+# Permissions are fixed INSIDE the containers: files written into a bind
+# mount are root-owned on the host, so a non-root docker-group user cannot
+# chmod/chown them after the fact (and `set -e` would abort mid-backup).
 echo "== 1/3 ebp database: online backup + integrity check =="
 docker run --rm \
   -v "$ebp_vol":/data:ro -v "$DEST":/backup \
   alpine:3.20 sh -c \
   "apk add -q sqlite >/dev/null \
    && sqlite3 /data/ebp.sqlite3 \".backup '/backup/ebp-$STAMP.sqlite3'\" \
-   && echo -n 'integrity: ' \
-   && sqlite3 \"/backup/ebp-$STAMP.sqlite3\" 'PRAGMA integrity_check;'"
-test "$(docker run --rm -v "$DEST":/backup alpine:3.20 \
-  sh -c "sqlite3 \"/backup/ebp-$STAMP.sqlite3\" 'PRAGMA integrity_check;'")" = "ok" \
-  || { echo "ERROR: integrity check failed — snapshot NOT trusted" >&2; exit 1; }
+   && chmod 600 \"/backup/ebp-$STAMP.sqlite3\" \
+   && test \"\$(sqlite3 \"/backup/ebp-$STAMP.sqlite3\" 'PRAGMA integrity_check;')\" = ok \
+   && echo 'integrity: ok'"
 
 echo "== 2/3 barkd wallet datadir (CONTAINS WALLET SECRETS) =="
 docker run --rm \
   -v "$barkd_vol":/data:ro -v "$DEST":/backup \
-  alpine:3.20 sh -c "tar czf \"/backup/barkd-data-$STAMP.tar.gz\" -C /data ."
-chmod 600 "$DEST/barkd-data-$STAMP.tar.gz"
-chmod 600 "$DEST/ebp-$STAMP.sqlite3" 2>/dev/null || true
+  alpine:3.20 sh -c "tar czf \"/backup/barkd-data-$STAMP.tar.gz\" -C /data . && chmod 600 \"/backup/barkd-data-$STAMP.tar.gz\""
 
 echo "== 3/3 retention (keep last $KEEP of each) =="
-ls -1t "$DEST"/ebp-*.sqlite3      2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
-ls -1t "$DEST"/barkd-data-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
-chown "$(id -u):$(id -g)" "$DEST"/ebp-"$STAMP".sqlite3 "$DEST"/barkd-data-"$STAMP".tar.gz 2>/dev/null || true
+# flock: overlapping cron runs race on the retention deletes; second runs exit 0 silently.
+(
+  flock -n 9 || exit 0
+  ls -1t "$DEST"/ebp-*.sqlite3      2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+  ls -1t "$DEST"/barkd-data-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+) 9>"$DEST/.lock"
 
 echo "OK — snapshot $STAMP in $DEST:"
 ls -lh "$DEST" | tail -4

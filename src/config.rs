@@ -30,7 +30,7 @@ pub struct Config {
     ///
     /// TODO(Phase 1): at-rest encryption is not implemented yet. The field and
     /// the schema columns exist so the migration is additive. Until then the
-    /// server refuses to start with a non-empty value only if it is malformed.
+    /// value is accepted and has NO effect (no validation is wired).
     pub key_encryption_key: Option<String>,
     pub admin_token: Option<String>,
     /// Base URL of the barkd sidecar REST API (loopback / internal only).
@@ -401,6 +401,25 @@ impl Config {
                 key: "watcher_interval_secs".into(),
                 value: "0".into(),
             });
+        }
+        if self.webhook_timeout_secs == 0 {
+            // From env this is already rejected by positive_u64; the TOML
+            // path bypasses that — close the gap here so a zero-timeout
+            // webhook client (instant-fail deliveries, no retry) is
+            // rejected from every config surface.
+            return Err(ConfigError::Invalid {
+                key: "webhook_timeout_secs".into(),
+                value: "0".into(),
+            });
+        }
+        match self.rates_provider.as_str() {
+            "static" | "live" => {}
+            other => {
+                return Err(ConfigError::Invalid {
+                    key: "rates_provider".into(),
+                    value: other.to_string(),
+                })
+            }
         }
         if self.static_rates.is_empty() {
             return Err(ConfigError::Invalid {

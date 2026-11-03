@@ -17,7 +17,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 1. [README.md](../README.md) — what this is, quickstart, API, config.
 2. [docs/PHASE1_PLAN.md](PHASE1_PLAN.md) — Phase 1 tasks and close-out status.
 3. [docs/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions/log.
-4. [docs/RECIPE_SETUP.md](RECIPE_SETUP.md) — zero-to-live-testnet-invoice recipe.
+4. [docs/RECIPE_SETUP.md](RECIPE_SETUP.md) — zero-to-live-signet-invoice recipe.
 5. [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) — open issues and debug procedures.
 6. [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) — beginner AWS + iPhone walkthrough.
 7. [CONTRIBUTING.md](../CONTRIBUTING.md) — build, test, contribution rules.
@@ -87,10 +87,13 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 1. **Release cut.** A human chooses and confirms the `v*` tag. Pushing it makes
    `.github/workflows/release.yml` build x86_64 + aarch64 musl binaries,
-   `SHA256SUMS`, the GitHub release, and the multi-arch ghcr.io image used by
-   `scripts/install.sh`, `scripts/release.sh`, and the recipe.
+   `SHA256SUMS`, and the multi-arch ghcr.io image used by the Docker/
+   compose deploy (install.sh and release.sh use the release tarballs, not
+   ghcr; the ghcr package may need a manual visibility flip in the GitHub
+   UI before anyone can pull it).
 2. **UX gate.** A non-technical tester must go zero → live signet invoice using
-   only [docs/RECIPE_SETUP.md](RECIPE_SETUP.md) and an iPhone.
+   only [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) (the
+   single-source-of-truth tester guide) and an iPhone.
 3. **VPS sign-off.** The restart-loop is resolved (stub-binary root cause,
    fixed + confirmed). What remains on the VPS is the tester finishing the
    first-run wizard (wallet + recovery-words ceremony) and the walkthrough's

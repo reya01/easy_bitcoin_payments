@@ -208,6 +208,15 @@ The wizard closes itself; the payments system is now ON.
 
 ## PART 8 — Cleanup — 2 min (stops billing)
 
+**Before you stop it (optional but good hygiene): one backup snapshot —**
+```
+bash scripts/backup.sh
+```
+Saves a consistent database snapshot + the wallet datadir (kept 14
+snapshots, wallet file 600-perms) into `~/ebp-backups`. The paper recovery
+words remain the only human-verifiable wallet backup; keep the paper AND the
+`.env` file whenever you keep anything.
+
 AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 **Terminate** (erases everything; signet sats are play money).
 

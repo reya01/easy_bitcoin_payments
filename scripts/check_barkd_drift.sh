@@ -129,6 +129,7 @@ scan_sources() {
 
 failures=0
 warnings=0
+scanned=0
 
 while read -r location name method path; do
   methods="$(openapi_methods "${path}")"
@@ -142,6 +143,7 @@ while read -r location name method path; do
     warnings=$((warnings + 1))
     continue
   fi
+  scanned=$((scanned + 1))
   if ! printf '%s\n' "${methods}" | grep -qx "${method}"; then
     echo "FAIL  ${location}: ${name} uses ${method} but the pinned spec offers: $(printf '%s ' ${methods})"
     failures=$((failures + 1))
@@ -150,8 +152,16 @@ while read -r location name method path; do
   fi
 done < <(scan_sources)
 
+# Vacuous-pass guard: zero scanned constants means the scanner's pattern
+# went stale (convention drift: pub(crate) consts, &'static str, …) and the
+# gate verified NOTHING while staying green.
+if [ "${scanned}" -eq 0 ]; then
+  echo "FAIL: no PATH_* constants were scanned — the scanner's pattern is stale (drift check verified nothing)"
+  exit 1
+fi
+
 echo
-echo "barkd drift: ${failures} method mismatch(es), ${warnings} warning(s)"
+echo "barkd drift: ${scanned} constant(s) checked; ${failures} method mismatch(es), ${warnings} warning(s)"
 if [ "${failures}" -gt 0 ]; then
   exit 1
 fi

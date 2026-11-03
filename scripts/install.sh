@@ -36,11 +36,14 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "==> downloading ebp ${VERSION} (${TARGET})"
-curl -fsSL --retry 3 -o "$TMP/ebp-$TARGET.tar.gz" "$BASE/ebp-$TARGET.tar.gz"
-curl -fsSL --retry 3 -o "$TMP/SHA256SUMS" "$BASE/SHA256SUMS"
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 300 -o "$TMP/ebp-$TARGET.tar.gz" "$BASE/ebp-$TARGET.tar.gz"
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 300 -o "$TMP/SHA256SUMS" "$BASE/SHA256SUMS"
 
 echo "==> verifying checksum"
-grep "ebp-$TARGET.tar.gz" "$TMP/SHA256SUMS" > "$TMP/sum"
+# Fixed-string, guarded: a SHA256SUMS missing our artifact (renamed asset,
+# partial release) must fail with a clear message, not a silent set -e exit.
+grep -F "ebp-$TARGET.tar.gz" "$TMP/SHA256SUMS" > "$TMP/sum" \
+  || { echo "error: no checksum line for ebp-$TARGET.tar.gz in SHA256SUMS" >&2; exit 1; }
 (cd "$TMP" && sha256sum -c sum)
 
 echo "==> installing"

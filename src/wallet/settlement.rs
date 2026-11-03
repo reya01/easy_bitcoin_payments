@@ -253,11 +253,12 @@ mod tests {
     use crate::wallet::barkd::mock;
 
     fn test_config(destination: Option<&str>, cap: i64) -> Arc<Config> {
-        let mut c = Config::default();
-        c.settlement_destination = destination.map(str::to_string);
-        c.hot_wallet_cap_sats = cap;
-        c.renewal_lead_time_secs = 604_800;
-        Arc::new(c)
+        Arc::new(Config {
+            settlement_destination: destination.map(str::to_string),
+            hot_wallet_cap_sats: cap,
+            renewal_lead_time_secs: 604_800,
+            ..Config::default()
+        })
     }
 
     #[test]
@@ -316,15 +317,24 @@ mod tests {
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(50_000));
 
-        let requests = recorded.lock().unwrap();
-        let send = requests
-            .iter()
-            .find(|r| r.route() == "/api/v1/wallet/send")
-            .expect("send recorded");
-        assert_eq!(send.method, "POST");
-        let body: serde_json::Value = serde_json::from_str(&send.body).unwrap();
-        assert_eq!(body["destination"], "ark1merchant");
-        assert_eq!(body["amount_sats"], 50_000);
+        // Scope the guard so it is dropped before the awaited DB call below
+        // (clippy::await_holding_lock; also just correct hygiene).
+        let (send_is_post, destination, amount_sats) = {
+            let requests = recorded.lock().unwrap();
+            let send = requests
+                .iter()
+                .find(|r| r.route() == "/api/v1/wallet/send")
+                .expect("send recorded");
+            let body: serde_json::Value = serde_json::from_str(&send.body).unwrap();
+            (
+                send.method == "POST",
+                body["destination"].clone(),
+                body["amount_sats"].clone(),
+            )
+        };
+        assert!(send_is_post);
+        assert_eq!(destination, "ark1merchant");
+        assert_eq!(amount_sats, 50_000);
 
         let rows: i64 = db
             .call(|conn| {
@@ -412,9 +422,9 @@ mod tests {
         let reason = report.sweep_refused.expect("refusal reason");
         assert!(reason.contains("reserve"), "{reason}");
 
-        let requests = recorded.lock().unwrap();
+        // Guard dropped before the awaited DB call below (clippy::await_holding_lock).
         assert!(
-            requests.iter().all(|r| r.method == "GET"),
+            recorded.lock().unwrap().iter().all(|r| r.method == "GET"),
             "no sweep may be sent while the reserve is short"
         );
 

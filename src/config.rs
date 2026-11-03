@@ -538,8 +538,10 @@ mod tests {
 
     #[test]
     fn validation_rejects_bad_caps() {
-        let mut c = Config::default();
-        c.hot_wallet_cap_sats = 0;
+        let c = Config {
+            hot_wallet_cap_sats: 0,
+            ..Config::default()
+        };
         assert!(c.validate().is_err());
     }
 

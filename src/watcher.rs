@@ -129,29 +129,20 @@ impl PollingWatcher {
                 continue;
             };
 
-            let invoice_id = invoice.id.clone();
             let store_id = invoice.store_id.clone();
-            let rail = payment.rail.as_str().to_string();
-            let amount = payment.amount_sats;
-            let vtxo_id = payment.vtxo_id.clone();
-            let txid = payment.txid.clone();
-            let detected_at = payment.detected_at;
-            let confirmed_at = payment.confirmed_at;
+            let observed = invoice::ObservedPayment {
+                invoice_id: invoice.id.clone(),
+                rail: payment.rail.as_str().to_string(),
+                amount_sats: payment.amount_sats,
+                vtxo_id: payment.vtxo_id.clone(),
+                txid: payment.txid.clone(),
+                detected_at: payment.detected_at,
+                confirmed_at: payment.confirmed_at,
+            };
 
             let outcome = self
                 .db
-                .call(move |conn| {
-                    invoice::record_payment(
-                        conn,
-                        &invoice_id,
-                        &rail,
-                        amount,
-                        vtxo_id.as_deref(),
-                        txid.as_deref(),
-                        detected_at,
-                        confirmed_at,
-                    )
-                })
+                .call(move |conn| invoice::record_payment(conn, &observed))
                 .await?;
 
             let Some((updated, status)) = outcome else {
@@ -200,7 +191,7 @@ impl PollingWatcher {
         // page is open to notice, so stores receive `invoice.expired` and
         // `GET /api/v1/invoices/{id}` stops reporting `pending` for dead
         // invoices.
-        let expired = self.db.call(|conn| invoice::expire_due(conn)).await?;
+        let expired = self.db.call(invoice::expire_due).await?;
         for invoice in expired {
             tracing::info!(invoice_id = %invoice.id, "invoice expired");
             self.emit_invoice_event(&invoice.store_id, &invoice, InvoiceStatus::Expired)
@@ -355,7 +346,7 @@ mod tests {
         }
     }
 
-    async fn setup(payments: Vec<WalletPayment>) -> (Db, String) {
+    async fn setup(_payments: Vec<WalletPayment>) -> (Db, String) {
         let db = Db::open(":memory:").unwrap();
         let (store, _, _) = db
             .call(|conn| store::create(conn, "Shop", None))

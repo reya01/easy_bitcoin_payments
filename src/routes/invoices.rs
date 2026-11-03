@@ -258,9 +258,11 @@ mod lightning_fee_tests {
             stream.write_all(response.as_bytes()).unwrap();
         });
 
-        let mut config = crate::config::Config::default();
-        config.barkd_url = format!("http://127.0.0.1:{port}/api/v1");
-        config.barkd_token = Some("test-token".to_string());
+        let config = crate::config::Config {
+            barkd_url: format!("http://127.0.0.1:{port}/api/v1"),
+            barkd_token: Some("test-token".to_string()),
+            ..crate::config::Config::default()
+        };
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

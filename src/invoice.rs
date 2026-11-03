@@ -322,6 +322,20 @@ mod test_mode_tests {
     }
 }
 
+/// One observed payment event (from the wallet adapter's history poll),
+/// handed to the invoice state machine. `detected_at` is when the wallet
+/// saw it; `confirmed_at` when it became confirmed, if it has.
+#[derive(Debug, Clone)]
+pub struct ObservedPayment {
+    pub invoice_id: String,
+    pub rail: String,
+    pub amount_sats: i64,
+    pub vtxo_id: Option<String>,
+    pub txid: Option<String>,
+    pub detected_at: i64,
+    pub confirmed_at: Option<i64>,
+}
+
 /// Record an observed payment and advance the invoice state machine.
 ///
 /// Returns `Ok(None)` when the invoice does not exist, is not pending, or the
@@ -329,14 +343,19 @@ mod test_mode_tests {
 /// are normal, non-error outcomes for a polling watcher.
 pub fn record_payment(
     conn: &mut Connection,
-    invoice_id: &str,
-    rail: &str,
-    amount_sats: i64,
-    vtxo_id: Option<&str>,
-    txid: Option<&str>,
-    detected_at: i64,
-    confirmed_at: Option<i64>,
+    observed: &ObservedPayment,
 ) -> Result<Option<(Invoice, InvoiceStatus)>, AppError> {
+    let ObservedPayment {
+        invoice_id,
+        rail,
+        amount_sats,
+        vtxo_id,
+        txid,
+        detected_at,
+        confirmed_at,
+    } = observed;
+    let amount_sats = *amount_sats;
+    let detected_at = *detected_at;
     if amount_sats <= 0 {
         return Err(AppError::BadRequest(
             "payment amount must be greater than zero".into(),
@@ -458,6 +477,25 @@ fn row_to_invoice(row: &rusqlite::Row<'_>) -> rusqlite::Result<Invoice> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Test helper: a canonical observed payment (ark rail, detected now,
+    /// unconfirmed) with per-test overrides for the fields that vary.
+    fn obs(
+        invoice_id: &str,
+        rail: &str,
+        amount_sats: i64,
+        vtxo_id: Option<&str>,
+    ) -> ObservedPayment {
+        ObservedPayment {
+            invoice_id: invoice_id.to_string(),
+            rail: rail.to_string(),
+            amount_sats,
+            vtxo_id: vtxo_id.map(str::to_string),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        }
+    }
     use super::*;
     use crate::db::Db;
     use crate::store;
@@ -577,18 +615,7 @@ mod tests {
             .unwrap();
 
         let (invoice, status) = db
-            .call(|conn| {
-                record_payment(
-                    conn,
-                    "inv_1",
-                    "ark",
-                    1000,
-                    Some("vtxo_1"),
-                    None,
-                    now_unix(),
-                    None,
-                )
-            })
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_1"))))
             .await
             .unwrap()
             .expect("payment applied");
@@ -608,18 +635,7 @@ mod tests {
             .unwrap();
 
         let (invoice, status) = db
-            .call(|conn| {
-                record_payment(
-                    conn,
-                    "inv_1",
-                    "ark",
-                    1500,
-                    Some("vtxo_1"),
-                    None,
-                    now_unix(),
-                    None,
-                )
-            })
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 1500, Some("vtxo_1"))))
             .await
             .unwrap()
             .unwrap();
@@ -637,18 +653,7 @@ mod tests {
             .unwrap();
 
         let (invoice, status) = db
-            .call(|conn| {
-                record_payment(
-                    conn,
-                    "inv_1",
-                    "ark",
-                    400,
-                    Some("vtxo_1"),
-                    None,
-                    now_unix(),
-                    None,
-                )
-            })
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 400, Some("vtxo_1"))))
             .await
             .unwrap()
             .unwrap();
@@ -666,34 +671,12 @@ mod tests {
             .await
             .unwrap();
 
-        db.call(|conn| {
-            record_payment(
-                conn,
-                "inv_1",
-                "ark",
-                1000,
-                Some("vtxo_1"),
-                None,
-                now_unix(),
-                None,
-            )
-        })
-        .await
-        .unwrap();
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_1"))))
+            .await
+            .unwrap();
 
         let second = db
-            .call(|conn| {
-                record_payment(
-                    conn,
-                    "inv_1",
-                    "ark",
-                    1000,
-                    Some("vtxo_1"),
-                    None,
-                    now_unix(),
-                    None,
-                )
-            })
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_1"))))
             .await
             .unwrap();
         assert!(second.is_none(), "duplicate VTXO must not double-credit");
@@ -713,18 +696,7 @@ mod tests {
             .unwrap();
 
         let result = db
-            .call(|conn| {
-                record_payment(
-                    conn,
-                    "inv_1",
-                    "ark",
-                    1000,
-                    Some("vtxo_9"),
-                    None,
-                    now_unix(),
-                    None,
-                )
-            })
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_9"))))
             .await
             .unwrap();
         assert!(result.is_none());

@@ -174,9 +174,9 @@ pub struct SetupStatus {
     pub backup_confirmed: bool,
     /// Stores that exist (the wizard creates the first).
     pub store_count: i64,
-    /// True only after: wallet created + backup confirmed + token verified
-    /// + at least one store. Invoice and checkout routes stay closed
-    /// (503 SetupIncomplete) until then.
+    /// True only after the wallet is created, the backup is confirmed, the
+    /// token is verified, and at least one store exists. Invoice and
+    /// checkout routes stay closed (503 SetupIncomplete) until then.
     pub setup_complete: bool,
     /// `"test"` (signet, play money) or `"live"`.
     pub mode: String,
@@ -1390,8 +1390,10 @@ mod tests {
 
     #[test]
     fn runtime_token_overrides_the_env_token() {
-        let mut config = crate::config::Config::default();
-        config.barkd_token = Some("env-token".to_string());
+        let config = crate::config::Config {
+            barkd_token: Some("env-token".to_string()),
+            ..crate::config::Config::default()
+        };
         assert_eq!(effective_barkd_token(&config).as_deref(), Some("env-token"));
 
         set_runtime_barkd_token("wizard-token");

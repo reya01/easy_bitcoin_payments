@@ -1,6 +1,6 @@
 # MASTER INSTRUCTIONS — Easy Bitcoin Payments on AWS (iPhone only)
 
-**Version: 3 — updated 2026-11-01. This file is the single source of truth for
+**Version: 4 — updated 2026-11-03. This file is the single source of truth for
 human testers. It is updated every time a new error or fix is discovered.**
 
 > ⚠️ EBP is EXPERIMENTAL. Signet (play-money) only. Never point it at real
@@ -221,6 +221,7 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |
 | `set: Illegal option -o pipefail` | script run with `sh` instead of `bash` | fixed in repo; use `bash scripts/...` |
 | `ebp` container says `Restarting`, no ping on 8080 | migration 0004 (settings table) was missing from the migration list — fixed in repo | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build ebp && sudo docker compose up -d` |
+| `ebp` restart-loops for hours, `docker inspect` shows ExitCode 0, and `docker run --rm easy_bitcoin_payments-ebp ebp --help` prints NOTHING | the image shipped the build-system's placeholder binary instead of the real server | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build --no-cache ebp`, then CHECK it: `sudo docker run --rm easy_bitcoin_payments-ebp ebp --help` must print a USAGE block, then `sudo docker compose up -d` |
 | barkd unhealthy / ebp waits on it | old cached barkd image | `sudo docker compose build --no-cache barkd` then `up -d` |
 
 **Universal debugging pattern:** run the failing command again, copy the

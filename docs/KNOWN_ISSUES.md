@@ -1,14 +1,29 @@
 # Known issues
 
-## Open — VPS aarch64 container restart-loop (~60s)
+## RESOLVED (pending tester rebuild) — VPS aarch64 container restart-loop (~60s)
 
-**Status:** open; blocks VPS sign-off.
+**Status:** root cause identified 2026-11-03; fix = clean rebuild + new
+Dockerfile smoke test. Blocks VPS sign-off until the tester's rebuild confirms.
+
+**Root cause: the deployed image contained the dependency-cache STUB binary,
+not ebp.** The Dockerfile's dep-cache step builds `fn main() {}` as a
+placeholder; the real build replaces it. The tester's arm64 image (built
+2026-11-02T04:27Z) shipped the stub: `ebp --help` inside it prints NOTHING and
+exits 0 (a real binary prints the USAGE block). An empty main exits instantly
+and cleanly — which is why the container showed `Restarting (0)` every ~60s
+(Docker's restart-backoff cap) for 22 hours with no logs, OOM=false, and no
+core change. Proven 2026-11-03 via `docker run --rm easy_bitcoin_payments-ebp
+ebp --help` → silent, exit 0. Cross-checks: the pre-fix source at the
+image-time commit (0e9fd88) boots and serves fine on x86_64, and the exit
+matrix (config/bind/db error=1, panic=101, OOM=137) eliminated all three
+earlier suspects. The exact shipping mechanism (interrupted real build vs
+cache) is unproven; the new `RUN ./target/release/ebp --help | grep -q USAGE`
+smoke test in the Dockerfile makes the class impossible to ship again.
 
 **Environment:** tester’s AWS **t4g** instance (**aarch64**). After
 `docker compose up -d`, the **ebp container restart-loops roughly every 60s**
 and `/ping` never answers. Locally on **x86_64 at the same commit**, ebp runs
-fine with an empty `EBP_BARKD_TOKEN` (401 warnings only, no crash). An overnight
-**crashwatch log** was captured on the VPS; the next session diagnoses from that.
+fine with an empty `EBP_BARKD_TOKEN` (401 warnings only, no crash).
 
 **Symptoms to confirm:**
 

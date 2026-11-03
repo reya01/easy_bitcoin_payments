@@ -20,6 +20,13 @@ COPY assets ./assets
 
 RUN cargo build --release
 
+# Smoke test: the dependency-cache step above builds a STUB binary (empty
+# main) into target/release/ebp. If the real build ever silently doesn't
+# replace it, the stub ships and the container exits 0 instantly with no
+# logs — an undebuggable 22-hour restart loop (see docs/KNOWN_ISSUES.md).
+# The real binary prints a USAGE block; the stub prints nothing.
+RUN ./target/release/ebp --help | grep -q USAGE
+
 # ---- runtime stage ---------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 

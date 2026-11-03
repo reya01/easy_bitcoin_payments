@@ -23,6 +23,17 @@ smoke test in the Dockerfile makes the class impossible to ship again.
 `die` events, `execDuration=0 exitCode=0`, ~60.3s apart: the loop is entirely
 self-exit + restart-backoff, not an external signaler.
 
+**Mechanism proven 2026-11-03 (local repro):** cargo skips relinking when
+source mtimes are OLDER than the cached stub binary. git clone/pull stamps
+sources with the clone time; Docker COPY preserves those old mtimes; so on
+every VPS rebuild the real `cargo build` was a 1s no-op and the stub shipped.
+A first `--no-cache` rebuild with the smoke test reproduced the trap (build
+failed exactly as designed). Fix: `RUN find src -type f -exec touch {} +`
+before the real build forces the recompile. Consequence: the tester's very
+first-run loop was almost certainly the same stub — the earlier "no such
+table: settings" diagnosis (90a8a95) was code inspection, never an observed
+error; that migration fix remains correct but was not this bug.
+
 **Environment:** tester’s AWS **t4g** instance (**aarch64**). After
 `docker compose up -d`, the **ebp container restart-loops roughly every 60s**
 and `/ping` never answers. Locally on **x86_64 at the same commit**, ebp runs

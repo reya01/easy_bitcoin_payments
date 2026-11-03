@@ -18,7 +18,12 @@ COPY src ./src
 COPY migrations ./migrations
 COPY assets ./assets
 
-RUN cargo build --release
+# FORCE the real build: cargo skips relinking when source mtimes are older
+# than the cached stub binary — git clone/pull gives sources old mtimes and
+# Docker COPY preserves them, so the stub survived every VPS rebuild for 22h
+# (proven locally 2026-11-03; docs/KNOWN_ISSUES.md). Refreshing mtimes forces
+# the crate recompile; dependency artifacts stay cached.
+RUN find src -type f -exec touch {} + && cargo build --release
 
 # Smoke test: the dependency-cache step above builds a STUB binary (empty
 # main) into target/release/ebp. If the real build ever silently doesn't

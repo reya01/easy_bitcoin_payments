@@ -254,7 +254,7 @@ impl RateProvider for LiveRateProvider {
 /// until the provider (and its sender) is dropped, and reuses the last quote
 /// for [`QUOTE_CACHE_SECS`].
 fn rates_worker(
-    mut inbox: std::sync::mpsc::Receiver<LiveRatesRequest>,
+    inbox: std::sync::mpsc::Receiver<LiveRatesRequest>,
     sources: Vec<RateSourceKind>,
     timeout_secs: u64,
 ) {

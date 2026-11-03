@@ -25,7 +25,7 @@ use crate::invoice;
 use crate::models::InvoiceStatus;
 use crate::store;
 use crate::util::{now_unix, to_rfc3339};
-use crate::wallet::{WalletAdapter, WalletPayment, WalletVtxo};
+use crate::wallet::{WalletAdapter, WalletVtxo};
 use crate::webhook::WebhookEmitter;
 
 /// `settings` key holding the persisted history cursor (UNIX seconds).
@@ -317,6 +317,7 @@ mod tests {
     use super::*;
     use crate::invoice::NewInvoice;
     use crate::models::Rail;
+    use crate::wallet::WalletPayment;
     use crate::wallet::{AspStatus, ReceiveAddresses, WalletError, WalletHealth};
 
     struct FakeWallet {

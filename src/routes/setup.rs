@@ -75,7 +75,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::settings;
-use crate::util::now_unix;
 
 // ---------------------------------------------------------------------------
 // barkd paths used by the wizard. Duplicated from src/wallet/barkd.rs
@@ -146,7 +145,9 @@ fn set_runtime_barkd_token(token: &str) {
     }
 }
 
-/// Clear the runtime override (tests; also the honest "undo" if needed).
+/// Clear the runtime override. Test helper only (no route exposes an
+/// "undo"; the durable token is the deployment env, not process state).
+#[cfg(test)]
 fn clear_runtime_barkd_token() {
     if let Ok(mut cell) = runtime_token_cell().write() {
         *cell = None;
@@ -798,6 +799,9 @@ pub struct TokenVerifiedResponse {
     /// True when the payments paths need a restart to pick the token up
     /// (they read the env at boot; the wizard's own calls use it now).
     pub restart_required: bool,
+    /// All wizard steps complete (wallet + token + store). Lets a UI close
+    /// the wizard immediately; /setup/status is the authoritative read.
+    pub setup_complete: bool,
 }
 
 pub async fn set_token(
@@ -846,6 +850,7 @@ pub async fn set_token(
         verified: true,
         connected,
         env_var: "EBP_BARKD_TOKEN",
+        setup_complete,
         persistence_note: "The token lives in your deployment environment (EBP_BARKD_TOKEN), \
                            never in the database. Add it to your docker-compose environment or \
                            systemd unit so it survives restarts."
@@ -1003,15 +1008,6 @@ fn insert_first_store(
         // merchant gets one when they connect a store webhook later.
         webhook_secret: webhook_secret.unwrap_or_default(),
     }))
-}
-
-/// Hex(SHA-256) of the API key — the at-rest form the bearer lookup uses.
-/// NOTE: must match src/auth.rs's scheme; see the NOTE on
-/// [`insert_first_store`].
-fn hex_sha256(value: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(value.as_bytes());
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 // ---------------------------------------------------------------------------

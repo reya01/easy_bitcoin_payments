@@ -17,3 +17,5 @@ ebp.toml
 .idea/
 .vscode/
 *.swp
+# Local agent review/debug workspace
+/debug/

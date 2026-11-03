@@ -36,6 +36,11 @@ services:
       EBP_BIND_ADDR: 0.0.0.0:8080
       EBP_DATABASE_PATH: /data/ebp.sqlite3
       EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
+      # The "plain HTTP on a non-loopback host" warning at boot is EXPECTED
+      # for this topology: barkd:3000 is the compose-internal bridge hop
+      # (isolated network, no ports mapping, unreachable from outside). The
+      # token still crosses it in cleartext BY DESIGN at Phase 1 — see
+      # ebp.example.toml before exposing anything beyond this stack.
       EBP_BARKD_URL: http://barkd:3000/api/v1
       # Provision once: docker compose exec barkd barkd --datadir /data secret show
       # Empty by default: the token does not exist until the setup wizard

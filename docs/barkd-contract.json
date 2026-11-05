@@ -1,0 +1,23 @@
+{
+  "_about": "What EBP sends to and reads from barkd, per endpoint. scripts/check_barkd_contract.py checks every entry against docs/barkd-openapi.json (field names, required fields, deprecation). Update this table WITH the code; CI fails when they disagree with the spec.",
+  "endpoints": [
+    {"method": "POST", "path": "/wallet/create", "sends": ["network", "ark_server"], "reads": []},
+    {"method": "GET",  "path": "/wallet/mnemonic", "reads": ["mnemonic"]},
+    {"method": "POST", "path": "/wallet/addresses/next", "reads": ["address"]},
+    {"method": "POST", "path": "/onchain/addresses/next", "reads": ["address"]},
+    {"method": "GET",  "path": "/wallet/balance", "reads": ["spendable_sat", "needs_refresh_sat", "pending_lightning_send_sat", "claimable_lightning_receive_sat", "pending_in_round_sat", "pending_board_sat", "pending_arkoor_send_sat", "pending_offboard_sat", "pending_exit_sat"]},
+    {"method": "GET",  "path": "/onchain/balance", "reads": ["total_sat", "trusted_spendable_sat", "confirmed_sat"]},
+    {"method": "GET",  "path": "/wallet/connected", "reads": ["connected"]},
+    {"method": "GET",  "path": "/bitcoin/tip", "reads": ["tip_height"]},
+    {"method": "GET",  "path": "/wallet/vtxos", "reads": ["id", "amount_sat", "expiry_height", "state.type"]},
+    {"method": "GET",  "path": "/history", "reads": ["id", "status", "subsystem.name", "subsystem.kind", "received_on.destination.type", "received_on.destination.value", "received_on.amount_sat", "time.created_at", "time.updated_at", "time.completed_at"]},
+    {"method": "GET",  "path": "/onchain/transactions", "reads": ["txid", "tx", "confirmation.height"]},
+    {"method": "POST", "path": "/wallet/send", "sends": ["destination", "amount_sat"], "reads": []},
+    {"method": "POST", "path": "/wallet/offboard/all", "sends": ["address"], "reads": []},
+    {"method": "POST", "path": "/wallet/offboard/vtxos", "sends": ["address", "vtxos"], "reads": []},
+    {"method": "POST", "path": "/wallet/refresh/all", "sends": [], "reads": []},
+    {"method": "POST", "path": "/wallet/refresh/vtxos", "sends": ["vtxos"], "reads": []},
+    {"method": "POST", "path": "/lightning/receives/invoice", "sends": ["amount_sat", "description"], "reads": ["invoice"]},
+    {"method": "GET",  "path": "/fees/lightning/receive", "query": ["amount_sat"], "reads": ["fee_sat"]}
+  ]
+}

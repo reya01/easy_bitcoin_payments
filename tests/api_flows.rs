@@ -902,3 +902,43 @@ async fn webhook_test_needs_a_url_and_queues_a_test_event() {
         .iter()
         .any(|d| d["event"] == "webhook.test"));
 }
+
+#[tokio::test]
+async fn version_endpoint_needs_auth_and_respects_the_off_switch() {
+    let client = reqwest::Client::new();
+    let (base, state, shop_id, key) = serve_with(Config {
+        update_check: false,
+        ..Config::default()
+    })
+    .await;
+
+    let anon = client
+        .get(format!("{base}/api/v1/admin/version"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anon.status(), 401);
+
+    // One open order counts toward "best time to update".
+    let (st, _) = create(&client, &base, &key, "ver-1", 1000).await;
+    assert_eq!(st, 201);
+    let _ = (&state, &shop_id);
+
+    let v: serde_json::Value = client
+        .get(format!("{base}/api/v1/admin/version"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["current"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["check_enabled"], false);
+    assert!(v["latest"].is_null(), "no lookup when the check is off");
+    assert_eq!(v["update_available"], false);
+    assert_eq!(v["open_orders"], 1);
+    assert!(v["host"].is_string());
+}

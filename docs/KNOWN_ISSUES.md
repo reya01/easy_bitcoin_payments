@@ -4,6 +4,7 @@
 
 See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
 - **Managed barkd is unverified live.** `EBP_MANAGED_BARKD` (starting barkd as a child, `barkd secret show`, the recovery-words restart, the self-restart after setup) and `render.yaml` have only been compiled and unit-tested. Whether `secret show` works before a wallet exists is also unconfirmed (the code falls back to restarting once after setup). Run the full wizard on signet before trusting it.
+- **Log retention is fixed.** The cleanup windows are constants in `src/retention.rs`, not settings. The database file does not shrink after a cleanup (freed space is reused); run `VACUUM` offline if you need the file smaller.
 - **Admin login limits.** One admin account for the (single) store; no passkeys yet; no email-based reset (by design: a forgotten password is reset on the server with `ebp admin set-password`). Sessions last 7 days, 12 hours idle. The admin page has only been tested in a desktop browser (against a stub server), not on a phone or a live server.
 - **Not yet beginner/phone-ready.** Install and management still need a terminal; see [BEGINNER_ROADMAP.md](BEGINNER_ROADMAP.md) for the ordered plan.
 - The hardening branch (PR #1) was authored without a local compiler; CI (fmt, clippy -D warnings, tests, release build) is the verification. Keep it green.

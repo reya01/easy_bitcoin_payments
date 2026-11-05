@@ -27,7 +27,16 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         .await
         .is_ok();
 
-    let wallet = state.wallet.health();
+    // Wallet health blocks on HTTP for barkd; keep it off the async workers.
+    let wallet_adapter = state.wallet.clone();
+    let wallet = tokio::task::spawn_blocking(move || wallet_adapter.health())
+        .await
+        .unwrap_or_else(|_| crate::wallet::WalletHealth {
+            reachable: false,
+            balance_sats: None,
+            asp: AspStatus::Unknown,
+            detail: "wallet health check panicked".to_string(),
+        });
 
     let overall = if db_ok && wallet.reachable {
         "ok"

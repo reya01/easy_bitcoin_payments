@@ -59,6 +59,55 @@ pub fn verify_signature(
     crate::auth::ct_eq(expected_signature, signature)
 }
 
+/// Validate a merchant-supplied webhook URL (SSRF guard, beta hardening).
+///
+/// Rejects non-http(s) schemes, embedded credentials, and hosts that are
+/// loopback / private / link-local IP literals or `localhost`-style names,
+/// unless `allow_private` is true (local development, and the test suite's
+/// loopback mock). LIMITATION: this is a textual check — a public DNS name
+/// that resolves to a private IP (DNS rebinding) is NOT caught; pair with
+/// network egress rules in production. See docs/KNOWN_ISSUES.md.
+pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String> {
+    let url = reqwest::Url::parse(raw).map_err(|e| format!("not a valid URL: {e}"))?;
+    match url.scheme() {
+        "http" | "https" => {}
+        other => return Err(format!("scheme '{other}' is not allowed (use http or https)")),
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("URLs with embedded credentials are not allowed".to_string());
+    }
+    let host = url.host_str().ok_or("URL has no host")?.to_lowercase();
+    if allow_private {
+        return Ok(());
+    }
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".internal") {
+        return Err("localhost/internal hosts are not allowed".to_string());
+    }
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
+        let private = match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_broadcast()
+            }
+            std::net::IpAddr::V6(v6) => {
+                let seg0 = v6.segments()[0];
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (seg0 & 0xfe00) == 0xfc00 // unique local fc00::/7
+                    || (seg0 & 0xffc0) == 0xfe80 // link-local fe80::/10
+            }
+        };
+        if private {
+            return Err("private/loopback/link-local addresses are not allowed".to_string());
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum WebhookError {
     #[error("webhook request failed: {0}")]
@@ -80,6 +129,10 @@ impl WebhookEmitter {
     pub fn new(timeout_secs: u64) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs.max(1)))
+            // SECURITY (beta hardening): never follow redirects. A merchant
+            // URL that 302s to an internal address (cloud metadata,
+            // barkd on 127.0.0.1) would otherwise bypass URL validation.
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("ebp/", env!("CARGO_PKG_VERSION")))
             .build()
             // Builder::build only fails on TLS-backend init (system-wide
@@ -175,6 +228,25 @@ mod tests {
         let header = sign_payload(SECRET, now, body);
         assert!(!verify_signature(SECRET, &header, body, now + 301, 300));
         assert!(!verify_signature(SECRET, &header, body, now - 301, 300));
+    }
+
+    #[test]
+    fn url_validation_blocks_internal_targets() {
+        assert!(validate_webhook_url("https://shop.example.com/hook", false).is_ok());
+        for bad in [
+            "http://127.0.0.1:3000/x",
+            "http://localhost/x",
+            "http://10.0.0.5/x",
+            "http://192.168.1.1/x",
+            "http://169.254.169.254/latest/meta-data",
+            "http://[::1]/x",
+            "ftp://example.com/x",
+            "https://user:pw@example.com/x",
+            "not a url",
+        ] {
+            assert!(validate_webhook_url(bad, false).is_err(), "{bad} must be rejected");
+        }
+        assert!(validate_webhook_url("http://127.0.0.1:9/x", true).is_ok());
     }
 
     #[test]

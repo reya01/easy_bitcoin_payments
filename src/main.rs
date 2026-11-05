@@ -204,6 +204,16 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     }
 
     let name = name.ok_or("--name is required")?;
+    // SSRF guard (beta hardening): reject loopback/private/link-local and
+    // non-http(s) webhook targets. Local development can opt out with
+    // EBP_WEBHOOK_ALLOW_PRIVATE=1. See webhook::validate_webhook_url.
+    if let Some(url) = webhook_url.as_deref() {
+        let allow_private = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
+            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        easy_bitcoin_payments::webhook::validate_webhook_url(url, allow_private)
+            .map_err(|e| format!("--webhook-url rejected: {e}"))?;
+    }
     let config = Config::load()?;
     let db = Db::open(&config.database_path)?;
 

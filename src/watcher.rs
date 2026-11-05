@@ -107,9 +107,13 @@ impl PollingWatcher {
             .lock()
             .map_err(|_| AppError::Internal("watcher cursor poisoned".into()))?;
 
-        let payments = self
-            .wallet
-            .poll_payments(since)
+        // BETA-HARDENING: the wallet adapter is synchronous and (for barkd)
+        // blocks on HTTP. Run it on the blocking pool so a slow barkd cannot
+        // stall a tokio worker thread.
+        let wallet = Arc::clone(&self.wallet);
+        let payments = tokio::task::spawn_blocking(move || wallet.poll_payments(since))
+            .await
+            .map_err(|e| AppError::Internal(format!("wallet poll task failed: {e}")))?
             .map_err(|e| AppError::Internal(format!("wallet poll failed: {e}")))?;
 
         let mut applied = 0usize;
@@ -222,7 +226,11 @@ impl PollingWatcher {
         // Keep the VTXO expiry queue in sync with the wallet's live list.
         // Every VTXO carries its own expiry: board/refresh VTXOs live ~28
         // days, Lightning-received VTXOs only 1-3 days (learn_lifetime.md).
-        match self.wallet.vtxos() {
+        let wallet = Arc::clone(&self.wallet);
+        let vtxo_result = tokio::task::spawn_blocking(move || wallet.vtxos())
+            .await
+            .map_err(|e| AppError::Internal(format!("wallet vtxos task failed: {e}")))?;
+        match vtxo_result {
             Ok(vtxos) => {
                 let lead = self.renewal_lead_secs;
                 self.db
@@ -287,14 +295,33 @@ impl PollingWatcher {
 
         let idempotency_key = format!("{}:{}:{}", invoice.id, event, invoice.paid_sats);
 
-        if let Err(err) = self
-            .webhooks
-            .emit(&url, &secret, event, &idempotency_key, &payload)
-            .await
-        {
-            // Phase 1 adds the delivery log and retry schedule.
-            tracing::warn!(error = %err, event, "webhook delivery failed");
-        }
+        // BETA-HARDENING: deliver in a detached task with retries so a slow
+        // or down merchant endpoint can neither stall the watcher loop nor
+        // lose the event on one failed attempt. Receivers dedupe on the
+        // idempotency key. KNOWN LIMITATION: retries are in-memory — a
+        // restart mid-backoff drops pending retries. A durable outbox
+        // (webhook_deliveries table) is the remaining Phase 2 item; see
+        // docs/KNOWN_ISSUES.md.
+        let webhooks = Arc::clone(&self.webhooks);
+        tokio::spawn(async move {
+            const BACKOFF_SECS: [u64; 4] = [0, 30, 300, 1800];
+            for (attempt, delay) in BACKOFF_SECS.iter().enumerate() {
+                if *delay > 0 {
+                    tokio::time::sleep(Duration::from_secs(*delay)).await;
+                }
+                match webhooks
+                    .emit(&url, &secret, event, &idempotency_key, &payload)
+                    .await
+                {
+                    Ok(()) => return,
+                    Err(err) => tracing::warn!(
+                        error = %err, event, attempt = attempt + 1,
+                        "webhook delivery failed"
+                    ),
+                }
+            }
+            tracing::error!(event, "webhook delivery gave up after all retries");
+        });
     }
 }
 

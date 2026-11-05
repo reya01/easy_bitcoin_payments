@@ -986,6 +986,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn redelivered_credited_payment_is_not_reported_as_unmatched() {
+        // Regression: the watcher re-reads wallet history (barkd's
+        // /wallet/history has no `since` filter, and the cursor is
+        // inclusive), so a payment that already PAID an invoice is seen
+        // again on later ticks. By then the invoice is no longer pending, and
+        // `record_unmatched` used to log it as a "late payment".
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_1"))))
+            .await
+            .unwrap()
+            .expect("credited");
+
+        let reported = db
+            .call(|conn| {
+                record_unmatched(
+                    conn,
+                    &UnmatchedInput {
+                        address: "ark1qinv_1",
+                        rail: "ark",
+                        amount_sats: 1000,
+                        vtxo_id: Some("vtxo_1"),
+                        txid: None,
+                        detected_at: now_unix(),
+                        reason_override: None,
+                    },
+                )
+            })
+            .await
+            .unwrap();
+        assert!(!reported, "an already-credited payment is not unmatched");
+        let rows: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM unmatched_payments", [], |r| r.get(0))?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
     async fn list_filters_by_status() {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();

@@ -647,7 +647,13 @@ async fn setup_writes_are_refused_over_plain_http_on_a_public_address() {
         public_base_url: "http://pay.example.com".to_string(),
         ..Config::default()
     };
-    let (base, _state, _store_id, _key) = serve_with(config).await;
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    // The harness finishes setup; reopen it so the wizard status applies.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_complete", "false"))
+        .await
+        .unwrap();
     let client = reqwest::Client::new();
 
     let status: serde_json::Value = client

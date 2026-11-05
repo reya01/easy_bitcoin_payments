@@ -176,6 +176,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_onchain_rail(config.onchain_rail_enabled)
     .with_onchain_min_confirmations(config.onchain_min_confirmations as i64);
+    // Rolling cleanup of operational logs (never invoices or payments).
+    tokio::spawn(easy_bitcoin_payments::retention::run(db.clone()));
     let watcher_handle = tokio::spawn(watcher.run());
 
     // Settlement engine (Phase 1): refreshes VTXOs ahead of their per-VTXO

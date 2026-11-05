@@ -18,6 +18,7 @@ pub mod models;
 pub mod onchain;
 pub mod ratelimit;
 pub mod rates;
+pub mod retention;
 pub mod routes;
 pub mod secrets;
 pub mod settings;

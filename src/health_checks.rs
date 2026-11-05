@@ -28,6 +28,8 @@ pub struct Check {
 pub struct Facts {
     /// The public address starts with https://.
     pub https: bool,
+    /// The public address is localhost (only reachable from this machine).
+    pub local_only: bool,
     /// The wallet service answered at all.
     pub wallet_reachable: bool,
     /// The wallet is connected to its payment server (ASP).
@@ -87,7 +89,14 @@ pub fn build(f: &Facts) -> Vec<Check> {
         }
     }
 
-    if f.https {
+    if f.local_only {
+        push(
+            "https",
+            Level::Warn,
+            "Your address only works on this computer",
+            "Customers cannot reach it. Before taking real payments, use a public https:// address.",
+        );
+    } else if f.https {
         push(
             "https",
             Level::Ok,
@@ -225,6 +234,18 @@ mod tests {
         c.iter()
             .find(|x| x.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    #[test]
+    fn a_localhost_address_is_a_warning_not_an_alarm() {
+        let mut f = healthy();
+        f.https = false;
+        f.local_only = true;
+        let c = build(&f);
+        assert_eq!(find(&c, "https").level, Level::Warn);
+        assert!(find(&c, "https")
+            .title
+            .contains("only works on this computer"));
     }
 
     #[test]

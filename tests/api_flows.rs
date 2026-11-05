@@ -338,7 +338,8 @@ async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
             .map(|c| c["level"].clone())
     };
     assert_eq!(level_of("wallet"), Some(serde_json::json!("bad")));
-    assert_eq!(level_of("https"), Some(serde_json::json!("bad")));
+    // The test harness serves on localhost: flagged as a warning, not an alarm.
+    assert_eq!(level_of("https"), Some(serde_json::json!("warn")));
 }
 
 #[tokio::test]

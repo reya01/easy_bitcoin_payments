@@ -42,11 +42,22 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/wallet", post(setup::create_wallet))
         .route("/setup/wallet/confirm-backup", post(setup::confirm_backup))
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
+        .route("/setup/verify-code", post(setup::verify_code))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             setup::setup_token_guard,
+        ))
+        // Brute-force brake on the setup code: per-client request cap on the
+        // whole wizard (60/min is far above real use and far below guessing a
+        // 59-bit code).
+        .layer(middleware::from_fn_with_state(
+            Arc::new(crate::ratelimit::RateLimiter::new(
+                60,
+                state.config.trust_proxy_headers,
+            )),
+            crate::ratelimit::limit,
         ))
         .with_state(state.clone());
 

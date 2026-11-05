@@ -40,6 +40,34 @@ pub fn generate_webhook_secret() -> String {
     format!("whsec_{}", random_hex(32))
 }
 
+/// Alphabet for the first-run setup code: no 0/O/1/I/L lookalikes.
+const SETUP_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/// A one-time first-run setup code like `K7QM-2XPD-9TWE` (12 characters from
+/// a 31-symbol alphabet, about 59 bits), easy to read off a screen and type
+/// on a phone. Generated per boot, never stored.
+pub fn generate_setup_code() -> String {
+    use rand::Rng;
+    let mut rng = rand::rngs::OsRng;
+    let chars: Vec<char> = (0..12)
+        .map(|_| SETUP_CODE_ALPHABET[rng.gen_range(0..SETUP_CODE_ALPHABET.len())] as char)
+        .collect();
+    chars
+        .chunks(4)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Canonical form for comparing typed setup codes: upper-case, separators
+/// and spaces dropped, so `k7qm 2xpd-9twe` matches `K7QM-2XPD-9TWE`.
+pub fn normalize_setup_code(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
+}
+
 /// Extractor that authenticates a store from `Authorization: Bearer <api key>`.
 pub struct StoreAuth {
     pub store: Store,
@@ -98,6 +126,20 @@ mod tests {
         assert!(!ct_eq("hello", "hello!"));
         assert!(!ct_eq("", "x"));
         assert!(ct_eq("", ""));
+    }
+
+    #[test]
+    fn setup_codes_are_typable_and_normalise() {
+        let code = generate_setup_code();
+        assert_eq!(code.len(), 14);
+        assert_eq!(code.matches('-').count(), 2);
+        assert!(code
+            .chars()
+            .filter(|c| *c != '-')
+            .all(|c| "ABCDEFGHJKMNPQRSTUVWXYZ23456789".contains(c)));
+        assert_ne!(code, generate_setup_code());
+        let sloppy = format!(" {} ", code.to_lowercase().replace('-', " "));
+        assert_eq!(normalize_setup_code(&sloppy), normalize_setup_code(&code));
     }
 
     #[test]

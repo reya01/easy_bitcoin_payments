@@ -61,14 +61,30 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let db = Db::open(&config.database_path)?;
-    let migrated = db
-        .call(|conn| easy_bitcoin_payments::store::encrypt_legacy_webhook_secrets(conn))
-        .await?;
-    if migrated > 0 {
-        tracing::info!(
-            count = migrated,
-            "encrypted legacy plaintext webhook secrets"
-        );
+
+    // R9: no technical setup needed to keep strangers out of the first-run
+    // wizard. If the operator did not choose a setup token and setup is not
+    // finished, make a one-time, human-typable SETUP CODE for this run and
+    // show it where the operator started the server. Never stored.
+    let mut config = config;
+    if config.setup_token.is_none() {
+        let complete = db
+            .call(|conn| easy_bitcoin_payments::settings::get_bool(conn, "setup_complete"))
+            .await?;
+        if !complete {
+            let code = easy_bitcoin_payments::auth::generate_setup_code();
+            config.setup_token = Some(code.clone());
+            config.setup_token_generated = true;
+            println!();
+            println!("==============================================");
+            println!("  SETUP CODE:  {code}");
+            println!("  Open the setup page in your browser and type");
+            println!("  this code when asked. It changes every time");
+            println!("  the server restarts, until setup is finished.");
+            println!("==============================================");
+            println!();
+            tracing::warn!("first-run setup is protected by a one-time setup code (shown above)");
+        }
     }
 
     // BARK INTEGRATION (Phase 1): the wallet layer is a client of the barkd

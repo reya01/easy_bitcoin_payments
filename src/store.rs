@@ -156,27 +156,6 @@ pub fn webhook_secret_plain(store: &Store) -> Result<Option<String>, AppError> {
         .transpose()
 }
 
-/// Startup migration (R10): encrypt any webhook secret still stored as
-/// plaintext by an earlier version. Idempotent; returns how many rows changed.
-pub fn encrypt_legacy_webhook_secrets(conn: &Connection) -> Result<usize, AppError> {
-    let legacy: Vec<(String, String)> = {
-        let mut stmt = conn.prepare(
-            "SELECT id, webhook_secret FROM stores
-             WHERE webhook_secret IS NOT NULL AND webhook_secret NOT LIKE 'enc:v1:%'",
-        )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        rows.collect::<Result<Vec<_>, _>>()?
-    };
-    for (id, plain) in &legacy {
-        let enc = crate::secrets::get().encrypt(plain, id)?;
-        conn.execute(
-            "UPDATE stores SET webhook_secret = ?1 WHERE id = ?2",
-            params![enc, id],
-        )?;
-    }
-    Ok(legacy.len())
-}
-
 fn row_to_store(row: &rusqlite::Row<'_>) -> rusqlite::Result<Store> {
     Ok(Store {
         id: row.get("id")?,
@@ -287,45 +266,5 @@ mod tests {
         assert!(stored.starts_with("enc:v1:"));
         assert!(!stored.contains(&plain));
         assert_eq!(webhook_secret_plain(&store).unwrap().unwrap(), plain);
-    }
-
-    #[tokio::test]
-    async fn legacy_plaintext_secrets_are_encrypted_once_at_startup() {
-        let db = db().await;
-        let (store, _key, _) = db
-            .call(|conn| create(conn, "Legacy", Some("https://shop.example.com/h")))
-            .await
-            .unwrap();
-        let id = store.id.clone();
-        // Simulate a pre-encryption row.
-        db.call({
-            let id = id.clone();
-            move |conn| {
-                conn.execute(
-                    "UPDATE stores SET webhook_secret = 'whsec_legacy' WHERE id = ?1",
-                    params![id],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(
-            db.call(|c| encrypt_legacy_webhook_secrets(c))
-                .await
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            db.call(|c| encrypt_legacy_webhook_secrets(c))
-                .await
-                .unwrap(),
-            0
-        );
-        let reread = db.call(move |c| get(c, &id)).await.unwrap().unwrap();
-        assert_eq!(
-            webhook_secret_plain(&reread).unwrap().unwrap(),
-            "whsec_legacy"
-        );
     }
 }

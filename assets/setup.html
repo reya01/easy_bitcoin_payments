@@ -104,6 +104,17 @@
     <span id="s1"></span><span id="s2"></span><span id="s3"></span><span id="s4"></span>
   </div>
 
+  <section id="step-code" class="hidden">
+    <h1>Enter your setup code</h1>
+    <p class="sub">To keep strangers out, the server made a one-time setup code when it started. Look for <strong>SETUP CODE</strong> on the screen where you started the server and type it here.</p>
+    <div class="card">
+      <label for="code">Setup code</label>
+      <input type="text" id="code" placeholder="ABCD-EFGH-JKLM" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <button class="primary" id="btn-code" type="button">Continue</button>
+    </div>
+    <div class="error hidden" id="code-error"></div>
+  </section>
+
   <section id="step-wallet">
     <h1>Create your wallet</h1>
     <p class="sub">This server holds a small "till" wallet — like cash in a register — that receives payments and empties into your own wallet automatically. It lives in the barkd sidecar next to this server.</p>
@@ -184,6 +195,10 @@
       document.getElementById("s3"),
       document.getElementById("s4")
     ],
+    code: document.getElementById("step-code"),
+    codeInput: document.getElementById("code"),
+    btnCode: document.getElementById("btn-code"),
+    codeError: document.getElementById("code-error"),
     wallet: document.getElementById("step-wallet"),
     asp: document.getElementById("asp"),
     network: document.getElementById("network"),
@@ -213,7 +228,7 @@
     done: document.getElementById("step-done")
   };
 
-  var sections = ["wallet", "backup", "token", "store", "done"];
+  var sections = ["code", "wallet", "backup", "token", "store", "done"];
 
   function show(name) {
     sections.forEach(function (section) {
@@ -236,9 +251,11 @@
     element.classList.add("hidden");
   }
 
-  // Optional setup token (EBP_SETUP_TOKEN): if the server answers 401
-  // "setup_token_required", ask once, remember it for this page load, retry.
+  // Setup code (generated at boot, or EBP_SETUP_TOKEN): the status call says
+  // when one is needed; we ask on the page (no browser pop-up), verify it
+  // right away, and send it with every wizard action. Kept in memory only.
   var setupToken = "";
+  var lastStatus = null;
 
   function api(method, path, body, retried) {
     var headers = { "content-type": "application/json", "accept": "application/json" };
@@ -249,12 +266,10 @@
       body: body ? JSON.stringify(body) : undefined
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
-        if (res.status === 401 && data.error === "setup_token_required" && !retried) {
-          var entered = window.prompt("This server requires its setup token (EBP_SETUP_TOKEN):");
-          if (entered) {
-            setupToken = entered.trim();
-            return api(method, path, body, true);
-          }
+        if (res.status === 401 && data.error === "setup_token_required") {
+          // Wrong or missing code: go back to the code screen.
+          setupToken = "";
+          if (lastStatus) { show("code"); }
         }
         if (!res.ok) {
           throw new Error(data.message || data.error || "The server answered HTTP " + res.status + ".");
@@ -264,7 +279,21 @@
     });
   }
 
-  function resume(status) {
+  els.btnCode.addEventListener("click", function () {
+    clearFail(els.codeError);
+    setupToken = els.codeInput.value.trim();
+    if (!setupToken) { fail(els.codeError, "Type the setup code first."); return; }
+    api("POST", "/setup/verify-code", {})
+      .then(function () { resume(lastStatus, true); })
+      .catch(function () {
+        setupToken = "";
+        fail(els.codeError, "That code did not match. Check the SETUP CODE shown where you started the server.");
+      });
+  });
+
+  function resume(status, codeOk) {
+    lastStatus = status;
+    if (status.setup_code_required && !codeOk && !setupToken) { markStep(0); show("code"); return; }
     if (status.mode === "test") els.testBanner.classList.remove("hidden");
     if (status.mode === "live") {
       els.network.value = "mainnet";

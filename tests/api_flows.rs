@@ -606,3 +606,35 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
         .unwrap();
     assert_eq!(audit[0]["action"], "webhook.resend");
 }
+
+#[tokio::test]
+async fn generated_setup_code_is_typo_tolerant_and_wrong_codes_are_refused() {
+    let mut config = Config::default();
+    config.setup_token = Some("K7QM-2XPD-9TWE".to_string());
+    config.setup_token_generated = true;
+    let (base, _state, _store_id, _key) = serve_with(config).await;
+    let client = reqwest::Client::new();
+    let verify = |code: &'static str| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .post(format!("{base}/setup/verify-code"))
+                .header("host", "localhost")
+                .header("x-ebp-setup-token", code)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+    };
+    assert_eq!(verify("K7QM-2XPD-9TWE").await, 200);
+    assert_eq!(
+        verify(" k7qm 2xpd 9twe ").await,
+        200,
+        "case/space/dash tolerant"
+    );
+    assert_eq!(verify("K7QM-2XPD-9TWF").await, 401);
+    assert_eq!(verify("").await, 401);
+}

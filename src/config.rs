@@ -72,6 +72,10 @@ pub struct Config {
     /// could create the wallet, read the recovery words, or mint the first
     /// store API key. Env-only recommended (`EBP_SETUP_TOKEN`).
     pub setup_token: Option<String>,
+    /// True when `setup_token` is the per-boot generated setup code (set by
+    /// `main`, never from file/env). Typed codes are then compared
+    /// case-/separator-insensitively.
+    pub setup_token_generated: bool,
     /// Offer the on-chain rail at checkout. DEFAULT OFF (beta): barkd's
     /// on-chain receive entry in `/wallet/history` is not yet pinned by a
     /// live drill, so on-chain payments cannot be detected with confidence
@@ -120,6 +124,7 @@ impl Default for Config {
             public_rate_limit_per_min: 120,
             trust_proxy_headers: false,
             setup_token: None,
+            setup_token_generated: false,
             onchain_rail_enabled: false,
         }
     }

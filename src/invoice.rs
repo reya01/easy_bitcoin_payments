@@ -332,6 +332,22 @@ pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<boo
         detected_at,
         reason_override,
     } = *input;
+    // A payment we already CREDITED to an invoice is not "unmatched". The
+    // watcher re-reads wallet history every tick (barkd's /wallet/history has
+    // no `since` filter and the cursor is inclusive), so credited payments
+    // come back; by then the invoice is no longer pending. Skip anything
+    // already present in `payments` (matched by vtxo id or txid).
+    let already_credited: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM payments
+                       WHERE (?1 IS NOT NULL AND vtxo_id = ?1)
+                          OR (?2 IS NOT NULL AND txid = ?2))",
+        params![vtxo_id, txid],
+        |row| row.get(0),
+    )?;
+    if already_credited {
+        return Ok(false);
+    }
+
     let found: Option<(String, String)> = conn
         .query_row(
             "SELECT id, status FROM invoices

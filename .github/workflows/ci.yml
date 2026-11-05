@@ -40,14 +40,16 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      # The browser end-to-end job (below) runs this exact binary.
-      - name: Keep the binary for the end-to-end job
-        uses: actions/upload-artifact@v4
-        with:
-          name: ebp-linux-x86_64
-          path: target/release/ebp
-          retention-days: 3
-          if-no-files-found: error
+      # Browser end-to-end: this exact binary, a fake barkd that validates
+      # every request/response against the pinned OpenAPI spec, and desktop
+      # Chromium driving the setup wizard, admin page and payment flows.
+      - name: Install end-to-end test dependencies
+        run: |
+          python3 -m pip install --user playwright jsonschema
+          python3 -m playwright install --with-deps chromium
+
+      - name: Browser end-to-end test
+        run: python3 tests/e2e/run_e2e.py target/release/ebp
 
   docker:
     name: docker image builds (amd64 + arm64)

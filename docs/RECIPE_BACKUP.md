@@ -45,9 +45,7 @@ words are the only thing that turns a dead server back into your money.
 
 In the admin page, Settings → **Download a backup**. You type your admin
 password and your browser saves one file ending in `.ebpbackup`, locked with
-that same password — nothing new to remember or store. (Optional: a
-disclosure lets you pick a different password for the file instead.) EBP
-never stores either.
+that same password — nothing new to remember or store. EBP never stores it.
 
 - It holds your order history and settings. When this server runs the
   wallet itself (managed mode) it also holds the wallet folder. With a

@@ -1,8 +1,7 @@
 //! `POST /admin/backup` — download an encrypted backup (see `crate::backup`).
 //!
 //! Needs a signed-in session + CSRF and the admin password again. The file
-//! is locked with the admin password unless the merchant chooses a separate
-//! backup password; neither is ever stored. Rate-limited like login
+//! is locked with the admin password (never stored). Rate-limited like login
 //! (it checks a password), one at a time.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,11 +29,6 @@ impl Drop for Busy {
 #[derive(Deserialize)]
 pub struct BackupRequest {
     pub admin_password: String,
-    /// Optional. Left out, the backup is locked with the admin password.
-    #[serde(default)]
-    pub backup_password: Option<String>,
-    #[serde(default)]
-    pub backup_password_again: Option<String>,
 }
 
 pub async fn download(
@@ -49,18 +43,6 @@ pub async fn download(
         ));
     }
     let _busy = Busy;
-
-    // One password by default: the admin password (already length-checked
-    // when it was set). A separate one is optional and must be typed twice.
-    let separate = req.backup_password.clone().filter(|p| !p.is_empty());
-    if let Some(p) = &separate {
-        crate::backup::validate_password(p)?;
-        if req.backup_password_again.as_deref() != Some(p.as_str()) {
-            return Err(AppError::BadRequest(
-                "the two backup passwords don't match".into(),
-            ));
-        }
-    }
 
     // Re-check the admin password (slow hash, off the database thread).
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
@@ -90,7 +72,7 @@ pub async fn download(
     };
     let count = entries.len();
 
-    let pw = separate.unwrap_or_else(|| req.admin_password.clone());
+    let pw = req.admin_password.clone();
     let sealed = tokio::task::spawn_blocking(move || crate::backup::seal(&entries, &pw))
         .await
         .map_err(|_| AppError::Internal("backup task failed".into()))??;

@@ -983,11 +983,7 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
         }
         r.send()
     };
-    let good = serde_json::json!({
-        "admin_password": "a good long password",
-        "backup_password": "purple orchard lantern",
-        "backup_password_again": "purple orchard lantern",
-    });
+    let good = serde_json::json!({"admin_password": "a good long password"});
 
     // Not signed in.
     assert_eq!(
@@ -1027,15 +1023,15 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
             .as_u16(),
         401
     );
-    // Rule violations are 400s with a message, not downloads.
-    for bad in [
-        serde_json::json!({"admin_password": "wrong wrong wrong", "backup_password": "purple orchard lantern", "backup_password_again": "purple orchard lantern"}),
-        serde_json::json!({"admin_password": "a good long password", "backup_password": "short", "backup_password_again": "short"}),
-        serde_json::json!({"admin_password": "a good long password", "backup_password": "purple orchard lantern", "backup_password_again": "purple orchard lanterX"}),
-    ] {
-        let r = backup(Some(&csrf), Some(&cookie), bad).await.unwrap();
-        assert_eq!(r.status().as_u16(), 400);
-    }
+    // A wrong admin password is a 400, not a download.
+    let r = backup(
+        Some(&csrf),
+        Some(&cookie),
+        serde_json::json!({"admin_password": "wrong wrong wrong"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
 
     let r = backup(Some(&csrf), Some(&cookie), good).await.unwrap();
     let status = r.status().as_u16();
@@ -1053,20 +1049,8 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
     // The file is encrypted: no readable store name, no SQLite header.
     assert!(!bytes.windows(9).any(|w| w == b"Flow Shop"));
     assert!(!bytes.windows(15).any(|w| w == b"SQLite format 3"));
-    assert!(easy_bitcoin_payments::backup::open(&bytes, "a good long password").is_err());
-    // With no separate password, the admin password locks the file.
-    let r2 = backup(
-        Some(&csrf),
-        Some(&cookie),
-        serde_json::json!({"admin_password": "a good long password"}),
-    )
-    .await
-    .unwrap();
-    assert_eq!(r2.status().as_u16(), 200);
-    let b2 = r2.bytes().await.unwrap();
-    assert!(easy_bitcoin_payments::backup::open(&b2, "a good long password").is_ok());
-    assert!(easy_bitcoin_payments::backup::open(&b2, "purple orchard lantern").is_err());
-    let entries = easy_bitcoin_payments::backup::open(&bytes, "purple orchard lantern").unwrap();
+    assert!(easy_bitcoin_payments::backup::open(&bytes, "some other password").is_err());
+    let entries = easy_bitcoin_payments::backup::open(&bytes, "a good long password").unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].name, "ebp.sqlite3");
     assert!(entries[0].data.starts_with(b"SQLite format 3"));

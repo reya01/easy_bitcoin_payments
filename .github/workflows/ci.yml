@@ -60,6 +60,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The multi-arch build above only proves the image BUILDS. Load the
+      # amd64 managed image (the default, beginner-facing target) and run it:
+      # the binary starts, and the checksum-pinned barkd inside it runs.
+      - name: Smoke-run the managed image (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: easy-bitcoin-payments:smoke
+          cache-from: type=gha
+
+      - name: Binaries start inside the image
+        run: |
+          docker run --rm --entrypoint ebp easy-bitcoin-payments:smoke --help | grep -qi usage
+          docker run --rm --entrypoint barkd easy-bitcoin-payments:smoke --version
+          test "$(docker run --rm --entrypoint id easy-bitcoin-payments:smoke -u)" = 10001
+
   shellcheck:
     name: shellcheck (scripts)
     runs-on: ubuntu-latest

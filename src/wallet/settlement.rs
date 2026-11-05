@@ -79,7 +79,7 @@ pub(crate) fn select_vtxos_covering(
 ) -> (Vec<String>, i64) {
     let mut sorted: Vec<&crate::wallet::barkd::Vtxo> =
         vtxos.iter().filter(|v| !v.id.is_empty()).collect();
-    sorted.sort_by(|a, b| b.amount_sats.cmp(&a.amount_sats));
+    sorted.sort_by_key(|v| std::cmp::Reverse(v.amount_sats));
     let (mut ids, mut total) = (Vec::new(), 0i64);
     for v in sorted {
         if total >= target {

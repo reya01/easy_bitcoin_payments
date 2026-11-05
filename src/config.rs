@@ -94,6 +94,9 @@ pub struct Config {
     /// default: the setup code and API keys would cross the network in the
     /// clear. Meant only for a trusted LAN or throwaway testing.
     pub allow_insecure_setup: bool,
+    /// Run barkd as a child process of EBP (single-container install). The
+    /// wizard then needs no terminal steps. See `managed_barkd`.
+    pub managed_barkd: bool,
 }
 
 impl Default for Config {
@@ -136,6 +139,7 @@ impl Default for Config {
             onchain_rail_enabled: false,
             onchain_min_confirmations: 1,
             allow_insecure_setup: false,
+            managed_barkd: false,
         }
     }
 }
@@ -225,6 +229,7 @@ struct FileConfig {
     onchain_rail_enabled: Option<bool>,
     onchain_min_confirmations: Option<u64>,
     allow_insecure_setup: Option<bool>,
+    managed_barkd: Option<bool>,
 }
 
 impl Config {
@@ -368,6 +373,9 @@ impl Config {
         if let Some(v) = file.onchain_rail_enabled {
             self.onchain_rail_enabled = v;
         }
+        if let Some(v) = file.managed_barkd {
+            self.managed_barkd = v;
+        }
         if let Some(v) = file.allow_insecure_setup {
             self.allow_insecure_setup = v;
         }
@@ -408,6 +416,10 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_PUBLIC_BASE_URL") {
             self.public_base_url = v;
+        } else if let Some(v) = lookup("RENDER_EXTERNAL_URL") {
+            // One-click host (Render) tells us its own https address, so a
+            // beginner never has to type it.
+            self.public_base_url = v.trim_end_matches('/').to_string();
         }
         if let Some(v) = lookup("EBP_DEFAULT_EXPIRY_MINUTES") {
             self.default_expiry_minutes = parse_int("EBP_DEFAULT_EXPIRY_MINUTES", &v)?;
@@ -480,6 +492,9 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_MANAGED_BARKD") {
+            self.managed_barkd = parse_bool("EBP_MANAGED_BARKD", &v)?;
         }
         if let Some(v) = lookup("EBP_ALLOW_INSECURE_SETUP") {
             self.allow_insecure_setup = parse_bool("EBP_ALLOW_INSECURE_SETUP", &v)?;

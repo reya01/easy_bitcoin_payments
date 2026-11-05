@@ -30,14 +30,14 @@ API keys stored in the browser, unpinned auto-update.
 ### 1. One container + one-click deploy + HTTPS (install without a terminal)
 1a. **HTTPS required for setup. (Done.)** The wizard refuses every write over
 plain `http://` on a non-local address (override: `EBP_ALLOW_INSECURE_SETUP`).
-1b. **Managed barkd.** EBP runs barkd itself as a child process in the same
+1b. **Managed barkd. (Built, unverified against a live barkd.)** EBP runs barkd itself as a child process in the same
 container (`EBP_MANAGED_BARKD`): it starts it, reads the token with
 `barkd secret show`, applies it in memory and keeps it in the encrypted store,
 and performs the recovery-words ceremony by restarting its own child with
 `--expose-mnemonic` for one read. Removes the token/.env/command steps.
 Binary stays checksum-pinned. The separate-container layout remains for
 advanced users.
-1c. **One-click deploy template** for a host with a web dashboard (HTTPS
+1c. **One-click deploy template. (`render.yaml` drafted, untested on the live service.)** for a host with a web dashboard (HTTPS
 included, log viewer for the setup code, secret variables for
 `EBP_KEY_ENCRYPTION_KEY`). Needs 1b first because such hosts run one container.
 

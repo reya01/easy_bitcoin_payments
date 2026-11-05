@@ -91,6 +91,25 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Single-container install: run barkd ourselves and pick up its token, so
+    // nothing has to be copied or pasted. If there is no token yet (first
+    // boot, wallet not created), the wallet stays on the stub until the
+    // wizard finishes, after which the server restarts itself once.
+    if config.managed_barkd {
+        let managed = easy_bitcoin_payments::managed_barkd::install(
+            easy_bitcoin_payments::managed_barkd::ManagedBarkd::new(&config.database_path),
+        );
+        config.barkd_url = managed.api_url();
+        match managed.restart(false).await {
+            Ok(()) => match managed.token().await {
+                Ok(token) => config.barkd_token = Some(token),
+                Err(_) => easy_bitcoin_payments::routes::setup::request_restart_after_setup(),
+            },
+            Err(err) => tracing::error!(error = %err, "managed barkd did not start"),
+        }
+        tokio::spawn(managed.supervise());
+    }
+
     // BARK INTEGRATION (Phase 1): the wallet layer is a client of the barkd
     // sidecar's REST API (bearer token from `barkd secret show`, passed via
     // EBP_BARKD_TOKEN). Without a token the server still boots on the stub

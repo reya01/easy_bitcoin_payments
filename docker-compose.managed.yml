@@ -1,0 +1,28 @@
+# Single-container install: EBP runs its own barkd wallet daemon. No token
+# copying, no .env editing, no terminal commands during setup.
+#
+#   COMPOSE_FILE=docker-compose.managed.yml EBP_PUBLIC_BASE_URL=https://pay.example.com ./scripts/start.sh
+#
+# (or: docker compose -f docker-compose.managed.yml up -d --build)
+#
+# Setup needs an https:// address (or http://localhost). `restart:
+# unless-stopped` matters: the server restarts itself once, right after the
+# setup wizard finishes, so the wallet connects.
+services:
+  ebp:
+    build:
+      context: .
+    environment:
+      EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
+      EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
+      EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
+      EBP_ONCHAIN_MIN_CONFIRMATIONS: ${EBP_ONCHAIN_MIN_CONFIRMATIONS:-1}
+      EBP_ALLOW_INSECURE_SETUP: ${EBP_ALLOW_INSECURE_SETUP:-false}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ebp-data:/data
+    restart: unless-stopped
+
+volumes:
+  ebp-data:

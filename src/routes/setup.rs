@@ -139,7 +139,7 @@ pub fn effective_barkd_token(config: &crate::config::Config) -> Option<String> {
 /// Apply a wizard-verified token to the running process. The wizard's own
 /// barkd calls use it immediately; the payments paths pick the token up
 /// from the environment after the documented restart. Not persisted.
-fn set_runtime_barkd_token(token: &str) {
+pub fn set_runtime_barkd_token(token: &str) {
     if let Ok(mut cell) = runtime_token_cell().write() {
         *cell = Some(token.to_string());
     }
@@ -184,6 +184,8 @@ pub struct SetupStatus {
     /// The wizard is being served over plain HTTP on a non-local address;
     /// every setup write is refused until the address is HTTPS.
     pub https_required: bool,
+    /// barkd is run by EBP itself: the wizard needs no terminal steps.
+    pub managed: bool,
     /// `"test"` (signet, play money) or `"live"`.
     pub mode: String,
 }
@@ -215,6 +217,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
     snapshot.barkd_token_present = token.is_some();
     snapshot.mode = state.config.mode.clone();
     snapshot.setup_code_required = state.config.setup_token.is_some() && !snapshot.setup_complete;
+    snapshot.managed = crate::managed_barkd::get().is_some();
     snapshot.https_required = !state.config.setup_transport_ok() && !snapshot.setup_complete;
 
     Ok(Json(snapshot))
@@ -232,6 +235,7 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
         setup_complete: settings::get_bool(conn, "setup_complete")?,
         setup_code_required: false, // filled by the caller
         https_required: false,      // filled by the caller
+        managed: false,             // filled by the caller
         mode: String::new(),        // filled by the caller
     })
 }
@@ -428,6 +432,24 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
             .into_response();
     }
 
+    // Managed barkd: EBP opens the one-time window itself (restart WITH
+    // --expose-mnemonic), and closes it again right after the single read.
+    let managed = crate::managed_barkd::get();
+    if let Some(m) = &managed {
+        if let Ok(t) = m.token().await {
+            set_runtime_barkd_token(&t);
+        }
+        if m.restart(true).await.is_err() {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(MnemonicResponse::not_exposed(
+                    "Could not open the one-time recovery-words window. Try again in a moment.",
+                )),
+            )
+                .into_response();
+        }
+    }
+
     let token = effective_barkd_token(&state.config);
     let base_url = match barkd_base_url(&state.config) {
         Some(base_url) => base_url,
@@ -472,6 +494,11 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
             ))),
         )
             .into_response();
+    }
+
+    // Close the window immediately, whatever the parse outcome below.
+    if let Some(m) = &managed {
+        let _ = m.restart(false).await;
     }
 
     let parsed: BarkdMnemonic = match serde_json::from_str(&body) {
@@ -859,6 +886,7 @@ pub async fn confirm_backup(
 pub struct SetTokenRequest {
     /// The barkd bearer token (from `barkd secret show` on the machine
     /// running barkd). Never logged, never written to the database.
+    #[serde(default)]
     pub token: String,
 }
 
@@ -886,7 +914,12 @@ pub async fn set_token(
 ) -> Result<Json<TokenVerifiedResponse>, AppError> {
     ensure_wizard_open(&state).await?;
 
-    let token = req.token.trim().to_string();
+    let mut token = req.token.trim().to_string();
+    if token.is_empty() {
+        if let Some(m) = crate::managed_barkd::get() {
+            token = m.token().await.map_err(AppError::BadRequest)?;
+        }
+    }
     if token.is_empty() {
         return Err(AppError::BadRequest(
             "token must not be empty — run `barkd secret show` on the machine running barkd and \
@@ -1002,6 +1035,24 @@ pub struct StoreCreatedResponse {
     pub setup_complete: bool,
 }
 
+/// Managed mode booted without a barkd token, so the wallet adapter is the
+/// stub. Once setup completes the process exits so the container's restart
+/// policy brings it back with the real wallet (token read from barkd).
+static RESTART_AFTER_SETUP: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn request_restart_after_setup() {
+    RESTART_AFTER_SETUP.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn schedule_restart() {
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        tracing::info!("setup finished; restarting so the wallet connects");
+        std::process::exit(0);
+    });
+}
+
 pub async fn create_store(
     State(state): State<AppState>,
     Json(req): Json<CreateStoreRequest>,
@@ -1031,6 +1082,10 @@ pub async fn create_store(
         webhook_secret: created.map(|store| store.webhook_secret),
         setup_complete,
     };
+
+    if setup_complete && RESTART_AFTER_SETUP.load(std::sync::atomic::Ordering::SeqCst) {
+        schedule_restart();
+    }
 
     // no-store: the API key and webhook secret are shown exactly once.
     let mut headers = axum::http::HeaderMap::new();

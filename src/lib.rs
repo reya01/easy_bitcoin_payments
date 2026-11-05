@@ -12,6 +12,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod invoice;
+pub mod managed_barkd;
 pub mod models;
 pub mod onchain;
 pub mod ratelimit;

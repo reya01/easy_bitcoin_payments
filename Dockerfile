@@ -63,3 +63,41 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 ENTRYPOINT ["ebp"]
 CMD ["serve"]
+
+# ---- managed stage (single-container install: EBP + barkd) ------------------
+# This is the DEFAULT (last) stage, so a plain `docker build .` and one-click
+# hosts get the single-container install. docker-compose.yml (two containers)
+# builds `--target runtime` instead. EBP runs
+# barkd itself (EBP_MANAGED_BARKD=true), so no token copying, .env editing or
+# terminal commands are needed during setup. barkd is the SAME checksum-pinned
+# release binary as docker/barkd.Dockerfile — keep the two pins identical.
+FROM debian:bookworm-slim AS managed
+ARG TARGETARCH
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && case "$TARGETARCH" in \
+      amd64) BARK_ARCH=x86_64; BARK_SHA=e78bb35dbfb4c9b639a505e12e8cf3c3ab0a730c0fa4d42032b053a7b9db2a14 ;; \
+      arm64) BARK_ARCH=arm64; BARK_SHA=3575f6edf0c4091befd12eeff9d5fbb5958c3131e88c62611d6cfd8f9f5b0ebc ;; \
+      *) echo "unsupported arch: $TARGETARCH" && exit 1 ;; \
+    esac \
+ && curl -fsSL "https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-0.8.0/barkd-0.8.0-linux-${BARK_ARCH}" \
+      -o /usr/local/bin/barkd \
+ && echo "${BARK_SHA}  /usr/local/bin/barkd" | sha256sum -c - \
+ && chmod +x /usr/local/bin/barkd \
+ && useradd --system --uid 10001 --create-home --home-dir /home/ebp ebp \
+ && mkdir -p /data \
+ && chown ebp:ebp /data
+COPY --from=builder /src/target/release/ebp /usr/local/bin/ebp
+USER ebp
+WORKDIR /home/ebp
+ENV EBP_BIND_ADDR=0.0.0.0:8080 \
+    EBP_DATABASE_PATH=/data/ebp.sqlite3 \
+    EBP_MANAGED_BARKD=true \
+    EBP_LOG_LEVEL=info,tower_http=info
+VOLUME ["/data"]
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8080/api/v1/health || exit 1
+ENTRYPOINT ["ebp"]
+CMD ["serve"]

@@ -188,6 +188,7 @@
     <h1>Setup complete</h1>
     <p class="sub">Your server can now take payments. Open the dashboard to watch them arrive — and to see the till empty into your own wallet.</p>
     <div class="card"><a href="/dashboard">Go to the dashboard</a></div>
+    <p class="note">If the page stops answering for about a minute, the server is restarting to connect the wallet. Wait, then refresh.</p>
   </section>
 </main>
 
@@ -300,6 +301,7 @@
       });
   });
 
+  var autoTokenTried = false;
   function resume(status, codeOk) {
     lastStatus = status;
     if (status.https_required) { markStep(0); show("https"); return; }
@@ -317,9 +319,21 @@
       show("backup");
       els.words.classList.add("hidden");
       els.btnShowWords.classList.remove("hidden");
-      els.ceremonyNote.classList.remove("hidden");
-      els.wordsManual.textContent = "Tap \"Show my recovery words\" to read the words straight from barkd's one-time --expose-mnemonic ceremony — they are shown once, never stored or logged. Write them down before you confirm.";
+      if (!status.managed) els.ceremonyNote.classList.remove("hidden");
+      els.wordsManual.textContent = status.managed
+        ? "Tap \"Show my recovery words\". They are shown once and never stored. Write them down on paper before you confirm."
+        : "Tap \"Show my recovery words\" to read the words straight from barkd's one-time --expose-mnemonic ceremony — they are shown once, never stored or logged. Write them down before you confirm.";
       els.wordsManual.classList.remove("hidden");
+      return;
+    }
+    if (!status.config_written && status.managed && !autoTokenTried) {
+      // Managed install: the server already holds the wallet token; no
+      // copying needed. Fall back to the manual step if this fails.
+      autoTokenTried = true;
+      api("POST", "/setup/token", {})
+        .then(function () { return api("GET", "/setup/status"); })
+        .then(function (s) { resume(s, true); })
+        .catch(function () { resume(status, true); });
       return;
     }
     if (!status.config_written) { markStep(2); show("token"); return; }

@@ -273,6 +273,30 @@ pub fn find_pending_by_address(
     .map_err(Into::into)
 }
 
+/// Newest still-open (`pending`, not past `expires_at`) invoice a store
+/// already created for `order_id`, if any.
+///
+/// BETA-HARDENING: backs create-invoice idempotency. Shop plugins retry on
+/// timeouts and double-click "Pay"; without this every retry minted a fresh
+/// invoice (and fresh addresses) for the same order. The caller only reuses
+/// the hit when the amount matches (see `routes::invoices::create`).
+pub fn find_open_by_order_id(
+    conn: &Connection,
+    store_id: &str,
+    order_id: &str,
+) -> Result<Option<Invoice>, AppError> {
+    conn.query_row(
+        "SELECT * FROM invoices
+         WHERE store_id = ?1 AND order_id = ?2
+           AND status = 'pending' AND expires_at > ?3
+         ORDER BY created_at DESC LIMIT 1",
+        params![store_id, order_id, now_unix()],
+        row_to_invoice,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// Record a wallet payment that reached one of OUR invoice addresses but
 /// could not be applied because the invoice is no longer `pending`
 /// (expired, cancelled, already settled, or underpaid).
@@ -835,6 +859,77 @@ mod tests {
             .await
             .unwrap();
         assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn open_invoice_is_found_by_order_id_until_it_closes() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+
+        let sid = store_id.clone();
+        let hit = db
+            .call(move |conn| find_open_by_order_id(conn, &sid, "wc-1234"))
+            .await
+            .unwrap();
+        assert_eq!(hit.map(|i| i.id), Some("inv_1".to_string()));
+
+        // Other stores and other orders never match.
+        assert!(db
+            .call(|conn| find_open_by_order_id(conn, "other-store", "wc-1234"))
+            .await
+            .unwrap()
+            .is_none());
+
+        // A cancelled invoice is not "open": a retry must mint a new one.
+        let sid = store_id.clone();
+        db.call(move |conn| cancel(conn, &sid, "inv_1"))
+            .await
+            .unwrap();
+        assert!(db
+            .call(move |conn| find_open_by_order_id(conn, &store_id, "wc-1234"))
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn payment_to_an_expired_invoice_is_recorded_as_unmatched_once() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| {
+            let mut inv = new_invoice(&sid, "inv_1", 1000);
+            inv.expires_at = now_unix() - 1;
+            insert(conn, &inv)?;
+            expire_if_due(conn, "inv_1")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        let first = db
+            .call(|conn| {
+                record_unmatched(conn, "ark1qinv_1", "ark", 1000, Some("vtxo_late"), None, 5)
+            })
+            .await
+            .unwrap();
+        assert!(first, "first sighting writes an audit row");
+        let again = db
+            .call(|conn| {
+                record_unmatched(conn, "ark1qinv_1", "ark", 1000, Some("vtxo_late"), None, 5)
+            })
+            .await
+            .unwrap();
+        assert!(!again, "re-delivery must not duplicate the row");
+
+        // Addresses that belong to no invoice are not recorded.
+        let unknown = db
+            .call(|conn| record_unmatched(conn, "ark1qnobody", "ark", 1, Some("v2"), None, 5))
+            .await
+            .unwrap();
+        assert!(!unknown);
     }
 
     #[tokio::test]

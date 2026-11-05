@@ -352,6 +352,39 @@ pub async fn create(
             (Some(_), Some(_)) => unreachable!("guarded above"),
         };
 
+    // IDEMPOTENCY (beta hardening): a retry for the same `order_id` with the
+    // same amount returns the existing open invoice (200 OK) instead of
+    // minting a new one. "Same amount" = same fiat amount+currency for fiat
+    // requests (the sats figure drifts with the rate), same sats otherwise.
+    // A changed amount creates a new invoice; the old one simply expires.
+    if let Some(order_id) = req.order_id.clone().filter(|o| !o.trim().is_empty()) {
+        let store_id = auth.store.id.clone();
+        let existing = state
+            .db
+            .call(move |conn| invoice::find_open_by_order_id(conn, &store_id, &order_id))
+            .await?;
+        if let Some(existing) = existing {
+            let same_amount = match (&req.fiat, req.sats) {
+                (Some(fiat), None) => {
+                    existing.fiat_currency.as_deref().map(str::to_uppercase)
+                        == Some(fiat.currency.trim().to_uppercase())
+                        && existing.fiat_amount.as_deref() == Some(fiat.amount.trim())
+                }
+                _ => existing.fiat_currency.is_none() && existing.amount_sats == amount_sats,
+            };
+            if same_amount {
+                let invoice_id = existing.id.clone();
+                let lightning_invoice = state
+                    .db
+                    .call(move |conn| invoice::get_lightning_invoice(conn, &invoice_id))
+                    .await?;
+                let response =
+                    to_response(&existing, &state.config.public_base_url, lightning_invoice);
+                return Ok((StatusCode::OK, Json(response)));
+            }
+        }
+    }
+
     // Lightning gateway fee (Phase 1 close-out): fetched from the ASP's
     // live fee table at invoice time when LN receive is on. Best effort —
     // an unavailable or unrecognised fee is reported as `null`, never

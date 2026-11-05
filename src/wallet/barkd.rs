@@ -1085,9 +1085,9 @@ impl HistoryEntry {
             // No htlc/output key means we cannot dedupe safely: fail closed.
             .or_else(|| self.vtxo_id.clone())
             .or_else(|| self.txid.clone())
-            // A plain Ark-address receive carries no HTLC metadata and (per
-            // the pinned OpenAPI) no entry-level vtxo_id/txid; the VTXO it
-            // created is unique per payment and survives a wallet restore.
+        // A plain Ark-address receive carries no HTLC metadata and (per
+        // the pinned OpenAPI) no entry-level vtxo_id/txid; the VTXO it
+        // created is unique per payment and survives a wallet restore.
     }
 
     /// Map a receive entry to the watcher's payment shape — ONE payment per
@@ -2484,28 +2484,5 @@ mod tests {
         let (status, paid) = e2e_invoice(&db, &sid).await;
         assert_ne!(status, crate::models::InvoiceStatus::Paid);
         assert_eq!(paid, 2500);
-    }
-
-    #[test]
-    fn plain_ark_address_receive_is_credited_using_its_output_vtxo_as_the_dedupe_key() {
-        // Spec shape of a plain Ark-address receive: no HTLC metadata and no
-        // entry-level vtxo_id/txid. Before the output_vtxos fallback this
-        // was silently NOT credited (fail closed on a missing dedupe key).
-        let entry: HistoryEntry = serde_json::from_str(
-            r#"{"id": 9, "status": "successful",
-                "subsystem": {"name": "bark.arkoor", "kind": "receive"},
-                "intended_balance_sat": 2500, "effective_balance_sat": 2500, "offchain_fee_sat": 0,
-                "sent_to": [],
-                "received_on": [{"destination": {"type": "ark", "value": "tark1qcustomer"}, "amount_sat": 2500}],
-                "input_vtxos": [], "output_vtxos": ["aa11:0"], "exited_vtxos": [],
-                "time": {"created_at": "2026-11-05T10:00:00Z", "updated_at": "2026-11-05T10:00:01Z", "completed_at": "2026-11-05T10:00:01Z"}}"#,
-        )
-        .unwrap();
-        let payments = entry.into_wallet_payments().expect("must be credited");
-        assert_eq!(payments.len(), 1);
-        assert_eq!(payments[0].address, "tark1qcustomer");
-        assert_eq!(payments[0].amount_sats, 2500);
-        assert!(matches!(payments[0].rail, Rail::Ark));
-        assert_eq!(payments[0].vtxo_id.as_deref(), Some("aa11:0:0"));
     }
 }

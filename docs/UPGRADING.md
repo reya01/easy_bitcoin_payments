@@ -64,7 +64,16 @@ scripts/install.sh              # latest
 ```
 
 The installer detects the architecture and verifies the tarball against
-`SHA256SUMS` before installing.
+`SHA256SUMS` before installing. `SHA256SUMS` is itself signed (sigstore,
+keyless) by the release workflow; to check that signature too (optional,
+advanced; release workflow not yet run):
+
+```
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+```
 
 ## Before upgrading
 

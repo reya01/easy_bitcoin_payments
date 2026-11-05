@@ -19,7 +19,28 @@ use crate::auth::{ct_eq, hash_secret};
 use crate::error::AppError;
 use crate::util::{now_unix, random_hex};
 
+/// Session cookie name. Over HTTPS it carries the `__Host-` prefix, which makes
+/// the browser refuse any copy that is not Secure, host-only and Path=/ (so a
+/// sibling subdomain cannot plant a session cookie). Plain http (localhost
+/// testing) cannot use the prefix.
 pub const COOKIE_NAME: &str = "ebp_session";
+pub const COOKIE_NAME_SECURE: &str = "__Host-ebp_session";
+
+pub fn cookie_name(secure: bool) -> &'static str {
+    if secure {
+        COOKIE_NAME_SECURE
+    } else {
+        COOKIE_NAME
+    }
+}
+
+/// Is the public address https? Decides the cookie name and the Secure flag.
+pub fn is_secure(public_base_url: &str) -> bool {
+    public_base_url
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("https://")
+}
 pub const CSRF_HEADER: &str = "x-ebp-csrf";
 pub const DEFAULT_ITERATIONS: u32 = 600_000;
 pub const MIN_ITERATIONS: u32 = 1_000;
@@ -198,24 +219,27 @@ pub fn delete_session(conn: &Connection, token: &str) -> Result<(), AppError> {
 }
 
 /// The session token from the request's Cookie header, if any.
-pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
+pub fn token_from_headers(headers: &HeaderMap, secure: bool) -> Option<String> {
+    let name = cookie_name(secure);
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     raw.split(';').find_map(|part| {
         let (k, v) = part.trim().split_once('=')?;
-        (k == COOKIE_NAME && !v.is_empty()).then(|| v.to_string())
+        (k == name && !v.is_empty()).then(|| v.to_string())
     })
 }
 
 pub fn set_cookie_value(token: &str, secure: bool) -> String {
     format!(
-        "{COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_ABSOLUTE_SECS}{}",
+        "{}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_ABSOLUTE_SECS}{}",
+        cookie_name(secure),
         if secure { "; Secure" } else { "" }
     )
 }
 
 pub fn clear_cookie_value(secure: bool) -> String {
     format!(
-        "{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{}",
+        "{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{}",
+        cookie_name(secure),
         if secure { "; Secure" } else { "" }
     )
 }
@@ -288,7 +312,23 @@ mod tests {
             header::COOKIE,
             "a=1; ebp_session=abc123; b=2".parse().unwrap(),
         );
-        assert_eq!(token_from_headers(&h).as_deref(), Some("abc123"));
+        assert_eq!(token_from_headers(&h, false).as_deref(), Some("abc123"));
+        // Over https only the __Host- cookie counts: a planted plain one is ignored.
+        assert_eq!(token_from_headers(&h, true), None);
+        h.insert(
+            header::COOKIE,
+            "ebp_session=planted; __Host-ebp_session=real"
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(token_from_headers(&h, true).as_deref(), Some("real"));
+        let c = set_cookie_value("t", true);
+        assert!(
+            c.starts_with("__Host-ebp_session=t;") && c.contains("Secure") && c.contains("Path=/")
+        );
+        assert!(!c.contains("Domain"));
+        assert!(clear_cookie_value(true).starts_with("__Host-ebp_session=;"));
+        assert!(set_cookie_value("t", false).starts_with("ebp_session=t;"));
         assert!(set_cookie_value("t", true).contains("Secure"));
         assert!(set_cookie_value("t", false).contains("SameSite=Strict"));
     }

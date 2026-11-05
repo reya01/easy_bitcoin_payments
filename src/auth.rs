@@ -110,8 +110,11 @@ impl FromRequestParts<AppState> for StoreAuth {
 /// A signed-in admin session acts as the (single) store's owner. State-
 /// changing methods must also carry the session's CSRF token.
 async fn session_store(parts: &Parts, state: &AppState) -> Result<StoreAuth, AppError> {
-    let token =
-        crate::admin_auth::token_from_headers(&parts.headers).ok_or(AppError::Unauthorized)?;
+    let token = crate::admin_auth::token_from_headers(
+        &parts.headers,
+        crate::admin_auth::is_secure(&state.config.public_base_url),
+    )
+    .ok_or(AppError::Unauthorized)?;
     let csrf = state
         .db
         .call(move |c| crate::admin_auth::lookup_session(c, &token))

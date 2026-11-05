@@ -36,7 +36,10 @@ pub struct StatusQuery {
 
 async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
     // A signed-in browser session may read the status (GET only).
-    if let Some(token) = crate::admin_auth::token_from_headers(headers) {
+    if let Some(token) = crate::admin_auth::token_from_headers(
+        headers,
+        crate::admin_auth::is_secure(&state.config.public_base_url),
+    ) {
         let live = state
             .db
             .call(move |c| crate::admin_auth::lookup_session(c, &token))

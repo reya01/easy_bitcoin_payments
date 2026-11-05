@@ -3,6 +3,7 @@
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
 ### Security
+- Cleanup: all GitHub Actions pinned by commit SHA plus a weekly Dependabot PR (never auto-merged); release `SHA256SUMS` signed with sigstore; over https the admin session cookie is `__Host-ebp_session` (a plain cookie of that name is ignored).
 - **Webhook secrets are now encrypted at rest** (ChaCha20-Poly1305; `EBP_KEY_ENCRYPTION_KEY` or a 0600 `ebp.key`). New dependency: `chacha20poly1305`. Back the key up separately from the database.
 - Audit trail (`audit_log`, `GET /api/v1/audit-log`) for key rotation, webhook changes, re-sends and resolved late payments; webhook delivery log + re-send endpoints.
 

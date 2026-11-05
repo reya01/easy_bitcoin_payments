@@ -1018,6 +1018,10 @@ async fn verify_barkd_token(base_url: &str, token: &str) -> Result<Option<bool>,
 #[derive(Debug, Deserialize)]
 pub struct CreateStoreRequest {
     pub name: String,
+    /// Password for the admin page (min 10 characters). Optional for API
+    /// automation; the wizard always sends it.
+    #[serde(default)]
+    pub admin_password: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1064,10 +1068,18 @@ pub async fn create_store(
         return Err(AppError::BadRequest("store name must not be empty".into()));
     }
 
+    if let Some(pw) = req.admin_password.as_deref() {
+        crate::admin_auth::validate_password(pw)?;
+    }
+    let admin_password = req.admin_password.clone();
+    let iterations = state.config.password_hash_iterations;
     let (created, setup_complete) = state
         .db
         .call(move |conn| {
             let created = insert_first_store(conn, &name)?;
+            if let Some(pw) = admin_password.as_deref() {
+                crate::admin_auth::set_password(conn, pw, iterations)?;
+            }
             let complete = recompute_setup_complete(conn)?;
             Ok((created, complete))
         })

@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod admin_session;
 pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
@@ -117,6 +118,23 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(dashboard::root))
         .route("/dashboard", get(dashboard::dashboard))
+        .route("/admin", get(dashboard::dashboard))
+        .route("/admin/session", get(admin_session::session))
+        .route("/admin/logout", post(admin_session::logout))
+        .route("/admin/password", post(admin_session::change_password))
+        .merge(
+            Router::new()
+                .route("/admin/login", post(admin_session::login))
+                // Password-guessing brake: 10 attempts a minute per client.
+                .layer(middleware::from_fn_with_state(
+                    Arc::new(crate::ratelimit::RateLimiter::new(
+                        10,
+                        state.config.trust_proxy_headers,
+                    )),
+                    crate::ratelimit::limit,
+                ))
+                .with_state(state.clone()),
+        )
         .route("/assets/qr.js", get(checkout::qr_js))
         .route("/api/v1/health", get(health::health))
         .merge(setup)

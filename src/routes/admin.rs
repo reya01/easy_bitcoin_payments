@@ -34,7 +34,17 @@ pub struct StatusQuery {
     pub funding_address: Option<String>,
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
+async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
+    // A signed-in browser session may read the status (GET only).
+    if let Some(token) = crate::admin_auth::token_from_headers(headers) {
+        let live = state
+            .db
+            .call(move |c| crate::admin_auth::lookup_session(c, &token))
+            .await?;
+        if live.is_some() {
+            return Ok(());
+        }
+    }
     // Endpoint is invisible unless an admin token is configured.
     let Some(expected) = state
         .config
@@ -62,7 +72,7 @@ pub async fn status(
     headers: HeaderMap,
     Query(query): Query<StatusQuery>,
 ) -> Result<Json<Value>, AppError> {
-    authorize(&state, &headers)?;
+    authorize(&state, &headers).await?;
 
     let (counters, recent_settlements) = state
         .db

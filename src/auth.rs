@@ -80,11 +80,14 @@ impl FromRequestParts<AppState> for StoreAuth {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let header = parts
+        // Browser admin: no Authorization header -> signed-in session cookie.
+        let Some(header) = parts
             .headers
             .get(AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
-            .ok_or(AppError::Unauthorized)?;
+        else {
+            return session_store(parts, state).await;
+        };
 
         let token = header
             .strip_prefix("Bearer ")
@@ -102,6 +105,38 @@ impl FromRequestParts<AppState> for StoreAuth {
             .map(|store| StoreAuth { store })
             .ok_or(AppError::Unauthorized)
     }
+}
+
+/// A signed-in admin session acts as the (single) store's owner. State-
+/// changing methods must also carry the session's CSRF token.
+async fn session_store(parts: &Parts, state: &AppState) -> Result<StoreAuth, AppError> {
+    let token =
+        crate::admin_auth::token_from_headers(&parts.headers).ok_or(AppError::Unauthorized)?;
+    let csrf = state
+        .db
+        .call(move |c| crate::admin_auth::lookup_session(c, &token))
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    let safe = matches!(
+        parts.method,
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    );
+    if !safe {
+        let supplied = parts
+            .headers
+            .get(crate::admin_auth::CSRF_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if !ct_eq(&csrf, supplied) {
+            return Err(AppError::Unauthorized);
+        }
+    }
+    let store = state
+        .db
+        .call(|c| store::first(c))
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    Ok(StoreAuth { store })
 }
 
 #[cfg(test)]

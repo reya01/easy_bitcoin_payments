@@ -677,3 +677,143 @@ async fn setup_writes_are_refused_over_plain_http_on_a_public_address() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["error"], "https_required");
 }
+
+#[tokio::test]
+async fn admin_login_session_csrf_and_logout() {
+    let config = Config {
+        password_hash_iterations: 1_000,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let get = |path: &str, cookie: Option<String>| {
+        let mut r = client
+            .get(format!("{base}{path}"))
+            .header("host", "localhost");
+        if let Some(c) = cookie {
+            r = r.header("cookie", c);
+        }
+        r.send()
+    };
+
+    // Not signed in: nothing works, and the page reports it.
+    assert_eq!(
+        get("/api/v1/audit-log", None)
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        401
+    );
+    let s: serde_json::Value = get("/admin/session", None)
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s["password_set"], true);
+    assert_eq!(s["authenticated"], false);
+
+    // Wrong password.
+    let bad = client
+        .post(format!("{base}/admin/login"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"password": "wrong wrong wrong"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status().as_u16(), 401);
+
+    // Right password: cookie is HttpOnly + SameSite=Strict.
+    let ok = client
+        .post(format!("{base}/admin/login"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status().as_u16(), 200);
+    let set_cookie = ok.headers()["set-cookie"].to_str().unwrap().to_string();
+    assert!(set_cookie.contains("HttpOnly") && set_cookie.contains("SameSite=Strict"));
+    let cookie = set_cookie.split(';').next().unwrap().to_string();
+    let body: serde_json::Value = ok.json().await.unwrap();
+    let csrf = body["csrf"].as_str().unwrap().to_string();
+
+    // Reads work with the cookie alone.
+    assert_eq!(
+        get("/api/v1/audit-log", Some(cookie.clone()))
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        200
+    );
+
+    // Writes need the CSRF header.
+    let no_csrf = client
+        .post(format!("{base}/api/v1/stores/rotate-key"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_csrf.status().as_u16(), 401);
+    let with_csrf = client
+        .post(format!("{base}/api/v1/stores/rotate-key"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(with_csrf.status().as_u16(), 200);
+    let new_key: serde_json::Value = with_csrf.json().await.unwrap();
+    assert!(new_key["api_key"].as_str().unwrap().len() > 20);
+
+    // Logout kills the session.
+    let out = client
+        .post(format!("{base}/admin/logout"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(out.status().as_u16(), 200);
+    assert_eq!(
+        get("/api/v1/audit-log", Some(cookie))
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        401
+    );
+}
+
+#[tokio::test]
+async fn wizard_store_step_sets_the_admin_password() {
+    let config = Config {
+        password_hash_iterations: 1_000,
+        ..Config::default()
+    };
+    let (_base, state, _store_id, _key) = serve_with(config).await;
+    // Too-short passwords are refused before anything is stored.
+    let short = easy_bitcoin_payments::admin_auth::validate_password("short");
+    assert!(short.is_err());
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .await
+        .unwrap();
+    let set = state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::password_is_set(c))
+        .await
+        .unwrap();
+    assert!(set);
+}

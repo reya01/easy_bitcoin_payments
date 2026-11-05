@@ -84,10 +84,10 @@ use crate::settings;
 // ---------------------------------------------------------------------------
 /// Create (or restore) the wallet. POST. No bearer token: wallet creation
 /// precedes token provisioning (the verified recipe call sends none).
-/// VERIFY: path — the pinned OpenAPI's endpoint list does not pin it, so
-/// the path is confirmed only by the documented recipe call; the RESPONSE
-/// shape is also unpinned (the live VERIFY pass could not probe it on the
-/// main datadir — a wallet already existed). The ceremony no longer
+/// The pinned OpenAPI documents this endpoint (request `network`,
+/// `ark_server`, ...; response `{"fingerprint"}` only, never the words).
+/// Not yet seen live: the pass could not probe it on the main datadir (a
+/// wallet already existed). The ceremony no longer
 /// depends on that shape: the recovery words always come from the VERIFIED
 /// mnemonic endpoint while barkd runs with `--expose-mnemonic`, and the
 /// wizard reads create only for success / `already_exists`, defensively.
@@ -771,8 +771,9 @@ struct CreateWalletOutcome {
 /// token — creation precedes token provisioning; the verified recipe call
 /// sends none either).
 ///
-/// VERIFY: request body shape (`{"network", "ark"}`) and the response's
-/// mnemonic field name — the pinned OpenAPI's schemas are empty.
+/// Request body per the pinned OpenAPI (`network`, `ark_server`); the
+/// response carries only a `fingerprint`, so the mnemonic lookup below is a
+/// harmless fallback and the words come from the mnemonic endpoint.
 async fn create_till_wallet(
     base_url: &str,
     network: &str,
@@ -804,8 +805,7 @@ async fn create_till_wallet(
                 "barkd's wallet-create answer was not valid JSON: {err}"
             ))
         })?;
-        // VERIFY: field name — the recipe says the answer includes the
-        // recovery words; the field name is not pinned by the spec.
+        // The pinned spec returns no words here; kept as a tolerant fallback.
         let mnemonic = ["mnemonic", "seed_phrase", "recovery_phrase"]
             .iter()
             .find_map(|field| body.get(*field))
@@ -1072,8 +1072,7 @@ pub async fn set_token(
 /// Verify a barkd bearer token against the sidecar (GET /wallet/connected).
 /// `Err` carries a plain-language message that never contains the token.
 ///
-/// VERIFY: response shape — the pinned OpenAPI's schemas are empty; only
-/// the HTTP status is relied upon.
+/// Only the HTTP status is relied upon (the spec's body is `{"connected"}`).
 async fn verify_barkd_token(base_url: &str, token: &str) -> Result<Option<bool>, AppError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))

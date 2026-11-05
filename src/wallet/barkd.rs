@@ -22,7 +22,9 @@
 //! `VERIFIED` markers on the constants below, the verbatim bodies in
 //! `barkd/live_shapes.rs`, and `verified_shape_tests`. The one shape
 //! still under `VERIFY` is the wallet-create response (no pass has
-//! captured it — the probe datadir already held a wallet). Every parser
+//! captured it — the probe datadir already held a wallet; the pinned OpenAPI
+//! says it returns only a `fingerprint`, and the recovery words come from
+//! `GET /wallet/mnemonic`). Every parser
 //! stays defensive regardless: a missing safety-critical field fails
 //! loudly instead of silently reading zero.
 //!
@@ -70,9 +72,9 @@ use super::{
 // Paths and methods, verified against barkd's OpenAPI endpoint list (all
 // under /api/v1, which is part of BarkdConfig::base_url). Response shapes
 // are pinned by live probes against a real barkd 0.8.0 on signet (see the
-// VERIFIED markers; the published OpenAPI carries no response schemas,
-// so shapes are captured from the running daemon). The only unpinned
-// shape left is the wallet-create response, which keeps its VERIFY note.
+// VERIFIED markers). The pinned OpenAPI (docs/barkd-openapi.json) also
+// carries the request/response schemas, and CI checks every field we send
+// or read against it (scripts/check_barkd_contract.py, docs/barkd-contract.json).
 // ---------------------------------------------------------------------------
 /// Create (or restore) the wallet. POST.
 const PATH_CREATE_WALLET: &str = "/wallet/create";
@@ -507,21 +509,16 @@ impl BarkdClient {
 
     /// Create the wallet (first start) or restore it from a mnemonic.
     ///
-    /// Returns barkd's raw response: its shape is not yet modelled (VERIFY:
-    /// field shape); the provisioning wizard (plan task 3) is what will read
-    /// it — including the one-time mnemonic ceremony, if 0.8.0 returns one.
-    /// GET /wallet/mnemonic is never called.
+    /// Returns barkd's raw response (the pinned OpenAPI: `{"fingerprint"}`
+    /// only; the recovery words are never in this response).
     pub async fn create_wallet(&self, req: &CreateWalletRequest) -> Result<Json, WalletError> {
-        // VERIFY: field shape — the /wallet/create dump is empty in the
-        // pinned extract.
         self.post(PATH_CREATE_WALLET, req).await
     }
 
     // -- Receiving ----------------------------------------------------------
 
     /// Fresh Ark receive address.
-    // VERIFY: field shape — the /wallet/addresses/next dump is empty in the
-    // pinned extract.
+    // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn ark_address(&self) -> Result<String, WalletError> {
         let v: Json = self.post(PATH_ADDRESS_NEXT, &serde_json::json!({})).await?;
         flex::str_field(&v, &["address", "ark_address"]).ok_or_else(|| {
@@ -532,8 +529,7 @@ impl BarkdClient {
     }
 
     /// Fresh on-chain receive address.
-    // VERIFY: field shape — the /onchain/addresses/next dump is empty in the
-    // pinned extract.
+    // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn onchain_address(&self) -> Result<String, WalletError> {
         let v: Json = self
             .post(PATH_ONCHAIN_ADDRESS_NEXT, &serde_json::json!({}))
@@ -673,8 +669,7 @@ impl BarkdClient {
 
     /// The current chain tip, for converting VTXO expiry heights to
     /// wall-clock times.
-    // VERIFY: field shape — the /bitcoin/tip dump is empty in the pinned
-    // extract.
+    // Shape pinned by docs/barkd-openapi.json for /bitcoin/tip (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill.
     pub async fn bitcoin_tip(&self) -> Result<Tip, WalletError> {
         let v: Json = self.get(PATH_BITCOIN_TIP).await?;
         let height = flex::i64_field(&v, &["tip_height", "height", "block_height", "tip"])
@@ -765,11 +760,10 @@ impl BarkdClient {
 
     /// Ark send to a same-ASP destination (settlement sweep to the
     /// merchant's Ark wallet). Returns barkd's raw receipt: its shape is
-    /// not pinned (VERIFY: field shape), and never parsing it means a
+    /// `{message, payment_hash}` in the pinned OpenAPI), and never parsing it means a
     /// successful send cannot be mistaken for a failed one.
     pub async fn ark_send(&self, destination: &str, amount_sats: i64) -> Result<Json, WalletError> {
-        // VERIFY: field shape — the /wallet/send dump is empty in the pinned
-        // extract; destination/amount_sats is our best-effort model.
+        // Shape pinned by docs/barkd-openapi.json for /wallet/send (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill; destination/amount_sats is our best-effort model.
         // Pinned OpenAPI SendRequest: `amount_sat` (NOT `amount_sats`).
         let body = serde_json::json!({ "destination": destination, "amount_sat": amount_sats });
         self.post(PATH_ARK_SEND, &body).await
@@ -778,8 +772,7 @@ impl BarkdClient {
     /// Cooperative on-chain withdrawal of the whole Ark balance
     /// (learn_offboard.md). Emergency exits are never automated.
     pub async fn offboard_all(&self, address: &str) -> Result<Json, WalletError> {
-        // VERIFY: field shape — the /wallet/offboard/all dump is empty in
-        // the pinned extract; address is our best-effort model.
+        // Shape pinned by docs/barkd-openapi.json for /wallet/offboard/all (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill; address is our best-effort model.
         let body = serde_json::json!({ "address": address });
         self.post(PATH_OFFBOARD_ALL, &body).await
     }
@@ -804,8 +797,7 @@ impl BarkdClient {
     /// Refresh specific VTXOs in the next ASP round (renewal ahead of
     /// expiry).
     pub async fn refresh_vtxos(&self, vtxo_ids: &[String]) -> Result<Json, WalletError> {
-        // VERIFY: field shape — the /wallet/refresh/vtxos dump is empty in
-        // the pinned extract; the id list key is our best-effort model.
+        // Shape pinned by docs/barkd-openapi.json for /wallet/refresh/vtxos (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill; the id list key is our best-effort model.
         // Pinned OpenAPI RefreshRequest: required `vtxos` (array of VTXO ids).
         let body = serde_json::json!({ "vtxos": vtxo_ids });
         self.post(PATH_REFRESH_VTXOS, &body).await
@@ -821,9 +813,6 @@ impl BarkdClient {
         amount_sats: i64,
         description: &str,
     ) -> Result<LightningInvoice, WalletError> {
-        // VERIFY: field shape — the /lightning/receives/invoice dump is
-        // empty in the pinned extract; amount_sats is our best-effort model
-        // and the BOLT11 is read from whichever field barkd uses.
         // Pinned OpenAPI: required `amount_sat`; optional description/expiry_secs.
         let body = serde_json::json!({ "amount_sat": amount_sats, "description": description });
         let v: Json = self.post(PATH_LN_INVOICE, &body).await?;
@@ -842,8 +831,7 @@ impl BarkdClient {
     // -- Status -------------------------------------------------------------
 
     /// Whether the wallet is connected to its ASP (health endpoint).
-    // VERIFY: field shape — the /wallet/connected dump is empty in the
-    // pinned extract.
+    // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn connected(&self) -> Result<ConnectedStatus, WalletError> {
         let v: Json = self.get(PATH_CONNECTED).await?;
         Ok(ConnectedStatus {
@@ -866,10 +854,6 @@ pub struct CreateWalletRequest {
     /// network (connection-details.md).
     #[serde(rename = "ark_server", skip_serializing_if = "Option::is_none")]
     pub ark: Option<String>,
-    /// Chain source (Esplora URL or bitcoind). When omitted, barkd falls
-    /// back to the network's Esplora endpoint (connection-details.md).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chain_source: Option<String>,
     /// BIP-39 mnemonic to restore; `None` generates a fresh wallet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mnemonic: Option<String>,
@@ -880,7 +864,6 @@ impl fmt::Debug for CreateWalletRequest {
         f.debug_struct("CreateWalletRequest")
             .field("network", &self.network)
             .field("ark", &self.ark)
-            .field("chain_source", &self.chain_source)
             .field("mnemonic", &self.mnemonic.as_ref().map(|_| "<redacted>"))
             .finish()
     }
@@ -894,8 +877,8 @@ pub struct VtxoSet {
 }
 
 /// One VTXO as reported by `GET /wallet/vtxos`.
-// VERIFY: field shape — the dump is empty in the pinned extract. `id` is
-// the identifier /wallet/vtxos/{id} accepts; expiry may arrive as a block
+// Shape per the pinned OpenAPI (`id`, `amount_sat`, `expiry_height`,
+// `state.type`). `id` is the identifier /wallet/vtxos/{id} accepts; expiry may arrive as a block
 // height or a timestamp.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Vtxo {
@@ -1316,8 +1299,7 @@ impl ConnectedStatus {
     }
 }
 
-// VERIFY: field shape — the /onchain/balance dump is empty in the pinned
-// extract. Confirmed coins are what the exit reserve may count, so a
+// Shape pinned by docs/barkd-openapi.json for /onchain/balance (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill. Confirmed coins are what the exit reserve may count, so a
 // response we cannot read confirmed funds from is an error, never a silent
 // zero (a silent zero would refuse every sweep).
 fn parse_onchain_balance(v: Json) -> Result<OnchainBalance, WalletError> {
@@ -1358,8 +1340,7 @@ fn parse_onchain_balance(v: Json) -> Result<OnchainBalance, WalletError> {
     })
 }
 
-// VERIFY: field shape — the /wallet/history dump is empty in the pinned
-// extract; the list key and the cursor key are our best-effort model.
+// Shape pinned by docs/barkd-openapi.json for /history (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill; the list key and the cursor key are our best-effort model.
 fn parse_history_page(v: Json) -> Result<HistoryPage, WalletError> {
     let items = flex::array_field(&v, &["history", "payments", "entries", "movements"])
         .ok_or_else(|| {
@@ -1379,9 +1360,9 @@ fn parse_history_page(v: Json) -> Result<HistoryPage, WalletError> {
 }
 
 /// Best-effort field extraction for endpoints whose response schema is not
-/// pinned yet (every schema dump we were given is empty). Each use site
-/// carries a `VERIFY: field shape` marker; replace with typed structs when
-/// the pinned spec is filled in.
+/// confirmed live yet. The pinned OpenAPI does define most of them (see
+/// scripts/check_barkd_contract.py); the tolerant aliases stay until the
+/// signet drill proves the real daemon matches, then they can be tightened.
 mod flex {
     use super::Json;
 

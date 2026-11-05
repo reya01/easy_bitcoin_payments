@@ -82,6 +82,25 @@ jobs:
           docker run --rm --entrypoint barkd easy-bitcoin-payments:smoke --version
           test "$(docker run --rm --entrypoint id easy-bitcoin-payments:smoke -u)" = 10001
 
+  dependency-audit:
+    name: dependency vulnerabilities (cargo audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Checks Cargo.lock against the RustSec advisory database. A known
+      # vulnerability in any dependency fails the build; warnings (for
+      # example an unmaintained crate) are reported but do not.
+      # Always the latest cargo-audit: an old one cannot parse newer
+      # advisory-database entries and fails before checking anything.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Cargo.lock
+        run: cargo audit
+
   shellcheck:
     name: shellcheck (scripts)
     runs-on: ubuntu-latest
@@ -101,3 +120,6 @@ jobs:
 
       - name: Check the barkd client's paths against the pinned OpenAPI spec
         run: bash scripts/check_barkd_drift.sh
+
+      - name: Check every field we send or read against the pinned OpenAPI spec
+        run: python3 scripts/check_barkd_contract.py

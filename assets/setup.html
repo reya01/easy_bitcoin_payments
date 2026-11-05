@@ -172,6 +172,9 @@
     <div class="card">
       <label for="store">Store name</label>
       <input type="text" id="store" class="name" placeholder="My store">
+      <label for="admin-pw">Choose an admin password</label>
+      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 10 characters — a few random words works well">
+      <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
       <div class="hidden" id="store-secrets">
         <p class="note">API key — shown once, save it in a password manager:</p>
@@ -187,7 +190,7 @@
   <section id="step-done" class="hidden">
     <h1>Setup complete</h1>
     <p class="sub">Your server can now take payments. Open the dashboard to watch them arrive — and to see the till empty into your own wallet.</p>
-    <div class="card"><a href="/dashboard">Go to the dashboard</a></div>
+    <div class="card"><a href="/admin">Open your admin page</a></div>
     <p class="note">If the page stops answering for about a minute, the server is restarting to connect the wallet. Wait, then refresh.</p>
   </section>
 </main>
@@ -463,9 +466,15 @@
       fail(els.storeError, "Give the store a name first.");
       return;
     }
+    var pw = document.getElementById("admin-pw").value;
+    if (pw.length < 10) {
+      fail(els.storeError, "Choose an admin password of at least 10 characters.");
+      return;
+    }
     els.btnStore.disabled = true;
-    api("POST", "/setup/store", { name: name })
+    api("POST", "/setup/store", { name: name, admin_password: pw })
       .then(function (result) {
+        document.getElementById("admin-pw").value = "";
         if (result.api_key) {
           els.apiKey.textContent = result.api_key;
           els.webhookSecret.textContent = result.webhook_secret || "—";

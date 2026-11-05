@@ -17,6 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match command {
         "serve" => serve().await,
         "store" => store_command(&args[1..]).await,
+        "admin" => admin_command(&args[1..]).await,
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -41,6 +42,7 @@ fn print_help() {
          \x20 ebp store rotate-key [--store <ID>]\n\
          \x20     Revoke every API key of a store and print a new one once\n\
          \x20     (lost-key recovery; --store is optional with one store)\n\
+         \x20 ebp admin set-password          Set/reset the admin-page password\n\
          \x20 ebp help                        Show this help\n\
          \n\
          CONFIGURATION:\n\
@@ -383,5 +385,41 @@ async fn store_rotate_key(args: &[String]) -> Result<(), Box<dyn std::error::Err
     println!();
     println!("Update the key in your shop plugin / integration, then confirm an");
     println!("order still creates an invoice.");
+    Ok(())
+}
+
+/// `ebp admin set-password` — set or reset the admin-page password on the
+/// server itself (the recovery path; there is deliberately no way to do this
+/// remotely). Reads the password from one line of standard input.
+async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    if args.first().map(String::as_str) != Some("set-password") {
+        eprintln!("usage: ebp admin set-password   (type the new password, then press Enter)");
+        std::process::exit(2);
+    }
+    let config = Config::load()?;
+    easy_bitcoin_payments::secrets::init(
+        config.key_encryption_key.as_deref(),
+        &config.database_path,
+    )?;
+    let db = Db::open(&config.database_path)?;
+    eprintln!("New admin password (at least 10 characters; it will be visible as you type):");
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let password = line.trim_end_matches(['\r', '\n']).to_string();
+    let iterations = config.password_hash_iterations;
+    db.call(move |conn| {
+        easy_bitcoin_payments::admin_auth::set_password(conn, &password, iterations)?;
+        if let Some(store) = easy_bitcoin_payments::store::first(conn)? {
+            easy_bitcoin_payments::audit::record(
+                conn,
+                &store.id,
+                "admin.password_changed",
+                Some("via CLI"),
+            )?;
+        }
+        Ok(())
+    })
+    .await?;
+    println!("Admin password updated. All signed-in sessions were signed out.");
     Ok(())
 }

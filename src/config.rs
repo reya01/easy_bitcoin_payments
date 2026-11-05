@@ -97,6 +97,9 @@ pub struct Config {
     /// Run barkd as a child process of EBP (single-container install). The
     /// wizard then needs no terminal steps. See `managed_barkd`.
     pub managed_barkd: bool,
+    /// PBKDF2 rounds for the admin password (default 600,000; minimum 1,000).
+    /// Lowering it weakens the hash — it exists for tests only.
+    pub password_hash_iterations: u32,
 }
 
 impl Default for Config {
@@ -140,6 +143,7 @@ impl Default for Config {
             onchain_min_confirmations: 1,
             allow_insecure_setup: false,
             managed_barkd: false,
+            password_hash_iterations: crate::admin_auth::DEFAULT_ITERATIONS,
         }
     }
 }

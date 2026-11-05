@@ -66,6 +66,18 @@ pub fn create(
     Ok((store, api_key, webhook_secret))
 }
 
+/// The first (oldest) store. The admin login manages this store; v1.0 is
+/// single-store.
+pub fn first(conn: &Connection) -> Result<Option<Store>, AppError> {
+    conn.query_row(
+        "SELECT * FROM stores ORDER BY created_at ASC, rowid ASC LIMIT 1",
+        [],
+        row_to_store,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 pub fn get(conn: &Connection, store_id: &str) -> Result<Option<Store>, AppError> {
     conn.query_row(
         "SELECT * FROM stores WHERE id = ?1",

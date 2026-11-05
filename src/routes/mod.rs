@@ -2,6 +2,7 @@ pub mod admin;
 pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
+pub mod deliveries;
 pub mod health;
 pub mod invoices;
 pub mod setup;
@@ -85,6 +86,12 @@ pub fn router(state: AppState) -> Router {
             axum::routing::put(stores::set_webhook),
         )
         .route("/api/v1/stores/rotate-key", post(stores::rotate_key))
+        .route("/api/v1/webhook-deliveries", get(deliveries::list))
+        .route(
+            "/api/v1/webhook-deliveries/{id}/resend",
+            post(deliveries::resend),
+        )
+        .route("/api/v1/audit-log", get(deliveries::audit))
         .route("/api/v1/unmatched-payments", get(unmatched::list))
         .route(
             "/api/v1/unmatched-payments/{id}/resolve",

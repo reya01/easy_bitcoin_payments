@@ -6,6 +6,7 @@
 //! settlement engine, setup wizard, and signed webhooks. This build is
 //! EXPERIMENTAL — use signet or regtest only, never mainnet or real funds.
 
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;

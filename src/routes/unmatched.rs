@@ -109,6 +109,7 @@ pub async fn resolve(
                  WHERE id = ?2 AND resolved_at IS NULL",
                 params![now_unix(), id],
             )?;
+            crate::audit::record(conn, &store_id, "unmatched_payment.resolved", Some(&id))?;
             Ok(true)
         })
         .await?;

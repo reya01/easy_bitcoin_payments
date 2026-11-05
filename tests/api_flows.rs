@@ -528,3 +528,81 @@ async fn qr_script_is_served_same_origin_and_checkout_uses_it() {
         .starts_with("application/javascript"));
     assert!(js.text().await.unwrap().contains("ebpQrSvg"));
 }
+
+#[tokio::test]
+async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
+    let (base, state, store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    // A failed delivery for this store and one for another store.
+    state
+        .db
+        .call({
+            let store_id = store_id.clone();
+            move |conn| {
+                for (id, sid) in [("whd_mine", store_id.as_str()), ("whd_other", "store_other")] {
+                    conn.execute(
+                        "INSERT INTO webhook_deliveries (id, store_id, invoice_id, event, idempotency_key, payload_json, status, attempts, next_attempt_at, last_error, created_at)
+                         VALUES (?1, ?2, 'inv_x', 'invoice.paid', ?1, '{}', 'failed', 6, 0, 'boom', 1)",
+                        rusqlite::params![id, sid],
+                    )?;
+                }
+                Ok(())
+            }
+        })
+        .await
+        .unwrap();
+
+    let list: serde_json::Value = client
+        .get(format!("{base}/api/v1/webhook-deliveries?status=failed"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1, "only this store's rows");
+    assert_eq!(list[0]["id"], "whd_mine");
+
+    let other = client
+        .post(format!("{base}/api/v1/webhook-deliveries/whd_other/resend"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(other.status(), 404, "another store's delivery is invisible");
+
+    let ok = client
+        .post(format!("{base}/api/v1/webhook-deliveries/whd_mine/resend"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+    let pending: serde_json::Value = client
+        .get(format!("{base}/api/v1/webhook-deliveries?status=pending"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pending[0]["attempts"], 0);
+
+    let audit: serde_json::Value = client
+        .get(format!("{base}/api/v1/audit-log"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(audit[0]["action"], "webhook.resend");
+}

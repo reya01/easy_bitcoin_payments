@@ -47,7 +47,17 @@ pub async fn set_webhook(
     let url_for_db = url.clone();
     let secret = state
         .db
-        .call(move |conn| store::set_webhook(conn, &store_id, url_for_db.as_deref(), rotate))
+        .call(move |conn| {
+            let secret = store::set_webhook(conn, &store_id, url_for_db.as_deref(), rotate)?;
+            // Record WHAT changed, never the secret or the full URL query.
+            let detail = match (&url_for_db, &secret) {
+                (None, _) => "webhook disabled".to_string(),
+                (Some(_), Some(_)) => "webhook url set; signing secret issued".to_string(),
+                (Some(_), None) => "webhook url set".to_string(),
+            };
+            crate::audit::record(conn, &store_id, "store.webhook_config", Some(&detail))?;
+            Ok(secret)
+        })
         .await?;
     Ok(Json(serde_json::json!({
         "webhook_url": url,
@@ -65,7 +75,11 @@ pub async fn rotate_key(
     let store_id = auth.store.id.clone();
     let key = state
         .db
-        .call(move |conn| store::rotate_api_key(conn, &store_id))
+        .call(move |conn| {
+            let key = store::rotate_api_key(conn, &store_id)?;
+            crate::audit::record(conn, &store_id, "store.api_keys_rotated", None)?;
+            Ok(key)
+        })
         .await?;
     Ok(Json(serde_json::json!({ "api_key": key })))
 }

@@ -33,6 +33,9 @@ const PRUNE_ABOVE: usize = 10_000;
 pub struct RateLimiter {
     per_minute: u32,
     trust_proxy_headers: bool,
+    /// One shared bucket for every client (a brake that does not depend on
+    /// trusting any client address).
+    global: bool,
     hits: Mutex<HashMap<String, (i64, u32)>>,
 }
 
@@ -41,7 +44,17 @@ impl RateLimiter {
         Self {
             per_minute,
             trust_proxy_headers,
+            global: false,
             hits: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// A limiter with a single shared bucket: `per_minute` requests in total,
+    /// whoever sends them.
+    pub fn new_global(per_minute: u32) -> Self {
+        Self {
+            global: true,
+            ..Self::new(per_minute, false)
         }
     }
 
@@ -54,6 +67,13 @@ impl RateLimiter {
         if hits.len() > PRUNE_ABOVE {
             hits.retain(|_, (start, _)| now - *start < WINDOW_SECS);
         }
+        // Still too many live keys (an attacker rotating fake client
+        // addresses): share one overflow bucket instead of growing the map.
+        let key = if hits.len() > PRUNE_ABOVE && !hits.contains_key(key) {
+            "overflow"
+        } else {
+            key
+        };
         let entry = hits.entry(key.to_string()).or_insert((now, 0));
         if now - entry.0 >= WINDOW_SECS {
             *entry = (now, 0);
@@ -63,16 +83,23 @@ impl RateLimiter {
     }
 
     fn client_key(&self, req: &Request) -> String {
+        if self.global {
+            return "global".to_string();
+        }
         if self.trust_proxy_headers {
-            if let Some(first) = req
+            // The RIGHTMOST entry is the one our own proxy appended (the
+            // address it actually saw). The leftmost is whatever the client
+            // claimed, so trusting it would let an attacker pick a fresh
+            // identity per request and dodge the limit.
+            if let Some(last) = req
                 .headers()
                 .get("x-forwarded-for")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.split(',').next())
+                .and_then(|v| v.rsplit(',').next())
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
             {
-                return first.to_string();
+                return last.to_string();
             }
         }
         req.extensions()
@@ -110,6 +137,41 @@ mod tests {
         assert!(!l.allow("a", 1003), "4th request in the window is refused");
         assert!(l.allow("b", 1003), "other clients are unaffected");
         assert!(l.allow("a", 1060), "a new window starts after 60 s");
+    }
+
+    #[test]
+    fn proxy_mode_keys_on_the_rightmost_forwarded_address() {
+        let l = RateLimiter::new(3, true);
+        let req = axum::http::Request::builder()
+            .header("x-forwarded-for", "6.6.6.6, 203.0.113.9")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(
+            l.client_key(&req),
+            "203.0.113.9",
+            "client-supplied entries are ignored"
+        );
+        let spoofed = axum::http::Request::builder()
+            .header("x-forwarded-for", "1.2.3.4, 203.0.113.9")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(
+            l.client_key(&spoofed),
+            l.client_key(&req),
+            "same real client, same bucket"
+        );
+    }
+
+    #[test]
+    fn global_limiter_is_one_shared_bucket() {
+        let l = RateLimiter::new_global(2);
+        let req = axum::http::Request::builder()
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let k = l.client_key(&req);
+        assert!(l.allow(&k, 1000));
+        assert!(l.allow(&k, 1001));
+        assert!(!l.allow(&k, 1002));
     }
 
     #[test]

@@ -440,6 +440,8 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
             set_runtime_barkd_token(&t);
         }
         if m.restart(true).await.is_err() {
+            // Best effort: never leave a half-opened window behind.
+            let _ = m.restart(false).await;
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(MnemonicResponse::not_exposed(
@@ -454,13 +456,14 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
     let base_url = match barkd_base_url(&state.config) {
         Some(base_url) => base_url,
         None => {
+            close_mnemonic_window(&managed).await;
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(MnemonicResponse::not_exposed(
                     "barkd is not reachable from this server.",
                 )),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -473,17 +476,19 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
         match barkd_get_with_body(&base_url, PATH_WALLET_MNEMONIC, token.as_deref()).await {
             Some(pair) => pair,
             None => {
+                close_mnemonic_window(&managed).await;
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(MnemonicResponse::not_exposed(
                         "barkd did not answer — is the sidecar running?",
                     )),
                 )
-                    .into_response()
+                    .into_response();
             }
         };
 
     if !status.is_success() {
+        close_mnemonic_window(&managed).await;
         return (
             StatusCode::OK,
             Json(MnemonicResponse::not_exposed(&format!(
@@ -497,9 +502,7 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
     }
 
     // Close the window immediately, whatever the parse outcome below.
-    if let Some(m) = &managed {
-        let _ = m.restart(false).await;
-    }
+    close_mnemonic_window(&managed).await;
 
     let parsed: BarkdMnemonic = match serde_json::from_str(&body) {
         Ok(parsed) => parsed,
@@ -523,6 +526,18 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
         axum::http::HeaderValue::from_static("no-store"),
     );
     response
+}
+
+/// Close the one-time recovery-words window (barkd back WITHOUT
+/// `--expose-mnemonic`). Called on EVERY exit after the window was opened,
+/// error paths included, so the words are never left readable over barkd's
+/// API. A no-op when barkd is not managed by EBP.
+async fn close_mnemonic_window(
+    managed: &Option<std::sync::Arc<crate::managed_barkd::ManagedBarkd>>,
+) {
+    if let Some(m) = managed {
+        let _ = m.restart(false).await;
+    }
 }
 
 /// GET a barkd endpoint, returning `(status, body)`. Mirrors the

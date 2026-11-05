@@ -65,7 +65,9 @@ services:
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
       EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}
     ports:
-      - "8080:8080"
+      # Loopback by default: reach it through your HTTPS tunnel/proxy. Set
+      # EBP_BIND_HOST=0.0.0.0 only if something you trust in front handles HTTPS.
+      - "${EBP_BIND_HOST:-127.0.0.1}:8080:8080"
     volumes:
       - ebp-data:/data
     depends_on:

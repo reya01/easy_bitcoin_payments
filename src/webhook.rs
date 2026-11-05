@@ -59,6 +59,59 @@ pub fn verify_signature(
     crate::auth::ct_eq(expected_signature, signature)
 }
 
+/// Addresses a webhook must never be sent to: loopback, private, link-local,
+/// unspecified, carrier-grade NAT, benchmarking/protocol ranges, cloud
+/// metadata, and IPv6 forms that embed an IPv4 address (mapped `::ffff:`,
+/// compatible, NAT64 `64:ff9b::/96`), which are checked as the IPv4 they carry.
+fn ip_is_private(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || o[0] == 0 // 0.0.0.0/8
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT (incl. 100.100.100.200)
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0) // 192.0.0.0/24
+                || (o[0] == 198 && (o[1] & 0xfe) == 18) // 198.18.0.0/15
+                || o[0] >= 224 // multicast and reserved
+        }
+        std::net::IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return ip_is_private(std::net::IpAddr::V4(v4));
+            }
+            let seg = v6.segments();
+            if seg[..6] == [0, 0, 0, 0, 0, 0] && !v6.is_unspecified() && !v6.is_loopback() {
+                // IPv4-compatible ::a.b.c.d
+                let v4 = std::net::Ipv4Addr::new(
+                    (seg[6] >> 8) as u8,
+                    seg[6] as u8,
+                    (seg[7] >> 8) as u8,
+                    seg[7] as u8,
+                );
+                return ip_is_private(std::net::IpAddr::V4(v4));
+            }
+            if seg[0] == 0x64 && seg[1] == 0xff9b && seg[2..6] == [0, 0, 0, 0] {
+                // NAT64 64:ff9b::/96 carries an IPv4 address.
+                let v4 = std::net::Ipv4Addr::new(
+                    (seg[6] >> 8) as u8,
+                    seg[6] as u8,
+                    (seg[7] >> 8) as u8,
+                    seg[7] as u8,
+                );
+                return ip_is_private(std::net::IpAddr::V4(v4));
+            }
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (seg[0] & 0xfe00) == 0xfc00 // unique local fc00::/7
+                || (seg[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+                || (seg[0] & 0xff00) == 0xff00 // multicast
+        }
+    }
+}
+
 /// Validate a merchant-supplied webhook URL (SSRF guard, beta hardening).
 ///
 /// Rejects non-http(s) schemes, embedded credentials, and hosts that are
@@ -80,7 +133,13 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
     if !url.username().is_empty() || url.password().is_some() {
         return Err("URLs with embedded credentials are not allowed".to_string());
     }
-    let host = url.host_str().ok_or("URL has no host")?.to_lowercase();
+    // A trailing dot is the same host ("localhost." == "localhost").
+    let host = url
+        .host_str()
+        .ok_or("URL has no host")?
+        .to_lowercase()
+        .trim_end_matches('.')
+        .to_string();
     if allow_private {
         return Ok(());
     }
@@ -89,23 +148,7 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
     }
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
-        let private = match ip {
-            std::net::IpAddr::V4(v4) => {
-                v4.is_loopback()
-                    || v4.is_private()
-                    || v4.is_link_local()
-                    || v4.is_unspecified()
-                    || v4.is_broadcast()
-            }
-            std::net::IpAddr::V6(v6) => {
-                let seg0 = v6.segments()[0];
-                v6.is_loopback()
-                    || v6.is_unspecified()
-                    || (seg0 & 0xfe00) == 0xfc00 // unique local fc00::/7
-                    || (seg0 & 0xffc0) == 0xfe80 // link-local fe80::/10
-            }
-        };
-        if private {
+        if ip_is_private(ip) {
             return Err("private/loopback/link-local addresses are not allowed".to_string());
         }
     }
@@ -193,6 +236,47 @@ mod tests {
     use super::*;
 
     const SECRET: &str = "whsec_test_secret";
+
+    #[test]
+    fn ssrf_guard_blocks_embedded_and_unusual_private_addresses() {
+        for bad in [
+            "http://127.0.0.1/",
+            "http://localhost./",
+            "http://LOCALHOST/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://[::ffff:169.254.169.254]/",
+            "http://[::127.0.0.1]/",
+            "http://[64:ff9b::7f00:1]/",
+            "http://0.0.0.0/",
+            "http://0.1.2.3/",
+            "http://100.100.100.200/",
+            "http://100.64.0.1/",
+            "http://192.0.0.1/",
+            "http://198.18.0.1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.5/",
+            "http://[fd00::1]/",
+            "http://[ff02::1]/",
+            "http://224.0.0.1/",
+        ] {
+            assert!(
+                validate_webhook_url(bad, false).is_err(),
+                "should block {bad}"
+            );
+        }
+        for good in [
+            "https://shop.example.com/hook",
+            "https://203.0.113.9/hook",
+            "https://[2001:db8::1]/hook",
+            "http://100.63.0.1/",
+            "http://198.20.0.1/",
+        ] {
+            assert!(
+                validate_webhook_url(good, false).is_ok(),
+                "should allow {good}"
+            );
+        }
+    }
 
     #[test]
     fn signature_has_expected_shape() {

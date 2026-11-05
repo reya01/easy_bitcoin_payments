@@ -99,6 +99,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(dashboard::root))
         .route("/dashboard", get(dashboard::dashboard))
+        .route("/assets/qr.js", get(checkout::qr_js))
         .route("/api/v1/health", get(health::health))
         .merge(setup)
         .merge(gated)

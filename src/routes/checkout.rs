@@ -11,6 +11,21 @@ use rusqlite::OptionalExtension;
 
 use crate::{error::AppError, invoice, routes::AppState, uri};
 
+/// The vendored QR generator (`assets/qr.js`), served same-origin so the
+/// page CSP (`script-src 'self'`) holds without a CDN. Public, cacheable.
+pub async fn qr_js() -> impl axum::response::IntoResponse {
+    (
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (axum::http::header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../../assets/qr.js"),
+    )
+}
+
 pub async fn page() -> Html<&'static str> {
     Html(include_str!("../../assets/checkout.html"))
 }

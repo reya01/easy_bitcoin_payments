@@ -510,3 +510,21 @@ async fn invoice_inputs_are_bounded_and_unmatched_list_paginates() {
         .unwrap();
     assert_eq!(page.status(), 200);
 }
+
+#[tokio::test]
+async fn qr_script_is_served_same_origin_and_checkout_uses_it() {
+    let (base, _state, _store_id, _key) = serve().await;
+    let client = reqwest::Client::new();
+    let js = client
+        .get(format!("{base}/assets/qr.js"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(js.status(), 200);
+    assert!(js.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("application/javascript"));
+    assert!(js.text().await.unwrap().contains("ebpQrSvg"));
+}

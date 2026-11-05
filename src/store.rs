@@ -30,6 +30,12 @@ pub fn create(
 
     let webhook_secret = webhook_url.map(|_| generate_webhook_secret());
     let webhook_secret_hash = webhook_secret.as_deref().map(hash_secret);
+    // R10: the signing secret is stored encrypted (secrets.rs); the plaintext
+    // goes back to the caller once and is never persisted.
+    let webhook_secret_enc = webhook_secret
+        .as_deref()
+        .map(|s| crate::secrets::get().encrypt(s, &store_id))
+        .transpose()?;
 
     let tx = conn.unchecked_transaction()?;
 
@@ -41,7 +47,7 @@ pub fn create(
             name,
             webhook_url,
             webhook_secret_hash,
-            webhook_secret,
+            webhook_secret_enc,
             created_at
         ],
     )?;
@@ -102,9 +108,10 @@ pub fn set_webhook(
     let new_secret = needs_secret.then(generate_webhook_secret);
     match &new_secret {
         Some(secret) => {
+            let enc = crate::secrets::get().encrypt(secret, store_id)?;
             conn.execute(
                 "UPDATE stores SET webhook_url = ?1, webhook_secret = ?2, webhook_secret_hash = ?3 WHERE id = ?4",
-                params![url, secret, hash_secret(secret), store_id],
+                params![url, enc, hash_secret(secret), store_id],
             )?;
         }
         None => {
@@ -137,6 +144,37 @@ pub fn rotate_api_key(conn: &Connection, store_id: &str) -> Result<String, AppEr
     )?;
     tx.commit()?;
     Ok(key)
+}
+
+/// The store's webhook signing secret in plaintext (decrypted on demand;
+/// the column and `Store.webhook_secret` hold ciphertext). Never log it.
+pub fn webhook_secret_plain(store: &Store) -> Result<Option<String>, AppError> {
+    store
+        .webhook_secret
+        .as_deref()
+        .map(|enc| crate::secrets::get().decrypt(enc, &store.id))
+        .transpose()
+}
+
+/// Startup migration (R10): encrypt any webhook secret still stored as
+/// plaintext by an earlier version. Idempotent; returns how many rows changed.
+pub fn encrypt_legacy_webhook_secrets(conn: &Connection) -> Result<usize, AppError> {
+    let legacy: Vec<(String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, webhook_secret FROM stores
+             WHERE webhook_secret IS NOT NULL AND webhook_secret NOT LIKE 'enc:v1:%'",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    for (id, plain) in &legacy {
+        let enc = crate::secrets::get().encrypt(plain, id)?;
+        conn.execute(
+            "UPDATE stores SET webhook_secret = ?1 WHERE id = ?2",
+            params![enc, id],
+        )?;
+    }
+    Ok(legacy.len())
 }
 
 fn row_to_store(row: &rusqlite::Row<'_>) -> rusqlite::Result<Store> {
@@ -222,5 +260,72 @@ mod tests {
         let db = db().await;
         let err = db.call(|conn| create(conn, "   ", None)).await.unwrap_err();
         assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn webhook_secret_is_encrypted_at_rest_and_decrypts_on_demand() {
+        let db = db().await;
+        let (store, _key, secret) = db
+            .call(|conn| create(conn, "Enc Shop", Some("https://shop.example.com/h")))
+            .await
+            .unwrap();
+        let plain = secret.unwrap();
+        // What is in the column is ciphertext, never the secret.
+        let stored: String = db
+            .call({
+                let id = store.id.clone();
+                move |conn| {
+                    Ok(conn.query_row(
+                        "SELECT webhook_secret FROM stores WHERE id = ?1",
+                        params![id],
+                        |r| r.get(0),
+                    )?)
+                }
+            })
+            .await
+            .unwrap();
+        assert!(stored.starts_with("enc:v1:"));
+        assert!(!stored.contains(&plain));
+        assert_eq!(webhook_secret_plain(&store).unwrap().unwrap(), plain);
+    }
+
+    #[tokio::test]
+    async fn legacy_plaintext_secrets_are_encrypted_once_at_startup() {
+        let db = db().await;
+        let (store, _key, _) = db
+            .call(|conn| create(conn, "Legacy", Some("https://shop.example.com/h")))
+            .await
+            .unwrap();
+        let id = store.id.clone();
+        // Simulate a pre-encryption row.
+        db.call({
+            let id = id.clone();
+            move |conn| {
+                conn.execute(
+                    "UPDATE stores SET webhook_secret = 'whsec_legacy' WHERE id = ?1",
+                    params![id],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            db.call(|c| encrypt_legacy_webhook_secrets(c))
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.call(|c| encrypt_legacy_webhook_secrets(c))
+                .await
+                .unwrap(),
+            0
+        );
+        let reread = db.call(move |c| get(c, &id)).await.unwrap().unwrap();
+        assert_eq!(
+            webhook_secret_plain(&reread).unwrap().unwrap(),
+            "whsec_legacy"
+        );
     }
 }

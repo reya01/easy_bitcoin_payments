@@ -26,11 +26,10 @@ pub struct Config {
     pub watcher_interval_secs: u64,
     pub webhook_timeout_secs: u64,
     pub log_level: String,
-    /// Master key for encrypting wallet material and webhook secrets at rest.
-    ///
-    /// TODO(Phase 1): at-rest encryption is not implemented yet. The field and
-    /// the schema columns exist so the migration is additive. Until then the
-    /// value is accepted and has NO effect (no validation is wired).
+    /// 64-hex-char (32-byte) key for encrypting webhook secrets at rest
+    /// (secrets.rs). Optional: without it a 0600 key file `ebp.key` is
+    /// created next to the database. Prefer setting it from outside the data
+    /// volume (env `EBP_KEY_ENCRYPTION_KEY`).
     pub key_encryption_key: Option<String>,
     pub admin_token: Option<String>,
     /// Base URL of the barkd sidecar REST API (loopback / internal only).

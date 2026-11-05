@@ -53,16 +53,23 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    if config.key_encryption_key.is_some() {
-        // The key is accepted but unused until Phase 1. Say so loudly rather
-        // than let an operator believe secrets are encrypted at rest.
-        tracing::warn!(
-            "EBP_KEY_ENCRYPTION_KEY is set but at-rest encryption is not implemented yet \
-             (Phase 1); webhook secrets are still stored as documented in the README"
-        );
-    }
+    // R10: webhook secrets are encrypted at rest. A malformed configured key
+    // aborts startup rather than silently falling back to another key.
+    easy_bitcoin_payments::secrets::init(
+        config.key_encryption_key.as_deref(),
+        &config.database_path,
+    )?;
 
     let db = Db::open(&config.database_path)?;
+    let migrated = db
+        .call(|conn| easy_bitcoin_payments::store::encrypt_legacy_webhook_secrets(conn))
+        .await?;
+    if migrated > 0 {
+        tracing::info!(
+            count = migrated,
+            "encrypted legacy plaintext webhook secrets"
+        );
+    }
 
     // BARK INTEGRATION (Phase 1): the wallet layer is a client of the barkd
     // sidecar's REST API (bearer token from `barkd secret show`, passed via
@@ -232,6 +239,12 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
             .map_err(|e| format!("--webhook-url rejected: {e}"))?;
     }
     let config = Config::load()?;
+    // R10: the secret created below is stored encrypted, so this command must
+    // use the SAME key as the server (never the ephemeral test key).
+    easy_bitcoin_payments::secrets::init(
+        config.key_encryption_key.as_deref(),
+        &config.database_path,
+    )?;
     let db = Db::open(&config.database_path)?;
 
     let (store, api_key, webhook_secret) = db

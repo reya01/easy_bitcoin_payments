@@ -82,6 +82,15 @@ renewal_lead_time_secs = 604800
 # Create a Lightning invoice (ASP gateway) for each checkout invoice.
 lightning_receive_enabled = true
 
+# Max requests per client per minute on the public /i/* checkout routes
+# (beta hardening; 0 disables). In-memory, resets on restart.
+public_rate_limit_per_min = 120
+
+# Trust X-Forwarded-For when identifying clients for the limiter. Enable ONLY
+# behind a reverse proxy you control that overwrites the header; otherwise
+# every client behind the proxy shares one address (and one limit).
+trust_proxy_headers = false
+
 # BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).
 [static_rates]
 EUR = 95000.0

@@ -158,9 +158,13 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         "Easy Bitcoin Payments listening"
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // `with_connect_info` exposes the peer address to the rate limiter.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     watcher_handle.abort();
     Ok(())

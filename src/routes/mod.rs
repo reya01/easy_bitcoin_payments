@@ -43,8 +43,14 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/store", post(setup::create_store))
         .with_state(state.clone());
 
-    // Invoice + checkout routes sit behind the setup gate.
-    let gated = Router::new()
+    // Public checkout routes (unauthenticated) get a per-client rate limit
+    // (beta hardening; see ratelimit.rs). Merged into `gated` below so they
+    // still sit behind the setup gate.
+    let limiter = Arc::new(crate::ratelimit::RateLimiter::new(
+        state.config.public_rate_limit_per_min,
+        state.config.trust_proxy_headers,
+    ));
+    let public_checkout = Router::new()
         .route("/i/{id}", get(checkout::page))
         // The checkout page's own first data fetch (assets/checkout.html
         // calls /i/{id}/json before polling /status) — this route existed
@@ -53,6 +59,14 @@ pub fn router(state: AppState) -> Router {
         .route("/i/{id}/json", get(checkout::invoice_json))
         .route("/i/{id}/status", get(checkout::status))
         .route("/i/{id}/rails", get(checkout_rails::rails))
+        .layer(middleware::from_fn_with_state(
+            limiter,
+            crate::ratelimit::limit,
+        ));
+
+    // Invoice API + the rate-limited checkout routes sit behind the setup gate.
+    let gated = Router::new()
+        .merge(public_checkout)
         .route(
             "/api/v1/invoices",
             post(invoices::create).get(invoices::list),

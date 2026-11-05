@@ -60,6 +60,12 @@ pub struct Config {
     /// export) or `"live"` (mainnet). Set via `mode` in the config file or
     /// the `EBP_MODE` environment variable.
     pub mode: String,
+    /// Max requests per client per minute on the public `/i/*` checkout
+    /// routes (beta hardening). 0 disables the limiter. See ratelimit.rs.
+    pub public_rate_limit_per_min: u32,
+    /// Trust `X-Forwarded-For` for the rate-limit client key. Enable ONLY
+    /// behind a reverse proxy that overwrites the header.
+    pub trust_proxy_headers: bool,
 }
 
 impl Default for Config {
@@ -95,6 +101,8 @@ impl Default for Config {
             rates_provider: "static".to_string(),
             rates_timeout_secs: 5,
             mode: "test".to_string(),
+            public_rate_limit_per_min: 120,
+            trust_proxy_headers: false,
         }
     }
 }
@@ -178,6 +186,8 @@ struct FileConfig {
     rates_provider: Option<String>,
     rates_timeout_secs: Option<u64>,
     mode: Option<String>,
+    public_rate_limit_per_min: Option<u32>,
+    trust_proxy_headers: Option<bool>,
 }
 
 impl Config {
@@ -285,6 +295,12 @@ impl Config {
         if let Some(v) = file.mode {
             self.mode = Config::parse_mode(&v)?;
         }
+        if let Some(v) = file.public_rate_limit_per_min {
+            self.public_rate_limit_per_min = v;
+        }
+        if let Some(v) = file.trust_proxy_headers {
+            self.trust_proxy_headers = v;
+        }
         Ok(())
     }
 
@@ -377,6 +393,17 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_LIGHTNING_RECEIVE_ENABLED") {
             self.lightning_receive_enabled = parse_bool("EBP_LIGHTNING_RECEIVE_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_PUBLIC_RATE_LIMIT_PER_MIN") {
+            let parsed = parse_int("EBP_PUBLIC_RATE_LIMIT_PER_MIN", &v)?;
+            self.public_rate_limit_per_min =
+                u32::try_from(parsed).map_err(|_| ConfigError::Invalid {
+                    key: "EBP_PUBLIC_RATE_LIMIT_PER_MIN".to_string(),
+                    value: v.clone(),
+                })?;
+        }
+        if let Some(v) = lookup("EBP_TRUST_PROXY_HEADERS") {
+            self.trust_proxy_headers = parse_bool("EBP_TRUST_PROXY_HEADERS", &v)?;
         }
         Ok(())
     }

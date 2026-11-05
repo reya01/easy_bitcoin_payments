@@ -12,6 +12,7 @@ pub mod db;
 pub mod error;
 pub mod invoice;
 pub mod models;
+pub mod ratelimit;
 pub mod rates;
 pub mod routes;
 pub mod settings;

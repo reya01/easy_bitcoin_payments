@@ -145,6 +145,7 @@ POST   /api/v1/unmatched-payments/{id}/resolve   # mark handled (refund / manual
 GET    /api/v1/rates?currency=EUR
 GET    /api/v1/settlements              # expiry queue + history
 POST   /api/v1/settlements/sweep-now
+GET    /api/v1/admin/status             # operator view; EBP_ADMIN_TOKEN bearer, 404 if unset
 GET    /api/v1/health                   # server, wallet, ASP reachability, watcher_last_tick_age_secs
 GET    /api/v1/exports/accounting.csv?from=&to=
 POST   /api/v1/stores/rotate-key

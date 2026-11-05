@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
@@ -77,6 +78,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/invoices/{id}", get(invoices::get_one))
         .route("/api/v1/invoices/{id}/cancel", post(invoices::cancel))
+        .route("/api/v1/admin/status", get(admin::status))
         .route("/api/v1/unmatched-payments", get(unmatched::list))
         .route(
             "/api/v1/unmatched-payments/{id}/resolve",

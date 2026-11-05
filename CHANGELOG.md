@@ -8,6 +8,7 @@
 - Payments arriving after an invoice expired/closed were silently dropped; they are now recorded in `unmatched_payments` (migration 0005).
 
 ### Added
+- `GET /api/v1/admin/status` operator endpoint (bearer `EBP_ADMIN_TOKEN`).
 - Optional `EBP_SETUP_TOKEN` guarding first-run wizard actions.
 - Durable webhook outbox: events are queued in `webhook_deliveries` (migration 0006) and delivered with exponential backoff, surviving restarts.
 - Rate limiting for public checkout routes (`public_rate_limit_per_min`, `trust_proxy_headers`).

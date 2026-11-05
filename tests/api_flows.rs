@@ -262,3 +262,58 @@ async fn setup_token_guards_wizard_writes_but_not_reads() {
         .unwrap();
     assert_ne!(ok.status(), 401);
 }
+
+#[tokio::test]
+async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
+    let client = reqwest::Client::new();
+
+    // No admin token configured: the endpoint does not exist.
+    let (base, _s, _store, _key) = serve().await;
+    let hidden = client
+        .get(format!("{base}/api/v1/admin/status"))
+        .header("host", "localhost")
+        .bearer_auth("anything")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(hidden.status(), 404);
+
+    // Configured: wrong token 401, right token 200 with counters even though
+    // barkd is not configured (wallet section just reports an error).
+    let (base, _s, _store, store_key) = serve_with(Config {
+        admin_token: Some("adm1n".to_string()),
+        ..Config::default()
+    })
+    .await;
+    let wrong = client
+        .get(format!("{base}/api/v1/admin/status"))
+        .header("host", "localhost")
+        .bearer_auth("nope")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), 401);
+    // A store API key is not an admin credential.
+    let as_store = client
+        .get(format!("{base}/api/v1/admin/status"))
+        .header("host", "localhost")
+        .bearer_auth(&store_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(as_store.status(), 401);
+
+    let ok: serde_json::Value = client
+        .get(format!("{base}/api/v1/admin/status"))
+        .header("host", "localhost")
+        .bearer_auth("adm1n")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ok["counters"]["unmatched_payments_open"], 0);
+    assert_eq!(ok["counters"]["webhooks_failed"], 0);
+    assert!(ok["wallet"]["error"].is_string());
+}

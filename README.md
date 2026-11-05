@@ -172,6 +172,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
 | `GET` | `/api/v1/unmatched-payments` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled |
+| `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |
 | `GET` | `/i/{id}/json` | Full invoice JSON (fetched once by the checkout page) |

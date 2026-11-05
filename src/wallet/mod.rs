@@ -31,6 +31,17 @@ pub struct WalletPayment {
     pub confirmed_at: Option<i64>,
 }
 
+/// An output paying one of the watched on-chain addresses, with its depth.
+/// `confirmations` is 0 while the transaction is only in the mempool.
+#[derive(Debug, Clone)]
+pub struct OnchainObservation {
+    pub address: String,
+    pub txid: String,
+    pub vout: u32,
+    pub amount_sats: i64,
+    pub confirmations: i64,
+}
+
 /// A VTXO currently held by the wallet, with its own expiry — the source of
 /// the dashboard's expiry queue. Per-VTXO expiries are real, not estimated:
 /// board/refresh VTXOs live ~28 days, Lightning-received VTXOs 1-3 days, and
@@ -107,6 +118,15 @@ pub trait WalletAdapter: Send + Sync {
 
     /// Payments observed at or after `since` (UNIX seconds).
     fn poll_payments(&self, since: i64) -> Result<Vec<WalletPayment>, WalletError>;
+
+    /// Outputs paying any of the `watch` on-chain addresses, mempool and
+    /// mined, with their confirmation depth. Wallets without an on-chain
+    /// view return nothing, which means on-chain payments are never
+    /// credited (fail closed).
+    fn poll_onchain(&self, watch: &[String]) -> Result<Vec<OnchainObservation>, WalletError> {
+        let _ = watch;
+        Ok(Vec::new())
+    }
 
     /// Wallet and ASP reachability for `GET /api/v1/health`.
     fn health(&self) -> WalletHealth;

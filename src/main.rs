@@ -153,7 +153,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         std::time::Duration::from_secs(config.watcher_interval_secs),
         config.renewal_lead_time_secs as i64,
     )
-    .with_onchain_rail(config.onchain_rail_enabled);
+    .with_onchain_rail(config.onchain_rail_enabled)
+    .with_onchain_min_confirmations(config.onchain_min_confirmations as i64);
     let watcher_handle = tokio::spawn(watcher.run());
 
     // Settlement engine (Phase 1): refreshes VTXOs ahead of their per-VTXO

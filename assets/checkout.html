@@ -126,6 +126,10 @@ function poll() {
     .then(function (b) {
       if (!b) throw 0;
       if (b.status === "paid" || b.status === "overpaid") { setStatus("Paid — thank you! Bitcoin payments are final; refunds follow this store's policy.", "ok"); return stop(); }
+      if (b.status === "pending" && b.onchain_confirmations !== null && b.onchain_confirmations !== undefined) {
+        setStatus("Bitcoin payment detected — waiting for " + b.onchain_confirmations_required + " block confirmation" + (b.onchain_confirmations_required > 1 ? "s" : "") + " (" + b.onchain_confirmations + " so far). This can take about 10–60 minutes. You can keep this page open.", "");
+        return again();
+      }
       if (b.status === "expired") { setStatus("Expired — start a new invoice at the current rate.", "err"); return stop(); }
       again();
     })

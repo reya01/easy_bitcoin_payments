@@ -62,8 +62,8 @@ use crate::error::AppError;
 use crate::models::Rail;
 
 use super::{
-    AspStatus, LightningInvoice, ReceiveAddresses, WalletAdapter, WalletError, WalletHealth,
-    WalletPayment, WalletVtxo,
+    AspStatus, LightningInvoice, OnchainObservation, ReceiveAddresses, WalletAdapter, WalletError,
+    WalletHealth, WalletPayment, WalletVtxo,
 };
 
 // ---------------------------------------------------------------------------
@@ -96,6 +96,7 @@ const PATH_VTXOS: &str = "/wallet/vtxos";
 /// Cursored wallet history (the watcher's payment source). GET.
 const PATH_HISTORY: &str = "/history";
 /// Chain tip (height + timestamp) for expiry-height conversion. GET.
+const PATH_ONCHAIN_TRANSACTIONS: &str = "/onchain/transactions";
 const PATH_BITCOIN_TIP: &str = "/bitcoin/tip";
 /// Ark send (settlement sweep to a same-ASP destination). POST.
 const PATH_ARK_SEND: &str = "/wallet/send";
@@ -685,6 +686,57 @@ impl BarkdClient {
             timestamp: flex::i64_field(&v, &["timestamp", "time"])
                 .unwrap_or_else(crate::util::now_unix),
         })
+    }
+
+    /// Outputs paying any of `watch` (on-chain addresses), from
+    /// `GET /onchain/transactions` (WalletTxInfo: `txid`, raw `tx` hex,
+    /// `confirmation` = `{height, hash}` or null while in the mempool).
+    /// Confirmations = tip - height + 1. Fail closed: if the tip cannot be
+    /// read, nothing is reported rather than guessing a depth.
+    // VERIFY: live shape against signet (the pinned OpenAPI documents it).
+    pub async fn onchain_observations(
+        &self,
+        watch: &[String],
+    ) -> Result<Vec<super::OnchainObservation>, WalletError> {
+        let scripts: Vec<(&String, Vec<u8>)> = watch
+            .iter()
+            .filter_map(|a| crate::onchain::script_pubkey(a).map(|s| (a, s)))
+            .collect();
+        if scripts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let txs: Json = self.get(PATH_ONCHAIN_TRANSACTIONS).await?;
+        let tip = self.bitcoin_tip().await?.height;
+        let mut out = Vec::new();
+        for t in txs.as_array().map(Vec::as_slice).unwrap_or_default() {
+            let (Some(txid), Some(raw)) = (
+                t.get("txid").and_then(Json::as_str),
+                t.get("tx").and_then(Json::as_str),
+            ) else {
+                continue;
+            };
+            let Some(outputs) = crate::onchain::tx_outputs(raw) else {
+                continue;
+            };
+            let confirmations = t
+                .get("confirmation")
+                .and_then(|c| c.get("height"))
+                .and_then(Json::as_i64)
+                .map(|h| (tip - h + 1).max(0))
+                .unwrap_or(0);
+            for (vout, (amount, script)) in outputs.iter().enumerate() {
+                if let Some((addr, _)) = scripts.iter().find(|(_, s)| s == script) {
+                    out.push(super::OnchainObservation {
+                        address: (*addr).clone(),
+                        txid: txid.to_string(),
+                        vout: vout as u32,
+                        amount_sats: *amount as i64,
+                        confirmations,
+                    });
+                }
+            }
+        }
+        Ok(out)
     }
 
     // -- Payment history ----------------------------------------------------
@@ -1495,6 +1547,12 @@ impl WalletAdapter for BarkdWallet {
             .collect())
     }
 
+    fn poll_onchain(&self, watch: &[String]) -> Result<Vec<OnchainObservation>, WalletError> {
+        let client = self.client.clone();
+        let watch = watch.to_vec();
+        self.block_on(async move { client.onchain_observations(&watch).await })
+    }
+
     fn health(&self) -> WalletHealth {
         let client = self.client.clone();
         match self.block_on(async move { client.connected().await }) {
@@ -1794,6 +1852,31 @@ mod tests {
         let b = client(&base).onchain_balance().await.unwrap();
         assert_eq!(b.confirmed_sats, 30_000);
         assert_eq!(b.unconfirmed_sats, 500);
+    }
+
+    #[tokio::test]
+    async fn onchain_observations_match_outputs_and_count_confirmations() {
+        const TX: &str = "010000000107070707070707070707070707070707070707070707070707070707070707070000000000ffffffff02c409000000000000160014751e76e8199196d454941c45d1b3a323f1433bd66300000000000000016a00000000";
+        let addr = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+        let body = format!(
+            r#"[{{"txid": "aa", "tx": "{TX}", "balance_change_sat": 2500, "is_cpfp": false, "confirmation": {{"height": 798, "hash": "h"}}}},
+               {{"txid": "bb", "tx": "{TX}", "balance_change_sat": 2500, "is_cpfp": false, "confirmation": null}}]"#
+        );
+        let (base, _) = mock::spawn(move |req| match req.route() {
+            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
+            _ => (200, body.clone()),
+        });
+        let obs = client(&base)
+            .onchain_observations(&[addr.to_string(), "not-an-address".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(obs.len(), 2);
+        assert_eq!(
+            (obs[0].txid.as_str(), obs[0].vout, obs[0].amount_sats),
+            ("aa", 0, 2500)
+        );
+        assert_eq!(obs[0].confirmations, 3, "tip 800, mined at 798");
+        assert_eq!(obs[1].confirmations, 0, "mempool = zero confirmations");
     }
 
     #[tokio::test]

@@ -207,6 +207,7 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
         invoice.status,
         InvoiceStatus::Pending | InvoiceStatus::Underpaid
     ) && now_unix() >= invoice.expires_at
+        && !on_chain_hold(conn, &invoice.id)?
     {
         conn.execute(
             "UPDATE invoices SET status = ?1 WHERE id = ?2 AND status IN ('pending', 'underpaid')",
@@ -225,19 +226,31 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
     Ok(Some(invoice))
 }
 
+/// SQL fragment: this invoice has an on-chain payment first seen by the
+/// deadline (plus skew grace) and is still inside the 24h hold window past
+/// `expires_at` (a replaced/never-confirming payment cannot hold it forever).
+const ONCHAIN_HOLD_SQL: &str = "EXISTS (SELECT 1 FROM onchain_seen s
+        WHERE s.invoice_id = invoices.id
+          AND s.first_seen_at <= invoices.expires_at + 120
+          AND ?1 < invoices.expires_at + 86400)";
+
 /// Expire every pending or underpaid invoice whose rate lock has lapsed.
 ///
 /// Returns the invoices flipped to `expired` by this call with their `status`
 /// field already updated, so the watcher can emit `invoice.expired` webhooks
 /// from them. Without this sweep, an invoice whose checkout page is never
 /// opened would stay `pending` in the database forever.
+///
+/// An invoice with an on-chain payment seen before the deadline is held open
+/// (up to 24h) while that payment waits for its confirmation.
 pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
     let now = now_unix();
     let due: Vec<Invoice> = {
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare(&format!(
             "SELECT * FROM invoices
-             WHERE status IN ('pending', 'underpaid') AND expires_at <= ?1",
-        )?;
+                 WHERE status IN ('pending', 'underpaid') AND expires_at <= ?1
+                   AND NOT {ONCHAIN_HOLD_SQL}"
+        ))?;
         let rows = stmt.query_map(params![now], row_to_invoice)?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
@@ -255,6 +268,80 @@ pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
         }
     }
     Ok(expired)
+}
+
+/// Is this invoice being held open for a seen-but-unconfirmed on-chain payment?
+pub fn on_chain_hold(conn: &Connection, invoice_id: &str) -> Result<bool, AppError> {
+    let held: bool = conn.query_row(
+        &format!("SELECT {ONCHAIN_HOLD_SQL} FROM invoices WHERE id = ?2"),
+        params![now_unix(), invoice_id],
+        |r| r.get(0),
+    )?;
+    Ok(held)
+}
+
+/// Confirmation depth of the best-confirmed on-chain payment seen for an
+/// invoice, or `None` if none was seen. Drives the checkout's "waiting for
+/// confirmation" message.
+pub fn onchain_seen_depth(conn: &Connection, invoice_id: &str) -> Result<Option<i64>, AppError> {
+    conn.query_row(
+        "SELECT MAX(confirmations) FROM onchain_seen WHERE invoice_id = ?1",
+        params![invoice_id],
+        |r| r.get(0),
+    )
+    .map_err(Into::into)
+}
+
+/// On-chain addresses worth watching: open invoices, plus recently expired
+/// ones so a late confirmation is parked for the merchant instead of lost.
+pub fn onchain_watch_addresses(conn: &Connection) -> Result<Vec<String>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT onchain_address FROM invoices
+         WHERE onchain_address != ''
+           AND (status IN ('pending', 'underpaid')
+                OR (status = 'expired' AND expires_at > ?1))",
+    )?;
+    let rows = stmt.query_map(params![now_unix() - 30 * 86_400], |r| r.get(0))?;
+    Ok(rows.collect::<Result<Vec<String>, _>>()?)
+}
+
+/// Record an observed on-chain output for the invoice owning `address`.
+/// Returns the time it was FIRST seen, or `None` if no invoice owns it.
+pub fn note_onchain_seen(
+    conn: &Connection,
+    o: &crate::wallet::OnchainObservation,
+) -> Result<Option<i64>, AppError> {
+    let Some(invoice_id) = conn
+        .query_row(
+            "SELECT id FROM invoices WHERE onchain_address = ?1
+             ORDER BY created_at DESC LIMIT 1",
+            params![o.address],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    conn.execute(
+        "INSERT INTO onchain_seen
+           (invoice_id, txid, vout, amount_sats, first_seen_at, confirmations)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(txid, vout) DO UPDATE SET confirmations = excluded.confirmations",
+        params![
+            invoice_id,
+            o.txid,
+            o.vout,
+            o.amount_sats,
+            now_unix(),
+            o.confirmations
+        ],
+    )?;
+    let first: i64 = conn.query_row(
+        "SELECT first_seen_at FROM onchain_seen WHERE txid = ?1 AND vout = ?2",
+        params![o.txid, o.vout],
+        |r| r.get(0),
+    )?;
+    Ok(Some(first))
 }
 
 /// Find the pending invoice that a received payment belongs to, by address.

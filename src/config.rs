@@ -86,6 +86,10 @@ pub struct Config {
     /// Enable with `EBP_ONCHAIN_RAIL_ENABLED=true` once the signet drill in
     /// docs/BETA_PLAN.md has passed.
     pub onchain_rail_enabled: bool,
+    /// Block confirmations required before an on-chain payment counts as
+    /// paid (minimum 1: zero-confirmation payments can be replaced by the
+    /// sender via RBF, so they are never credited).
+    pub onchain_min_confirmations: u64,
 }
 
 impl Default for Config {
@@ -126,6 +130,7 @@ impl Default for Config {
             setup_token: None,
             setup_token_generated: false,
             onchain_rail_enabled: false,
+            onchain_min_confirmations: 1,
         }
     }
 }
@@ -213,6 +218,7 @@ struct FileConfig {
     trust_proxy_headers: Option<bool>,
     setup_token: Option<String>,
     onchain_rail_enabled: Option<bool>,
+    onchain_min_confirmations: Option<u64>,
 }
 
 impl Config {
@@ -329,6 +335,9 @@ impl Config {
         if let Some(v) = file.onchain_rail_enabled {
             self.onchain_rail_enabled = v;
         }
+        if let Some(v) = file.onchain_min_confirmations {
+            self.onchain_min_confirmations = v.max(1);
+        }
         if let Some(v) = file.setup_token {
             self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
         }
@@ -435,6 +444,9 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_ONCHAIN_MIN_CONFIRMATIONS") {
+            self.onchain_min_confirmations = positive_u64("EBP_ONCHAIN_MIN_CONFIRMATIONS", &v)?;
         }
         if let Some(v) = lookup("EBP_SETUP_TOKEN") {
             // Compose passes an empty string when unset: treat as absent.

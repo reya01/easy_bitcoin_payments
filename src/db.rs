@@ -32,7 +32,7 @@ pub struct Db {
 /// Create a directory (and parents) readable only by the server's user when
 /// it does not exist yet. An existing directory is left as the operator set
 /// it up.
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     if dir.exists() {
         return Ok(());
     }

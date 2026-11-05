@@ -122,6 +122,13 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="pw-save" type="button">Change password</button></div>
     <p class="msg hidden" id="pw-msg"></p>
   </div>
+  <h2>Download a backup</h2>
+  <div class="card">
+    <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
+    <label for="bk-admin">Admin password</label><input type="password" id="bk-admin" autocomplete="current-password">
+    <div class="btns"><button id="bk-go" type="button">Download encrypted backup</button></div>
+    <p class="msg hidden" id="bk-msg"></p>
+  </div>
   <h2>Security activity</h2>
   <div class="card" id="audit"></div>
 </section>
@@ -157,7 +164,7 @@ function api(method, path, body) {
       return r.text().then(function (t) {
         var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
         if (r.status === 401 && path !== "/admin/login") { signedOut(); throw new Error("Please sign in again."); }
-        if (!r.ok) throw new Error((j && (j.message || j.error)) || ("Request failed (" + r.status + ")"));
+        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || ("Request failed (" + r.status + ")"));
         return j;
       });
     });
@@ -337,6 +344,35 @@ $("pw-save").addEventListener("click", function () {
   api("POST", "/admin/password", { current: $("pw-cur").value, "new": $("pw-new").value }).then(function () {
     $("pw-cur").value = ""; $("pw-new").value = ""; signedOut();
   }).catch(function (e) { say("pw-msg", e.message, true); });
+});
+
+$("bk-go").addEventListener("click", function () {
+  var btn = $("bk-go"); btn.disabled = true; say("bk-msg", "Preparing your backup… this can take a few seconds.");
+  var included = false;
+  fetch("/admin/backup", { method: "POST", credentials: "same-origin",
+    headers: { "content-type": "application/json", "x-ebp-csrf": csrf },
+    body: JSON.stringify({ admin_password: $("bk-admin").value }) })
+    .then(function (r) {
+      if (!r.ok) return r.text().then(function (t) {
+        var j = null; try { j = JSON.parse(t); } catch (e) {}
+        if (r.status === 401) { signedOut(); throw new Error("Please sign in again."); }
+        throw new Error((j && j.error && j.error.message) || (j && j.message) || ("Backup failed (" + r.status + ")"));
+      });
+      included = r.headers.get("x-ebp-wallet-included") === "true";
+      var cd = r.headers.get("content-disposition") || "";
+      var m = /filename="([^"]+)"/.exec(cd);
+      return r.blob().then(function (b) { return { blob: b, name: m ? m[1] : "ebp-backup.ebpbackup" }; });
+    })
+    .then(function (f) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(f.blob); a.download = f.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+      $("bk-admin").value = "";
+      say("bk-msg", "Saved as " + f.name + ". " + (included ? "It includes your wallet files." : "Your wallet runs outside this app, so its files are NOT inside; your recovery words are its backup.") + " Keep it somewhere safe, away from this server.");
+    })
+    .catch(function (e) { say("bk-msg", e.message, true); })
+    .then(function () { btn.disabled = false; });
 });
 
 function loadAudit() {

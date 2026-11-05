@@ -41,6 +41,37 @@ The recovery words outrank everything: datadir backups can be lost or
 corrupt, the database can be rebuilt from the store's own records — the
 words are the only thing that turns a dead server back into your money.
 
+## The one-click encrypted backup (Settings tab)
+
+In the admin page, Settings → **Download a backup**. You type your admin
+password and your browser saves one file ending in `.ebpbackup`, locked with
+that same password — nothing new to remember or store. EBP never stores it.
+
+- It holds your order history and settings. When this server runs the
+  wallet itself (managed mode) it also holds the wallet folder. With a
+  separate barkd container the wallet files are NOT inside and the page
+  says so — back up that container's data volume instead.
+- It does NOT hold the server's encryption key (`EBP_KEY_ENCRYPTION_KEY` /
+  `ebp.key`). Keep that key somewhere else. Without it, restored webhook
+  secrets cannot be read and you re-issue them.
+- The file opens with the password it was locked with — the admin password
+  AT THE TIME of the download. If you later change or reset the admin
+  password, older backups still need the old one, so download a fresh backup
+  after changing it. Lose the password and the file cannot be opened.
+- Keep the file off the server (a password manager's file storage, a USB
+  stick, another cloud account). A backup on the same disk is not a backup.
+- It is a copy at one moment. Download a fresh one after anything important,
+  and always keep the recovery words on paper.
+
+To check a backup opens (no server needed, nothing is changed):
+`ebp backup verify my-backup.ebpbackup`
+
+To restore on a new machine: stop EBP, then
+`ebp backup restore my-backup.ebpbackup ./restored` (it refuses to write into
+a folder that already has files), copy the files into the data folder, put the
+same encryption key back, and start EBP. The admin password and the shop's
+API keys are in the restored database; sign in as before.
+
 ## Continuous backup (recommended)
 
 barkd ships a backup companion, `bark-backupd`, which continuously backs

@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod admin_session;
+pub mod backup;
 pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
@@ -128,6 +129,8 @@ pub fn router(state: AppState) -> Router {
         .merge(
             Router::new()
                 .route("/admin/login", post(admin_session::login))
+                // Checks the admin password again, so it shares the brake.
+                .route("/admin/backup", post(backup::download))
                 // Password-guessing brake: 10 attempts a minute per client.
                 .layer(middleware::from_fn_with_state(
                     Arc::new(crate::ratelimit::RateLimiter::new(

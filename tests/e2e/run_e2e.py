@@ -4,7 +4,7 @@
 Drives the whole beginner path (setup wizard with the recovery-words quiz,
 admin password, login, Home checklist, Connect tab test notification) and the
 money paths (Ark payment, on-chain mempool -> confirmed, RBF replacement,
-barkd outage and recovery, server restart), and finally asserts that every
+barkd outage and recovery, server restart, encrypted backup download and restore), and finally asserts that every
 request EBP made to the fake matched the pinned OpenAPI spec.
 
 Usage: run_e2e.py <path-to-ebp-binary>
@@ -357,6 +357,35 @@ def main():
             ctl(action="pay_ark", address=inv["ark_address"], sats=2000)
             got = wait_for(lambda: status_of(inv)["paid_sats"] == 2000 and status_of(inv), "partial credited")
             assert got["status"] != "paid", got
+
+        @step("backup: encrypted download from the settings tab opens with the admin password only")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#bk-go")
+            bk_pw = ADMIN_PW  # one password: the file is locked with the admin password
+            page.fill("#bk-admin", ADMIN_PW)
+            with page.expect_download(timeout=60000) as dl:
+                page.click("#bk-go")
+            path = os.path.join(tmp, "backup.ebpbackup")
+            dl.value.save_as(path)
+            wait_for(lambda: "Saved as" in page.inner_text("#bk-msg"), "saved message")
+            assert "NOT inside" in page.inner_text("#bk-msg"), "unmanaged mode must say wallet files are not included"
+            assert not page.input_value("#bk-admin"), "password fields should be cleared"
+            raw = open(path, "rb").read()
+            assert b"SQLite format 3" not in raw and WORDS[0].encode() not in raw
+            good = subprocess.run([EBP_BIN, "backup", "verify", path], input=bk_pw + "\n",
+                                  capture_output=True, text=True, timeout=60)
+            assert good.returncode == 0 and "ebp.sqlite3" in good.stdout, (good.stdout, good.stderr)
+            bad = subprocess.run([EBP_BIN, "backup", "verify", path], input="not the password\n",
+                                 capture_output=True, text=True, timeout=60)
+            assert bad.returncode != 0, "a wrong password must not open the backup"
+            out = os.path.join(tmp, "restored")
+            rest = subprocess.run([EBP_BIN, "backup", "restore", path, out], input=bk_pw + "\n",
+                                  capture_output=True, text=True, timeout=60)
+            assert rest.returncode == 0, (rest.stdout, rest.stderr)
+            assert os.path.getsize(os.path.join(out, "ebp.sqlite3")) > 0
 
         @step("every request EBP made matched the pinned barkd OpenAPI spec")
         def _():

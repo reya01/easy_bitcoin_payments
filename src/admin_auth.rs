@@ -30,7 +30,7 @@ const SESSION_IDLE_SECS: i64 = 12 * 3_600;
 
 type HmacSha256 = Hmac<Sha256>;
 
-fn pbkdf2(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] {
+pub fn pbkdf2(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] {
     let base = HmacSha256::new_from_slice(password).expect("hmac accepts any key length");
     let mut first = base.clone();
     first.update(salt);

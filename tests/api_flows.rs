@@ -955,3 +955,122 @@ async fn version_endpoint_needs_auth_and_respects_the_off_switch() {
     assert_eq!(v["open_orders"], 1);
     assert!(v["host"].is_string());
 }
+
+#[tokio::test]
+async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+    let config = Config {
+        password_hash_iterations: 1_000,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let backup = |csrf: Option<&str>, cookie: Option<&str>, body: serde_json::Value| {
+        let mut r = client
+            .post(format!("{base}/admin/backup"))
+            .header("host", "localhost")
+            .json(&body);
+        if let Some(c) = csrf {
+            r = r.header("x-ebp-csrf", c);
+        }
+        if let Some(c) = cookie {
+            r = r.header("cookie", c);
+        }
+        r.send()
+    };
+    let good = serde_json::json!({"admin_password": "a good long password"});
+
+    // Not signed in.
+    assert_eq!(
+        backup(None, None, good.clone())
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        401
+    );
+
+    let ok = client
+        .post(format!("{base}/admin/login"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    let cookie = ok.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let csrf = ok.json::<serde_json::Value>().await.unwrap()["csrf"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // No CSRF header: refused.
+    assert_eq!(
+        backup(None, Some(&cookie), good.clone())
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        401
+    );
+    // A wrong admin password is a 400, not a download.
+    let r = backup(
+        Some(&csrf),
+        Some(&cookie),
+        serde_json::json!({"admin_password": "wrong wrong wrong"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    let r = backup(Some(&csrf), Some(&cookie), good).await.unwrap();
+    let status = r.status().as_u16();
+    if status != 200 {
+        panic!("backup failed: {status} {}", r.text().await.unwrap());
+    }
+    assert_eq!(r.headers()["cache-control"], "no-store");
+    assert!(r.headers()["content-disposition"]
+        .to_str()
+        .unwrap()
+        .contains("attachment"));
+    assert_eq!(r.headers()["x-ebp-wallet-included"], "false");
+    let bytes = r.bytes().await.unwrap();
+
+    // The file is encrypted: no readable store name, no SQLite header.
+    assert!(!bytes.windows(9).any(|w| w == b"Flow Shop"));
+    assert!(!bytes.windows(15).any(|w| w == b"SQLite format 3"));
+    assert!(easy_bitcoin_payments::backup::open(&bytes, "some other password").is_err());
+    let entries = easy_bitcoin_payments::backup::open(&bytes, "a good long password").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name, "ebp.sqlite3");
+    assert!(entries[0].data.starts_with(b"SQLite format 3"));
+    // The decrypted database has the shop, and no live logins.
+    assert!(entries[0].data.windows(9).any(|w| w == b"Flow Shop"));
+
+    // The download is recorded in the security activity.
+    let audit: serde_json::Value = client
+        .get(format!("{base}/api/v1/audit-log?limit=10"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|a| a["action"] == "admin.backup_downloaded"));
+}

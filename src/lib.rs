@@ -9,6 +9,7 @@
 pub mod admin_auth;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod config;
 pub mod db;
 pub mod error;

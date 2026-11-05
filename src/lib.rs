@@ -1,10 +1,10 @@
-//! Easy Bitcoin Payments — Phase 0 foundations.
+//! Easy Bitcoin Payments — Phase 1 code-complete, EXPERIMENTAL.
 //!
 //! A free, open-source, self-hosted Bitcoin payments server for online stores.
-//! Phase 0 ships the invoice API, a hosted checkout page, a polling payment
-//! watcher skeleton, and a signed webhook emitter — all against a stub wallet
-//! layer. Real Bark integration lands in Phase 1; every integration point is
-//! marked with `// BARK INTEGRATION`.
+//! The payment loop is implemented against a barkd 0.8.0 sidecar: invoice API,
+//! hosted checkout, polling watcher with a persisted cursor, VTXO expiry queue,
+//! settlement engine, setup wizard, and signed webhooks. This build is
+//! EXPERIMENTAL — use signet or regtest only, never mainnet or real funds.
 
 pub mod auth;
 pub mod config;

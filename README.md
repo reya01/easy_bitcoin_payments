@@ -15,12 +15,13 @@ your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
 This repository is at **Phase 1 code-complete** (2026-11-01) and remains
-**EXPERIMENTAL — not for real funds**. The full suite is green (`cargo test --all --all-features`:
-**134 passed, 0 failed**). Every Lightning-side client-facing barkd shape is
-live-verified against **barkd 0.8.0 on signet** and pinned in
+**EXPERIMENTAL — not for real funds**. CI is green; the canonical suite is `cargo test --all --all-features` (**134 passed, 0 failed**).
+Every Lightning-side client-facing barkd shape is live-verified against
+**barkd 0.8.0 on signet** and pinned in
 [`src/wallet/barkd/live_shapes.rs`](src/wallet/barkd/live_shapes.rs) with shape tests;
-remaining `VERIFY` markers are limited to request/edge shapes the pinned
-OpenAPI does not schema. The wallet layer talks to a
+the on-chain receive history entry shape is still **UNPINNED** and crediting is
+fail-closed. Remaining `VERIFY` markers are limited to request/edge shapes the
+pinned OpenAPI does not schema. The wallet layer talks to a
 [barkd](https://second.tech/docs/barkd_index.md) sidecar (Second's reference
 Bark wallet daemon) over its local REST API: Ark + on-chain + Lightning
 receive, a polling payment watcher with a persisted cursor, a per-VTXO expiry
@@ -278,8 +279,8 @@ deliberately absent.
 
 ```bash
 cargo fmt --all
-cargo clippy --all-targets -- -D warnings
-cargo test --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all --all-features
 ```
 
 Every module with logic has unit tests: the invoice state machine, API-key

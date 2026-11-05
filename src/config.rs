@@ -348,7 +348,11 @@ impl Config {
             self.barkd_url = v.trim_end_matches('/').to_string();
         }
         if let Some(v) = lookup("EBP_BARKD_TOKEN") {
-            self.barkd_token = Some(v);
+            // Compose defaults this to an empty string until the wizard
+            // provisions the token. Treat empty/whitespace as absent so the
+            // server boots on the stub wallet instead of a barkd client with
+            // an empty bearer token.
+            self.barkd_token = Some(v).filter(|token| !token.trim().is_empty());
         }
         if let Some(v) = lookup("EBP_CHECKOUT_POLICY_URL") {
             self.checkout_policy_url = Some(v);

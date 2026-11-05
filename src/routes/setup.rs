@@ -625,18 +625,18 @@ pub async fn create_wallet(
         None if state.config.mode == "live" => "mainnet".to_string(),
         None => "signet".to_string(),
     };
-    // Funds-safety allowlist: a test-mode (play-money) server must never
-    // create a mainnet wallet governed by test-mode assumptions, and vice
-    // versa. The networks are exact — not free text.
-    let allowed = if state.config.mode == "live" {
-        "mainnet"
-    } else {
-        "signet"
-    };
+    // EXPERIMENTAL/signet-only posture: this build must never create a
+    // mainnet wallet. `mode = "live"` is reserved for a future audited
+    // release; until then the wizard only provisions signet.
+    if state.config.mode == "live" {
+        return Err(AppError::BadRequest(
+            "live mode is disabled in this experimental build — use signet or regtest only".into(),
+        ));
+    }
+    let allowed = "signet";
     if network != allowed {
         return Err(AppError::BadRequest(format!(
-            "network \"{network}\" does not match this server's mode ({}) — expected \"{allowed}\"",
-            state.config.mode
+            "network \"{network}\" is not supported in this experimental build — expected \"{allowed}\""
         )));
     }
 
@@ -676,11 +676,11 @@ pub async fn create_wallet(
     };
     let manual_instructions = if outcome.mnemonic.is_none() {
         Some(
-            "barkd did not return the recovery words, and EBP will never call the \
-             mnemonic endpoint (--expose-mnemonic stays off). To see them, run \
-             barkd's own wallet-export command on the machine running barkd \
-             (see barkd's documentation), write them down on paper, and keep \
-             them offline."
+            "barkd did not return the recovery words in the create response. \
+             Continue to the recovery-words step: it runs the one-time \
+             --expose-mnemonic ceremony, reads the words from barkd exactly \
+             once, shows them once, and then has you restart barkd WITHOUT \
+             the flag. EBP never stores or logs the words."
                 .to_string(),
         )
     } else {

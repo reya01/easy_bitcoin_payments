@@ -126,6 +126,7 @@ async fn fetch_lightning_fee_estimate(
 
     let response = client
         .get(&url)
+        .query(&[("amount_sat", amount_sats.to_string())])
         .header(reqwest::header::AUTHORIZATION, header)
         .send()
         .await
@@ -445,10 +446,19 @@ pub async fn create(
                         )
                     })
                     .await;
-                if let Err(err) = stored {
-                    tracing::warn!(error = %err, "could not persist the lightning invoice");
+                match stored {
+                    Ok(()) => Some(ln.bolt11),
+                    Err(err) => {
+                        // If the BOLT11 is not persisted, the watcher cannot
+                        // attribute an LN payment back to this invoice. Do not
+                        // show a Lightning option the server cannot credit.
+                        tracing::warn!(
+                            error = %err,
+                            "could not persist the lightning invoice; hiding the LN rail for this invoice"
+                        );
+                        None
+                    }
                 }
-                Some(ln.bolt11)
             }
             Err(err) => {
                 tracing::warn!(

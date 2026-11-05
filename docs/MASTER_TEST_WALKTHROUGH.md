@@ -210,15 +210,18 @@ The wizard closes itself; the payments system is now ON.
 4. Safari → `https://signet.2nd.dev/` → GitHub sign-in → paste Arké's
    **Receive** address → request sats → **wait 5–10 min** (signet is slow)
 5. Arké → **Send** → scan the invoice QR → confirm 1,000 sats
-6. Checkout flips to **✓ Paid** within seconds; the dashboard shows it
-7. 🎉 Phase gate passed — write down: easiest step, hardest step, anything
-   confusing, and whether you'd use it for a real store.
+6. Checkout flips to **✓ Paid** within seconds. The dashboard is an info-only
+   shell in Phase 1; verify the invoice through the checkout page or the API
+   (`GET /api/v1/invoices/THAT-ID` with your API key).
+7. 🎉 Tester flow complete — write down: easiest step, hardest step, anything
+   confusing, and whether you'd use it for a real store. Report this for the
+   formal UX-gate sign-off.
 
 ## PART 8 — Cleanup — 2 min (stops billing)
 
 **Before you stop it (optional but good hygiene): one backup snapshot —**
 ```
-bash scripts/backup.sh
+cd ~/easy_bitcoin_payments && bash scripts/backup.sh
 ```
 Saves a consistent database snapshot + the wallet datadir (kept 14
 snapshots, wallet file 600-perms) into `~/ebp-backups`. The paper recovery

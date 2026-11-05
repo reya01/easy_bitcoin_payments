@@ -43,13 +43,15 @@ report it; every stumble becomes a fix.
 
 ## Step 1 — Install the server
 
-The supported deploy is the Docker one-liner on a VPS. Check out a
-release tag — never run an untagged checkout in production:
+The supported deploy is the Docker Compose stack on a VPS. If a release tag
+exists, check it out — never run an untagged checkout in production. Until
+the first `v*` release is cut, stay on `main` for signet testing only:
 
 ```
 git clone https://github.com/reya01/easy_bitcoin_payments.git
 cd easy_bitcoin_payments
-git checkout "$(git describe --tags --abbrev=0)"   # latest release tag
+# If tags exist: git checkout "$(git describe --tags --abbrev=0)"
+# Pre-release signet testing only: stay on main.
 ```
 
 Releases are cut by pushing a `v*` tag: the release workflow builds the
@@ -60,12 +62,10 @@ Advanced self-hosters can install the bare binary with
 `scripts/install.sh` (it detects the architecture and verifies the
 checksum). Version and upgrade notes: docs/UPGRADING.md.
 
-Docker Compose insists the barkd token variable exists before it will
-start anything, so set a placeholder now — it is replaced with the real
-token in step 2, and the payments server is never started with it:
+The compose file defaults `EBP_BARKD_TOKEN` to empty, so start barkd alone
+first; the real token is provisioned in step 2:
 
 ```
-export EBP_BARKD_TOKEN=placeholder-replaced-in-step-2
 docker compose up -d barkd
 ```
 
@@ -141,7 +141,7 @@ prefer it):
 
 ```
 docker compose stop barkd
-docker compose run -d --name barkd-exposed --use-aliases barkd barkd --datadir /data --expose-mnemonic
+docker compose run -d --name barkd-exposed --use-aliases barkd --datadir /data --expose-mnemonic
 docker exec barkd-exposed curl -fsS \
   -H "authorization: Bearer $(docker exec barkd-exposed barkd --datadir /data secret show)" \
   http://127.0.0.1:3000/api/v1/wallet/mnemonic
@@ -269,9 +269,9 @@ Two honest notes:
 
 ## Where to go next
 
-- Going live (mainnet) is a config change plus a funded wallet — read the
-  docs first; the custody statement explains exactly what the server can
-  and cannot do at this phase.
+- Going live (mainnet) is **NOT supported** in this EXPERIMENTAL release.
+  `EBP_MODE=live` is accepted as a config value but must not be pointed at
+  real funds. Stay on signet until the EXPERIMENTAL banner is removed.
 - The lost-phone runbook and the backup/restore drill live in
   `docs/RECIPE_BACKUP.md`; the recovery words from step 2 are the root
   backup.

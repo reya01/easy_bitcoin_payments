@@ -6,9 +6,11 @@ merchants.
 
 ## Ground rules
 
-- **`spec.md` is authoritative.** Where code and spec disagree, the code
-  changes. PRs that intentionally deviate must say so and update the spec
-  first.
+- **Doc precedence.** For current status and operations, `README.md`,
+  `docs/HANDOFF.md`, and the close-out block in `docs/PHASE1_PLAN.md` are
+  authoritative. `spec.md` is the product intent; when the build supersedes a
+  spec claim, update the spec in the same PR rather than treating the stale
+  claim as a requirement.
 - **Phase 0 is done; Phase 1 is code-complete.** The wallet layer is a real
   barkd client, live-verified on signet (docs/HANDOFF.md is the status/ops
   entry point and records the drills). The EXPERIMENTAL / signet-only banner
@@ -27,8 +29,8 @@ merchants.
 
 ```bash
 cargo fmt --all
-cargo clippy --all-targets -- -D warnings
-cargo test --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all --all-features
 ```
 
 CI runs all three on every push; a PR that fails them is not reviewed.

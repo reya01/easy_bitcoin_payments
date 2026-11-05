@@ -123,6 +123,8 @@
     <div class="card">
       <div class="words" id="words"></div>
       <p class="note hidden" id="words-manual"></p>
+      <button class="primary hidden" id="btn-show-words" type="button">Show my recovery words</button>
+      <p class="note hidden" id="words-ceremony-note">Tap &ldquo;Show my recovery words&rdquo; to read the words straight from barkd&rsquo;s one-time <code>--expose-mnemonic</code> ceremony. EBP shows them once and never stores or logs them. After you confirm the backup, the command shown will restart barkd WITHOUT the flag.</p>
       <div class="check">
         <input type="checkbox" id="backup-check">
         <label for="backup-check">I wrote the words down on paper, twice, and stored the two copies in two separate safe places.</label>
@@ -190,6 +192,8 @@
     backup: document.getElementById("step-backup"),
     words: document.getElementById("words"),
     wordsManual: document.getElementById("words-manual"),
+    btnShowWords: document.getElementById("btn-show-words"),
+    ceremonyNote: document.getElementById("words-ceremony-note"),
     backupCheck: document.getElementById("backup-check"),
     btnBackup: document.getElementById("btn-backup"),
     backupError: document.getElementById("backup-error"),
@@ -260,7 +264,9 @@
       markStep(1);
       show("backup");
       els.words.classList.add("hidden");
-      els.wordsManual.textContent = "The recovery words were shown when the wallet was created — they are not shown again. If you did not write them down, follow barkd's wallet-export instructions on the server now, write them down, and only then confirm.";
+      els.btnShowWords.classList.remove("hidden");
+      els.ceremonyNote.classList.remove("hidden");
+      els.wordsManual.textContent = "Tap \"Show my recovery words\" to read the words straight from barkd's one-time --expose-mnemonic ceremony — they are shown once, never stored or logged. Write them down before you confirm.";
       els.wordsManual.classList.remove("hidden");
       return;
     }
@@ -291,9 +297,13 @@
             els.words.appendChild(item);
           });
         } else {
+          // The create response never carries the words (verified barkd
+          // 0.8.0): the ceremony button is the way to see them.
           els.words.classList.add("hidden");
+          els.btnShowWords.classList.remove("hidden");
+          els.ceremonyNote.classList.remove("hidden");
           els.wordsManual.textContent = result.manual_instructions ||
-            "barkd did not return the recovery words. Follow barkd's own wallet-export instructions on the server to see them.";
+            "Tap \"Show my recovery words\" below — it reads the words straight from barkd's one-time --expose-mnemonic ceremony.";
           els.wordsManual.classList.remove("hidden");
         }
         markStep(1);
@@ -301,6 +311,37 @@
       })
       .catch(function (err) { fail(els.walletError, err.message); })
       .finally(function () { els.btnWallet.disabled = false; });
+  });
+
+  // The expose-mnemonic ceremony: reads the words straight from barkd
+  // (which must be running with --expose-mnemonic per the wizard's
+  // instruction) and shows them exactly once. The endpoint itself enforces
+  // once-only: it refuses after the backup is confirmed or setup completes.
+  els.btnShowWords.addEventListener("click", function () {
+    clearFail(els.backupError);
+    els.btnShowWords.disabled = true;
+    api("POST", "/setup/wallet/mnemonic", {})
+      .then(function (result) {
+        if (result.mnemonic) {
+          els.words.textContent = "";
+          result.mnemonic.trim().split(/\s+/).forEach(function (word, index) {
+            var item = document.createElement("span");
+            item.textContent = (index + 1) + ". " + word;
+            els.words.appendChild(item);
+          });
+          els.words.classList.remove("hidden");
+          els.wordsManual.textContent = result.instructions || "";
+          els.wordsManual.classList.remove("hidden");
+          els.ceremonyNote.classList.add("hidden");
+        } else {
+          els.words.classList.add("hidden");
+          els.wordsManual.textContent = result.instructions ||
+            "The words are not exposed yet — follow the command in the note above, then tap the button again.";
+          els.wordsManual.classList.remove("hidden");
+        }
+      })
+      .catch(function (err) { fail(els.backupError, err.message); })
+      .finally(function () { els.btnShowWords.disabled = false; });
   });
 
   els.backupCheck.addEventListener("change", function () {
@@ -318,6 +359,7 @@
         els.words.textContent = "";
         els.words.classList.add("hidden");
         els.wordsManual.textContent = "";
+        els.btnShowWords.classList.add("hidden");
         markStep(2); show("token");
       })
       .catch(function (err) { fail(els.backupError, err.message); })

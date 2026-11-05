@@ -10,7 +10,8 @@ publishing.
 ## Docker one-liner deploy (the supported path)
 
 ```
-docker compose pull
+git pull
+docker compose build
 docker compose up -d
 ```
 

@@ -145,7 +145,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 ## Cold-start commands
 
 ```bash
-cargo test
+cargo test --all --all-features
 cargo run -- store create --name "My Shop" --webhook-url "https://shop.example.com/ebp"
 cargo run -- serve
 curl -sS http://localhost:8080/api/v1/health

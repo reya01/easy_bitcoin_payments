@@ -205,7 +205,9 @@ mod verified_shape_tests {
 
     /// VERIFIED: GET /fees/lightning/receive without its REQUIRED
     /// amount_sat query parameter → HTTP 400 with this plain-text body.
-    /// The success shape was NOT captured — VERIFY before parsing fees.
+    /// The success shape IS captured in `live_shapes.rs`
+    /// (`BODY_LN_FEE_EMPTY_WALLET`); parsers must still take every field
+    /// from the body and assume none of them.
     const FEES_MISSING_AMOUNT_BODY: &str =
         "Failed to deserialize query string: missing field `amount_sat`";
 
@@ -882,10 +884,12 @@ pub struct Vtxo {
 }
 
 /// One entry of `GET /wallet/history`.
-// VERIFY: field shape — the dump is empty in the pinned extract; the fields
-// below are the minimum the watcher needs (attribution address, amount, a
-// dedupe key, a timestamp). /wallet/movements is the documented fallback if
-// this shape does not fit.
+///
+/// Live-verified barkd 0.8.0 shape: there is NO entry-level address, amount,
+/// or id. Attribution lives in `received_on[]` (destination objects), the
+/// cursor timestamp is `time.completed_at` (RFC 3339 object), and dedupe keys
+/// come from `metadata.htlc_vtxos` / output ids. The optional entry-level
+/// fields below are defensive fallbacks only; they are not the real shape.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct HistoryEntry {
     #[serde(default)]
@@ -1011,13 +1015,10 @@ impl HistoryEntry {
                 .and_then(Json::as_str)
                 .unwrap_or("address")
                 .to_string();
-            let amount = item
-                .get("amount_sat")
-                .and_then(Json::as_i64)
-                // fallbacks: the entry-level fields a differently-shaped
-                // receive might use — never guessed beyond these pinned names
-                .or_else(|| (self.amount_sats > 0).then_some(self.amount_sats))
-                .or(self.intended_balance_sat.filter(|b| *b > 0));
+            // The amount MUST be per-destination. Falling back to an
+            // entry-level total would over-credit every destination in a
+            // multi-destination receive.
+            let amount = item.get("amount_sat").and_then(Json::as_i64);
             if let (Some(value), Some(amount)) = (value, amount) {
                 if amount > 0 {
                     out.push(ReceiveDestination {
@@ -1091,12 +1092,13 @@ impl HistoryEntry {
             }
             return None;
         }
-        if self
-            .status
-            .as_deref()
-            .map(|s| s != "successful")
-            .unwrap_or(false)
-        {
+        if self.status.as_deref() != Some("successful") {
+            if looks_like_a_payment {
+                tracing::warn!(
+                    entry_status = ?self.status,
+                    "history entry has receive evidence but status is not \"successful\" — NOT credited; pin the live shape if this was a real payment"
+                );
+            }
             return None;
         }
         let detected_at = self.detected_at_unix()?;
@@ -1105,7 +1107,8 @@ impl HistoryEntry {
         if let Some(destinations) = self.receive_destinations() {
             let payments = destinations
                 .into_iter()
-                .map(|d| {
+                .enumerate()
+                .map(|(index, d)| {
                     // Rail: an "invoice" destination is a Lightning receive
                     // via the ASP gateway — its HTLC settles as an Ark VTXO,
                     // so it rides the Ark rail (pinned by the LN drill).
@@ -1122,7 +1125,13 @@ impl HistoryEntry {
                         address: d.value,
                         rail,
                         amount_sats: d.amount_sats,
-                        vtxo_id: Some(dedupe.clone()),
+                        // One receive entry can carry several destinations.
+                        // The DB's unique guard is global on vtxo_id, so each
+                        // destination needs its own stable dedupe key; using
+                        // the entry-level key for all of them would credit
+                        // only the first destination and silently drop the
+                        // rest.
+                        vtxo_id: Some(format!("{dedupe}:{index}")),
                         txid: None,
                         detected_at,
                         confirmed_at: self.confirmed_at,
@@ -1135,11 +1144,31 @@ impl HistoryEntry {
         // Defensive legacy/defensive shape: an entry-level address with a
         // dedupe key and a positive amount (possible on unpinned on-chain
         // receive entries).
-        let address = self.address?;
+        let Some(address) = self.address else {
+            if looks_like_a_payment {
+                tracing::warn!(
+                    entry_status = ?self.status,
+                    "history entry has receive evidence but no parseable received_on destination or entry-level address — NOT credited; pin this barkd history shape"
+                );
+            }
+            return None;
+        };
         if self.vtxo_id.is_none() && self.txid.is_none() {
+            if looks_like_a_payment {
+                tracing::warn!(
+                    entry_status = ?self.status,
+                    "history entry has receive evidence and an address but no dedupe key — NOT credited; pin this barkd history shape"
+                );
+            }
             return None;
         }
         if self.amount_sats <= 0 {
+            if looks_like_a_payment {
+                tracing::warn!(
+                    entry_status = ?self.status,
+                    "history entry has receive evidence and an address but no positive entry-level amount — NOT credited; pin this barkd history shape"
+                );
+            }
             return None;
         }
         Some(vec![WalletPayment {
@@ -1824,7 +1853,7 @@ mod tests {
         // subsystem.kind "receive" (verified live, LN drill), received_on
         // non-empty (verified live), or an explicit direction field.
         let ark = entry(
-            r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 10, "subsystem": {"name": "lightning", "kind": "receive"}}"#,
+            r#"{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 10, "status": "successful", "subsystem": {"name": "lightning", "kind": "receive"}}"#,
         )
         .into_wallet_payments()
         .unwrap();
@@ -1834,7 +1863,7 @@ mod tests {
         assert!(matches!(ark.rail, Rail::Ark));
 
         let onchain = entry(
-            r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11, "received_on": [{"destination": {"type": "address", "value": "bc1qinv"}, "amount_sat": 5}]}"#,
+            r#"{"address": "bc1qinv", "amount_sats": 5, "txid": "t", "created_at": 11, "status": "successful", "received_on": [{"destination": {"type": "address", "value": "bc1qinv"}, "amount_sat": 5}]}"#,
         )
         .into_wallet_payments()
         .unwrap();
@@ -1843,7 +1872,7 @@ mod tests {
         assert_eq!(onchain.detected_at, 11);
 
         let explicit = entry(
-            r#"{"address": "a", "amount_sats": 7, "txid": "t2", "detected_at": 1, "direction": "receive"}"#,
+            r#"{"address": "a", "amount_sats": 7, "txid": "t2", "detected_at": 1, "status": "successful", "direction": "receive"}"#,
         )
         .into_wallet_payments()
         .unwrap();
@@ -2163,7 +2192,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_bridge_maps_history_to_wallet_payments() {
-        let page = r#"{"payments": [{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 42, "subsystem": {"name": "lightning", "kind": "receive"}}]}"#;
+        let page = r#"{"payments": [{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 42, "status": "successful", "subsystem": {"name": "lightning", "kind": "receive"}}]}"#;
         let (base, _) = mock::spawn(move |_| (200, page.to_string()));
         let wallet = BarkdWallet::new(BarkdConfig::new(base, "test-token")).unwrap();
         // Called from inside a tokio context on purpose: the bridge must

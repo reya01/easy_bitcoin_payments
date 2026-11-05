@@ -52,16 +52,16 @@
   <header>
     <span class="dot" aria-hidden="true"></span>
     <h1>Easy Bitcoin Payments</h1>
-    <span class="badge">Phase 0</span>
+    <span class="badge">EXPERIMENTAL</span>
   </header>
 
   <section class="card">
-    <h2>Dashboard placeholder</h2>
+    <h2>Dashboard shell</h2>
     <p>
-      This is the mobile-first shell for the merchant dashboard. Phase 0 ships the
-      route, the layout, and the deploy path so the navigation is real. Balances,
-      payment history, the expiry queue, ASP status, and the accounting export
-      arrive in Phase 1 and Phase 2.
+      This is the mobile-first shell for the merchant dashboard. The payment
+      loop is implemented against the barkd sidecar; balances, payment history,
+      the expiry queue, ASP status, and the accounting export are Phase 1/2
+      dashboard work. This build is EXPERIMENTAL — use signet or regtest only.
     </p>
   </section>
 
@@ -70,18 +70,19 @@
     <ul>
       <li>Invoice API: create, get, list, cancel — per-store API keys</li>
       <li>Hosted checkout page at <code>/i/&lt;invoice id&gt;</code></li>
-      <li>Payment watcher skeleton (polling adapter)</li>
+      <li>Polling payment watcher with a persisted history cursor</li>
       <li>Signed webhook emitter (HMAC-SHA256, replay window)</li>
       <li>Health endpoint at <code>/api/v1/health</code></li>
+      <li>barkd sidecar wallet: Ark + on-chain + Lightning receive</li>
     </ul>
   </section>
 
   <section class="card">
-    <h2>What is stubbed</h2>
+    <h2>Wallet status</h2>
     <p>
-      The wallet layer is a stub. No real Bark wallet is connected yet, so no
-      Bitcoin moves. Every integration point is marked
-      <code>// BARK INTEGRATION</code> in the source.
+      The wallet layer talks to a barkd 0.8.0 sidecar. Without
+      <code>EBP_BARKD_TOKEN</code> the server boots on the stub wallet and
+      observes no payments. This build is not for real funds.
     </p>
   </section>
 

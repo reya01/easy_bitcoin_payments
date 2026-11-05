@@ -114,13 +114,13 @@ underpaid → expired (customer starts a new invoice at the current rate)
 - **Expired:** the rate lock lapses after 20 minutes (default); the invoice can be regenerated with one tap.
 - **Refunds are out of scope for v1.0** (moved to v1.x). Bitcoin payments are final; checkout states this plainly and links the merchant's own policy page. The merchant handles any refunds manually from their own wallet — which is honest: the money is already theirs. v1.x may add assisted refund flows (Ark address / Lightning reverse swap) once core flows are proven.
 
-**Checkout UX (customer).** Mobile-first page: fiat amount and sats, Ark QR by default with an on-chain tab, copyable address, live countdown, live status polled ~1/s (server-sent events remain a v1.x option), a plain "paid — Bitcoin payments are final; refunds follow this store's policy" line linking the merchant's policy, and a human-readable expired state. No jargon, no account, no PII required. Theming at v1.0: merchant logo + accent color.
+**Checkout UX (customer).** Mobile-first page: fiat amount and sats, a combined BIP321 QR by default (`bitcoin:?amount=…&lightning=…&ark=…`) with per-rail tabs as the degraded mode, copyable address, live countdown, live status polled ~1/s (server-sent events remain a v1.x option), a plain "paid — Bitcoin payments are final; refunds follow this store's policy" line linking the merchant's policy, and a human-readable expired state. No jargon, no account, no PII required. Theming at v1.0: merchant logo + accent color.
 
-**Merchant UX.** Invoices are created by the store automatically or from the dashboard ("Charge someone"). Payment arrives → push + email → dashboard shows it in the till → settlement happens per policy → settlement log entry. Every screen answers three questions: what happened, what happens next, what to do if something looks wrong.
+**Merchant UX.** In Phase 1, invoices are created by the store through the API; the dashboard is a static info shell and cannot create invoices. Payment arrives → the invoice state changes → settlement happens per policy. Push/email notifications, the in-dashboard till view, and the settlement log are v1.0 targets. Every screen answers three questions: what happened, what happens next, what to do if something looks wrong.
 
 ## API sketch
 
-Versioned REST, JSON. Store calls authenticate with per-store API keys (`Authorization: Bearer …`, hashed at rest, rotatable). The dashboard uses an admin session (passkey or TOTP).
+Versioned REST, JSON. Store calls authenticate with per-store API keys (`Authorization: Bearer …`, hashed at rest, rotatable). Phase 1 implements only the routes listed in `README.md` (invoice create/get/list/cancel, health, checkout, dashboard); the additional routes below are v1.0 targets, not current endpoints. The dashboard uses an admin session (passkey or TOTP) in the v1.0 target.
 
 ```
 POST   /api/v1/invoices
@@ -149,7 +149,7 @@ POST   /api/v1/stores/rotate-key
 - Events: `invoice.paid`, `invoice.underpaid`, `invoice.overpaid`, `invoice.expired`, `settlement.completed`, `health.alert`.
 - Every delivery carries `X-EBP-Event`, `X-EBP-Idempotency-Key`, and `X-EBP-Signature: t=<unix>, v1=<HMAC_SHA256(store_webhook_secret, t + "." + body)>`.
 - Stores must: verify the HMAC with their per-store secret; reject timestamps older than 5 minutes; dedupe on the idempotency key; and treat `GET /api/v1/invoices/{id}` as the source of truth before fulfilling — this defeats forged-webhook fraud even if a secret leaks.
-- Retries with backoff (1m / 5m / 30m / 2h / 12h), a delivery log in the dashboard, one-tap re-send, and secret rotation without downtime (two active secrets during rotation).
+- Phase 1 performs a single delivery attempt. Retries with backoff (1m / 5m / 30m / 2h / 12h), a delivery log in the dashboard, one-tap re-send, and secret rotation without downtime (two active secrets during rotation) are Phase 2 work.
 - Webhook payloads contain no customer PII by default.
 
 ## Data model (outline)
@@ -196,10 +196,10 @@ A living document, updated at every phase gate. Headline entries:
 
 One-click is a requirement, and "click" includes *reachable*:
 
-- **Docker one-liner on a VPS (primary).** A single command installs the binary plus Caddy with automatic TLS; the wizard asks for a domain and finishes the rest. Multi-arch images (x86_64, arm64), persistent volume, healthchecks, automatic SQLite migrations, guided backups, tested upgrade path.
-- **VPS-first hosting.** A small business checkout must be reachable by customers over clearnet HTTPS; a $5 VPS with DNS + automatic TLS is the deliberate answer. Home/Tor-only hosting cannot take customer payments and is out of scope.
-- **Managed-VPS image.** Marketplace-style image; first boot opens the setup wizard.
-- **Start9 (v1.x); bare binary (always).** The binary is for advanced users and documented as such.
+- **Docker Compose on a VPS (primary and, for now, only).** The supported deploy is the Docker Compose stack on a VPS with a public IP; TLS terminates at the merchant's own reverse proxy. Automated one-click TLS is a v1.0 gate. Multi-arch images (x86_64, arm64), persistent volume, healthchecks, automatic SQLite migrations, guided backups, and a tested upgrade path are release requirements.
+- **VPS-first hosting.** A small business checkout must be reachable by customers over clearnet HTTPS; a $5 VPS with DNS + TLS is the deliberate answer. Home/Tor-only hosting cannot take customer payments and is out of scope.
+- **No managed-VPS image in v1.0.** Marketplace-style images are not a supported path.
+- **Start9 (v1.x); bare binary (advanced).** The binary is for advanced users and documented as such.
 - Every release: all one-click paths are installed from scratch *and* upgraded from the previous release in CI before the release is tagged.
 
 ## iPhone experience & notifications
@@ -283,7 +283,7 @@ Phases are gated by acceptance criteria and UX gates, not by the calendar. Hones
 
 ## Open questions (tracked publicly)
 
-1. Bark watch-only/descriptor mode and external-signer interface — scope of the upstream change; this project commits engineering to it.
+1. Bark watch-only/descriptor mode and external-signer interface — not assumed and not a dependency; EBP designs around current Bark/Arké capabilities.
 2. Ark signing-request format + transport (deep link / QR) and Arké's roadmap for it.
 3. A standard multi-rail payment URI (Ark + on-chain ± Lightning) — adopt, don't invent, if the ecosystem converges.
 4. Level 2 restricted signer: what Ark script/policy can enforce today.
@@ -292,12 +292,12 @@ Phases are gated by acceptance criteria and UX gates, not by the calendar. Hones
 
 ## Project shape
 
-- **Language:** Rust (core + server), TypeScript for dashboard/checkout frontends, thin connectors in each store's native ecosystem
-- **No upstream assumptions:** EBP works with Bark and Arké as they exist today. Coordination with their maintainers is welcome, but the roadmap never depends on another project shipping anything
+- **Language:** Rust (core + server); Phase 1 dashboard/checkout are static HTML/JS with no build step. TypeScript is only a future option if a frontend build step is added. Thin connectors live in each store's native ecosystem.
+- **No upstream assumptions:** EBP works with Bark and Arké as they exist today. Coordination with their maintainers is welcome, but the roadmap never depends on another project shipping anything.
 - **License:** MIT
-- **Governance:** meritocratic open source; Second/Bark and Bitcoin Design Community collaboration encouraged — Easy Bitcoin Payments aims to be the reference commerce layer of the Bark ecosystem, not a competitor to it
+- **Governance:** meritocratic open source; Second/Bark and Bitcoin Design Community collaboration encouraged — Easy Bitcoin Payments aims to be the reference commerce layer of the Bark ecosystem, not a competitor to it.
 - **Funding:** donations, grants (Spiral/HRF/OpenSats); no VC. Free forever is the product.
 
 ## Why this exists
 
-BTCPay Server proved merchants want self-custodial, feeless Bitcoin payments — and its compromises (legacy integrations, a large C# codebase, sysadmin-grade operations) define what a second-generation implementation must fix. Ark removes Lightning's merchant pain (no channels, no inbound liquidity, passive receive), and Bark is the production-grade Rust implementation. The gap is not the rails — it's the commerce layer, and it must be built honestly: passive receive is real today, watch-only sovereignty is a workstream we fund and upstream, and the difference is written down here rather than in a footnote. Easy Bitcoin Payments is that layer: free, open, sovereign, modern, and as easy as installing an app on the phone already in your pocket.
+BTCPay Server proved merchants want self-custodial, feeless Bitcoin payments — and its compromises (legacy integrations, a large C# codebase, sysadmin-grade operations) define what a second-generation implementation must fix. Ark removes Lightning's merchant pain (no channels, no inbound liquidity, passive receive), and Bark is the production-grade Rust implementation. The gap is not the rails — it's the commerce layer, and it must be built honestly: passive receive is real today, watch-only sovereignty is not assumed, and EBP designs around current Bark/Arké capabilities rather than waiting on upstream work. Easy Bitcoin Payments is that layer: free, open, sovereign, modern, and as easy as installing an app on the phone already in your pocket.

@@ -73,6 +73,6 @@ but was never the cause of the loop.
 
 ## Review notes on the open-items PR (never deployed, so no migration paths)
 - **On-chain lateness uses the wallet's completion time.** An on-chain payment broadcast before the deadline but confirmed after it would be parked as `paid_after_expiry`. The on-chain rail is off by default; settle this with the signet drill (use the first-seen time for the rule) before enabling it.
-- **`rotate-key` has no recovery path.** It revokes every key, and if the response is lost the merchant is locked out until a CLI `ebp store` command can mint a new key (not built). Save the new key before closing the page. A CLI re-issue command is the next safe step.
+- **`rotate-key` shows the new key once.** If the response is lost, run `ebp store rotate-key` on the server (inside Docker: `docker compose exec ebp ebp store rotate-key`) to mint another. It is audit-logged.
 - **The setup code is shown in the server log.** Detached `docker compose up -d` hides it; the recipe tells the merchant to run `docker compose logs ebp`. A platform that injects `EBP_SETUP_TOKEN` (one-click installers) skips this.
 - **Defensive parsing left from before live captures.** `barkd.rs` still accepts several alternative field names and envelope shapes (`flex::*`, history/vtxo fallbacks). Now that the OpenAPI is pinned and a live history capture exists, trim them after the signet drill so unexpected shapes fail loudly.

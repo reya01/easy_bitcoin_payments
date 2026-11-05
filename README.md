@@ -93,6 +93,8 @@ Requires Rust 1.82+ (pinned in `rust-toolchain.toml`).
 ```bash
 # 1. Create a store. The API key is printed once — save it.
 cargo run -- store create --name "My Shop" --webhook-url "https://shop.example.com/ebp"
+cargo run -- store list
+cargo run -- store rotate-key            # lost your API key? mints a new one, shown once
 
 # 2. Start the server.
 cargo run -- serve

@@ -14,6 +14,7 @@
 ### Added
 - Checkout shows a QR code (vendored same-origin generator, `/assets/qr.js`).
 - `PUT /api/v1/stores/webhook` and `POST /api/v1/stores/rotate-key`.
+- CLI recovery: `ebp store list` and `ebp store rotate-key [--store ID]`; `scripts/start.sh` prints the one-time setup code in its final message.
 - `limit`/`offset` on `GET /api/v1/unmatched-payments`; `order_id` (128 B) and `metadata` (4 KB) limits on invoice create.
 - Settlement: on-chain sweeps offboard only the VTXOs needed to cover the excess; a short exit reserve triggers a throttled consolidating refresh.
 

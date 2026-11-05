@@ -228,16 +228,23 @@ fn sqlite_snapshot(src: &Path, tmp_dir: &Path) -> Result<Vec<u8>, AppError> {
 
 /// Snapshot of the EBP database as a bundle entry, with admin sessions
 /// removed. `conn` is the live connection (call inside `Db::call`).
-pub fn database_entry(conn: &rusqlite::Connection, database_path: &str) -> Result<Entry, AppError> {
-    let dir: PathBuf = if database_path == ":memory:" {
-        std::env::temp_dir()
-    } else {
-        Path::new(database_path)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf()
-    };
+pub fn database_entry(conn: &rusqlite::Connection) -> Result<Entry, AppError> {
+    // Temporary copy beside the live database (a private folder); for an
+    // in-memory database, the system temp folder.
+    let dir: PathBuf = conn
+        .path()
+        .map(Path::new)
+        .filter(|p| !p.as_os_str().is_empty() && p.as_os_str() != ":memory:")
+        .and_then(|p| p.parent())
+        .map(|p| {
+            if p.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                p.to_path_buf()
+            }
+        })
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(std::env::temp_dir);
     let tmp = dir.join(format!(".ebp-backup-{}.tmp", crate::util::random_hex(8)));
     let result = (|| -> Result<Vec<u8>, AppError> {
         conn.execute("VACUUM INTO ?1", [tmp.to_string_lossy().as_ref()])?;
@@ -528,7 +535,7 @@ mod tests {
                  CREATE TABLE keep(x); INSERT INTO keep VALUES (7);",
             )
             .unwrap();
-        let e = database_entry(&db_conn, ":memory:").unwrap();
+        let e = database_entry(&db_conn).unwrap();
         assert_eq!(e.name, "ebp.sqlite3");
         let base = tmpdir("dbentry");
         let f = base.join("x.sqlite3");

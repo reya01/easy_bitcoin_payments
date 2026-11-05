@@ -56,7 +56,7 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 - **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
 - **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
 - **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
-- **Merchant dashboard shell** — mobile-first info page at `/dashboard` (status
+- **Merchant dashboard shell** — mobile-first admin page at `/admin` (also `/dashboard`) with password login (status
   and store info; it cannot create invoices — use the API, see below).
 - **Config** — env vars plus an optional TOML file, with sane defaults.
 - **Deployment** — Docker one-liner on a VPS (public IP, DNS, TLS; clearnet HTTPS), plus multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
@@ -185,7 +185,8 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/i/{id}` | Hosted checkout page |
 | `GET` | `/i/{id}/json` | Full invoice JSON (fetched once by the checkout page) |
 | `GET` | `/i/{id}/status` | Checkout status JSON (polled by the page) |
-| `GET` | `/dashboard` | Merchant dashboard (static info shell; no invoice creation) |
+| `GET` | `/admin`, `/dashboard` | Merchant admin page (password login; session cookie + CSRF) |
+| `POST` | `/admin/login`, `/admin/logout`, `/admin/password` | Admin session endpoints; `GET /admin/session` reports login state |
 
 ### Invoice states
 

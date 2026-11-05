@@ -273,6 +273,64 @@ pub fn find_pending_by_address(
     .map_err(Into::into)
 }
 
+/// Record a wallet payment that reached one of OUR invoice addresses but
+/// could not be applied because the invoice is no longer `pending`
+/// (expired, cancelled, already settled, or underpaid).
+///
+/// BETA-HARDENING (P0): such payments used to be dropped with a debug log,
+/// leaving funds in the till with no record. This writes an audit row in
+/// `unmatched_payments` for the merchant to reconcile (refund / re-credit).
+/// Addresses that match NO invoice (e.g. the merchant funding the exit
+/// reserve) are deliberately not recorded. Idempotent: the unique
+/// vtxo/txid indexes make re-delivery a no-op. Returns true if a NEW row
+/// was written (callers may warn loudly once).
+pub fn record_unmatched(
+    conn: &Connection,
+    address: &str,
+    rail: &str,
+    amount_sats: i64,
+    vtxo_id: Option<&str>,
+    txid: Option<&str>,
+    detected_at: i64,
+) -> Result<bool, AppError> {
+    let found: Option<(String, String)> = conn
+        .query_row(
+            "SELECT id, status FROM invoices
+             WHERE ark_address = ?1 OR onchain_address = ?1
+                OR id = (SELECT invoice_id FROM ln_invoices WHERE bolt11 = ?1 LIMIT 1)
+             ORDER BY created_at DESC LIMIT 1",
+            params![address],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((invoice_id, status)) = found else {
+        return Ok(false);
+    };
+    let reason = if status == "expired" {
+        "invoice_expired"
+    } else {
+        "invoice_closed"
+    };
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO unmatched_payments
+            (id, address, invoice_id, rail, amount_sats, vtxo_id, txid, reason, detected_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            crate::util::new_id("unm"),
+            address,
+            invoice_id,
+            rail,
+            amount_sats,
+            vtxo_id,
+            txid,
+            reason,
+            detected_at,
+            now_unix()
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Store the Lightning invoice issued for a checkout invoice (Phase 1).
 pub fn set_lightning_invoice(
     conn: &Connection,

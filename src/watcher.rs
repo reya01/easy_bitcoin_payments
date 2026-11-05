@@ -125,7 +125,34 @@ impl PollingWatcher {
                 .await?;
 
             let Some(invoice) = invoice else {
-                tracing::debug!("payment at unknown address ignored");
+                // BETA-HARDENING: no PENDING invoice owns this address. If it
+                // belongs to an expired/closed invoice, the funds are in the
+                // till and MUST be recorded (late payment) rather than
+                // dropped. Unknown addresses (e.g. reserve funding) are
+                // ignored by `record_unmatched`.
+                let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+                let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+                let (amount, seen) = (payment.amount_sats, payment.detected_at);
+                let is_new = self
+                    .db
+                    .call(move |conn| {
+                        invoice::record_unmatched(
+                            conn,
+                            &addr,
+                            &rail,
+                            amount,
+                            vtxo.as_deref(),
+                            txid.as_deref(),
+                            seen,
+                        )
+                    })
+                    .await?;
+                if is_new {
+                    tracing::warn!(
+                        amount_sats = payment.amount_sats,
+                        "late/unmatched payment recorded in unmatched_payments; merchant must reconcile"
+                    );
+                }
                 continue;
             };
 

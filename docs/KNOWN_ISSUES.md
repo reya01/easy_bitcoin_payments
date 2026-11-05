@@ -6,7 +6,7 @@ See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
 - The hardening branch (PR #1) was authored without a local compiler; CI (fmt, clippy -D warnings, tests, release build) is the verification. Keep it green.
 - Late/unmatched payments land in the `unmatched_payments` table with no dashboard UI yet — use `GET /api/v1/unmatched-payments` (store API key) or query the table directly
 - Webhooks are delivered from a durable outbox (`webhook_deliveries`); failed rows (after 6 attempts) stay for inspection with no re-send UI yet. Webhook URL validation is textual and does not stop DNS rebinding — restrict container egress in production.
-- Webhook secrets are stored in plaintext (`key_encryption_key` is not implemented).
+- Webhook secrets are encrypted at rest (R10, done). Residual: with the auto-created `ebp.key` file the key sits in the same volume as the database, so only set `EBP_KEY_ENCRYPTION_KEY` from outside the volume gives real separation; the in-memory key and decrypted secrets exist in process memory while serving.
 - On-chain receive detection depends on an UNPINNED `/history` shape (the deprecated `/wallet/history` is no longer used). The rail is therefore OFF by default (`EBP_ONCHAIN_RAIL_ENABLED`); do not enable it for real funds before a live signet drill.
 
 ## RESOLVED & CONFIRMED — VPS aarch64 container restart-loop (~60s, 22h duration)
@@ -69,4 +69,4 @@ but was never the cause of the loop.
 ## Added with the open-items PR (2026-11-05)
 - None of the barkd paths changed in PRs #3 and this one (Lightning invoice, Ark send, VTXO refresh, partial offboard, wallet create with `ark_server`, `/history`) has run against a live barkd; drill each on signet before real funds.
 - The QR encoder is original code verified with OpenCV and one Chromium render, not a phone scan; scan a real invoice with two wallets before launch.
-- Webhook secrets are still plaintext at rest (R10); history is still read in full each tick (R5).
+- History is still read in full each tick (R5).

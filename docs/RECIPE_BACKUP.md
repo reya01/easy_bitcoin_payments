@@ -35,6 +35,7 @@ is a bug in the recipe — report it; every stumble becomes a fix.
 | Your destination wallet's seed (e.g. Arké) | That is where the money actually ends up — your keys | Paper / that wallet's own guidance |
 | The deployment environment | `EBP_BARKD_TOKEN`, `EBP_SETTLEMENT_DESTINATION`, `EBP_PUBLIC_BASE_URL`, `mode` | docker-compose environment |
 | The EBP database | Invoice history and accounting records | `./data/ebp.sqlite3` |
+| The EBP encryption key | Decrypts the webhook secrets in the database. Store it SEPARATELY from the database backup (a backup that contains both defeats the encryption). Lose it and secrets must be re-issued (`PUT /api/v1/stores/webhook` with `rotate_secret`) | `EBP_KEY_ENCRYPTION_KEY` in your `.env` / secret manager, or `./data/ebp.key` if you did not set one |
 
 The recovery words outrank everything: datadir backups can be lost or
 corrupt, the database can be rebuilt from the store's own records — the

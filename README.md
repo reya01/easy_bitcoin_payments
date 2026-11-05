@@ -172,6 +172,9 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
 | `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled |
+| `GET` | `/api/v1/webhook-deliveries?status=&limit=&offset=` | Webhook delivery log (this store) |
+| `POST` | `/api/v1/webhook-deliveries/{id}/resend` | Queue a delivery again |
+| `GET` | `/api/v1/audit-log?limit=&offset=` | Security trail: key/webhook changes, resends, resolved late payments |
 | `PUT` | `/api/v1/stores/webhook` | Set/clear the store's webhook URL; issues the signing secret once (`rotate_secret` to replace) |
 | `POST` | `/api/v1/stores/rotate-key` | Revoke all API keys for the store and issue a new one (shown once) |
 | `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
@@ -227,7 +230,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_HOT_WALLET_CAP_SATS` | `500000` | Custody Level 0 till cap |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
 | `EBP_LOG_LEVEL` | `info,tower_http=info` | `tracing` filter |
-| `EBP_KEY_ENCRYPTION_KEY` | unset | Reserved; at-rest encryption is not implemented yet (schema columns exist) |
+| `EBP_KEY_ENCRYPTION_KEY` | unset | 64 hex chars (32 bytes). Key that encrypts webhook secrets at rest (ChaCha20-Poly1305). Unset = a 0600 `ebp.key` file is created next to the database. Generate with `openssl rand -hex 32`; keep it OUTSIDE the data volume in production |
 | `EBP_CHECKOUT_POLICY_URL` | unset | Refund policy link on checkout |
 | `EBP_CHECKOUT_ACCENT_COLOR` | `#f7931a` | Checkout branding |
 | `EBP_BARKD_URL` | `http://127.0.0.1:3000/api/v1` | barkd sidecar REST API |
@@ -304,10 +307,14 @@ conversion, database migrations, and the watcher's payment application path.
 - **API keys are hashed at rest** (SHA-256) and shown exactly once at creation.
 - **Secrets are never logged.** Webhook secrets and API keys do not appear in
   log lines or error responses.
-- **Webhook secrets are stored in plaintext today** because the emitter must
-  sign with them. At-rest encryption using `EBP_KEY_ENCRYPTION_KEY` is a
-  documented Phase 1 TODO; the config field and schema column already exist so
-  the change is additive.
+- **Webhook secrets are encrypted at rest** (ChaCha20-Poly1305, random nonce,
+  store id bound as associated data) with `EBP_KEY_ENCRYPTION_KEY`, or a
+  `0600` key file `ebp.key` beside the database when unset. Set the env key
+  from outside the data volume in production: the key file only protects
+  against leaks of the SQLite file alone. Back the key up separately from the
+  database (docs/RECIPE_BACKUP.md); if it is lost, re-issue secrets with
+  `PUT /api/v1/stores/webhook {"rotate_secret": true}`. Rows from older
+  versions are encrypted automatically at startup.
 - **No customer PII is required.** An invoice needs an amount and an opaque
   order reference.
 - **Custody, Phase 1 (Level 0).** barkd holds the keys on the server; the

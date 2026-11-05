@@ -52,6 +52,9 @@ services:
       EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:-}
       # Optional: require this secret for first-run wizard actions (see README).
       EBP_SETUP_TOKEN: ${EBP_SETUP_TOKEN:-}
+      # 64 hex chars (`openssl rand -hex 32`) in the .env file: encrypts webhook
+      # secrets at rest. Empty = a key file is created in the data volume.
+      EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
       # On-chain rail is off by default (beta). Set to true to offer it.
       EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}

@@ -52,8 +52,11 @@ webhook_timeout_secs = 10
 # Log level (RUST_LOG syntax).
 log_level = "info,tower_http=info"
 
-# Master key for encrypting wallet material and webhook secrets at rest.
-# Unset = at-rest encryption not yet enabled (documented TODO, Phase 1).
+# 64 hex characters (32 bytes): key that encrypts webhook secrets at rest.
+# Generate with `openssl rand -hex 32`. Unset = a 0600 key file `ebp.key` is
+# created next to the database (protects the SQLite file alone, not the whole
+# volume). Prefer the env var EBP_KEY_ENCRYPTION_KEY, set from outside the
+# data volume, and back the key up separately from the database.
 # key_encryption_key = "…"
 
 # Admin token for the dashboard session, if you use one.

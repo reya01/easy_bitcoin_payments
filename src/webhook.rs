@@ -112,6 +112,14 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
     Ok(())
 }
 
+/// Whether private/loopback webhook targets are allowed
+/// (`EBP_WEBHOOK_ALLOW_PRIVATE=1`; local development only).
+pub fn allow_private_from_env() -> bool {
+    std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum WebhookError {
     #[error("webhook request failed: {0}")]

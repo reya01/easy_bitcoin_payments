@@ -406,3 +406,78 @@ async fn every_response_carries_browser_hardening_headers() {
         );
     }
 }
+
+#[tokio::test]
+async fn webhook_config_and_key_rotation() {
+    let (base, _state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    let put = |body: serde_json::Value, key: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .put(format!("{base}/api/v1/stores/webhook"))
+                .header("host", "localhost")
+                .bearer_auth(key)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    // Unsafe targets are refused.
+    let bad = put(
+        serde_json::json!({ "url": "http://169.254.169.254/x" }),
+        key.clone(),
+    )
+    .await;
+    assert_eq!(bad.status(), 400);
+
+    // First valid URL issues a secret, shown once.
+    let ok = put(
+        serde_json::json!({ "url": "https://shop.example.com/hook" }),
+        key.clone(),
+    )
+    .await;
+    assert_eq!(ok.status(), 200);
+    let v: serde_json::Value = ok.json().await.unwrap();
+    let first = v["webhook_secret"].as_str().unwrap().to_string();
+    assert!(first.starts_with("whsec_"));
+
+    // Changing the URL alone keeps the secret (no new secret returned).
+    let same = put(
+        serde_json::json!({ "url": "https://shop.example.com/other" }),
+        key.clone(),
+    )
+    .await;
+    let v: serde_json::Value = same.json().await.unwrap();
+    assert!(v["webhook_secret"].is_null());
+
+    // Explicit rotation issues a different one.
+    let rot = put(
+        serde_json::json!({ "url": "https://shop.example.com/other", "rotate_secret": true }),
+        key.clone(),
+    )
+    .await;
+    let v: serde_json::Value = rot.json().await.unwrap();
+    assert_ne!(v["webhook_secret"].as_str().unwrap(), first);
+
+    // Key rotation: new key works, old key is dead.
+    let r = client
+        .post(format!("{base}/api/v1/stores/rotate-key"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let new_key = r.json::<serde_json::Value>().await.unwrap()["api_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let old = put(serde_json::json!({ "url": null }), key).await;
+    assert_eq!(old.status(), 401);
+    let fresh = put(serde_json::json!({ "url": null }), new_key).await;
+    assert_eq!(fresh.status(), 200);
+}

@@ -65,6 +65,40 @@ pub async fn set_webhook(
     })))
 }
 
+/// `POST /api/v1/stores/webhook/test` — queue a harmless `webhook.test`
+/// notification to the store's webhook so the merchant can confirm their
+/// shop receives and verifies it. No invoice and no payment is involved.
+pub async fn test_webhook(
+    State(state): State<AppState>,
+    auth: StoreAuth,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if auth.store.webhook_url.is_none() {
+        return Err(AppError::BadRequest(
+            "set your shop's webhook address first".into(),
+        ));
+    }
+    let store_id = auth.store.id.clone();
+    state
+        .db
+        .call(move |conn| {
+            crate::webhook_outbox::enqueue(
+                conn,
+                &store_id,
+                "test",
+                "webhook.test",
+                &format!("webhook.test:{}", crate::util::random_hex(8)),
+                &serde_json::json!({
+                    "test": true,
+                    "message": "Test notification from your payments server. No payment happened."
+                }),
+            )?;
+            crate::audit::record(conn, &store_id, "store.webhook_test", None)?;
+            Ok(())
+        })
+        .await?;
+    Ok(Json(serde_json::json!({ "queued": true })))
+}
+
 /// `POST /api/v1/stores/rotate-key` — revoke every active API key of this
 /// store and issue a new one. The calling key stops working immediately;
 /// the response carries the replacement (shown once).

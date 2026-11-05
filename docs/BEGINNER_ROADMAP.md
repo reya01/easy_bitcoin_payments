@@ -62,8 +62,8 @@ Words appear only after a "I'm alone, no screenshots" checklist, for 60 seconds 
 Block going live until the merchant has recorded the words and passed a
 confirmation check. (Verify what the wizard enforces today.)
 
-### 5. "Connect my store" screen
-One screen with the URL, API key and webhook secret and copy buttons, shown
+### 5. "Connect my store" screen — BUILT (admin page, Connect tab)
+Built as the admin page's Connect tab: four numbered cards (server address, API key, shop webhook address + signing secret, send a test notification) with copy buttons; secrets shown once; the test queues a harmless `webhook.test` event (`POST /api/v1/stores/webhook/test`) and reports in plain words whether the shop received it. A single combined connection string/QR was not built: it would need support in the (not yet written) shop plugin. Original plan: One screen with the URL, API key and webhook secret and copy buttons, shown
 once. Same exposure as today, far easier to follow on a phone.
 
 ### 6. Updates

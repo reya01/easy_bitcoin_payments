@@ -860,3 +860,45 @@ async fn backup_cannot_be_confirmed_without_verifying_the_words() {
         .unwrap();
     assert_eq!(resp.status().as_u16(), 409);
 }
+
+#[tokio::test]
+async fn webhook_test_needs_a_url_and_queues_a_test_event() {
+    let (base, _state, _store_id, key) = serve_with(Config::default()).await;
+    let client = reqwest::Client::new();
+    let test = || {
+        client
+            .post(format!("{base}/api/v1/stores/webhook/test"))
+            .header("host", "localhost")
+            .bearer_auth(&key)
+            .send()
+    };
+    // No webhook yet: refused with a plain message.
+    assert_eq!(test().await.unwrap().status().as_u16(), 400);
+
+    let set = client
+        .put(format!("{base}/api/v1/stores/webhook"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .json(&serde_json::json!({ "url": "https://shop.example.com/hook" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(set.status().as_u16(), 200);
+    assert_eq!(test().await.unwrap().status().as_u16(), 200);
+
+    let list: serde_json::Value = client
+        .get(format!("{base}/api/v1/webhook-deliveries"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d["event"] == "webhook.test"));
+}

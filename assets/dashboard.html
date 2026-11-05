@@ -56,6 +56,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-home" class="hidden">
+  <div class="card hidden" id="update"></div>
   <h2>Status</h2>
   <div class="card" id="health"></div>
   <h2>Needs attention</h2>
@@ -198,9 +199,32 @@ document.addEventListener("click", function (e) {
   if (id && navigator.clipboard) navigator.clipboard.writeText($(id).textContent).then(function () { e.target.textContent = "Copied"; });
 });
 
+function loadVersion() {
+  api("GET", "/api/v1/admin/version").then(function (v) {
+    var u = $("update"); clear(u);
+    var h = $("health");
+    h.appendChild(row("Version", v.current));
+    if (!v.update_available || !v.latest) { u.classList.add("hidden"); return; }
+    u.classList.remove("hidden");
+    u.appendChild(el("strong", (v.latest.security ? "Security update available: " : "Update available: ") + "version " + v.latest.version, v.latest.security ? "bad" : ""));
+    u.appendChild(el("p", "Your server never updates itself — you choose when. " + (v.open_orders > 0 ? "You have " + v.open_orders + " open order(s); it is best to wait until they finish. " : "No open orders right now, so this is a good moment. ") + "Your data is backed up automatically before an update.", "muted"));
+    if (v.host === "render") {
+      u.appendChild(el("p", "To update: open your Render dashboard, choose this service, then Manual Deploy → Deploy latest commit.", "muted"));
+    } else {
+      u.appendChild(el("p", "To update, run this on your server:", "muted"));
+      u.appendChild(el("div", "git pull && docker compose up -d --build", "secret"));
+    }
+    if (/^https:\/\/github\.com\//.test(v.latest.url)) {
+      var a = el("a", "What changed in this version"); a.href = v.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      u.appendChild(a);
+    }
+  }).catch(function () {});
+}
+
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
+    loadVersion();
     var w = s.wallet || {};
     if (w.error) h.appendChild(row("Wallet", "Not reachable", "bad"));
     else {

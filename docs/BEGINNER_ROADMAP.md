@@ -66,7 +66,8 @@ confirmation check. (Verify what the wizard enforces today.)
 Built as the admin page's Connect tab: four numbered cards (server address, API key, shop webhook address + signing secret, send a test notification) with copy buttons; secrets shown once; the test queues a harmless `webhook.test` event (`POST /api/v1/stores/webhook/test`) and reports in plain words whether the shop received it. A single combined connection string/QR was not built: it would need support in the (not yet written) shop plugin. Original plan: One screen with the URL, API key and webhook secret and copy buttons, shown
 once. Same exposure as today, far easier to follow on a phone.
 
-### 6. Updates
+### 6. Updates — BUILT (merchant-controlled only; no auto-update by decision)
+Built: version + update notice with host-specific steps and open-order count; automatic pre-upgrade database backup and downgrade protection; `autoDeploy: false` on Render; release workflow signs images by digest (cosign keyless), attaches provenance/SBOM, no `latest` tag, digest and verify command in release notes. Decision 2026-11-05: no auto-update option at all (a stolen maintainer account must not be able to push code to every install). Release workflow untested until a test tag is pushed. Original plan:
 Auto-update only from pinned, signed images; never a floating `latest`.
 
 ## Honest limit

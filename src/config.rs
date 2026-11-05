@@ -97,6 +97,9 @@ pub struct Config {
     /// Run barkd as a child process of EBP (single-container install). The
     /// wizard then needs no terminal steps. See `managed_barkd`.
     pub managed_barkd: bool,
+    /// Look up the newest release for the admin page's update notice (one
+    /// anonymous request, cached). EBP never updates itself.
+    pub update_check: bool,
     /// PBKDF2 rounds for the admin password (default 600,000; minimum 1,000).
     /// Lowering it weakens the hash — it exists for tests only.
     pub password_hash_iterations: u32,
@@ -143,6 +146,7 @@ impl Default for Config {
             onchain_min_confirmations: 1,
             allow_insecure_setup: false,
             managed_barkd: false,
+            update_check: true,
             password_hash_iterations: crate::admin_auth::DEFAULT_ITERATIONS,
         }
     }
@@ -234,6 +238,7 @@ struct FileConfig {
     onchain_min_confirmations: Option<u64>,
     allow_insecure_setup: Option<bool>,
     managed_barkd: Option<bool>,
+    update_check: Option<bool>,
 }
 
 impl Config {
@@ -377,6 +382,9 @@ impl Config {
         if let Some(v) = file.onchain_rail_enabled {
             self.onchain_rail_enabled = v;
         }
+        if let Some(v) = file.update_check {
+            self.update_check = v;
+        }
         if let Some(v) = file.managed_barkd {
             self.managed_barkd = v;
         }
@@ -496,6 +504,9 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_UPDATE_CHECK") {
+            self.update_check = parse_bool("EBP_UPDATE_CHECK", &v)?;
         }
         if let Some(v) = lookup("EBP_MANAGED_BARKD") {
             self.managed_barkd = parse_bool("EBP_MANAGED_BARKD", &v)?;

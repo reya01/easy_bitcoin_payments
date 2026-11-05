@@ -65,6 +65,41 @@ pub async fn set_webhook(
     })))
 }
 
+/// `GET /api/v1/admin/version` — current version, whether a newer release
+/// exists, and how many orders are open (the best time to update is when
+/// there are none). Read-only; EBP never updates itself.
+pub async fn version(
+    State(state): State<AppState>,
+    _auth: StoreAuth,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let open_orders: i64 = state
+        .db
+        .call(|c| {
+            Ok(c.query_row(
+                "SELECT COUNT(*) FROM invoices WHERE status IN ('pending', 'underpaid')",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .await?;
+    let latest = if state.config.update_check {
+        crate::updates::latest().await
+    } else {
+        None
+    };
+    let update_available = latest
+        .as_ref()
+        .is_some_and(|l| crate::updates::is_newer(&l.version, crate::updates::CURRENT));
+    Ok(Json(serde_json::json!({
+        "current": crate::updates::CURRENT,
+        "check_enabled": state.config.update_check,
+        "latest": latest,
+        "update_available": update_available,
+        "open_orders": open_orders,
+        "host": crate::updates::host_kind(),
+    })))
+}
+
 /// `POST /api/v1/stores/webhook/test` — queue a harmless `webhook.test`
 /// notification to the store's webhook so the merchant can confirm their
 /// shop receives and verifies it. No invoice and no payment is involved.

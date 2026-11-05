@@ -98,6 +98,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/stores/webhook",
             axum::routing::put(stores::set_webhook),
         )
+        .route("/api/v1/admin/version", get(stores::version))
         .route("/api/v1/stores/webhook/test", post(stores::test_webhook))
         .route("/api/v1/stores/rotate-key", post(stores::rotate_key))
         .route("/api/v1/webhook-deliveries", get(deliveries::list))

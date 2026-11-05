@@ -12,6 +12,9 @@ services:
     dockerfilePath: ./Dockerfile
     plan: starter
     healthCheckPath: /api/v1/health
+    # EBP never updates itself: you choose when (Manual Deploy). Do not turn
+    # this on — a payments server should not change under you unannounced.
+    autoDeploy: false
     disk:
       name: ebp-data
       mountPath: /data

@@ -638,6 +638,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repeated_ticks_do_not_report_a_credited_payment_as_unmatched() {
+        // The wallet keeps returning the same history entry on every poll.
+        let (db, _) = setup(vec![]).await;
+        let payment = WalletPayment {
+            address: "ark1qinv_1".to_string(),
+            rail: Rail::Ark,
+            amount_sats: 1000,
+            vtxo_id: Some("vtxo_1".to_string()),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        };
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![payment],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+
+        let unmatched: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM unmatched_payments", [], |r| r.get(0))?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(unmatched, 0, "credited payments are never 'late'");
+    }
+
+    #[tokio::test]
     async fn tick_ignores_unknown_addresses() {
         let (db, _) = setup(vec![]).await;
         let watcher = PollingWatcher::new(

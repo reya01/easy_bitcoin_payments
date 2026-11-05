@@ -98,5 +98,41 @@ pub fn router(state: AppState) -> Router {
         .merge(gated)
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(security_headers))
         .with_state(state)
+}
+
+/// Baseline browser-hardening headers on EVERY response (found missing in
+/// the beta review). Matters most for `/setup` (shows the recovery words
+/// and the API key) and the dashboard: `frame-ancestors 'none'` +
+/// `X-Frame-Options: DENY` stop clickjacking, `nosniff` stops content
+/// sniffing, `no-referrer` keeps invoice/setup URLs out of Referer headers.
+/// The CSP matches the static pages as built: same-origin fetches, inline
+/// script/style (no build step), no third-party resources. If a page ever
+/// loads an external asset, widen this deliberately. Handlers that set their
+/// own value for a header keep it (we only fill gaps).
+async fn security_headers(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::HeaderValue;
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    for (name, value) in [
+        ("x-content-type-options", "nosniff"),
+        ("x-frame-options", "DENY"),
+        ("referrer-policy", "no-referrer"),
+        (
+            "content-security-policy",
+            "default-src 'none'; script-src 'self' 'unsafe-inline'; \
+             style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+             connect-src 'self'; base-uri 'none'; form-action 'self'; \
+             frame-ancestors 'none'",
+        ),
+    ] {
+        headers
+            .entry(axum::http::HeaderName::from_static(name))
+            .or_insert(HeaderValue::from_static(value));
+    }
+    response
 }

@@ -13,13 +13,11 @@ on:
     tags:
       - "v*"
 
+# Least privilege: the default for every job is read-only. Jobs that need
+# more declare it themselves (the job that builds and tests third-party code
+# gets no write access and no signing identity).
 permissions:
-  contents: write
-  packages: write
-  id-token: write # keyless image signing (sigstore) uses the workflow's OIDC identity
-
-env:
-  CARGO_TERM_COLOR: always
+  contents: read
 
 jobs:
   binaries:
@@ -75,6 +73,8 @@ jobs:
   release:
     name: publish the GitHub release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
     needs: binaries
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +104,10 @@ jobs:
   docker:
     name: push, sign and attest the multi-arch image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push the image
+      id-token: write # keyless signing (sigstore) uses the workflow's OIDC identity
     needs: binaries
     outputs:
       image: ${{ steps.name.outputs.image }}
@@ -151,6 +155,8 @@ jobs:
   annotate:
     name: put the verified image digest in the release notes
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # append the digest and verify command to the release notes
     needs: [release, docker]
     steps:
       - name: Append image + verification instructions

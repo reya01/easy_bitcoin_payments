@@ -22,6 +22,7 @@ and `gh pr create` are unavailable in Claude Code sessions; use REST).
 | 4 | **Webhook delivery off the watcher loop** with retries at 0s/30s/5m/30m in a detached task. In-memory only: a restart drops pending retries. | `src/watcher.rs` |
 | 5 | **Blocking wallet calls on the blocking pool** (`spawn_blocking`) in the watcher and `/api/v1/health`. | `src/watcher.rs`, `src/routes/health.rs` |
 | 6 | **Invoice-create idempotency.** `POST /api/v1/invoices` with an `order_id` that already has an OPEN (pending, unexpired) invoice for the same store and same amount (fiat amount+currency for fiat requests, sats otherwise) returns that invoice with **200 OK** instead of creating a new one (201). Changed amount => new invoice. | `src/invoice.rs::find_open_by_order_id`, `src/routes/invoices.rs::create` |
+| 10 | **Unmatched-payments API.** `GET /api/v1/unmatched-payments` and `POST /api/v1/unmatched-payments/{id}/resolve` (store API key; rows scoped via invoice->store). No dashboard UI yet. | `src/routes/unmatched.rs`, `src/routes/mod.rs` |
 | 7 | **Supervised background loops.** Watcher and settlement run each tick in its own spawned task; a panic is logged (`ERROR ... PANICKED; continuing`) and the loop continues. | `src/watcher.rs::run`, `src/wallet/settlement.rs::run` |
 | 8 | **Bridge errors, not panics.** `BarkdWallet::block_on` returns `WalletError::Unavailable` for a dead/poisoned bridge and catches panics inside bridged futures. | `src/wallet/barkd.rs` |
 | 9 | **Watcher heartbeat.** `/api/v1/health` now includes `watcher_last_tick_age_secs` (null until first successful tick). Alert if it grows well beyond `watcher_interval_secs`. | `src/watcher.rs::LAST_TICK_UNIX`, `src/routes/health.rs` |
@@ -29,7 +30,7 @@ and `gh pr create` are unavailable in Claude Code sessions; use REST).
 ## Not done — pick up here (priority order)
 
 1. Durable webhook outbox (`webhook_deliveries` table; replace the in-memory retry task in `watcher.rs::emit_invoice_event`).
-2. Admin/merchant endpoint listing `unmatched_payments` and letting the merchant mark them resolved.
+2. Dashboard UI for `unmatched_payments`, plus an integration test for the new endpoints (none yet; only unit tests on `record_unmatched`).
 3. Gate the on-chain rail until the on-chain `/wallet/history` receive shape is pinned by a live signet drill (still UNPINNED).
 4. Rate limiting on public checkout routes; optional setup token for the unauthenticated wizard.
 5. Admin status endpoint (`EBP_ADMIN_TOKEN` is parsed but unused) incl. exit-reserve funding address and `unmatched_payments` listing.

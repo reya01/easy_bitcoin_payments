@@ -140,6 +140,8 @@ POST   /api/v1/invoices
 GET    /api/v1/invoices/{id}            # source of truth for stores
 GET    /api/v1/invoices?status=&since=
 POST   /api/v1/invoices/{id}/cancel
+GET    /api/v1/unmatched-payments       # late payments to expired/closed invoices (store-scoped)
+POST   /api/v1/unmatched-payments/{id}/resolve   # mark handled (refund / manual fulfilment)
 GET    /api/v1/rates?currency=EUR
 GET    /api/v1/settlements              # expiry queue + history
 POST   /api/v1/settlements/sweep-now

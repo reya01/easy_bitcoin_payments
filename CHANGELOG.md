@@ -7,6 +7,9 @@
 - Repeated refused sweeps no longer write a `settlements` row every tick.
 - Payments arriving after an invoice expired/closed were silently dropped; they are now recorded in `unmatched_payments` (migration 0005).
 
+### Added
+- `GET /api/v1/unmatched-payments` and `POST /api/v1/unmatched-payments/{id}/resolve` to review and close out late payments.
+
 ### Changed
 - `POST /api/v1/invoices` is idempotent per `order_id`: a retry with the same store, order and amount returns the existing open invoice with HTTP 200 instead of creating a duplicate (201).
 - `GET /api/v1/health` adds `watcher_last_tick_age_secs`.

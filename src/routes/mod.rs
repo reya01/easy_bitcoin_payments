@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod health;
 pub mod invoices;
 pub mod setup;
+pub mod unmatched;
 
 use std::sync::Arc;
 
@@ -58,6 +59,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/invoices/{id}", get(invoices::get_one))
         .route("/api/v1/invoices/{id}/cancel", post(invoices::cancel))
+        .route("/api/v1/unmatched-payments", get(unmatched::list))
+        .route(
+            "/api/v1/unmatched-payments/{id}/resolve",
+            post(unmatched::resolve),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             setup::setup_gate,

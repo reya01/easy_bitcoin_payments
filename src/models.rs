@@ -124,7 +124,8 @@ pub struct Store {
     pub name: String,
     pub webhook_url: Option<String>,
     pub webhook_secret_hash: Option<String>,
-    /// Plaintext until Phase 1 at-rest encryption lands. Never logged.
+    /// CIPHERTEXT (`enc:v1:…`, see secrets.rs). Decrypt with
+    /// `store::webhook_secret_plain`. Never logged.
     pub webhook_secret: Option<String>,
     pub policy_json: String,
     pub created_at: i64,

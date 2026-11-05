@@ -11,6 +11,21 @@ use rusqlite::OptionalExtension;
 
 use crate::{error::AppError, invoice, routes::AppState, uri};
 
+/// The vendored QR generator (`assets/qr.js`), served same-origin so the
+/// page CSP (`script-src 'self'`) holds without a CDN. Public, cacheable.
+pub async fn qr_js() -> impl axum::response::IntoResponse {
+    (
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (axum::http::header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../../assets/qr.js"),
+    )
+}
+
 pub async fn page() -> Html<&'static str> {
     Html(include_str!("../../assets/checkout.html"))
 }
@@ -55,7 +70,21 @@ pub async fn status(
         .call(move |c| invoice::expire_if_due(c, &id))
         .await?
         .ok_or(AppError::NotFound)?;
-    Ok(Json(serde_json::json!({ "status": inv.status.as_str() })))
+    // On-chain payment seen but not yet deep enough: the page says so
+    // instead of looking stuck (or, worse, showing "paid" too early).
+    let inv_id = inv.id.clone();
+    let seen_depth = if inv.status == crate::models::InvoiceStatus::Pending {
+        app.db
+            .call(move |c| invoice::onchain_seen_depth(c, &inv_id))
+            .await?
+    } else {
+        None
+    };
+    Ok(Json(serde_json::json!({
+        "status": inv.status.as_str(),
+        "onchain_confirmations": seen_depth,
+        "onchain_confirmations_required": app.config.onchain_min_confirmations,
+    })))
 }
 
 /// The BOLT11 issued for this invoice, if any. (The Byte Store correlates

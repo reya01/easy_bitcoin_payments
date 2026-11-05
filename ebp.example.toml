@@ -52,8 +52,11 @@ webhook_timeout_secs = 10
 # Log level (RUST_LOG syntax).
 log_level = "info,tower_http=info"
 
-# Master key for encrypting wallet material and webhook secrets at rest.
-# Unset = at-rest encryption not yet enabled (documented TODO, Phase 1).
+# 64 hex characters (32 bytes): key that encrypts webhook secrets at rest.
+# Generate with `openssl rand -hex 32`. Unset = a 0600 key file `ebp.key` is
+# created next to the database (protects the SQLite file alone, not the whole
+# volume). Prefer the env var EBP_KEY_ENCRYPTION_KEY, set from outside the
+# data volume, and back the key up separately from the database.
 # key_encryption_key = "…"
 
 # Admin token for the dashboard session, if you use one.
@@ -96,10 +99,15 @@ trust_proxy_headers = false
 # drill. Turn on (or EBP_ONCHAIN_RAIL_ENABLED=true) after running the signet
 # drill in docs/BETA_PLAN.md. Off = no on-chain tab / URI path / address.
 onchain_rail_enabled = false
+# Blocks an on-chain payment needs before it counts as paid. Minimum 1: an
+# unconfirmed payment can be replaced (RBF) by the sender, so it never counts.
+onchain_min_confirmations = 1
 
-# Optional shared secret for the first-run wizard: when set, wizard actions
-# (every non-GET /setup/* request) need the X-EBP-Setup-Token header; the
-# wizard page prompts for it. Prefer the EBP_SETUP_TOKEN env var over this file.
+# Optional FIXED setup code for the first-run wizard (automation). Leave unset
+# for normal use: until setup is finished the server generates a one-time
+# SETUP CODE on every start, prints it in its log, and the setup page asks for
+# it. If you do set one, wizard actions need it in the X-EBP-Setup-Token
+# header. Prefer the EBP_SETUP_TOKEN env var over this file.
 # setup_token = "change-me"
 
 # BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).

@@ -406,3 +406,237 @@ async fn every_response_carries_browser_hardening_headers() {
         );
     }
 }
+
+#[tokio::test]
+async fn webhook_config_and_key_rotation() {
+    let (base, _state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    let put = |body: serde_json::Value, key: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .put(format!("{base}/api/v1/stores/webhook"))
+                .header("host", "localhost")
+                .bearer_auth(key)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    // Unsafe targets are refused.
+    let bad = put(
+        serde_json::json!({ "url": "http://169.254.169.254/x" }),
+        key.clone(),
+    )
+    .await;
+    assert_eq!(bad.status(), 400);
+
+    // First valid URL issues a secret, shown once.
+    let ok = put(
+        serde_json::json!({ "url": "https://shop.example.com/hook" }),
+        key.clone(),
+    )
+    .await;
+    assert_eq!(ok.status(), 200);
+    let v: serde_json::Value = ok.json().await.unwrap();
+    let first = v["webhook_secret"].as_str().unwrap().to_string();
+    assert!(first.starts_with("whsec_"));
+
+    // Changing the URL alone keeps the secret (no new secret returned).
+    let same = put(
+        serde_json::json!({ "url": "https://shop.example.com/other" }),
+        key.clone(),
+    )
+    .await;
+    let v: serde_json::Value = same.json().await.unwrap();
+    assert!(v["webhook_secret"].is_null());
+
+    // Explicit rotation issues a different one.
+    let rot = put(
+        serde_json::json!({ "url": "https://shop.example.com/other", "rotate_secret": true }),
+        key.clone(),
+    )
+    .await;
+    let v: serde_json::Value = rot.json().await.unwrap();
+    assert_ne!(v["webhook_secret"].as_str().unwrap(), first);
+
+    // Key rotation: new key works, old key is dead.
+    let r = client
+        .post(format!("{base}/api/v1/stores/rotate-key"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let new_key = r.json::<serde_json::Value>().await.unwrap()["api_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let old = put(serde_json::json!({ "url": null }), key).await;
+    assert_eq!(old.status(), 401);
+    let fresh = put(serde_json::json!({ "url": null }), new_key).await;
+    assert_eq!(fresh.status(), 200);
+}
+
+#[tokio::test]
+async fn invoice_inputs_are_bounded_and_unmatched_list_paginates() {
+    let (base, _state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    let long = "x".repeat(129);
+    let (status, _) = create(&client, &base, &key, &long, 1000).await;
+    assert_eq!(status, 400, "order_id over 128 bytes is rejected");
+
+    let big = serde_json::json!({ "pad": "y".repeat(5000) });
+    let resp = client
+        .post(format!("{base}/api/v1/invoices"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .json(&serde_json::json!({ "order_id": "ok", "sats": 1000, "metadata": big }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "metadata over 4096 bytes is rejected");
+
+    let page = client
+        .get(format!("{base}/api/v1/unmatched-payments?limit=1&offset=0"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+}
+
+#[tokio::test]
+async fn qr_script_is_served_same_origin_and_checkout_uses_it() {
+    let (base, _state, _store_id, _key) = serve().await;
+    let client = reqwest::Client::new();
+    let js = client
+        .get(format!("{base}/assets/qr.js"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(js.status(), 200);
+    assert!(js.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("application/javascript"));
+    assert!(js.text().await.unwrap().contains("ebpQrSvg"));
+}
+
+#[tokio::test]
+async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
+    let (base, state, store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    // A failed delivery for this store and one for another store.
+    state
+        .db
+        .call({
+            let store_id = store_id.clone();
+            move |conn| {
+                for (id, sid) in [("whd_mine", store_id.as_str()), ("whd_other", "store_other")] {
+                    conn.execute(
+                        "INSERT INTO webhook_deliveries (id, store_id, invoice_id, event, idempotency_key, payload_json, status, attempts, next_attempt_at, last_error, created_at)
+                         VALUES (?1, ?2, 'inv_x', 'invoice.paid', ?1, '{}', 'failed', 6, 0, 'boom', 1)",
+                        rusqlite::params![id, sid],
+                    )?;
+                }
+                Ok(())
+            }
+        })
+        .await
+        .unwrap();
+
+    let list: serde_json::Value = client
+        .get(format!("{base}/api/v1/webhook-deliveries?status=failed"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(list.as_array().unwrap().len(), 1, "only this store's rows");
+    assert_eq!(list[0]["id"], "whd_mine");
+
+    let other = client
+        .post(format!("{base}/api/v1/webhook-deliveries/whd_other/resend"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(other.status(), 404, "another store's delivery is invisible");
+
+    let ok = client
+        .post(format!("{base}/api/v1/webhook-deliveries/whd_mine/resend"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+    let pending: serde_json::Value = client
+        .get(format!("{base}/api/v1/webhook-deliveries?status=pending"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pending[0]["attempts"], 0);
+
+    let audit: serde_json::Value = client
+        .get(format!("{base}/api/v1/audit-log"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(audit[0]["action"], "webhook.resend");
+}
+
+#[tokio::test]
+async fn generated_setup_code_is_typo_tolerant_and_wrong_codes_are_refused() {
+    let config = Config {
+        setup_token: Some("K7QM-2XPD-9TWE".to_string()),
+        setup_token_generated: true,
+        ..Config::default()
+    };
+    let (base, _state, _store_id, _key) = serve_with(config).await;
+    let client = reqwest::Client::new();
+    let verify = |code: &'static str| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .post(format!("{base}/setup/verify-code"))
+                .header("host", "localhost")
+                .header("x-ebp-setup-token", code)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+    };
+    assert_eq!(verify("K7QM-2XPD-9TWE").await, 200);
+    assert_eq!(
+        verify(" k7qm 2xpd 9twe ").await,
+        200,
+        "case/space/dash tolerant"
+    );
+    assert_eq!(verify("K7QM-2XPD-9TWF").await, 401);
+    assert_eq!(verify("").await, 401);
+}

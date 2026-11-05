@@ -93,6 +93,8 @@ Requires Rust 1.82+ (pinned in `rust-toolchain.toml`).
 ```bash
 # 1. Create a store. The API key is printed once — save it.
 cargo run -- store create --name "My Shop" --webhook-url "https://shop.example.com/ebp"
+cargo run -- store list
+cargo run -- store rotate-key            # lost your API key? mints a new one, shown once
 
 # 2. Start the server.
 cargo run -- serve
@@ -154,7 +156,7 @@ curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
 
 With the sidecar running, invoices get real Ark + on-chain addresses and a
 Lightning invoice (best effort, via the ASP gateway), the watcher polls
-`/wallet/history` with a persisted cursor, and the settlement engine sweeps
+`/history` (barkd's current history endpoint) with a persisted cursor, and the settlement engine sweeps
 the till to `EBP_SETTLEMENT_DESTINATION` while keeping a 15,000 sat/VTXO
 on-chain emergency-exit reserve.
 
@@ -170,8 +172,13 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
-| `GET` | `/api/v1/unmatched-payments` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
+| `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled |
+| `GET` | `/api/v1/webhook-deliveries?status=&limit=&offset=` | Webhook delivery log (this store) |
+| `POST` | `/api/v1/webhook-deliveries/{id}/resend` | Queue a delivery again |
+| `GET` | `/api/v1/audit-log?limit=&offset=` | Security trail: key/webhook changes, resends, resolved late payments |
+| `PUT` | `/api/v1/stores/webhook` | Set/clear the store's webhook URL; issues the signing secret once (`rotate_secret` to replace) |
+| `POST` | `/api/v1/stores/rotate-key` | Revoke all API keys for the store and issue a new one (shown once) |
 | `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |
@@ -225,7 +232,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_HOT_WALLET_CAP_SATS` | `500000` | Custody Level 0 till cap |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
 | `EBP_LOG_LEVEL` | `info,tower_http=info` | `tracing` filter |
-| `EBP_KEY_ENCRYPTION_KEY` | unset | Reserved; at-rest encryption is not implemented yet (schema columns exist) |
+| `EBP_KEY_ENCRYPTION_KEY` | unset | 64 hex chars (32 bytes). Key that encrypts webhook secrets at rest (ChaCha20-Poly1305). Unset = a 0600 `ebp.key` file is created next to the database. Generate with `openssl rand -hex 32`; keep it OUTSIDE the data volume in production |
 | `EBP_CHECKOUT_POLICY_URL` | unset | Refund policy link on checkout |
 | `EBP_CHECKOUT_ACCENT_COLOR` | `#f7931a` | Checkout branding |
 | `EBP_BARKD_URL` | `http://127.0.0.1:3000/api/v1` | barkd sidecar REST API |
@@ -243,7 +250,8 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
 | `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
-| `EBP_SETUP_TOKEN` | unset | If set, first-run wizard actions require it (`X-EBP-Setup-Token`); set it before exposing an unfinished instance to a network |
+| `EBP_SETUP_TOKEN` | unset | Optional fixed setup code for automation. Normally leave it unset: until setup is finished the server makes a one-time **SETUP CODE** on every start, prints it where the server runs (`docker compose logs ebp`), and the setup page asks for it |
+| `EBP_ONCHAIN_MIN_CONFIRMATIONS` | `1` | Block confirmations before an on-chain payment counts as paid (minimum 1; zero-confirmation payments can be replaced by the sender and are never credited) |
 | `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/BETA_PLAN.md) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
@@ -302,10 +310,14 @@ conversion, database migrations, and the watcher's payment application path.
 - **API keys are hashed at rest** (SHA-256) and shown exactly once at creation.
 - **Secrets are never logged.** Webhook secrets and API keys do not appear in
   log lines or error responses.
-- **Webhook secrets are stored in plaintext today** because the emitter must
-  sign with them. At-rest encryption using `EBP_KEY_ENCRYPTION_KEY` is a
-  documented Phase 1 TODO; the config field and schema column already exist so
-  the change is additive.
+- **Webhook secrets are encrypted at rest** (ChaCha20-Poly1305, random nonce,
+  store id bound as associated data) with `EBP_KEY_ENCRYPTION_KEY`, or a
+  `0600` key file `ebp.key` beside the database when unset. Set the env key
+  from outside the data volume in production: the key file only protects
+  against leaks of the SQLite file alone. Back the key up separately from the
+  database (docs/RECIPE_BACKUP.md); if it is lost, re-issue secrets with
+  `PUT /api/v1/stores/webhook {"rotate_secret": true}`. Rows from older
+  versions are encrypted automatically at startup.
 - **No customer PII is required.** An invoice needs an amount and an opaque
   order reference.
 - **Custody, Phase 1 (Level 0).** barkd holds the keys on the server; the

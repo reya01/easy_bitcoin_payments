@@ -65,6 +65,32 @@ pub struct TickReport {
 /// determine (no timestamp and no resolvable height).
 const UNKNOWN_EXPIRY_RETRY_SECS: i64 = 3600;
 
+/// Minimum gap between reserve-driven consolidations (each is a refresh
+/// round that costs ASP fees).
+const CONSOLIDATION_RETRY_SECS: i64 = 3600;
+
+/// Pick VTXOs (largest first) until they cover `target` sats. Returns the
+/// chosen ids and their total. Offboarding is per whole VTXO, so the total
+/// can exceed `target` by up to one VTXO; it is never below it unless the
+/// wallet holds less than `target` spendable.
+pub(crate) fn select_vtxos_covering(
+    vtxos: &[crate::wallet::barkd::Vtxo],
+    target: i64,
+) -> (Vec<String>, i64) {
+    let mut sorted: Vec<&crate::wallet::barkd::Vtxo> =
+        vtxos.iter().filter(|v| !v.id.is_empty()).collect();
+    sorted.sort_by_key(|v| std::cmp::Reverse(v.amount_sats));
+    let (mut ids, mut total) = (Vec::new(), 0i64);
+    for v in sorted {
+        if total >= target {
+            break;
+        }
+        ids.push(v.id.clone());
+        total += v.amount_sats;
+    }
+    (ids, total)
+}
+
 pub struct SettlementEngine {
     client: BarkdClient,
     db: Db,
@@ -74,6 +100,8 @@ pub struct SettlementEngine {
     /// Last refused-sweep reason recorded, so a persistent refusal writes
     /// ONE `settlements` row instead of one per tick (was unbounded growth).
     last_refusal: std::sync::Mutex<Option<String>>,
+    /// Last time we consolidated VTXOs to relieve the exit reserve (R7).
+    last_consolidation: std::sync::Mutex<Option<i64>>,
 }
 
 impl SettlementEngine {
@@ -84,6 +112,7 @@ impl SettlementEngine {
             config,
             last_unknown_refresh: std::sync::Mutex::new(None),
             last_refusal: std::sync::Mutex::new(None),
+            last_consolidation: std::sync::Mutex::new(None),
         }
     }
 
@@ -251,6 +280,47 @@ impl SettlementEngine {
         // 3. Exit-reserve gate, checked against /onchain/balance.
         let reserve = exit_reserve(onchain.confirmed_sats, vtxos.spendable.len());
         if !reserve.ok {
+            // R7: the reserve scales with the VTXO COUNT, and every customer
+            // payment can be its own VTXO. Before refusing, consolidate:
+            // refreshing all spendable VTXOs merges them into fewer outputs
+            // in the next round, which shrinks the reserve requirement.
+            // Throttled (each refresh costs ASP fees); the sweep is retried
+            // on a later tick once the round completes.
+            if reserve.vtxo_count > 1 {
+                let due_now = {
+                    let mut last = self
+                        .last_consolidation
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    let ok = !matches!(*last, Some(t) if now - t < CONSOLIDATION_RETRY_SECS);
+                    if ok {
+                        *last = Some(now);
+                    }
+                    ok
+                };
+                if due_now {
+                    match self.client.refresh_all().await {
+                        Ok(_) => {
+                            let count = reserve.vtxo_count;
+                            self.db
+                                .call(move |conn| {
+                                    record(
+                                        conn,
+                                        "consolidate",
+                                        0,
+                                        "",
+                                        "broadcast",
+                                        Some(&format!(
+                                            "refreshed {count} vtxos to shrink the exit reserve requirement"
+                                        )),
+                                    )
+                                })
+                                .await?;
+                        }
+                        Err(err) => tracing::warn!(error = %err, "consolidation refresh failed"),
+                    }
+                }
+            }
             let reason = format!(
                 "exit reserve short: {}/{} sats for {} spendable vtxos — fund the till's on-chain wallet",
                 reserve.onchain_sats, reserve.required_sats, reserve.vtxo_count
@@ -282,9 +352,14 @@ impl SettlementEngine {
         let (amount, result) = if ark {
             (excess, self.client.ark_send(&destination, excess).await)
         } else {
-            // On-chain destinations offboard the whole till; partial
-            // on-chain sweeps (/wallet/offboard/vtxos) are a Phase 1 leftover.
-            (offchain, self.client.offboard_all(&destination).await)
+            // R8: offboard only enough whole VTXOs to cover the excess
+            // (largest first) via /wallet/offboard/vtxos, leaving the rest
+            // as the till. Overshoot is at most one VTXO.
+            let (ids, total) = select_vtxos_covering(&vtxos.spendable, excess);
+            if ids.is_empty() {
+                return Ok(report);
+            }
+            (total, self.client.offboard_vtxos(&destination, &ids).await)
         };
 
         match result {
@@ -438,7 +513,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn onchain_destinations_offboard_the_whole_till() {
+    async fn onchain_destinations_offboard_only_the_excess_vtxos() {
         let (base, recorded) = mock::spawn(|req| {
             match req.route() {
             "/api/v1/wallet/vtxos" => (
@@ -450,7 +525,7 @@ mod tests {
                 200,
                 r#"{"spendable_sat": 150000}"#.to_string(),
             ),
-            "/api/v1/wallet/offboard/all" => (200, "{}".to_string()),
+            "/api/v1/wallet/offboard/vtxos" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
         }
         });
@@ -470,11 +545,38 @@ mod tests {
         let requests = recorded.lock().unwrap();
         let offboard = requests
             .iter()
-            .find(|r| r.route() == "/api/v1/wallet/offboard/all")
+            .find(|r| r.route() == "/api/v1/wallet/offboard/vtxos")
             .expect("offboard recorded");
         assert_eq!(offboard.method, "POST");
         let body: serde_json::Value = serde_json::from_str(&offboard.body).unwrap();
         assert_eq!(body["address"], "bc1qmerchant");
+        assert_eq!(body["vtxos"][0], "v1");
+        assert!(
+            !requests
+                .iter()
+                .any(|r| r.route() == "/api/v1/wallet/offboard/all"),
+            "must not offboard the whole till"
+        );
+    }
+
+    #[test]
+    fn vtxo_selection_covers_the_excess_largest_first() {
+        use crate::wallet::barkd::Vtxo;
+        let v = |id: &str, amt: i64| Vtxo {
+            id: id.into(),
+            amount_sats: amt,
+            expiry_height: None,
+            expires_at: None,
+        };
+        let set = vec![v("a", 10), v("b", 70), v("c", 30)];
+        assert_eq!(select_vtxos_covering(&set, 60), (vec!["b".to_string()], 70));
+        assert_eq!(
+            select_vtxos_covering(&set, 90),
+            (vec!["b".to_string(), "c".to_string()], 100)
+        );
+        // Less spendable than asked: take everything, caller sees the total.
+        assert_eq!(select_vtxos_covering(&set, 500).1, 110);
+        assert!(select_vtxos_covering(&[], 5).0.is_empty());
     }
 
     #[tokio::test]
@@ -492,6 +594,7 @@ mod tests {
                 200,
                 r#"{"spendable_sat": 200001}"#.to_string(),
             ),
+            "/api/v1/wallet/refresh/all" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
         }
         });
@@ -511,10 +614,23 @@ mod tests {
         assert!(reason.contains("reserve"), "{reason}");
 
         // Guard dropped before the awaited DB call below (clippy::await_holding_lock).
-        assert!(
-            recorded.lock().unwrap().iter().all(|r| r.method == "GET"),
-            "no sweep may be sent while the reserve is short"
-        );
+        {
+            let requests = recorded.lock().unwrap();
+            // R7: the only write allowed is the consolidating refresh; no
+            // send or offboard while the reserve is short.
+            assert!(
+                requests
+                    .iter()
+                    .all(|r| r.method == "GET" || r.route() == "/api/v1/wallet/refresh/all"),
+                "no sweep may be sent while the reserve is short"
+            );
+            assert!(
+                requests
+                    .iter()
+                    .any(|r| r.route() == "/api/v1/wallet/refresh/all"),
+                "two vtxos with a short reserve must trigger a consolidating refresh"
+            );
+        }
 
         let rows: i64 = db
             .call(|conn| {

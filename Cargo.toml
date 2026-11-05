@@ -29,6 +29,7 @@ toml = "0.8"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+chacha20poly1305 = "0.10"
 rand = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tracing = "0.1"

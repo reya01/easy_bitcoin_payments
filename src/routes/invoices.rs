@@ -105,9 +105,27 @@ fn to_response(
 /// (plan task 4) gives it a natural home.
 const PATH_LN_RECEIVE_FEES: &str = "/fees/lightning/receive";
 
+const MAX_ORDER_ID_LEN: usize = 128;
+const MAX_METADATA_BYTES: usize = 4096;
+
 /// Ask barkd for the ASP gateway's Lightning receive fee for `amount_sats`.
 /// Best effort: any transport or HTTP failure is logged (without secrets)
 /// and yields `None` — the checkout stays usable over Ark and on-chain.
+/// One shared client for the fee lookup (connection reuse) with a short
+/// timeout: it runs inline in invoice creation and is best effort, so a slow
+/// barkd must not add more than a few seconds (R11).
+fn fee_client() -> Option<&'static reqwest::Client> {
+    static CLIENT: std::sync::OnceLock<Option<reqwest::Client>> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+                .ok()
+        })
+        .as_ref()
+}
+
 async fn fetch_lightning_fee_estimate(
     config: &crate::config::Config,
     amount_sats: i64,
@@ -119,10 +137,7 @@ async fn fetch_lightning_fee_estimate(
         config.barkd_url.trim_end_matches('/'),
         PATH_LN_RECEIVE_FEES
     );
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .ok()?;
+    let client = fee_client()?;
 
     let mut header = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).ok()?;
     header.set_sensitive(true);
@@ -354,6 +369,26 @@ pub async fn create(
             }
             (Some(_), Some(_)) => unreachable!("guarded above"),
         };
+
+    // R11: bound free-form inputs (the 64 KB body cap is the only other limit).
+    if req
+        .order_id
+        .as_deref()
+        .is_some_and(|o| o.len() > MAX_ORDER_ID_LEN)
+    {
+        return Err(AppError::BadRequest(format!(
+            "order_id must be at most {MAX_ORDER_ID_LEN} bytes"
+        )));
+    }
+    if req
+        .metadata
+        .as_ref()
+        .is_some_and(|m| m.to_string().len() > MAX_METADATA_BYTES)
+    {
+        return Err(AppError::BadRequest(format!(
+            "metadata must serialize to at most {MAX_METADATA_BYTES} bytes"
+        )));
+    }
 
     // IDEMPOTENCY (beta hardening): a retry for the same `order_id` with the
     // same amount returns the existing open invoice (200 OK) instead of

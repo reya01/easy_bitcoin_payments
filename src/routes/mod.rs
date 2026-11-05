@@ -2,9 +2,11 @@ pub mod admin;
 pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
+pub mod deliveries;
 pub mod health;
 pub mod invoices;
 pub mod setup;
+pub mod stores;
 pub mod unmatched;
 
 use std::sync::Arc;
@@ -40,11 +42,22 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/wallet", post(setup::create_wallet))
         .route("/setup/wallet/confirm-backup", post(setup::confirm_backup))
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
+        .route("/setup/verify-code", post(setup::verify_code))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             setup::setup_token_guard,
+        ))
+        // Brute-force brake on the setup code: per-client request cap on the
+        // whole wizard (60/min is far above real use and far below guessing a
+        // 59-bit code).
+        .layer(middleware::from_fn_with_state(
+            Arc::new(crate::ratelimit::RateLimiter::new(
+                60,
+                state.config.trust_proxy_headers,
+            )),
+            crate::ratelimit::limit,
         ))
         .with_state(state.clone());
 
@@ -79,6 +92,17 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/invoices/{id}", get(invoices::get_one))
         .route("/api/v1/invoices/{id}/cancel", post(invoices::cancel))
         .route("/api/v1/admin/status", get(admin::status))
+        .route(
+            "/api/v1/stores/webhook",
+            axum::routing::put(stores::set_webhook),
+        )
+        .route("/api/v1/stores/rotate-key", post(stores::rotate_key))
+        .route("/api/v1/webhook-deliveries", get(deliveries::list))
+        .route(
+            "/api/v1/webhook-deliveries/{id}/resend",
+            post(deliveries::resend),
+        )
+        .route("/api/v1/audit-log", get(deliveries::audit))
         .route("/api/v1/unmatched-payments", get(unmatched::list))
         .route(
             "/api/v1/unmatched-payments/{id}/resolve",
@@ -93,6 +117,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(dashboard::root))
         .route("/dashboard", get(dashboard::dashboard))
+        .route("/assets/qr.js", get(checkout::qr_js))
         .route("/api/v1/health", get(health::health))
         .merge(setup)
         .merge(gated)

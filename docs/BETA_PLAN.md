@@ -48,6 +48,6 @@ the `setup.html` change are included.
 3. Run the live signet on-chain receive drill (pay an invoice's on-chain address with the rail enabled, capture the real `/wallet/history` entry, pin its shape in `barkd.rs`, add a fixture test), THEN consider flipping the default to on. The rail is gated off by default (row 15).
 4. Make the setup token mandatory in `mode = "live"` (decision for the maintainer), and browser-test the `setup.html` prompt.
 5. Surface `/api/v1/admin/status` in the dashboard UI (currently API only) and add webhook re-send.
-6. Webhook secrets are stored in plaintext (`key_encryption_key` is a no-op) — needs a crypto crate.
+6. ~~Webhook secrets are stored in plaintext~~ — DONE: encrypted at rest (src/secrets.rs, ChaCha20-Poly1305).
 7. Compose publishes `8080:8080` on all interfaces; no automated TLS.
 8. Human gates: UX review, release tag, CHANGELOG sign-off, WooCommerce plugin scope.

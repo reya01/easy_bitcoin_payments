@@ -6,15 +6,18 @@
 //! settlement engine, setup wizard, and signed webhooks. This build is
 //! EXPERIMENTAL — use signet or regtest only, never mainnet or real funds.
 
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod invoice;
 pub mod models;
+pub mod onchain;
 pub mod ratelimit;
 pub mod rates;
 pub mod routes;
+pub mod secrets;
 pub mod settings;
 pub mod store;
 pub mod uri;

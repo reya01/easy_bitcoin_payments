@@ -149,10 +149,19 @@ pub async fn dispatch_due(
         let store = db
             .call(move |conn| crate::store::get(conn, &store_id))
             .await?;
-        let target = store.and_then(|s| match (s.webhook_url, s.webhook_secret) {
-            (Some(url), Some(secret)) => Some((url, secret)),
-            _ => None,
-        });
+        let target = match store {
+            Some(s) => match crate::store::webhook_secret_plain(&s) {
+                Ok(secret) => match (s.webhook_url.clone(), secret) {
+                    (Some(url), Some(secret)) => Some((url, secret)),
+                    _ => None,
+                },
+                Err(err) => {
+                    tracing::error!(error = %err, "webhook secret could not be decrypted; delivery will retry");
+                    None
+                }
+            },
+            None => None,
+        };
 
         let outcome: Result<(), (String, bool)> = match target {
             None => Err(("store has no webhook configured".to_string(), true)),

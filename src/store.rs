@@ -30,6 +30,12 @@ pub fn create(
 
     let webhook_secret = webhook_url.map(|_| generate_webhook_secret());
     let webhook_secret_hash = webhook_secret.as_deref().map(hash_secret);
+    // R10: the signing secret is stored encrypted (secrets.rs); the plaintext
+    // goes back to the caller once and is never persisted.
+    let webhook_secret_enc = webhook_secret
+        .as_deref()
+        .map(|s| crate::secrets::get().encrypt(s, &store_id))
+        .transpose()?;
 
     let tx = conn.unchecked_transaction()?;
 
@@ -41,7 +47,7 @@ pub fn create(
             name,
             webhook_url,
             webhook_secret_hash,
-            webhook_secret,
+            webhook_secret_enc,
             created_at
         ],
     )?;
@@ -81,6 +87,73 @@ pub fn find_by_api_key_hash(conn: &Connection, key_hash: &str) -> Result<Option<
     )
     .optional()
     .map_err(Into::into)
+}
+
+/// Set (or clear, with `None`) the store's webhook URL.
+///
+/// A store that has no signing secret yet gets one generated; with
+/// `rotate_secret` a new secret replaces the old one. Returns the plaintext
+/// secret ONLY when a new one was generated (shown once, like the API key).
+/// Clearing the URL keeps the secret so re-enabling does not silently
+/// change what the receiver must verify. Callers validate the URL first
+/// (`webhook::validate_webhook_url`).
+pub fn set_webhook(
+    conn: &Connection,
+    store_id: &str,
+    url: Option<&str>,
+    rotate_secret: bool,
+) -> Result<Option<String>, AppError> {
+    let current = get(conn, store_id)?.ok_or(AppError::NotFound)?;
+    let needs_secret = url.is_some() && (rotate_secret || current.webhook_secret.is_none());
+    let new_secret = needs_secret.then(generate_webhook_secret);
+    match &new_secret {
+        Some(secret) => {
+            let enc = crate::secrets::get().encrypt(secret, store_id)?;
+            conn.execute(
+                "UPDATE stores SET webhook_url = ?1, webhook_secret = ?2, webhook_secret_hash = ?3 WHERE id = ?4",
+                params![url, enc, hash_secret(secret), store_id],
+            )?;
+        }
+        None => {
+            conn.execute(
+                "UPDATE stores SET webhook_url = ?1 WHERE id = ?2",
+                params![url, store_id],
+            )?;
+        }
+    }
+    Ok(new_secret)
+}
+
+/// Rotate the store's API key: every active key is revoked and one new key
+/// is issued, atomically. Returns the new plaintext key (shown once).
+pub fn rotate_api_key(conn: &Connection, store_id: &str) -> Result<String, AppError> {
+    if get(conn, store_id)?.is_none() {
+        return Err(AppError::NotFound);
+    }
+    let now = now_unix();
+    let key = generate_api_key();
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE api_keys SET revoked_at = ?1 WHERE store_id = ?2 AND revoked_at IS NULL",
+        params![now, store_id],
+    )?;
+    tx.execute(
+        "INSERT INTO api_keys (id, store_id, key_hash, label, created_at)
+         VALUES (?1, ?2, ?3, 'rotated', ?4)",
+        params![new_id("key"), store_id, hash_secret(&key), now],
+    )?;
+    tx.commit()?;
+    Ok(key)
+}
+
+/// The store's webhook signing secret in plaintext (decrypted on demand;
+/// the column and `Store.webhook_secret` hold ciphertext). Never log it.
+pub fn webhook_secret_plain(store: &Store) -> Result<Option<String>, AppError> {
+    store
+        .webhook_secret
+        .as_deref()
+        .map(|enc| crate::secrets::get().decrypt(enc, &store.id))
+        .transpose()
 }
 
 fn row_to_store(row: &rusqlite::Row<'_>) -> rusqlite::Result<Store> {
@@ -166,5 +239,32 @@ mod tests {
         let db = db().await;
         let err = db.call(|conn| create(conn, "   ", None)).await.unwrap_err();
         assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn webhook_secret_is_encrypted_at_rest_and_decrypts_on_demand() {
+        let db = db().await;
+        let (store, _key, secret) = db
+            .call(|conn| create(conn, "Enc Shop", Some("https://shop.example.com/h")))
+            .await
+            .unwrap();
+        let plain = secret.unwrap();
+        // What is in the column is ciphertext, never the secret.
+        let stored: String = db
+            .call({
+                let id = store.id.clone();
+                move |conn| {
+                    Ok(conn.query_row(
+                        "SELECT webhook_secret FROM stores WHERE id = ?1",
+                        params![id],
+                        |r| r.get(0),
+                    )?)
+                }
+            })
+            .await
+            .unwrap();
+        assert!(stored.starts_with("enc:v1:"));
+        assert!(!stored.contains(&plain));
+        assert_eq!(webhook_secret_plain(&store).unwrap().unwrap(), plain);
     }
 }

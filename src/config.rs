@@ -26,11 +26,10 @@ pub struct Config {
     pub watcher_interval_secs: u64,
     pub webhook_timeout_secs: u64,
     pub log_level: String,
-    /// Master key for encrypting wallet material and webhook secrets at rest.
-    ///
-    /// TODO(Phase 1): at-rest encryption is not implemented yet. The field and
-    /// the schema columns exist so the migration is additive. Until then the
-    /// value is accepted and has NO effect (no validation is wired).
+    /// 64-hex-char (32-byte) key for encrypting webhook secrets at rest
+    /// (secrets.rs). Optional: without it a 0600 key file `ebp.key` is
+    /// created next to the database. Prefer setting it from outside the data
+    /// volume (env `EBP_KEY_ENCRYPTION_KEY`).
     pub key_encryption_key: Option<String>,
     pub admin_token: Option<String>,
     /// Base URL of the barkd sidecar REST API (loopback / internal only).
@@ -73,6 +72,10 @@ pub struct Config {
     /// could create the wallet, read the recovery words, or mint the first
     /// store API key. Env-only recommended (`EBP_SETUP_TOKEN`).
     pub setup_token: Option<String>,
+    /// True when `setup_token` is the per-boot generated setup code (set by
+    /// `main`, never from file/env). Typed codes are then compared
+    /// case-/separator-insensitively.
+    pub setup_token_generated: bool,
     /// Offer the on-chain rail at checkout. DEFAULT OFF (beta): barkd's
     /// on-chain receive entry in `/wallet/history` is not yet pinned by a
     /// live drill, so on-chain payments cannot be detected with confidence
@@ -83,6 +86,10 @@ pub struct Config {
     /// Enable with `EBP_ONCHAIN_RAIL_ENABLED=true` once the signet drill in
     /// docs/BETA_PLAN.md has passed.
     pub onchain_rail_enabled: bool,
+    /// Block confirmations required before an on-chain payment counts as
+    /// paid (minimum 1: zero-confirmation payments can be replaced by the
+    /// sender via RBF, so they are never credited).
+    pub onchain_min_confirmations: u64,
 }
 
 impl Default for Config {
@@ -121,7 +128,9 @@ impl Default for Config {
             public_rate_limit_per_min: 120,
             trust_proxy_headers: false,
             setup_token: None,
+            setup_token_generated: false,
             onchain_rail_enabled: false,
+            onchain_min_confirmations: 1,
         }
     }
 }
@@ -209,6 +218,7 @@ struct FileConfig {
     trust_proxy_headers: Option<bool>,
     setup_token: Option<String>,
     onchain_rail_enabled: Option<bool>,
+    onchain_min_confirmations: Option<u64>,
 }
 
 impl Config {
@@ -325,6 +335,9 @@ impl Config {
         if let Some(v) = file.onchain_rail_enabled {
             self.onchain_rail_enabled = v;
         }
+        if let Some(v) = file.onchain_min_confirmations {
+            self.onchain_min_confirmations = v.max(1);
+        }
         if let Some(v) = file.setup_token {
             self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
         }
@@ -431,6 +444,9 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_ONCHAIN_MIN_CONFIRMATIONS") {
+            self.onchain_min_confirmations = positive_u64("EBP_ONCHAIN_MIN_CONFIRMATIONS", &v)?;
         }
         if let Some(v) = lookup("EBP_SETUP_TOKEN") {
             // Compose passes an empty string when unset: treat as absent.

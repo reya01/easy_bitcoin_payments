@@ -6,8 +6,8 @@ See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
 - The hardening branch (PR #1) was authored without a local compiler; CI (fmt, clippy -D warnings, tests, release build) is the verification. Keep it green.
 - Late/unmatched payments land in the `unmatched_payments` table with no dashboard UI yet — use `GET /api/v1/unmatched-payments` (store API key) or query the table directly
 - Webhooks are delivered from a durable outbox (`webhook_deliveries`); failed rows (after 6 attempts) stay for inspection with no re-send UI yet. Webhook URL validation is textual and does not stop DNS rebinding — restrict container egress in production.
-- Webhook secrets are stored in plaintext (`key_encryption_key` is not implemented).
-- On-chain receive detection depends on an UNPINNED `/wallet/history` shape. The rail is therefore OFF by default (`EBP_ONCHAIN_RAIL_ENABLED`); do not enable it for real funds before a live signet drill.
+- Webhook secrets are encrypted at rest (R10, done). Residual: with the auto-created `ebp.key` file the key sits in the same volume as the database, so only set `EBP_KEY_ENCRYPTION_KEY` from outside the volume gives real separation; the in-memory key and decrypted secrets exist in process memory while serving.
+- On-chain receive detection depends on an UNPINNED `/history` shape (the deprecated `/wallet/history` is no longer used). The rail is therefore OFF by default (`EBP_ONCHAIN_RAIL_ENABLED`); do not enable it for real funds before a live signet drill.
 
 ## RESOLVED & CONFIRMED — VPS aarch64 container restart-loop (~60s, 22h duration)
 
@@ -65,3 +65,14 @@ but was never the cause of the loop.
 3. `RUN timeout 10 ./target/release/ebp --help 2>&1 | grep -qi usage` — the
    build refuses to ship anything that can't print a usage block.
 4. The barkd image checksum-pins its prebuilt binary.
+
+## Added with the open-items PR (2026-11-05)
+- None of the barkd paths changed in PRs #3 and this one (Lightning invoice, Ark send, VTXO refresh, partial offboard, wallet create with `ark_server`, `/history`) has run against a live barkd; drill each on signet before real funds.
+- The QR encoder is original code verified with OpenCV and one Chromium render, not a phone scan; scan a real invoice with two wallets before launch.
+- History is still read in full each tick (R5).
+
+## Review notes on the open-items PR (never deployed, so no migration paths)
+- **On-chain payments are confirmation-gated, and unverified live.** With the rail on, an on-chain payment is credited only when `/onchain/transactions` shows it mined at depth `EBP_ONCHAIN_MIN_CONFIRMATIONS` (default 1); mempool payments show "waiting for confirmation" and are never credited (RBF-safe). The deadline is judged by when EBP first SAW the payment, and the invoice is held open (max 24h past expiry) while it waits. Caveats: a reorg deeper than the chosen depth can still undo a payment (raise the setting for large orders); a replaced or never-confirming payment keeps the order pending until the 24h hold ends; the live `/onchain/transactions` shape has not been exercised against signet yet, and the rail stays OFF by default until that drill passes.
+- **`rotate-key` shows the new key once.** If the response is lost, run `ebp store rotate-key` on the server (inside Docker: `docker compose exec ebp ebp store rotate-key`) to mint another. It is audit-logged.
+- **The setup code is shown in the server log.** Detached `docker compose up -d` hides it; the recipe tells the merchant to run `docker compose logs ebp`. A platform that injects `EBP_SETUP_TOKEN` (one-click installers) skips this.
+- **Defensive parsing left from before live captures.** `barkd.rs` still accepts several alternative field names and envelope shapes (`flex::*`, history/vtxo fallbacks). Now that the OpenAPI is pinned and a live history capture exists, trim them after the signet drill so unexpected shapes fail loudly.

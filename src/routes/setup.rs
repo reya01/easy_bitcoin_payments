@@ -178,6 +178,9 @@ pub struct SetupStatus {
     /// token is verified, and at least one store exists. Invoice and
     /// checkout routes stay closed (503 SetupIncomplete) until then.
     pub setup_complete: bool,
+    /// The wizard needs a setup code (generated at boot, or EBP_SETUP_TOKEN)
+    /// before any action; the page asks for it up front.
+    pub setup_code_required: bool,
     /// `"test"` (signet, play money) or `"live"`.
     pub mode: String,
 }
@@ -208,6 +211,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
 
     snapshot.barkd_token_present = token.is_some();
     snapshot.mode = state.config.mode.clone();
+    snapshot.setup_code_required = state.config.setup_token.is_some() && !snapshot.setup_complete;
 
     Ok(Json(snapshot))
 }
@@ -222,7 +226,8 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
         backup_confirmed: settings::get_bool(conn, "setup_backup_confirmed")?,
         store_count: conn.query_row("SELECT COUNT(*) FROM stores", [], |row| row.get(0))?,
         setup_complete: settings::get_bool(conn, "setup_complete")?,
-        mode: String::new(), // filled by the caller
+        setup_code_required: false, // filled by the caller
+        mode: String::new(),        // filled by the caller
     })
 }
 
@@ -734,10 +739,17 @@ async fn create_till_wallet(
 
     let response = client
         .post(format!("{base_url}{PATH_WALLET_CREATE}"))
-        .json(&serde_json::json!({ "network": network, "ark": asp_url }))
+        // Pinned OpenAPI CreateWalletRequest: the field is `ark_server`.
+        // (`ark` was silently ignored by barkd, so a custom ASP never applied.)
+        .json(&serde_json::json!({ "network": network, "ark_server": asp_url }))
         .send()
         .await
-        .map_err(|err| AppError::Internal(format!("could not reach barkd at {base_url}: {err}")))?;
+        .map_err(|err| {
+            // Log the detail; return a generic message (no internal URL) to
+            // the unauthenticated caller (R9).
+            tracing::warn!(error = %err, "setup: could not reach barkd");
+            AppError::Internal("could not reach the wallet service".into())
+        })?;
 
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(|err| {
@@ -943,9 +955,10 @@ async fn verify_barkd_token(base_url: &str, token: &str) -> Result<Option<bool>,
         .send()
         .await
         .map_err(|err| {
-            AppError::BadRequest(format!(
-                "could not reach barkd at {base_url}: {err} — is the sidecar running?"
-            ))
+            tracing::warn!(error = %err, "setup: could not reach barkd");
+            AppError::BadRequest(
+                "could not reach the wallet service — is the barkd sidecar running?".into(),
+            )
         })?;
 
     if !response.status().is_success() {
@@ -1094,6 +1107,12 @@ pub async fn setup_gate(
     next.run(request).await
 }
 
+/// `POST /setup/verify-code` — succeeds only if the setup-token guard let the
+/// request through, so the wizard page can tell a wrong code immediately.
+pub async fn verify_code() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "ok": true }))
+}
+
 /// Setup-token guard for the wizard router (beta hardening).
 ///
 /// Active only when `config.setup_token` is set. GET requests (the wizard
@@ -1112,11 +1131,20 @@ pub async fn setup_token_guard(
                 .get("x-ebp-setup-token")
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("");
-            if !crate::auth::ct_eq(expected, supplied) {
+            let matches = if state.config.setup_token_generated {
+                crate::auth::ct_eq(
+                    &crate::auth::normalize_setup_code(expected),
+                    &crate::auth::normalize_setup_code(supplied),
+                )
+            } else {
+                crate::auth::ct_eq(expected, supplied)
+            };
+            if !matches {
                 let body = serde_json::json!({
                     "error": "setup_token_required",
-                    "message": "This instance requires its setup token (EBP_SETUP_TOKEN) for \
-                                wizard actions. Send it in the X-EBP-Setup-Token header.",
+                    "message": "A setup code is needed. It is shown on the screen where you \
+                                started the server (or is your EBP_SETUP_TOKEN). Send it in the \
+                                X-EBP-Setup-Token header.",
                 });
                 return (StatusCode::UNAUTHORIZED, Json(body)).into_response();
             }

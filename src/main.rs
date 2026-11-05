@@ -37,6 +37,10 @@ fn print_help() {
          \x20 ebp serve                       Start the payments server\n\
          \x20 ebp store create --name <NAME>  Create a store and print its API key once\n\
          \x20     [--webhook-url <URL>]\n\
+         \x20 ebp store list                  List stores (id and name)\n\
+         \x20 ebp store rotate-key [--store <ID>]\n\
+         \x20     Revoke every API key of a store and print a new one once\n\
+         \x20     (lost-key recovery; --store is optional with one store)\n\
          \x20 ebp help                        Show this help\n\
          \n\
          CONFIGURATION:\n\
@@ -53,16 +57,39 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    if config.key_encryption_key.is_some() {
-        // The key is accepted but unused until Phase 1. Say so loudly rather
-        // than let an operator believe secrets are encrypted at rest.
-        tracing::warn!(
-            "EBP_KEY_ENCRYPTION_KEY is set but at-rest encryption is not implemented yet \
-             (Phase 1); webhook secrets are still stored as documented in the README"
-        );
-    }
+    // R10: webhook secrets are encrypted at rest. A malformed configured key
+    // aborts startup rather than silently falling back to another key.
+    easy_bitcoin_payments::secrets::init(
+        config.key_encryption_key.as_deref(),
+        &config.database_path,
+    )?;
 
     let db = Db::open(&config.database_path)?;
+
+    // R9: no technical setup needed to keep strangers out of the first-run
+    // wizard. If the operator did not choose a setup token and setup is not
+    // finished, make a one-time, human-typable SETUP CODE for this run and
+    // show it where the operator started the server. Never stored.
+    let mut config = config;
+    if config.setup_token.is_none() {
+        let complete = db
+            .call(|conn| easy_bitcoin_payments::settings::get_bool(conn, "setup_complete"))
+            .await?;
+        if !complete {
+            let code = easy_bitcoin_payments::auth::generate_setup_code();
+            config.setup_token = Some(code.clone());
+            config.setup_token_generated = true;
+            println!();
+            println!("==============================================");
+            println!("  SETUP CODE:  {code}");
+            println!("  Open the setup page in your browser and type");
+            println!("  this code when asked. It changes every time");
+            println!("  the server restarts, until setup is finished.");
+            println!("==============================================");
+            println!();
+            tracing::warn!("first-run setup is protected by a one-time setup code (shown above)");
+        }
+    }
 
     // BARK INTEGRATION (Phase 1): the wallet layer is a client of the barkd
     // sidecar's REST API (bearer token from `barkd secret show`, passed via
@@ -108,9 +135,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     // Durable webhook outbox dispatcher (beta hardening): delivers events the
     // watcher queued in `webhook_deliveries`, with backoff, surviving
     // restarts. Exactly ONE dispatcher must run.
-    let allow_private_webhooks = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
-        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
-        .unwrap_or(false);
+    let allow_private_webhooks = easy_bitcoin_payments::webhook::allow_private_from_env();
     tokio::spawn(easy_bitcoin_payments::webhook_outbox::run(
         db.clone(),
         webhooks.clone(),
@@ -128,7 +153,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         std::time::Duration::from_secs(config.watcher_interval_secs),
         config.renewal_lead_time_secs as i64,
     )
-    .with_onchain_rail(config.onchain_rail_enabled);
+    .with_onchain_rail(config.onchain_rail_enabled)
+    .with_onchain_min_confirmations(config.onchain_min_confirmations as i64);
     let watcher_handle = tokio::spawn(watcher.run());
 
     // Settlement engine (Phase 1): refreshes VTXOs ahead of their per-VTXO
@@ -199,8 +225,11 @@ async fn shutdown_signal() {
 
 async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let sub = args.first().map(String::as_str).unwrap_or("create");
-    if sub != "create" {
-        return Err(format!("unknown store subcommand: {sub}").into());
+    match sub {
+        "create" => {}
+        "list" => return store_list().await,
+        "rotate-key" => return store_rotate_key(args).await,
+        other => return Err(format!("unknown store subcommand: {other}").into()),
     }
 
     let mut name: Option<String> = None;
@@ -225,13 +254,17 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     // non-http(s) webhook targets. Local development can opt out with
     // EBP_WEBHOOK_ALLOW_PRIVATE=1. See webhook::validate_webhook_url.
     if let Some(url) = webhook_url.as_deref() {
-        let allow_private = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
-            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
-            .unwrap_or(false);
+        let allow_private = easy_bitcoin_payments::webhook::allow_private_from_env();
         easy_bitcoin_payments::webhook::validate_webhook_url(url, allow_private)
             .map_err(|e| format!("--webhook-url rejected: {e}"))?;
     }
     let config = Config::load()?;
+    // R10: the secret created below is stored encrypted, so this command must
+    // use the SAME key as the server (never the ephemeral test key).
+    easy_bitcoin_payments::secrets::init(
+        config.key_encryption_key.as_deref(),
+        &config.database_path,
+    )?;
     let db = Db::open(&config.database_path)?;
 
     let (store, api_key, webhook_secret) = db
@@ -250,5 +283,86 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     }
     println!();
     println!("Use it as: Authorization: Bearer <api key>");
+    Ok(())
+}
+
+/// `ebp store list` — ids and names only (no secrets).
+async fn store_list() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::load()?;
+    let db = Db::open(&config.database_path)?;
+    let rows: Vec<(String, String)> = db
+        .call(|conn| {
+            let mut stmt = conn.prepare("SELECT id, name FROM stores ORDER BY created_at")?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    if rows.is_empty() {
+        println!("No stores yet.");
+    }
+    for (id, name) in rows {
+        println!("{id}  {name}");
+    }
+    Ok(())
+}
+
+/// `ebp store rotate-key [--store ID]` — lost-key recovery. Revokes every
+/// active key of the store and prints one new key, once. With exactly one
+/// store the id may be omitted (the beginner case).
+async fn store_rotate_key(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    use easy_bitcoin_payments::error::AppError;
+    let mut store_id: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--store" => {
+                store_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            other => return Err(format!("unknown flag: {other}").into()),
+        }
+    }
+    let config = Config::load()?;
+    let db = Db::open(&config.database_path)?;
+    let key = db
+        .call(move |conn| {
+            let id = match store_id {
+                Some(id) => id,
+                None => {
+                    let mut stmt = conn.prepare("SELECT id FROM stores")?;
+                    let ids = stmt
+                        .query_map([], |r| r.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    match ids.as_slice() {
+                        [only] => only.clone(),
+                        [] => return Err(AppError::BadRequest("there are no stores yet".into())),
+                        _ => {
+                            return Err(AppError::BadRequest(
+                                "several stores exist: pass --store <ID> (see `ebp store list`)"
+                                    .into(),
+                            ))
+                        }
+                    }
+                }
+            };
+            let key = store::rotate_api_key(conn, &id)?;
+            easy_bitcoin_payments::audit::record(
+                conn,
+                &id,
+                "store.api_keys_rotated",
+                Some("via CLI"),
+            )?;
+            Ok(key)
+        })
+        .await?;
+    println!("All previous API keys for this store are now revoked.");
+    println!();
+    println!("  New API key (shown once - store it now):");
+    println!("    {key}");
+    println!();
+    println!("Update the key in your shop plugin / integration, then confirm an");
+    println!("order still creates an invoice.");
     Ok(())
 }

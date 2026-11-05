@@ -958,6 +958,7 @@ async fn version_endpoint_needs_auth_and_respects_the_off_switch() {
 
 #[tokio::test]
 async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let config = Config {
         password_hash_iterations: 1_000,
         ..Config::default()
@@ -1038,7 +1039,10 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
     }
 
     let r = backup(Some(&csrf), Some(&cookie), good).await.unwrap();
-    assert_eq!(r.status().as_u16(), 200);
+    let status = r.status().as_u16();
+    if status != 200 {
+        panic!("backup failed: {status} {}", r.text().await.unwrap());
+    }
     assert_eq!(r.headers()["cache-control"], "no-store");
     assert!(r.headers()["content-disposition"]
         .to_str()

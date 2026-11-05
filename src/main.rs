@@ -131,9 +131,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     // Durable webhook outbox dispatcher (beta hardening): delivers events the
     // watcher queued in `webhook_deliveries`, with backoff, surviving
     // restarts. Exactly ONE dispatcher must run.
-    let allow_private_webhooks = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
-        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
-        .unwrap_or(false);
+    let allow_private_webhooks = easy_bitcoin_payments::webhook::allow_private_from_env();
     tokio::spawn(easy_bitcoin_payments::webhook_outbox::run(
         db.clone(),
         webhooks.clone(),
@@ -248,9 +246,7 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     // non-http(s) webhook targets. Local development can opt out with
     // EBP_WEBHOOK_ALLOW_PRIVATE=1. See webhook::validate_webhook_url.
     if let Some(url) = webhook_url.as_deref() {
-        let allow_private = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
-            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
-            .unwrap_or(false);
+        let allow_private = easy_bitcoin_payments::webhook::allow_private_from_env();
         easy_bitcoin_payments::webhook::validate_webhook_url(url, allow_private)
             .map_err(|e| format!("--webhook-url rejected: {e}"))?;
     }

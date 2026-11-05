@@ -116,7 +116,7 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
 /// (`EBP_WEBHOOK_ALLOW_PRIVATE=1`; local development only).
 pub fn allow_private_from_env() -> bool {
     std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
 }
 

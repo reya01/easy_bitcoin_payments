@@ -70,3 +70,9 @@ but was never the cause of the loop.
 - None of the barkd paths changed in PRs #3 and this one (Lightning invoice, Ark send, VTXO refresh, partial offboard, wallet create with `ark_server`, `/history`) has run against a live barkd; drill each on signet before real funds.
 - The QR encoder is original code verified with OpenCV and one Chromium render, not a phone scan; scan a real invoice with two wallets before launch.
 - History is still read in full each tick (R5).
+
+## Review notes on the open-items PR (never deployed, so no migration paths)
+- **On-chain lateness uses the wallet's completion time.** An on-chain payment broadcast before the deadline but confirmed after it would be parked as `paid_after_expiry`. The on-chain rail is off by default; settle this with the signet drill (use the first-seen time for the rule) before enabling it.
+- **`rotate-key` has no recovery path.** It revokes every key, and if the response is lost the merchant is locked out until a CLI `ebp store` command can mint a new key (not built). Save the new key before closing the page. A CLI re-issue command is the next safe step.
+- **The setup code is shown in the server log.** Detached `docker compose up -d` hides it; the recipe tells the merchant to run `docker compose logs ebp`. A platform that injects `EBP_SETUP_TOKEN` (one-click installers) skips this.
+- **Defensive parsing left from before live captures.** `barkd.rs` still accepts several alternative field names and envelope shapes (`flex::*`, history/vtxo fallbacks). Now that the OpenAPI is pinned and a live history capture exists, trim them after the signet drill so unexpected shapes fail loudly.

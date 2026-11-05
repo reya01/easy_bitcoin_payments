@@ -82,6 +82,21 @@ before DNS/TLS is in place, do first run over an encrypted path (e.g. from
 your laptop: `ssh -L 8080:localhost:8080 your-server`, then open
 `http://localhost:8080/setup`). Never run first-run setup over an
 untrusted network.
+**The setup code.** To keep strangers out, the wizard first asks for a
+one-time SETUP CODE (like `K7QM-2XPD-9TWE`). The server prints it when it
+starts; to show it, the merchant runs this on the server and reads the
+code aloud or types it into the wizard (capitals, dashes and spaces do not
+matter):
+
+```
+docker compose logs ebp | grep -A1 "SETUP CODE"
+```
+
+The code is never stored and changes every time the server restarts until
+setup is finished; if it changes mid-setup the wizard just asks again.
+Once setup is complete the wizard closes and the code is no longer needed.
+The AI may help find the line but the code is not a long-term secret.
+
 The wizard walks the whole first run — create the till wallet, back up
 the recovery words, verify the barkd token, create the store — and the
 invoice and checkout endpoints stay closed (503 SetupIncomplete) until

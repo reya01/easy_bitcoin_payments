@@ -3,7 +3,7 @@
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
 ### Security
-- **Webhook secrets are now encrypted at rest** (ChaCha20-Poly1305; `EBP_KEY_ENCRYPTION_KEY` or a 0600 `ebp.key`). Existing plaintext rows are encrypted at startup. New dependency: `chacha20poly1305`. Back the key up separately from the database.
+- **Webhook secrets are now encrypted at rest** (ChaCha20-Poly1305; `EBP_KEY_ENCRYPTION_KEY` or a 0600 `ebp.key`). New dependency: `chacha20poly1305`. Back the key up separately from the database.
 - Audit trail (`audit_log`, `GET /api/v1/audit-log`) for key rotation, webhook changes, re-sends and resolved late payments; webhook delivery log + re-send endpoints.
 
 ### Fixed

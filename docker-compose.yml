@@ -50,7 +50,8 @@ services:
       # `.env` file next to this compose file (EBP_BARKD_TOKEN=...) and run
       # `docker compose up -d` again to hand it to the server.
       EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:-}
-      # Optional: require this secret for first-run wizard actions (see README).
+      # Optional fixed setup code (automation only). Leave empty: the server then
+      # prints a one-time SETUP CODE in `docker compose logs ebp` until setup is done.
       EBP_SETUP_TOKEN: ${EBP_SETUP_TOKEN:-}
       # 64 hex chars (`openssl rand -hex 32`) in the .env file: encrypts webhook
       # secrets at rest. Empty = a key file is created in the data volume.

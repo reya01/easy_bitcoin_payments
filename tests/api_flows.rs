@@ -609,9 +609,11 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
 
 #[tokio::test]
 async fn generated_setup_code_is_typo_tolerant_and_wrong_codes_are_refused() {
-    let mut config = Config::default();
-    config.setup_token = Some("K7QM-2XPD-9TWE".to_string());
-    config.setup_token_generated = true;
+    let config = Config {
+        setup_token: Some("K7QM-2XPD-9TWE".to_string()),
+        setup_token_generated: true,
+        ..Config::default()
+    };
     let (base, _state, _store_id, _key) = serve_with(config).await;
     let client = reqwest::Client::new();
     let verify = |code: &'static str| {

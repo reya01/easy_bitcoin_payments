@@ -117,7 +117,7 @@ and webhook signing secret exactly once. The merchant saves both in a
 password manager. The AI never sees them.
 
 **Expected:** the wizard finishes on a screen that says setup is
-complete. If it does not, `http://YOUR-SERVER-ADDRESS:8080/setup/status`
+complete. If it does not, `https://YOUR-SECURE-ADDRESS/setup/status`
 says which step is missing.
 
 After the wizard: add `EBP_BARKD_TOKEN` (the same token you pasted) to
@@ -241,7 +241,7 @@ wallet: scan the QR with Arké, or copy the address.
 
 **Expected:** within about ten seconds the checkout page flips to "Paid",
 and the payment appears in the dashboard at
-`http://YOUR-SERVER-ADDRESS:8080/dashboard`.
+`https://YOUR-SECURE-ADDRESS/dashboard`.
 
 **STOP** — confirm the invoice reads Paid before continuing.
 

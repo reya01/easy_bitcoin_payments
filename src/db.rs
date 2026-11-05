@@ -29,12 +29,33 @@ pub struct Db {
     conn: Arc<Mutex<Connection>>,
 }
 
+/// Create a directory (and parents) readable only by the server's user when
+/// it does not exist yet. An existing directory is left as the operator set
+/// it up.
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    if dir.exists() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
+}
+
 impl Db {
     pub fn open(path: &str) -> Result<Self, rusqlite::Error> {
         if path != ":memory:" {
             if let Some(parent) = Path::new(path).parent() {
                 if !parent.as_os_str().is_empty() {
-                    let _ = std::fs::create_dir_all(parent);
+                    let _ = create_private_dir(parent);
                 }
             }
         }
@@ -43,6 +64,14 @@ impl Db {
             Connection::open_in_memory()?
         } else {
             let conn = Connection::open(path)?;
+            // Owner-only from the first moment (the file holds the admin
+            // password hash and encrypted secrets). SQLite gives the -wal and
+            // -shm files the same permissions as the main file.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+            }
             backup_before_migrating(&conn, path)?;
             conn
         };
@@ -114,7 +143,7 @@ fn backup_before_migrating(conn: &Connection, path: &str) -> Result<(), rusqlite
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
         .join("backups");
-    std::fs::create_dir_all(&dir).map_err(|e| {
+    create_private_dir(&dir).map_err(|e| {
         plain_error(format!(
             "could not create the backups folder before upgrading: {e}"
         ))

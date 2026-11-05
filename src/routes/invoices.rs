@@ -95,11 +95,11 @@ fn to_response(
 
 /// Lightning receive fee table on the ASP gateway. GET.
 ///
-/// VERIFY: path + response shape — `/fees/lightning/receive` is not in
-/// the pinned `docs/barkd-openapi.json` endpoint list, so the path is
-/// verified against a live barkd before this marker comes off. The
-/// response is parsed defensively (see [`parse_lightning_fee_estimate`]):
-/// an unrecognised shape yields `None` (shown as "fee unknown"), never a
+/// The pinned OpenAPI documents this endpoint (required query `amount_sat`;
+/// response `gross_amount_sat`, `fee_sat`, `net_amount_sat`, `vtxos_spent`),
+/// and scripts/check_barkd_contract.py checks it. The response is still
+/// parsed defensively (see [`parse_lightning_fee_estimate`]): an
+/// unrecognised shape yields `None` (shown as "fee unknown"), never a
 /// guess. This lives here rather than on `BarkdClient` so the invoice
 /// route stays self-contained until the async `WalletAdapter` migration
 /// (plan task 4) gives it a natural home.
@@ -165,7 +165,7 @@ async fn fetch_lightning_fee_estimate(
 }
 
 /// Pull a sats fee estimate for `amount_sats` out of the fee-table JSON.
-/// Recognised shapes (VERIFY against a live barkd):
+/// Recognised shapes (`fee_sat` is the documented one; the rest are tolerated until the signet drill):
 ///   {"fee_sat": 12} | {"fee_sats": 12} | {"fee": 12}
 ///   {"fees": {"receive": 12}} | {"fees": {"fee_sat": 12}}
 ///   {"fee_percent": 0.5}  → ceil(amount × percent / 100)

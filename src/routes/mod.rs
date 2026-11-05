@@ -136,6 +136,12 @@ pub fn router(state: AppState) -> Router {
                     )),
                     crate::ratelimit::limit,
                 ))
+                // ...and an overall cap that does not depend on trusting any
+                // client address (covers a misconfigured proxy setup).
+                .layer(middleware::from_fn_with_state(
+                    Arc::new(crate::ratelimit::RateLimiter::new_global(120)),
+                    crate::ratelimit::limit,
+                ))
                 .with_state(state.clone()),
         )
         .route("/assets/qr.js", get(checkout::qr_js))

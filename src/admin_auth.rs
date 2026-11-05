@@ -113,23 +113,37 @@ pub fn set_password(conn: &Connection, password: &str, iterations: u32) -> Resul
     Ok(())
 }
 
-/// Check a login attempt. Does the slow hash even when no password is set, so
-/// timing does not reveal that.
-pub fn check_password(conn: &Connection, password: &str) -> Result<bool, AppError> {
-    let stored: Option<String> = conn
+/// The stored password hash, if a password has been set. Cheap: callers read
+/// this inside the database lock, then run the SLOW check outside it with
+/// [`verify_login`] so a flood of login attempts cannot stall the database.
+pub fn stored_hash(conn: &Connection) -> Result<Option<String>, AppError> {
+    Ok(conn
         .query_row(
             "SELECT password_hash FROM admin_account WHERE id = 1",
             [],
             |r| r.get(0),
         )
-        .optional()?;
+        .optional()?)
+}
+
+/// The slow part of a login check (PBKDF2). Does the work even when no
+/// password is set, so timing does not reveal that. Pure CPU: run it on a
+/// blocking thread, never while holding the database.
+pub fn verify_login(stored: Option<&str>, password: &str) -> bool {
     match stored {
-        Some(s) => Ok(verify_password(password, &s)),
+        Some(s) => verify_password(password, s),
         None => {
             let _ = pbkdf2(password.as_bytes(), b"ebp-no-account", DEFAULT_ITERATIONS);
-            Ok(false)
+            false
         }
     }
+}
+
+/// Check a login attempt (hash read and verified together). Convenience for
+/// tests and low-traffic callers; the login route uses the split form.
+pub fn check_password(conn: &Connection, password: &str) -> Result<bool, AppError> {
+    let stored = stored_hash(conn)?;
+    Ok(verify_login(stored.as_deref(), password))
 }
 
 pub struct Session {

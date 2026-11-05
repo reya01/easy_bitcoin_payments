@@ -72,10 +72,18 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     }
     let password = req.password;
+    // 1. Read the stored hash (fast, inside the database lock).
+    let stored = state.db.call(|c| aa::stored_hash(c)).await?;
+    // 2. The slow PBKDF2 check runs on a blocking thread OUTSIDE the lock, so
+    //    a flood of login attempts cannot stall invoices and checkout.
+    let ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &password))
+        .await
+        .map_err(|e| AppError::Internal(format!("login check failed: {e}")))?;
+    // 3. Record the outcome (fast, inside the lock).
     let outcome = state
         .db
         .call(move |c| {
-            if aa::check_password(c, &password)? {
+            if ok {
                 let s = aa::create_session(c)?;
                 audit(c, "admin.login", "signed in");
                 Ok(Some(s))

@@ -1094,6 +1094,37 @@ pub async fn setup_gate(
     next.run(request).await
 }
 
+/// Setup-token guard for the wizard router (beta hardening).
+///
+/// Active only when `config.setup_token` is set. GET requests (the wizard
+/// page, `/setup/status`) pass; every other method needs the matching
+/// `X-EBP-Setup-Token` header, compared in constant time. Without this, the
+/// wizard is open to anyone who can reach an unfinished instance.
+pub async fn setup_token_guard(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if let Some(expected) = state.config.setup_token.as_deref() {
+        if request.method() != axum::http::Method::GET {
+            let supplied = request
+                .headers()
+                .get("x-ebp-setup-token")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if !crate::auth::ct_eq(expected, supplied) {
+                let body = serde_json::json!({
+                    "error": "setup_token_required",
+                    "message": "This instance requires its setup token (EBP_SETUP_TOKEN) for \
+                                wizard actions. Send it in the X-EBP-Setup-Token header.",
+                });
+                return (StatusCode::UNAUTHORIZED, Json(body)).into_response();
+            }
+        }
+    }
+    next.run(request).await
+}
+
 /// The gate as a helper: `Some(503 response)` while setup is incomplete,
 /// `None` when setup is complete. Also usable directly inside handlers:
 /// `if let Some(response) = gate_response(&state).await { return Ok(response); }`.

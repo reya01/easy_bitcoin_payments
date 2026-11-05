@@ -658,13 +658,7 @@ impl BarkdClient {
 
         let mut out = Vec::with_capacity(set.spendable.len() + set.pending.len());
         for v in set.spendable.into_iter().chain(set.pending) {
-            let height = v.expiry_height;
-            let expires_at = v.expires_at.unwrap_or_else(|| match (&tip, height) {
-                (Some(tip), Some(height)) if height as i64 > tip.height => {
-                    tip.timestamp + (height as i64 - tip.height) * 600
-                }
-                _ => 0, // already past the tip, or unknown: treat as urgent
-            });
+            let expires_at = vtxo_expiry_unix(&v, tip.as_ref()).unwrap_or(0);
             out.push(WalletVtxo {
                 id: v.id,
                 amount_sats: v.amount_sats,
@@ -1237,6 +1231,38 @@ pub struct Tip {
     pub timestamp: i64,
 }
 
+/// Wall-clock (UNIX seconds) expiry of a VTXO.
+///
+/// barkd reports expiry as a BLOCK HEIGHT (`expiry_height`), not a timestamp
+/// (learn_lifetime.md). Callers must never compare a height against
+/// `now_unix()` — that was the P0 renewal bug fixed in the beta-hardening
+/// pass (a height like 900_000 is always "less than now", so every VTXO
+/// looked expired / or never due depending on the comparison).
+///
+/// Returns:
+/// * `Some(ts)` — an explicit `expires_at` wins; otherwise a height is
+///   converted with the chain tip at ~600 s/block. A height at or below the
+///   tip has already expired and yields `Some(0)` (urgent).
+/// * `None` — expiry is unknown (no timestamp, and no height or no tip).
+///   Callers decide how to treat unknown; the queue shows it as urgent (0),
+///   the settlement engine refreshes but throttles (see settlement.rs).
+pub fn vtxo_expiry_unix(v: &Vtxo, tip: Option<&Tip>) -> Option<i64> {
+    if let Some(ts) = v.expires_at {
+        return Some(ts);
+    }
+    match (tip, v.expiry_height) {
+        (Some(tip), Some(height)) => {
+            let height = height as i64;
+            if height > tip.height {
+                Some(tip.timestamp + (height - tip.height) * 600)
+            } else {
+                Some(0)
+            }
+        }
+        _ => None,
+    }
+}
+
 /// ASP connection status from `GET /wallet/connected`.
 #[derive(Debug, Clone)]
 pub struct ConnectedStatus {
@@ -1442,21 +1468,40 @@ impl BarkdWallet {
         &self.client
     }
 
-    fn block_on<T: Send + 'static, F: Future<Output = T> + Send + 'static>(&self, fut: F) -> T {
+    /// Run `fut` on the bridge runtime and wait for it.
+    ///
+    /// BETA-HARDENING: this used to `panic!` when the bridge thread was gone
+    /// or a job was dropped, which took the caller (watcher / request
+    /// handler) down with it. Every failure mode now surfaces as
+    /// `WalletError::Unavailable`, and a panic INSIDE the future is caught on
+    /// the bridge thread so one bad response cannot kill the bridge for all
+    /// later calls.
+    fn block_on<T: Send + 'static, F: Future<Output = Result<T, WalletError>> + Send + 'static>(
+        &self,
+        fut: F,
+    ) -> Result<T, WalletError> {
         let (tx, rx) = mpsc::channel();
         let job: Job = Box::new(move |rt| {
-            let _ = tx.send(rt.block_on(fut));
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rt.block_on(fut)))
+                    .unwrap_or_else(|_| {
+                        Err(WalletError::Unavailable(
+                            "the barkd bridge task panicked".to_string(),
+                        ))
+                    });
+            let _ = tx.send(outcome);
         });
         let sender = self
             .tx
             .lock()
-            .ok()
-            .unwrap_or_else(|| panic!("barkd bridge poisoned"));
-        sender
-            .send(job)
-            .unwrap_or_else(|_| panic!("the barkd bridge thread has exited"));
-        rx.recv()
-            .unwrap_or_else(|_| panic!("the barkd bridge dropped a job without answering"))
+            .map_err(|_| WalletError::Unavailable("barkd bridge lock poisoned".to_string()))?;
+        sender.send(job).map_err(|_| {
+            WalletError::Unavailable("the barkd bridge thread has exited".to_string())
+        })?;
+        drop(sender);
+        rx.recv().map_err(|_| {
+            WalletError::Unavailable("the barkd bridge dropped a job without answering".to_string())
+        })?
     }
 }
 

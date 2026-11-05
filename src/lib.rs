@@ -12,6 +12,7 @@ pub mod db;
 pub mod error;
 pub mod invoice;
 pub mod models;
+pub mod ratelimit;
 pub mod rates;
 pub mod routes;
 pub mod settings;
@@ -21,6 +22,7 @@ pub mod util;
 pub mod wallet;
 pub mod watcher;
 pub mod webhook;
+pub mod webhook_outbox;
 
 /// Crate version, surfaced by `GET /api/v1/health`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -13,6 +13,7 @@
 //! unique VTXO/txid guards, so at-least-once polling is safe.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -28,18 +29,32 @@ use crate::util::{now_unix, to_rfc3339};
 use crate::wallet::{WalletAdapter, WalletVtxo};
 use crate::webhook::WebhookEmitter;
 
+/// UNIX time of the last watcher tick that completed without error; 0 until
+/// the first one. Surfaced by `/api/v1/health` so a wedged or crash-looping
+/// watcher is visible to monitoring (beta hardening).
+pub static LAST_TICK_UNIX: AtomicI64 = AtomicI64::new(0);
+
 /// `settings` key holding the persisted history cursor (UNIX seconds).
 const HISTORY_CURSOR_KEY: &str = "watcher.history_cursor";
 
 pub struct PollingWatcher {
     wallet: Arc<dyn WalletAdapter>,
     db: Db,
+    /// Unused since the durable outbox (webhook_outbox.rs) took over
+    /// delivery; kept so `PollingWatcher::new`'s signature (used by many
+    /// tests) stays stable.
+    #[allow(dead_code)]
     webhooks: Arc<WebhookEmitter>,
     interval: Duration,
     cursor: Mutex<i64>,
     /// Renewal lead time in seconds; each expiry-queue row's `renew_by` is
     /// its per-VTXO expiry minus this.
     renewal_lead_secs: i64,
+    /// Credit on-chain-rail payments? Set from `config.onchain_rail_enabled`
+    /// via [`PollingWatcher::with_onchain_rail`]; `new()` defaults to true so
+    /// existing tests keep their behaviour. When false, on-chain payments are
+    /// parked in `unmatched_payments` instead of crediting an invoice.
+    onchain_rail_enabled: bool,
 }
 
 impl PollingWatcher {
@@ -57,7 +72,14 @@ impl PollingWatcher {
             interval,
             cursor: Mutex::new(0),
             renewal_lead_secs,
+            onchain_rail_enabled: true,
         }
+    }
+
+    /// Builder: enable/disable crediting of on-chain-rail payments.
+    pub fn with_onchain_rail(mut self, enabled: bool) -> Self {
+        self.onchain_rail_enabled = enabled;
+        self
     }
 
     /// Run forever, polling on the configured interval.
@@ -90,12 +112,24 @@ impl PollingWatcher {
         let mut ticker = tokio::time::interval(self.interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // SUPERVISION (beta hardening): each tick runs in its own spawned
+        // task, so a panic inside one tick is logged and the loop carries on
+        // instead of silently ending payment detection until a restart.
+        let this = Arc::new(self);
         loop {
             ticker.tick().await;
-            match self.tick().await {
-                Ok(0) => {}
-                Ok(applied) => tracing::info!(applied, "watcher applied payments"),
-                Err(err) => tracing::warn!(error = %err, "watcher tick failed"),
+            let worker = Arc::clone(&this);
+            match tokio::spawn(async move { worker.tick().await }).await {
+                Ok(Ok(applied)) => {
+                    LAST_TICK_UNIX.store(now_unix(), Ordering::Relaxed);
+                    if applied > 0 {
+                        tracing::info!(applied, "watcher applied payments");
+                    }
+                }
+                Ok(Err(err)) => tracing::warn!(error = %err, "watcher tick failed"),
+                Err(join_err) => {
+                    tracing::error!(error = %join_err, "watcher tick PANICKED; continuing")
+                }
             }
         }
     }
@@ -107,9 +141,13 @@ impl PollingWatcher {
             .lock()
             .map_err(|_| AppError::Internal("watcher cursor poisoned".into()))?;
 
-        let payments = self
-            .wallet
-            .poll_payments(since)
+        // BETA-HARDENING: the wallet adapter is synchronous and (for barkd)
+        // blocks on HTTP. Run it on the blocking pool so a slow barkd cannot
+        // stall a tokio worker thread.
+        let wallet = Arc::clone(&self.wallet);
+        let payments = tokio::task::spawn_blocking(move || wallet.poll_payments(since))
+            .await
+            .map_err(|e| AppError::Internal(format!("wallet poll task failed: {e}")))?
             .map_err(|e| AppError::Internal(format!("wallet poll failed: {e}")))?;
 
         let mut applied = 0usize;
@@ -118,6 +156,39 @@ impl PollingWatcher {
         for payment in payments {
             newest = newest.max(payment.detected_at);
 
+            // On-chain rail switched off (default): never auto-credit it. The
+            // on-chain receive shape is unpinned, so we park the payment for
+            // the merchant instead of risking a wrong credit.
+            if matches!(payment.rail, crate::models::Rail::Onchain) && !self.onchain_rail_enabled {
+                let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+                let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+                let (amount, seen) = (payment.amount_sats, payment.detected_at);
+                let is_new = self
+                    .db
+                    .call(move |conn| {
+                        invoice::record_unmatched(
+                            conn,
+                            &invoice::UnmatchedInput {
+                                address: &addr,
+                                rail: &rail,
+                                amount_sats: amount,
+                                vtxo_id: vtxo.as_deref(),
+                                txid: txid.as_deref(),
+                                detected_at: seen,
+                                reason_override: Some("onchain_rail_disabled"),
+                            },
+                        )
+                    })
+                    .await?;
+                if is_new {
+                    tracing::warn!(
+                        amount_sats = payment.amount_sats,
+                        "on-chain payment seen while the on-chain rail is disabled; parked in unmatched_payments"
+                    );
+                }
+                continue;
+            }
+
             let address = payment.address.clone();
             let invoice = self
                 .db
@@ -125,7 +196,37 @@ impl PollingWatcher {
                 .await?;
 
             let Some(invoice) = invoice else {
-                tracing::debug!("payment at unknown address ignored");
+                // BETA-HARDENING: no PENDING invoice owns this address. If it
+                // belongs to an expired/closed invoice, the funds are in the
+                // till and MUST be recorded (late payment) rather than
+                // dropped. Unknown addresses (e.g. reserve funding) are
+                // ignored by `record_unmatched`.
+                let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+                let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+                let (amount, seen) = (payment.amount_sats, payment.detected_at);
+                let is_new = self
+                    .db
+                    .call(move |conn| {
+                        invoice::record_unmatched(
+                            conn,
+                            &invoice::UnmatchedInput {
+                                address: &addr,
+                                rail: &rail,
+                                amount_sats: amount,
+                                vtxo_id: vtxo.as_deref(),
+                                txid: txid.as_deref(),
+                                detected_at: seen,
+                                reason_override: None,
+                            },
+                        )
+                    })
+                    .await?;
+                if is_new {
+                    tracing::warn!(
+                        amount_sats = payment.amount_sats,
+                        "late/unmatched payment recorded in unmatched_payments; merchant must reconcile"
+                    );
+                }
                 continue;
             };
 
@@ -195,7 +296,11 @@ impl PollingWatcher {
         // Keep the VTXO expiry queue in sync with the wallet's live list.
         // Every VTXO carries its own expiry: board/refresh VTXOs live ~28
         // days, Lightning-received VTXOs only 1-3 days (learn_lifetime.md).
-        match self.wallet.vtxos() {
+        let wallet = Arc::clone(&self.wallet);
+        let vtxo_result = tokio::task::spawn_blocking(move || wallet.vtxos())
+            .await
+            .map_err(|e| AppError::Internal(format!("wallet vtxos task failed: {e}")))?;
+        match vtxo_result {
             Ok(vtxos) => {
                 let lead = self.renewal_lead_secs;
                 self.db
@@ -235,9 +340,10 @@ impl PollingWatcher {
             }
         };
 
-        let (Some(url), Some(secret)) = (store.webhook_url, store.webhook_secret) else {
+        // No webhook configured for this store: nothing to queue.
+        if store.webhook_url.is_none() || store.webhook_secret.is_none() {
             return;
-        };
+        }
 
         let event = match status {
             InvoiceStatus::Paid => "invoice.paid",
@@ -260,13 +366,28 @@ impl PollingWatcher {
 
         let idempotency_key = format!("{}:{}:{}", invoice.id, event, invoice.paid_sats);
 
+        // BETA-HARDENING: write the event to the durable outbox
+        // (`webhook_deliveries`, migration 0006). The dispatcher in
+        // `webhook_outbox::run` delivers it with backoff and survives
+        // restarts. The idempotency key is UNIQUE, so re-observing the same
+        // payment cannot queue the event twice.
+        let (store_id, invoice_id) = (invoice.store_id.clone(), invoice.id.clone());
+        let event_name = event.to_string();
         if let Err(err) = self
-            .webhooks
-            .emit(&url, &secret, event, &idempotency_key, &payload)
+            .db
+            .call(move |conn| {
+                crate::webhook_outbox::enqueue(
+                    conn,
+                    &store_id,
+                    &invoice_id,
+                    &event_name,
+                    &idempotency_key,
+                    &payload,
+                )
+            })
             .await
         {
-            // Phase 1 adds the delivery log and retry schedule.
-            tracing::warn!(error = %err, event, "webhook delivery failed");
+            tracing::error!(error = %err, event, "could not queue webhook event");
         }
     }
 }
@@ -441,6 +562,79 @@ mod tests {
             .unwrap();
         assert_eq!(invoice.status, InvoiceStatus::Paid);
         assert_eq!(invoice.paid_sats, 1000);
+    }
+
+    fn onchain_payment() -> WalletPayment {
+        WalletPayment {
+            address: "bc1qinv_1".to_string(),
+            rail: Rail::Onchain,
+            amount_sats: 1000,
+            vtxo_id: None,
+            txid: Some("tx_onchain_1".to_string()),
+            detected_at: now_unix(),
+            confirmed_at: Some(now_unix()),
+        }
+    }
+
+    #[tokio::test]
+    async fn onchain_payment_is_parked_not_credited_when_the_rail_is_disabled() {
+        let (db, store_id) = setup(vec![]).await;
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![onchain_payment()],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        )
+        .with_onchain_rail(false);
+
+        assert_eq!(watcher.tick().await.unwrap(), 0, "must not credit");
+
+        let invoice = db
+            .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Pending);
+
+        let parked: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM unmatched_payments WHERE reason = 'onchain_rail_disabled'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(parked, 1);
+    }
+
+    #[tokio::test]
+    async fn onchain_payment_is_credited_when_the_rail_is_enabled() {
+        let (db, store_id) = setup(vec![]).await;
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![onchain_payment()],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        )
+        .with_onchain_rail(true);
+
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        let invoice = db
+            .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Paid);
     }
 
     #[tokio::test]

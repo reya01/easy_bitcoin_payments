@@ -273,6 +273,106 @@ pub fn find_pending_by_address(
     .map_err(Into::into)
 }
 
+/// Newest still-open (`pending`, not past `expires_at`) invoice a store
+/// already created for `order_id`, if any.
+///
+/// BETA-HARDENING: backs create-invoice idempotency. Shop plugins retry on
+/// timeouts and double-click "Pay"; without this every retry minted a fresh
+/// invoice (and fresh addresses) for the same order. The caller only reuses
+/// the hit when the amount matches (see `routes::invoices::create`).
+pub fn find_open_by_order_id(
+    conn: &Connection,
+    store_id: &str,
+    order_id: &str,
+) -> Result<Option<Invoice>, AppError> {
+    conn.query_row(
+        "SELECT * FROM invoices
+         WHERE store_id = ?1 AND order_id = ?2
+           AND status = 'pending' AND expires_at > ?3
+         ORDER BY created_at DESC LIMIT 1",
+        params![store_id, order_id, now_unix()],
+        row_to_invoice,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Input for [`record_unmatched`] (a struct keeps the signature under
+/// clippy's argument limit and makes call sites self-describing).
+pub struct UnmatchedInput<'a> {
+    pub address: &'a str,
+    pub rail: &'a str,
+    pub amount_sats: i64,
+    pub vtxo_id: Option<&'a str>,
+    pub txid: Option<&'a str>,
+    pub detected_at: i64,
+    /// Force a specific `reason` (e.g. `onchain_rail_disabled`); `None`
+    /// derives `invoice_expired` / `invoice_closed` from the invoice status.
+    pub reason_override: Option<&'a str>,
+}
+
+/// Record a wallet payment that reached one of OUR invoice addresses but
+/// could not be applied because the invoice is no longer `pending`
+/// (expired, cancelled, already settled, or underpaid).
+///
+/// BETA-HARDENING (P0): such payments used to be dropped with a debug log,
+/// leaving funds in the till with no record. This writes an audit row in
+/// `unmatched_payments` for the merchant to reconcile (refund / re-credit).
+/// Addresses that match NO invoice (e.g. the merchant funding the exit
+/// reserve) are deliberately not recorded. Idempotent: the unique
+/// vtxo/txid indexes make re-delivery a no-op. Returns true if a NEW row
+/// was written (callers may warn loudly once).
+pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<bool, AppError> {
+    let UnmatchedInput {
+        address,
+        rail,
+        amount_sats,
+        vtxo_id,
+        txid,
+        detected_at,
+        reason_override,
+    } = *input;
+    let found: Option<(String, String)> = conn
+        .query_row(
+            "SELECT id, status FROM invoices
+             WHERE ark_address = ?1 OR onchain_address = ?1
+                OR id = (SELECT invoice_id FROM ln_invoices WHERE bolt11 = ?1 LIMIT 1)
+             ORDER BY created_at DESC LIMIT 1",
+            params![address],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((invoice_id, status)) = found else {
+        return Ok(false);
+    };
+    // `reason_override` lets the watcher park payments that arrive on a rail
+    // that is switched off (e.g. `onchain_rail_disabled`) even though the
+    // invoice itself is still pending.
+    let reason = match reason_override {
+        Some(reason) => reason,
+        None if status == "expired" => "invoice_expired",
+        None => "invoice_closed",
+    };
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO unmatched_payments
+            (id, address, invoice_id, rail, amount_sats, vtxo_id, txid, reason, detected_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            crate::util::new_id("unm"),
+            address,
+            invoice_id,
+            rail,
+            amount_sats,
+            vtxo_id,
+            txid,
+            reason,
+            detected_at,
+            now_unix()
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Store the Lightning invoice issued for a checkout invoice (Phase 1).
 pub fn set_lightning_invoice(
     conn: &Connection,
@@ -777,6 +877,112 @@ mod tests {
             .await
             .unwrap();
         assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn open_invoice_is_found_by_order_id_until_it_closes() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+
+        let sid = store_id.clone();
+        let hit = db
+            .call(move |conn| find_open_by_order_id(conn, &sid, "wc-1234"))
+            .await
+            .unwrap();
+        assert_eq!(hit.map(|i| i.id), Some("inv_1".to_string()));
+
+        // Other stores and other orders never match.
+        assert!(db
+            .call(|conn| find_open_by_order_id(conn, "other-store", "wc-1234"))
+            .await
+            .unwrap()
+            .is_none());
+
+        // A cancelled invoice is not "open": a retry must mint a new one.
+        let sid = store_id.clone();
+        db.call(move |conn| cancel(conn, &sid, "inv_1"))
+            .await
+            .unwrap();
+        assert!(db
+            .call(move |conn| find_open_by_order_id(conn, &store_id, "wc-1234"))
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn payment_to_an_expired_invoice_is_recorded_as_unmatched_once() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| {
+            let mut inv = new_invoice(&sid, "inv_1", 1000);
+            inv.expires_at = now_unix() - 1;
+            insert(conn, &inv)?;
+            expire_if_due(conn, "inv_1")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        let first = db
+            .call(|conn| {
+                record_unmatched(
+                    conn,
+                    &UnmatchedInput {
+                        address: "ark1qinv_1",
+                        rail: "ark",
+                        amount_sats: 1000,
+                        vtxo_id: Some("vtxo_late"),
+                        txid: None,
+                        detected_at: 5,
+                        reason_override: None,
+                    },
+                )
+            })
+            .await
+            .unwrap();
+        assert!(first, "first sighting writes an audit row");
+        let again = db
+            .call(|conn| {
+                record_unmatched(
+                    conn,
+                    &UnmatchedInput {
+                        address: "ark1qinv_1",
+                        rail: "ark",
+                        amount_sats: 1000,
+                        vtxo_id: Some("vtxo_late"),
+                        txid: None,
+                        detected_at: 5,
+                        reason_override: None,
+                    },
+                )
+            })
+            .await
+            .unwrap();
+        assert!(!again, "re-delivery must not duplicate the row");
+
+        // Addresses that belong to no invoice are not recorded.
+        let unknown = db
+            .call(|conn| {
+                record_unmatched(
+                    conn,
+                    &UnmatchedInput {
+                        address: "ark1qnobody",
+                        rail: "ark",
+                        amount_sats: 1,
+                        vtxo_id: Some("v2"),
+                        txid: None,
+                        detected_at: 5,
+                        reason_override: None,
+                    },
+                )
+            })
+            .await
+            .unwrap();
+        assert!(!unknown);
     }
 
     #[tokio::test]

@@ -82,6 +82,26 @@ renewal_lead_time_secs = 604800
 # Create a Lightning invoice (ASP gateway) for each checkout invoice.
 lightning_receive_enabled = true
 
+# Max requests per client per minute on the public /i/* checkout routes
+# (beta hardening; 0 disables). In-memory, resets on restart.
+public_rate_limit_per_min = 120
+
+# Trust X-Forwarded-For when identifying clients for the limiter. Enable ONLY
+# behind a reverse proxy you control that overwrites the header; otherwise
+# every client behind the proxy shares one address (and one limit).
+trust_proxy_headers = false
+
+# Offer the on-chain rail at checkout. OFF by default in the beta: barkd's
+# on-chain receive entry in /wallet/history is not yet verified by a live
+# drill. Turn on (or EBP_ONCHAIN_RAIL_ENABLED=true) after running the signet
+# drill in docs/BETA_PLAN.md. Off = no on-chain tab / URI path / address.
+onchain_rail_enabled = false
+
+# Optional shared secret for the first-run wizard: when set, wizard actions
+# (every non-GET /setup/* request) need the X-EBP-Setup-Token header; the
+# wizard page prompts for it. Prefer the EBP_SETUP_TOKEN env var over this file.
+# setup_token = "change-me"
+
 # BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).
 [static_rates]
 EUR = 95000.0

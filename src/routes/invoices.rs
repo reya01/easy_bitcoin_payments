@@ -39,7 +39,8 @@ pub struct InvoiceResponse {
     pub rate_locked_at: Option<String>,
     pub checkout_url: String,
     pub ark_address: String,
-    pub onchain_address: String,
+    /// `null` while the on-chain rail is disabled (the default).
+    pub onchain_address: Option<String>,
     /// BOLT11 invoice from the ASP's Lightning gateway, when one exists.
     pub lightning_invoice: Option<String>,
     /// Estimated Lightning gateway fee for this invoice, in sats, fetched
@@ -59,9 +60,11 @@ pub struct InvoiceResponse {
 
 fn to_response(
     invoice: &Invoice,
-    base_url: &str,
+    config: &crate::config::Config,
     lightning_invoice: Option<String>,
 ) -> InvoiceResponse {
+    let base_url = config.public_base_url.as_str();
+    let onchain_enabled = config.onchain_rail_enabled;
     let metadata = serde_json::from_str(&invoice.metadata_json)
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
 
@@ -77,7 +80,7 @@ fn to_response(
         rate_locked_at: invoice.rate_locked_at.map(to_rfc3339),
         checkout_url: format!("{}/i/{}", base_url.trim_end_matches('/'), invoice.id),
         ark_address: invoice.ark_address.clone(),
-        onchain_address: invoice.onchain_address.clone(),
+        onchain_address: onchain_enabled.then(|| invoice.onchain_address.clone()),
         lightning_invoice,
         lightning_fee_estimate_sat: metadata
             .get("lightning_fee_estimate_sat")
@@ -337,7 +340,7 @@ pub async fn create(
                 }
                 // Upper bound = the entire bitcoin money supply in sats;
                 // anything above is a typo, not an invoice.
-                if sats > 2_100_000_000_000_000 {
+                if sats > crate::invoice::MAX_INVOICE_SATS {
                     return Err(AppError::BadRequest(
                         "sats is out of the supported range".into(),
                     ));
@@ -351,6 +354,38 @@ pub async fn create(
             }
             (Some(_), Some(_)) => unreachable!("guarded above"),
         };
+
+    // IDEMPOTENCY (beta hardening): a retry for the same `order_id` with the
+    // same amount returns the existing open invoice (200 OK) instead of
+    // minting a new one. "Same amount" = same fiat amount+currency for fiat
+    // requests (the sats figure drifts with the rate), same sats otherwise.
+    // A changed amount creates a new invoice; the old one simply expires.
+    if let Some(order_id) = req.order_id.clone().filter(|o| !o.trim().is_empty()) {
+        let store_id = auth.store.id.clone();
+        let existing = state
+            .db
+            .call(move |conn| invoice::find_open_by_order_id(conn, &store_id, &order_id))
+            .await?;
+        if let Some(existing) = existing {
+            let same_amount = match (&req.fiat, req.sats) {
+                (Some(fiat), None) => {
+                    existing.fiat_currency.as_deref().map(str::to_uppercase)
+                        == Some(fiat.currency.trim().to_uppercase())
+                        && existing.fiat_amount.as_deref() == Some(fiat.amount.trim())
+                }
+                _ => existing.fiat_currency.is_none() && existing.amount_sats == amount_sats,
+            };
+            if same_amount {
+                let invoice_id = existing.id.clone();
+                let lightning_invoice = state
+                    .db
+                    .call(move |conn| invoice::get_lightning_invoice(conn, &invoice_id))
+                    .await?;
+                let response = to_response(&existing, &state.config, lightning_invoice);
+                return Ok((StatusCode::OK, Json(response)));
+            }
+        }
+    }
 
     // Lightning gateway fee (Phase 1 close-out): fetched from the ASP's
     // live fee table at invoice time when LN receive is on. Best effort —
@@ -366,10 +401,17 @@ pub async fn create(
     let now = now_unix();
 
     // BARK INTEGRATION: Phase 1 derives these from the Bark wallet.
-    let addresses = state
-        .wallet
-        .receive_addresses(&invoice_id)
-        .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))?;
+    //
+    // The wallet adapter is synchronous (barkd = blocking HTTP bridge), so it
+    // runs on the blocking pool, never on an async worker (beta hardening).
+    let addresses = {
+        let wallet = state.wallet.clone();
+        let id = invoice_id.clone();
+        tokio::task::spawn_blocking(move || wallet.receive_addresses(&id))
+            .await
+            .map_err(|e| AppError::Internal(format!("wallet task failed: {e}")))?
+            .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))?
+    };
 
     // Metadata carries the store's own key/value data plus two internal
     // markers: `test` (set in test mode; test invoices are excluded from
@@ -427,10 +469,18 @@ pub async fn create(
     // the ASP's gateway. Best effort — when the gateway is unavailable the
     // checkout still works over Ark and on-chain.
     let lightning_invoice = if state.config.lightning_receive_enabled {
-        match state
-            .wallet
-            .lightning_invoice(amount_sats, &format!("invoice {}", invoice.id))
-        {
+        let ln_result = {
+            let wallet = state.wallet.clone();
+            let description = format!("invoice {}", invoice.id);
+            tokio::task::spawn_blocking(move || wallet.lightning_invoice(amount_sats, &description))
+                .await
+                .unwrap_or_else(|e| {
+                    Err(crate::wallet::WalletError::Unavailable(format!(
+                        "wallet task failed: {e}"
+                    )))
+                })
+        };
+        match ln_result {
             Ok(ln) => {
                 let bolt11 = ln.bolt11.clone();
                 let identifier = ln.identifier.clone();
@@ -472,7 +522,7 @@ pub async fn create(
         None
     };
 
-    let response = to_response(&invoice, &state.config.public_base_url, lightning_invoice);
+    let response = to_response(&invoice, &state.config, lightning_invoice);
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -502,7 +552,7 @@ pub async fn get_one(
 
     Ok(Json(to_response(
         &invoice,
-        &state.config.public_base_url,
+        &state.config,
         lightning_invoice,
     )))
 }
@@ -536,11 +586,11 @@ pub async fn list(
         .call(move |conn| invoice::list(conn, &store_id, status, since, limit))
         .await?;
 
-    let base_url = &state.config.public_base_url;
+    let config = &state.config;
     Ok(Json(
         invoices
             .iter()
-            .map(|invoice| to_response(invoice, base_url, None))
+            .map(|invoice| to_response(invoice, config, None))
             .collect(),
     ))
 }
@@ -556,9 +606,5 @@ pub async fn cancel(
         .call(move |conn| invoice::cancel(conn, &store_id, &id))
         .await?;
 
-    Ok(Json(to_response(
-        &invoice,
-        &state.config.public_base_url,
-        None,
-    )))
+    Ok(Json(to_response(&invoice, &state.config, None)))
 }

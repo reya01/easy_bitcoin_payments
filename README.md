@@ -170,6 +170,9 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
+| `GET` | `/api/v1/unmatched-payments` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
+| `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled |
+| `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |
 | `GET` | `/i/{id}/json` | Full invoice JSON (fetched once by the checkout page) |
@@ -237,6 +240,11 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_RATES_TIMEOUT_SECS` | `5` | Live-rate fetch timeout |
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
+| `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
+| `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
+| `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
+| `EBP_SETUP_TOKEN` | unset | If set, first-run wizard actions require it (`X-EBP-Setup-Token`); set it before exposing an unfinished instance to a network |
+| `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/BETA_PLAN.md) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
 ---

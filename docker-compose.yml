@@ -50,6 +50,10 @@ services:
       # `.env` file next to this compose file (EBP_BARKD_TOKEN=...) and run
       # `docker compose up -d` again to hand it to the server.
       EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:-}
+      # Optional: require this secret for first-run wizard actions (see README).
+      EBP_SETUP_TOKEN: ${EBP_SETUP_TOKEN:-}
+      # On-chain rail is off by default (beta). Set to true to offer it.
+      EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
       EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}
     ports:

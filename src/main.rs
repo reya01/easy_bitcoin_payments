@@ -105,6 +105,18 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         webhooks: webhooks.clone(),
     };
 
+    // Durable webhook outbox dispatcher (beta hardening): delivers events the
+    // watcher queued in `webhook_deliveries`, with backoff, surviving
+    // restarts. Exactly ONE dispatcher must run.
+    let allow_private_webhooks = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    tokio::spawn(easy_bitcoin_payments::webhook_outbox::run(
+        db.clone(),
+        webhooks.clone(),
+        allow_private_webhooks,
+    ));
+
     // Payment watcher skeleton: polls the wallet adapter on an interval and
     // applies observed payments to invoices. With the stub wallet it observes
     // nothing; the loop, matching, state transitions and webhook emission are
@@ -115,7 +127,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         webhooks,
         std::time::Duration::from_secs(config.watcher_interval_secs),
         config.renewal_lead_time_secs as i64,
-    );
+    )
+    .with_onchain_rail(config.onchain_rail_enabled);
     let watcher_handle = tokio::spawn(watcher.run());
 
     // Settlement engine (Phase 1): refreshes VTXOs ahead of their per-VTXO
@@ -146,9 +159,13 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         "Easy Bitcoin Payments listening"
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // `with_connect_info` exposes the peer address to the rate limiter.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     watcher_handle.abort();
     Ok(())
@@ -204,6 +221,16 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     }
 
     let name = name.ok_or("--name is required")?;
+    // SSRF guard (beta hardening): reject loopback/private/link-local and
+    // non-http(s) webhook targets. Local development can opt out with
+    // EBP_WEBHOOK_ALLOW_PRIVATE=1. See webhook::validate_webhook_url.
+    if let Some(url) = webhook_url.as_deref() {
+        let allow_private = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
+            .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        easy_bitcoin_payments::webhook::validate_webhook_url(url, allow_private)
+            .map_err(|e| format!("--webhook-url rejected: {e}"))?;
+    }
     let config = Config::load()?;
     let db = Db::open(&config.database_path)?;
 

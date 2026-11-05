@@ -1,9 +1,11 @@
+pub mod admin;
 pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
 pub mod health;
 pub mod invoices;
 pub mod setup;
+pub mod unmatched;
 
 use std::sync::Arc;
 
@@ -40,10 +42,20 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            setup::setup_token_guard,
+        ))
         .with_state(state.clone());
 
-    // Invoice + checkout routes sit behind the setup gate.
-    let gated = Router::new()
+    // Public checkout routes (unauthenticated) get a per-client rate limit
+    // (beta hardening; see ratelimit.rs). Merged into `gated` below so they
+    // still sit behind the setup gate.
+    let limiter = Arc::new(crate::ratelimit::RateLimiter::new(
+        state.config.public_rate_limit_per_min,
+        state.config.trust_proxy_headers,
+    ));
+    let public_checkout = Router::new()
         .route("/i/{id}", get(checkout::page))
         // The checkout page's own first data fetch (assets/checkout.html
         // calls /i/{id}/json before polling /status) — this route existed
@@ -52,12 +64,26 @@ pub fn router(state: AppState) -> Router {
         .route("/i/{id}/json", get(checkout::invoice_json))
         .route("/i/{id}/status", get(checkout::status))
         .route("/i/{id}/rails", get(checkout_rails::rails))
+        .layer(middleware::from_fn_with_state(
+            limiter,
+            crate::ratelimit::limit,
+        ));
+
+    // Invoice API + the rate-limited checkout routes sit behind the setup gate.
+    let gated = Router::new()
+        .merge(public_checkout)
         .route(
             "/api/v1/invoices",
             post(invoices::create).get(invoices::list),
         )
         .route("/api/v1/invoices/{id}", get(invoices::get_one))
         .route("/api/v1/invoices/{id}/cancel", post(invoices::cancel))
+        .route("/api/v1/admin/status", get(admin::status))
+        .route("/api/v1/unmatched-payments", get(unmatched::list))
+        .route(
+            "/api/v1/unmatched-payments/{id}/resolve",
+            post(unmatched::resolve),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             setup::setup_gate,

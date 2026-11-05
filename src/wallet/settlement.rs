@@ -26,7 +26,7 @@ use crate::config::Config;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::util::{new_id, now_unix};
-use crate::wallet::barkd::{BarkdClient, ONCHAIN_RESERVE_PER_VTXO_SATS};
+use crate::wallet::barkd::{vtxo_expiry_unix, BarkdClient, ONCHAIN_RESERVE_PER_VTXO_SATS};
 
 /// The on-chain emergency-exit reserve for the VTXOs the till holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,15 +61,30 @@ pub struct TickReport {
     pub sweep_refused: Option<String>,
 }
 
+/// Minimum gap between refresh attempts for VTXOs whose expiry we cannot
+/// determine (no timestamp and no resolvable height).
+const UNKNOWN_EXPIRY_RETRY_SECS: i64 = 3600;
+
 pub struct SettlementEngine {
     client: BarkdClient,
     db: Db,
     config: Arc<Config>,
+    /// Last time we refreshed unknown-expiry VTXOs (in-memory throttle).
+    last_unknown_refresh: std::sync::Mutex<Option<i64>>,
+    /// Last refused-sweep reason recorded, so a persistent refusal writes
+    /// ONE `settlements` row instead of one per tick (was unbounded growth).
+    last_refusal: std::sync::Mutex<Option<String>>,
 }
 
 impl SettlementEngine {
     pub fn new(client: BarkdClient, db: Db, config: Arc<Config>) -> Self {
-        Self { client, db, config }
+        Self {
+            client,
+            db,
+            config,
+            last_unknown_refresh: std::sync::Mutex::new(None),
+            last_refusal: std::sync::Mutex::new(None),
+        }
     }
 
     /// Run forever on the configured interval.
@@ -79,10 +94,15 @@ impl SettlementEngine {
         ));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // SUPERVISION (beta hardening): one spawned task per tick so a panic
+        // is logged and the engine keeps running (renewal is what keeps
+        // funds alive; it must not die silently).
+        let this = Arc::new(self);
         loop {
             ticker.tick().await;
-            match self.tick().await {
-                Ok(report)
+            let worker = Arc::clone(&this);
+            match tokio::spawn(async move { worker.tick().await }).await {
+                Ok(Ok(report))
                     if report.refreshed_vtxos > 0
                         || report.swept_sats.is_some()
                         || report.sweep_refused.is_some() =>
@@ -93,8 +113,11 @@ impl SettlementEngine {
                         "settlement tick acted"
                     );
                 }
-                Ok(_) => {}
-                Err(err) => tracing::warn!(error = %err, "settlement tick failed"),
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => tracing::warn!(error = %err, "settlement tick failed"),
+                Err(join_err) => {
+                    tracing::error!(error = %join_err, "settlement tick PANICKED; continuing")
+                }
             }
         }
     }
@@ -123,11 +146,55 @@ impl SettlementEngine {
         //    before their per-VTXO expiry. A VTXO barkd already refreshed
         //    drops out of the window by itself, so this stays quiet when
         //    renewal is already handled.
-        let due: Vec<_> = vtxos
+        //
+        // BETA-HARDENING FIX (P0): barkd reports expiry as a block HEIGHT
+        // (`expiry_height`), usually with no `expires_at`. The old filter
+        // treated "no timestamp" as due, so (a) real VTXOs were refreshed on
+        // EVERY tick regardless of expiry, and (b) never honoured the lead
+        // time. We now convert heights with the chain tip. Genuinely unknown
+        // expiry is still refreshed (fail safe) but at most once per
+        // UNKNOWN_EXPIRY_RETRY_SECS, not every tick.
+        let needs_tip = vtxos
             .spendable
             .iter()
-            .filter(|v| v.expires_at.map(|t| t - now <= lead).unwrap_or(true))
-            .collect();
+            .any(|v| v.expires_at.is_none() && v.expiry_height.is_some());
+        let tip = if needs_tip {
+            match self.client.bitcoin_tip().await {
+                Ok(tip) => Some(tip),
+                Err(err) => {
+                    tracing::warn!(error = %err, "settlement: chain tip unavailable; heights unresolved");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let mut unknown_expiry = false;
+        let mut due: Vec<_> = Vec::new();
+        for v in vtxos.spendable.iter() {
+            match vtxo_expiry_unix(v, tip.as_ref()) {
+                Some(t) if t - now <= lead => due.push(v),
+                Some(_) => {}
+                None => {
+                    unknown_expiry = true;
+                    due.push(v);
+                }
+            }
+        }
+        if unknown_expiry {
+            // Throttle: only retry unknown-expiry refreshes hourly.
+            let mut last = self
+                .last_unknown_refresh
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let throttled = matches!(*last, Some(t) if now - t < UNKNOWN_EXPIRY_RETRY_SECS);
+            if throttled {
+                // Keep only VTXOs whose expiry IS known and due.
+                due.retain(|v| vtxo_expiry_unix(v, tip.as_ref()).is_some());
+            } else {
+                *last = Some(now);
+            }
+        }
         let due_ids: Vec<String> = due
             .iter()
             .map(|v| v.id.clone())
@@ -190,12 +257,27 @@ impl SettlementEngine {
             );
             tracing::warn!(%reason, "sweep refused");
             report.sweep_refused = Some(reason.clone());
-            let dest = destination.clone();
-            self.db
-                .call(move |conn| record(conn, kind, excess, &dest, "failed", Some(&reason)))
-                .await?;
+            // Dedupe: only write a row when the refusal reason changes.
+            let already = {
+                let mut last = self.last_refusal.lock().unwrap_or_else(|e| e.into_inner());
+                let same = last.as_deref() == Some(reason.as_str());
+                if !same {
+                    *last = Some(reason.clone());
+                }
+                same
+            };
+            if !already {
+                let dest = destination.clone();
+                self.db
+                    .call(move |conn| record(conn, kind, excess, &dest, "failed", Some(&reason)))
+                    .await?;
+            }
             return Ok(report);
         }
+
+        // Reserve is healthy again: forget the last refusal so a future
+        // refusal is logged afresh.
+        *self.last_refusal.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         let (amount, result) = if ark {
             (excess, self.client.ark_send(&destination, excess).await)
@@ -532,5 +614,85 @@ mod tests {
                 .all(|r| r.method == "GET" || r.route().contains("refresh")),
             "no sweep may be sent without a destination"
         );
+    }
+
+    /// Spawn a mock barkd whose single VTXO reports a block-HEIGHT expiry
+    /// (the real barkd 0.8.0 shape — no `expires_at`) against a tip of 800.
+    fn height_expiry_engine(
+        expiry_height: u64,
+    ) -> (
+        SettlementEngine,
+        Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
+    ) {
+        let now = crate::util::now_unix();
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": 1000, "expiry_height": {expiry_height}, "state": {{"type": "spendable"}}}}]"#
+                ),
+            ),
+            "/api/v1/bitcoin/tip" => (200, format!(r#"{{"height": 800, "timestamp": {now}}}"#)),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 15000, "trusted_spendable_sat": 15000, "confirmed_sat": 15000}"#
+                    .to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 1000}"#.to_string()),
+            "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            Db::open(":memory:").unwrap(),
+            test_config(None, 100_000),
+        );
+        (engine, recorded)
+    }
+
+    #[tokio::test]
+    async fn height_expiry_far_away_is_not_refreshed() {
+        // 800 + 4_000 blocks ≈ 28 days out; lead is 7 days (~1_008 blocks).
+        let (engine, _rec) = height_expiry_engine(4_800);
+        let report = engine.tick().await.unwrap();
+        assert_eq!(
+            report.refreshed_vtxos, 0,
+            "regression: heights were treated as always-due"
+        );
+    }
+
+    #[tokio::test]
+    async fn height_expiry_inside_the_window_is_refreshed() {
+        // 800 + 100 blocks ≈ 17 hours out: inside the 7-day lead.
+        let (engine, _rec) = height_expiry_engine(900);
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.refreshed_vtxos, 1);
+    }
+
+    #[test]
+    fn expiry_conversion_handles_heights_and_unknowns() {
+        use crate::wallet::barkd::{Tip, Vtxo};
+        let tip = Tip {
+            height: 800,
+            timestamp: 1_000_000,
+        };
+        let mk = |h: Option<u64>, t: Option<i64>| Vtxo {
+            id: "v".into(),
+            amount_sats: 1,
+            expiry_height: h,
+            expires_at: t,
+        };
+        assert_eq!(vtxo_expiry_unix(&mk(None, Some(5)), Some(&tip)), Some(5));
+        assert_eq!(
+            vtxo_expiry_unix(&mk(Some(900), None), Some(&tip)),
+            Some(1_060_000)
+        );
+        assert_eq!(vtxo_expiry_unix(&mk(Some(700), None), Some(&tip)), Some(0));
+        assert_eq!(vtxo_expiry_unix(&mk(Some(900), None), None), None);
+        assert_eq!(vtxo_expiry_unix(&mk(None, None), Some(&tip)), None);
     }
 }

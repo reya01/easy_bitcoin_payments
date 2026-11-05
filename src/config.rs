@@ -60,6 +60,29 @@ pub struct Config {
     /// export) or `"live"` (mainnet). Set via `mode` in the config file or
     /// the `EBP_MODE` environment variable.
     pub mode: String,
+    /// Max requests per client per minute on the public `/i/*` checkout
+    /// routes (beta hardening). 0 disables the limiter. See ratelimit.rs.
+    pub public_rate_limit_per_min: u32,
+    /// Trust `X-Forwarded-For` for the rate-limit client key. Enable ONLY
+    /// behind a reverse proxy that overwrites the header.
+    pub trust_proxy_headers: bool,
+    /// Optional shared secret for the first-run wizard (beta hardening).
+    /// When set, every NON-GET `/setup/*` request must carry it in the
+    /// `X-EBP-Setup-Token` header; the page and `/setup/status` stay open.
+    /// Closes the window where anyone who can reach an unfinished instance
+    /// could create the wallet, read the recovery words, or mint the first
+    /// store API key. Env-only recommended (`EBP_SETUP_TOKEN`).
+    pub setup_token: Option<String>,
+    /// Offer the on-chain rail at checkout. DEFAULT OFF (beta): barkd's
+    /// on-chain receive entry in `/wallet/history` is not yet pinned by a
+    /// live drill, so on-chain payments cannot be detected with confidence
+    /// and a customer could pay an address we would never credit. Off =
+    /// no on-chain tab, no on-chain path in the BIP321 URI, `null`
+    /// `onchain_address` in the API, and any on-chain payment that still
+    /// arrives is parked in `unmatched_payments`, never auto-credited.
+    /// Enable with `EBP_ONCHAIN_RAIL_ENABLED=true` once the signet drill in
+    /// docs/BETA_PLAN.md has passed.
+    pub onchain_rail_enabled: bool,
 }
 
 impl Default for Config {
@@ -95,6 +118,10 @@ impl Default for Config {
             rates_provider: "static".to_string(),
             rates_timeout_secs: 5,
             mode: "test".to_string(),
+            public_rate_limit_per_min: 120,
+            trust_proxy_headers: false,
+            setup_token: None,
+            onchain_rail_enabled: false,
         }
     }
 }
@@ -178,6 +205,10 @@ struct FileConfig {
     rates_provider: Option<String>,
     rates_timeout_secs: Option<u64>,
     mode: Option<String>,
+    public_rate_limit_per_min: Option<u32>,
+    trust_proxy_headers: Option<bool>,
+    setup_token: Option<String>,
+    onchain_rail_enabled: Option<bool>,
 }
 
 impl Config {
@@ -285,6 +316,18 @@ impl Config {
         if let Some(v) = file.mode {
             self.mode = Config::parse_mode(&v)?;
         }
+        if let Some(v) = file.public_rate_limit_per_min {
+            self.public_rate_limit_per_min = v;
+        }
+        if let Some(v) = file.trust_proxy_headers {
+            self.trust_proxy_headers = v;
+        }
+        if let Some(v) = file.onchain_rail_enabled {
+            self.onchain_rail_enabled = v;
+        }
+        if let Some(v) = file.setup_token {
+            self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
+        }
         Ok(())
     }
 
@@ -377,6 +420,24 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_LIGHTNING_RECEIVE_ENABLED") {
             self.lightning_receive_enabled = parse_bool("EBP_LIGHTNING_RECEIVE_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_PUBLIC_RATE_LIMIT_PER_MIN") {
+            let parsed = parse_int("EBP_PUBLIC_RATE_LIMIT_PER_MIN", &v)?;
+            self.public_rate_limit_per_min =
+                u32::try_from(parsed).map_err(|_| ConfigError::Invalid {
+                    key: "EBP_PUBLIC_RATE_LIMIT_PER_MIN".to_string(),
+                    value: v.clone(),
+                })?;
+        }
+        if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
+            self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_SETUP_TOKEN") {
+            // Compose passes an empty string when unset: treat as absent.
+            self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
+        }
+        if let Some(v) = lookup("EBP_TRUST_PROXY_HEADERS") {
+            self.trust_proxy_headers = parse_bool("EBP_TRUST_PROXY_HEADERS", &v)?;
         }
         Ok(())
     }

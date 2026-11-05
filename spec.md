@@ -132,14 +132,23 @@ POST   /api/v1/invoices
           "checkout_url": "https://pay.example.com/i/inv_…",
           "ark_address": "ark1…", "onchain_address": "bc1q…",
           "expires_at": "…" }
+  # Idempotent per order_id: if the store already has an OPEN (pending,
+  # unexpired) invoice for the same order_id AND the same amount (fiat
+  # amount+currency, or sats), that invoice is returned with 200 instead.
+  # A different amount creates a new invoice. (beta hardening)
 
 GET    /api/v1/invoices/{id}            # source of truth for stores
 GET    /api/v1/invoices?status=&since=
 POST   /api/v1/invoices/{id}/cancel
+GET    /api/v1/unmatched-payments       # late payments to expired/closed invoices (store-scoped)
+POST   /api/v1/unmatched-payments/{id}/resolve   # mark handled (refund / manual fulfilment)
 GET    /api/v1/rates?currency=EUR
 GET    /api/v1/settlements              # expiry queue + history
 POST   /api/v1/settlements/sweep-now
-GET    /api/v1/health                   # server, wallet, ASP reachability
+# NOTE: onchain_address is null and the on-chain rail is absent from checkout
+# unless onchain_rail_enabled is set (off by default in the beta).
+GET    /api/v1/admin/status             # operator view; EBP_ADMIN_TOKEN bearer, 404 if unset
+GET    /api/v1/health                   # server, wallet, ASP reachability, watcher_last_tick_age_secs
 GET    /api/v1/exports/accounting.csv?from=&to=
 POST   /api/v1/stores/rotate-key
 ```

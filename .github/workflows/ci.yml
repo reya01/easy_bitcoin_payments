@@ -40,6 +40,15 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
+      # The browser end-to-end job (below) runs this exact binary.
+      - name: Keep the binary for the end-to-end job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebp-linux-x86_64
+          path: target/release/ebp
+          retention-days: 3
+          if-no-files-found: error
+
   docker:
     name: docker image builds (amd64 + arm64)
     runs-on: ubuntu-latest

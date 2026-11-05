@@ -43,7 +43,7 @@ the `setup.html` change are included.
 ## Not done — pick up here (priority order)
 
 1. Webhook delivery log API / dashboard + manual re-send (the outbox table already has the data).
-2. Dashboard UI for `unmatched_payments`, plus an integration test for the new endpoints (none yet; only unit tests on `record_unmatched`).
+2. Dashboard UI for `unmatched_payments` (API + integration tests exist in `tests/api_flows.rs`).
 3. Gate the on-chain rail until the on-chain `/wallet/history` receive shape is pinned by a live signet drill (still UNPINNED).
 4. Make the setup token mandatory in `mode = "live"` (decision for the maintainer), and browser-test the `setup.html` prompt.
 5. Surface `/api/v1/admin/status` in the dashboard UI (currently API only) and add webhook re-send.

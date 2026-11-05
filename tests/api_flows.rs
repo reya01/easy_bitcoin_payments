@@ -375,3 +375,34 @@ async fn onchain_rail_is_off_by_default_and_switchable() {
     assert_eq!(co["onchain_enabled"], true);
     assert!(co["bip321"].as_str().unwrap().starts_with("bitcoin:bc1q"));
 }
+
+#[tokio::test]
+async fn every_response_carries_browser_hardening_headers() {
+    let (base, _s, _store, _key) = serve().await;
+    let client = reqwest::Client::new();
+    // A page that shows secrets, an API route, and a 404 all get them.
+    for path in [
+        "/setup",
+        "/setup/status",
+        "/api/v1/health",
+        "/no/such/route",
+    ] {
+        let resp = client
+            .get(format!("{base}{path}"))
+            .header("host", "localhost")
+            .send()
+            .await
+            .unwrap();
+        let h = resp.headers();
+        assert_eq!(h["x-frame-options"], "DENY", "{path}");
+        assert_eq!(h["x-content-type-options"], "nosniff", "{path}");
+        assert_eq!(h["referrer-policy"], "no-referrer", "{path}");
+        assert!(
+            h["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .contains("frame-ancestors 'none'"),
+            "{path}"
+        );
+    }
+}

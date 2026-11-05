@@ -239,6 +239,9 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_RATES_TIMEOUT_SECS` | `5` | Live-rate fetch timeout |
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
+| `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
+| `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
+| `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
 ---

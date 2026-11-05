@@ -8,6 +8,8 @@
 - Payments arriving after an invoice expired/closed were silently dropped; they are now recorded in `unmatched_payments` (migration 0005).
 
 ### Added
+- Durable webhook outbox: events are queued in `webhook_deliveries` (migration 0006) and delivered with exponential backoff, surviving restarts.
+- Rate limiting for public checkout routes (`public_rate_limit_per_min`, `trust_proxy_headers`).
 - `GET /api/v1/unmatched-payments` and `POST /api/v1/unmatched-payments/{id}/resolve` to review and close out late payments.
 
 ### Changed
@@ -17,5 +19,5 @@
 
 ### Security
 - Webhook URLs are validated (no private/loopback/link-local targets, http/https only) when set via the CLI; the emitter never follows redirects.
-- Webhook delivery runs in the background with retries instead of blocking the watcher.
+- Webhook delivery is decoupled from the watcher (durable outbox) so a slow or dead merchant endpoint cannot stall payment detection.
 - Synchronous wallet calls run on the blocking pool.

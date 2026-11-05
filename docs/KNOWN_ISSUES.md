@@ -5,7 +5,7 @@
 See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
 - The hardening branch (PR #1) was authored without a local compiler; CI (fmt, clippy -D warnings, tests, release build) is the verification. Keep it green.
 - Late/unmatched payments land in the `unmatched_payments` table with no dashboard UI yet — use `GET /api/v1/unmatched-payments` (store API key) or query the table directly
-- Webhook retries are in-memory (lost on restart); webhook URL validation is textual and does not stop DNS rebinding — restrict container egress in production.
+- Webhooks are delivered from a durable outbox (`webhook_deliveries`); failed rows (after 6 attempts) stay for inspection with no re-send UI yet. Webhook URL validation is textual and does not stop DNS rebinding — restrict container egress in production.
 - Webhook secrets are stored in plaintext (`key_encryption_key` is not implemented).
 - On-chain receive detection depends on an UNPINNED `/wallet/history` shape; do not enable the on-chain rail for real funds before a live signet drill.
 

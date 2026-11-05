@@ -71,7 +71,11 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
     let url = reqwest::Url::parse(raw).map_err(|e| format!("not a valid URL: {e}"))?;
     match url.scheme() {
         "http" | "https" => {}
-        other => return Err(format!("scheme '{other}' is not allowed (use http or https)")),
+        other => {
+            return Err(format!(
+                "scheme '{other}' is not allowed (use http or https)"
+            ))
+        }
     }
     if !url.username().is_empty() || url.password().is_some() {
         return Err("URLs with embedded credentials are not allowed".to_string());
@@ -244,7 +248,10 @@ mod tests {
             "https://user:pw@example.com/x",
             "not a url",
         ] {
-            assert!(validate_webhook_url(bad, false).is_err(), "{bad} must be rejected");
+            assert!(
+                validate_webhook_url(bad, false).is_err(),
+                "{bad} must be rejected"
+            );
         }
         assert!(validate_webhook_url("http://127.0.0.1:9/x", true).is_ok());
     }

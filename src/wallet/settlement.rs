@@ -624,13 +624,11 @@ mod tests {
                     r#"[{{"id": "v1", "amount_sat": 1000, "expiry_height": {expiry_height}, "state": {{"type": "spendable"}}}}]"#
                 ),
             ),
-            "/api/v1/bitcoin/tip" => (
-                200,
-                format!(r#"{{"height": 800, "timestamp": {now}}}"#),
-            ),
+            "/api/v1/bitcoin/tip" => (200, format!(r#"{{"height": 800, "timestamp": {now}}}"#)),
             "/api/v1/onchain/balance" => (
                 200,
-                r#"{"total_sat": 15000, "trusted_spendable_sat": 15000, "confirmed_sat": 15000}"#.to_string(),
+                r#"{"total_sat": 15000, "trusted_spendable_sat": 15000, "confirmed_sat": 15000}"#
+                    .to_string(),
             ),
             "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 1000}"#.to_string()),
             "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
@@ -640,7 +638,11 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = SettlementEngine::new(client, Db::open(":memory:").unwrap(), test_config(None, 100_000));
+        let engine = SettlementEngine::new(
+            client,
+            Db::open(":memory:").unwrap(),
+            test_config(None, 100_000),
+        );
         (engine, recorded)
     }
 
@@ -649,7 +651,10 @@ mod tests {
         // 800 + 4_000 blocks ≈ 28 days out; lead is 7 days (~1_008 blocks).
         let (engine, _rec) = height_expiry_engine(4_800);
         let report = engine.tick().await.unwrap();
-        assert_eq!(report.refreshed_vtxos, 0, "regression: heights were treated as always-due");
+        assert_eq!(
+            report.refreshed_vtxos, 0,
+            "regression: heights were treated as always-due"
+        );
     }
 
     #[tokio::test]
@@ -663,7 +668,10 @@ mod tests {
     #[test]
     fn expiry_conversion_handles_heights_and_unknowns() {
         use crate::wallet::barkd::{Tip, Vtxo};
-        let tip = Tip { height: 800, timestamp: 1_000_000 };
+        let tip = Tip {
+            height: 800,
+            timestamp: 1_000_000,
+        };
         let mk = |h: Option<u64>, t: Option<i64>| Vtxo {
             id: "v".into(),
             amount_sats: 1,
@@ -671,7 +679,10 @@ mod tests {
             expires_at: t,
         };
         assert_eq!(vtxo_expiry_unix(&mk(None, Some(5)), Some(&tip)), Some(5));
-        assert_eq!(vtxo_expiry_unix(&mk(Some(900), None), Some(&tip)), Some(1_060_000));
+        assert_eq!(
+            vtxo_expiry_unix(&mk(Some(900), None), Some(&tip)),
+            Some(1_060_000)
+        );
         assert_eq!(vtxo_expiry_unix(&mk(Some(700), None), Some(&tip)), Some(0));
         assert_eq!(vtxo_expiry_unix(&mk(Some(900), None), None), None);
         assert_eq!(vtxo_expiry_unix(&mk(None, None), Some(&tip)), None);

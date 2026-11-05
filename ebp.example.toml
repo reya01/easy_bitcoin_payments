@@ -108,6 +108,8 @@ onchain_min_confirmations = 1
 # SETUP CODE on every start, prints it in its log, and the setup page asks for
 # it. If you do set one, wizard actions need it in the X-EBP-Setup-Token
 # header. Prefer the EBP_SETUP_TOKEN env var over this file.
+# Setup refuses plain http:// on non-local addresses. Only for a trusted LAN or testing:
+# allow_insecure_setup = false
 # setup_token = "change-me"
 
 # BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).

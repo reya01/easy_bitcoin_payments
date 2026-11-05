@@ -181,6 +181,9 @@ pub struct SetupStatus {
     /// The wizard needs a setup code (generated at boot, or EBP_SETUP_TOKEN)
     /// before any action; the page asks for it up front.
     pub setup_code_required: bool,
+    /// The wizard is being served over plain HTTP on a non-local address;
+    /// every setup write is refused until the address is HTTPS.
+    pub https_required: bool,
     /// `"test"` (signet, play money) or `"live"`.
     pub mode: String,
 }
@@ -212,6 +215,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
     snapshot.barkd_token_present = token.is_some();
     snapshot.mode = state.config.mode.clone();
     snapshot.setup_code_required = state.config.setup_token.is_some() && !snapshot.setup_complete;
+    snapshot.https_required = !state.config.setup_transport_ok() && !snapshot.setup_complete;
 
     Ok(Json(snapshot))
 }
@@ -227,6 +231,7 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
         store_count: conn.query_row("SELECT COUNT(*) FROM stores", [], |row| row.get(0))?,
         setup_complete: settings::get_bool(conn, "setup_complete")?,
         setup_code_required: false, // filled by the caller
+        https_required: false,      // filled by the caller
         mode: String::new(),        // filled by the caller
     })
 }
@@ -1124,6 +1129,17 @@ pub async fn setup_token_guard(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    // Plain HTTP on a public address would expose the setup code, API keys
+    // and recovery words to anyone on the path: refuse every setup write.
+    if request.method() != axum::http::Method::GET && !state.config.setup_transport_ok() {
+        let body = serde_json::json!({
+            "error": "https_required",
+            "message": "Setup needs a secure (https://) address. Deploy with a host that \
+                        provides HTTPS and set your public address to it, or open the setup \
+                        page on the server itself (http://localhost:8080).",
+        });
+        return (StatusCode::FORBIDDEN, Json(body)).into_response();
+    }
     if let Some(expected) = state.config.setup_token.as_deref() {
         if request.method() != axum::http::Method::GET {
             let supplied = request

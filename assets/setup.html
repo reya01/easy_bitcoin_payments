@@ -104,6 +104,14 @@
     <span id="s1"></span><span id="s2"></span><span id="s3"></span><span id="s4"></span>
   </div>
 
+  <section id="step-https" class="hidden">
+    <h1>This address isn't secure yet</h1>
+    <p class="sub">Setup handles your recovery words and passwords, so it only runs on a secure <strong>https://</strong> address. Nothing has been changed.</p>
+    <div class="card">
+      <p>Use a hosting service that gives you https automatically, then set your public address (<code>EBP_PUBLIC_BASE_URL</code>) to the https:// address and open this page there. See the setup guide.</p>
+    </div>
+  </section>
+
   <section id="step-code" class="hidden">
     <h1>Enter your setup code</h1>
     <p class="sub">To keep strangers out, the server made a one-time setup code when it started. Look for <strong>SETUP CODE</strong> on the screen where you started the server and type it here.</p>
@@ -195,6 +203,7 @@
       document.getElementById("s3"),
       document.getElementById("s4")
     ],
+    https: document.getElementById("step-https"),
     code: document.getElementById("step-code"),
     codeInput: document.getElementById("code"),
     btnCode: document.getElementById("btn-code"),
@@ -228,7 +237,7 @@
     done: document.getElementById("step-done")
   };
 
-  var sections = ["code", "wallet", "backup", "token", "store", "done"];
+  var sections = ["https", "code", "wallet", "backup", "token", "store", "done"];
 
   function show(name) {
     sections.forEach(function (section) {
@@ -293,6 +302,7 @@
 
   function resume(status, codeOk) {
     lastStatus = status;
+    if (status.https_required) { markStep(0); show("https"); return; }
     if (status.setup_code_required && !codeOk && !setupToken) { markStep(0); show("code"); return; }
     if (status.mode === "test") els.testBanner.classList.remove("hidden");
     if (status.mode === "live") {

@@ -3,6 +3,7 @@
 ## OPEN — beta-hardening follow-ups (2026-11-05)
 
 See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
+- **Not yet beginner/phone-ready.** Install and management still need a terminal; see [BEGINNER_ROADMAP.md](BEGINNER_ROADMAP.md) for the ordered plan.
 - The hardening branch (PR #1) was authored without a local compiler; CI (fmt, clippy -D warnings, tests, release build) is the verification. Keep it green.
 - Late/unmatched payments land in the `unmatched_payments` table with no dashboard UI yet — use `GET /api/v1/unmatched-payments` (store API key) or query the table directly
 - Webhooks are delivered from a durable outbox (`webhook_deliveries`); failed rows (after 6 attempts) stay for inspection with no re-send UI yet. Webhook URL validation is textual and does not stop DNS rebinding — restrict container egress in production.

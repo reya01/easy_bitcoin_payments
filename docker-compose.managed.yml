@@ -19,7 +19,9 @@ services:
       EBP_ONCHAIN_MIN_CONFIRMATIONS: ${EBP_ONCHAIN_MIN_CONFIRMATIONS:-1}
       EBP_ALLOW_INSECURE_SETUP: ${EBP_ALLOW_INSECURE_SETUP:-false}
     ports:
-      - "8080:8080"
+      # Loopback by default: reach it through your HTTPS tunnel/proxy. Set
+      # EBP_BIND_HOST=0.0.0.0 only if something you trust in front handles HTTPS.
+      - "${EBP_BIND_HOST:-127.0.0.1}:8080:8080"
     volumes:
       - ebp-data:/data
     restart: unless-stopped

@@ -297,6 +297,20 @@ pub fn find_open_by_order_id(
     .map_err(Into::into)
 }
 
+/// Input for [`record_unmatched`] (a struct keeps the signature under
+/// clippy's argument limit and makes call sites self-describing).
+pub struct UnmatchedInput<'a> {
+    pub address: &'a str,
+    pub rail: &'a str,
+    pub amount_sats: i64,
+    pub vtxo_id: Option<&'a str>,
+    pub txid: Option<&'a str>,
+    pub detected_at: i64,
+    /// Force a specific `reason` (e.g. `onchain_rail_disabled`); `None`
+    /// derives `invoice_expired` / `invoice_closed` from the invoice status.
+    pub reason_override: Option<&'a str>,
+}
+
 /// Record a wallet payment that reached one of OUR invoice addresses but
 /// could not be applied because the invoice is no longer `pending`
 /// (expired, cancelled, already settled, or underpaid).
@@ -308,16 +322,16 @@ pub fn find_open_by_order_id(
 /// reserve) are deliberately not recorded. Idempotent: the unique
 /// vtxo/txid indexes make re-delivery a no-op. Returns true if a NEW row
 /// was written (callers may warn loudly once).
-pub fn record_unmatched(
-    conn: &Connection,
-    address: &str,
-    rail: &str,
-    amount_sats: i64,
-    vtxo_id: Option<&str>,
-    txid: Option<&str>,
-    detected_at: i64,
-    reason_override: Option<&str>,
-) -> Result<bool, AppError> {
+pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<bool, AppError> {
+    let UnmatchedInput {
+        address,
+        rail,
+        amount_sats,
+        vtxo_id,
+        txid,
+        detected_at,
+        reason_override,
+    } = *input;
     let found: Option<(String, String)> = conn
         .query_row(
             "SELECT id, status FROM invoices
@@ -948,7 +962,20 @@ mod tests {
 
         // Addresses that belong to no invoice are not recorded.
         let unknown = db
-            .call(|conn| record_unmatched(conn, "ark1qnobody", "ark", 1, Some("v2"), None, 5, None))
+            .call(|conn| {
+                record_unmatched(
+                    conn,
+                    &UnmatchedInput {
+                        address: "ark1qnobody",
+                        rail: "ark",
+                        amount_sats: 1,
+                        vtxo_id: Some("v2"),
+                        txid: None,
+                        detected_at: 5,
+                        reason_override: None,
+                    },
+                )
+            })
             .await
             .unwrap();
         assert!(!unknown);

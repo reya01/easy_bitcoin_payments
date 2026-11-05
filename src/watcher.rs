@@ -168,13 +168,15 @@ impl PollingWatcher {
                     .call(move |conn| {
                         invoice::record_unmatched(
                             conn,
-                            &addr,
-                            &rail,
-                            amount,
-                            vtxo.as_deref(),
-                            txid.as_deref(),
-                            seen,
-                            Some("onchain_rail_disabled"),
+                            &invoice::UnmatchedInput {
+                                address: &addr,
+                                rail: &rail,
+                                amount_sats: amount,
+                                vtxo_id: vtxo.as_deref(),
+                                txid: txid.as_deref(),
+                                detected_at: seen,
+                                reason_override: Some("onchain_rail_disabled"),
+                            },
                         )
                     })
                     .await?;
@@ -207,13 +209,15 @@ impl PollingWatcher {
                     .call(move |conn| {
                         invoice::record_unmatched(
                             conn,
-                            &addr,
-                            &rail,
-                            amount,
-                            vtxo.as_deref(),
-                            txid.as_deref(),
-                            seen,
-                            None,
+                            &invoice::UnmatchedInput {
+                                address: &addr,
+                                rail: &rail,
+                                amount_sats: amount,
+                                vtxo_id: vtxo.as_deref(),
+                                txid: txid.as_deref(),
+                                detected_at: seen,
+                                reason_override: None,
+                            },
                         )
                     })
                     .await?;

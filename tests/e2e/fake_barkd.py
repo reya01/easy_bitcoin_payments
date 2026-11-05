@@ -353,6 +353,11 @@ class H(BaseHTTPRequestHandler):
             for p in op.get("parameters", []):
                 if p.get("required") and p["in"] == "query" and p["name"] not in query:
                     VIOLATIONS.append(f"{method} {path}: missing required query {p['name']}")
+            if not S["created"] and path not in ("/wallet/create", "/wallet/mnemonic"):
+                # A barkd with no wallet yet answers data endpoints with an
+                # error; EBP's setup status relies on that to know whether the
+                # wizard still has to create the wallet.
+                return self._send(500, {"message": "no wallet has been created yet"})
             res = handle(method, path, query, body)
             if res is None:
                 VIOLATIONS.append(f"{method} {path}: fake has no handler")

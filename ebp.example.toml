@@ -99,6 +99,9 @@ trust_proxy_headers = false
 # drill. Turn on (or EBP_ONCHAIN_RAIL_ENABLED=true) after running the signet
 # drill in docs/BETA_PLAN.md. Off = no on-chain tab / URI path / address.
 onchain_rail_enabled = false
+# Blocks an on-chain payment needs before it counts as paid. Minimum 1: an
+# unconfirmed payment can be replaced (RBF) by the sender, so it never counts.
+onchain_min_confirmations = 1
 
 # Optional FIXED setup code for the first-run wizard (automation). Leave unset
 # for normal use: until setup is finished the server generates a one-time

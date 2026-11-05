@@ -251,6 +251,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
 | `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
 | `EBP_SETUP_TOKEN` | unset | Optional fixed setup code for automation. Normally leave it unset: until setup is finished the server makes a one-time **SETUP CODE** on every start, prints it where the server runs (`docker compose logs ebp`), and the setup page asks for it |
+| `EBP_ONCHAIN_MIN_CONFIRMATIONS` | `1` | Block confirmations before an on-chain payment counts as paid (minimum 1; zero-confirmation payments can be replaced by the sender and are never credited) |
 | `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/BETA_PLAN.md) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 

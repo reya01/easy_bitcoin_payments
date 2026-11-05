@@ -1088,13 +1088,6 @@ impl HistoryEntry {
             // A plain Ark-address receive carries no HTLC metadata and (per
             // the pinned OpenAPI) no entry-level vtxo_id/txid; the VTXO it
             // created is unique per payment and survives a wallet restore.
-            .or_else(|| {
-                self.output_vtxos
-                    .as_ref()
-                    .and_then(|o| o.first())
-                    .filter(|o| !o.is_empty())
-                    .cloned()
-            })
     }
 
     /// Map a receive entry to the watcher's payment shape — ONE payment per

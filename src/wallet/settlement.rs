@@ -417,7 +417,7 @@ mod tests {
             (
                 send.method == "POST",
                 body["destination"].clone(),
-                body["amount_sats"].clone(),
+                body["amount_sat"].clone(),
             )
         };
         assert!(send_is_post);
@@ -568,7 +568,7 @@ mod tests {
             .expect("refresh recorded");
         assert_eq!(refresh.method, "POST");
         let body: serde_json::Value = serde_json::from_str(&refresh.body).unwrap();
-        assert_eq!(body["vtxo_ids"][0], "v1");
+        assert_eq!(body["vtxos"][0], "v1");
     }
 
     #[tokio::test]

@@ -678,9 +678,10 @@ impl BarkdClient {
     // extract.
     pub async fn bitcoin_tip(&self) -> Result<Tip, WalletError> {
         let v: Json = self.get(PATH_BITCOIN_TIP).await?;
-        let height = flex::i64_field(&v, &["height", "block_height", "tip"]).ok_or_else(|| {
-            WalletError::Rejected("barkd tip had no height (VERIFY: field shape)".to_string())
-        })?;
+        let height = flex::i64_field(&v, &["tip_height", "height", "block_height", "tip"])
+            .ok_or_else(|| {
+                WalletError::Rejected("barkd tip had no height (VERIFY: field shape)".to_string())
+            })?;
         Ok(Tip {
             height,
             timestamp: flex::i64_field(&v, &["timestamp", "time"])
@@ -749,7 +750,8 @@ impl BarkdClient {
     pub async fn ark_send(&self, destination: &str, amount_sats: i64) -> Result<Json, WalletError> {
         // VERIFY: field shape — the /wallet/send dump is empty in the pinned
         // extract; destination/amount_sats is our best-effort model.
-        let body = serde_json::json!({ "destination": destination, "amount_sats": amount_sats });
+        // Pinned OpenAPI SendRequest: `amount_sat` (NOT `amount_sats`).
+        let body = serde_json::json!({ "destination": destination, "amount_sat": amount_sats });
         self.post(PATH_ARK_SEND, &body).await
     }
 
@@ -773,7 +775,8 @@ impl BarkdClient {
     pub async fn refresh_vtxos(&self, vtxo_ids: &[String]) -> Result<Json, WalletError> {
         // VERIFY: field shape — the /wallet/refresh/vtxos dump is empty in
         // the pinned extract; the id list key is our best-effort model.
-        let body = serde_json::json!({ "vtxo_ids": vtxo_ids });
+        // Pinned OpenAPI RefreshRequest: required `vtxos` (array of VTXO ids).
+        let body = serde_json::json!({ "vtxos": vtxo_ids });
         self.post(PATH_REFRESH_VTXOS, &body).await
     }
 
@@ -790,7 +793,8 @@ impl BarkdClient {
         // VERIFY: field shape — the /lightning/receives/invoice dump is
         // empty in the pinned extract; amount_sats is our best-effort model
         // and the BOLT11 is read from whichever field barkd uses.
-        let body = serde_json::json!({ "amount_sats": amount_sats, "description": description });
+        // Pinned OpenAPI: required `amount_sat`; optional description/expiry_secs.
+        let body = serde_json::json!({ "amount_sat": amount_sats, "description": description });
         let v: Json = self.post(PATH_LN_INVOICE, &body).await?;
         let bolt11 = flex::str_field(&v, &["invoice", "payment_request", "bolt11", "ln_invoice"])
             .ok_or_else(|| {
@@ -1851,7 +1855,7 @@ mod tests {
                 200,
                 r#"[{"id": "v1", "amount_sats": 100, "expiry_height": 900}]"#.to_string(),
             ),
-            "/api/v1/bitcoin/tip" => (200, r#"{"height": 800, "timestamp": 1000000}"#.to_string()),
+            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
             _ => (404, "{}".to_string()),
         });
         let queue = client(&base).vtxo_queue().await.unwrap();
@@ -1976,7 +1980,7 @@ mod tests {
         assert_eq!(all[0].path, "/api/v1/wallet/send");
         let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
         assert_eq!(body["destination"], "ark1merchant");
-        assert_eq!(body["amount_sats"], 50_000);
+        assert_eq!(body["amount_sat"], 50_000);
     }
 
     #[tokio::test]
@@ -2004,7 +2008,7 @@ mod tests {
         let all = recorded.lock().unwrap();
         assert_eq!(all[0].path, "/api/v1/lightning/receives/invoice");
         let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
-        assert_eq!(body["amount_sats"], 21_000);
+        assert_eq!(body["amount_sat"], 21_000);
     }
 
     #[tokio::test]

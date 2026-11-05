@@ -83,19 +83,14 @@ your laptop: `ssh -L 8080:localhost:8080 your-server`, then open
 `http://localhost:8080/setup`). Never run first-run setup over an
 untrusted network.
 **The setup code.** To keep strangers out, the wizard first asks for a
-one-time SETUP CODE (like `K7QM-2XPD-9TWE`). The server prints it when it
-starts; to show it, the merchant runs this on the server and reads the
-code aloud or types it into the wizard (capitals, dashes and spaces do not
-matter):
-
-```
-docker compose logs ebp | grep -A1 "SETUP CODE"
-```
-
-The code is never stored and changes every time the server restarts until
-setup is finished; if it changes mid-setup the wizard just asks again.
-Once setup is complete the wizard closes and the code is no longer needed.
-The AI may help find the line but the code is not a long-term secret.
+one-time SETUP CODE (like `K7QM-2XPD-9TWE`). `./scripts/start.sh` prints it
+in a box at the end of its output (capitals, dashes and spaces do not
+matter when typing it). The code is never stored and changes every time the
+server restarts until setup is finished; if it changes mid-setup, run
+`./scripts/start.sh` again to see the new one, and the wizard just asks
+again. Once setup is complete the wizard closes and the code is no longer
+needed. Fallback if you started the server some other way:
+`docker compose logs ebp | grep -A1 "SETUP CODE"`.
 
 The wizard walks the whole first run — create the till wallet, back up
 the recovery words, verify the barkd token, create the store — and the
@@ -188,8 +183,12 @@ The merchant fills in the three values and runs this themselves:
 export EBP_BARKD_TOKEN='the real token from 2b'
 export EBP_PUBLIC_BASE_URL='https://pay.example.com'
 export EBP_SETTLEMENT_DESTINATION='your arké signet address'
-docker compose up -d
+./scripts/start.sh
 ```
+
+When it finishes it prints a box with the wizard address and your one-time
+SETUP CODE. Keep that terminal open: Step 2 below types the code into the
+wizard.
 
 - `EBP_PUBLIC_BASE_URL` is the HTTPS address your phone will open — use
   your VPS's public DNS name (TLS required for the supported deploy).
@@ -255,7 +254,7 @@ step 2 in the same terminal):
 
 ```
 export EBP_HOT_WALLET_CAP_SATS=40000
-docker compose up -d
+./scripts/start.sh
 ```
 
 **Expected:** within about five minutes (the settlement engine runs on a

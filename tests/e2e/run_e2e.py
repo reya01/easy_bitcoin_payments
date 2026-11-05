@@ -358,31 +358,29 @@ def main():
             got = wait_for(lambda: status_of(inv)["paid_sats"] == 2000 and status_of(inv), "partial credited")
             assert got["status"] != "paid", got
 
-        @step("backup: encrypted download from the settings tab opens with the backup password only")
+        @step("backup: encrypted download from the settings tab opens with the admin password only")
         def _():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
             page.wait_for_selector("#bk-go")
-            bk_pw = "violet harbor lantern"
+            bk_pw = ADMIN_PW  # one password: the file is locked with the admin password
             page.fill("#bk-admin", ADMIN_PW)
-            page.fill("#bk-pw", bk_pw)
-            page.fill("#bk-pw2", bk_pw)
             with page.expect_download(timeout=60000) as dl:
                 page.click("#bk-go")
             path = os.path.join(tmp, "backup.ebpbackup")
             dl.value.save_as(path)
             wait_for(lambda: "Saved as" in page.inner_text("#bk-msg"), "saved message")
             assert "NOT inside" in page.inner_text("#bk-msg"), "unmanaged mode must say wallet files are not included"
-            assert not page.input_value("#bk-pw"), "password fields should be cleared"
+            assert not page.input_value("#bk-admin"), "password fields should be cleared"
             raw = open(path, "rb").read()
             assert b"SQLite format 3" not in raw and WORDS[0].encode() not in raw
             good = subprocess.run([EBP_BIN, "backup", "verify", path], input=bk_pw + "\n",
                                   capture_output=True, text=True, timeout=60)
             assert good.returncode == 0 and "ebp.sqlite3" in good.stdout, (good.stdout, good.stderr)
-            bad = subprocess.run([EBP_BIN, "backup", "verify", path], input=ADMIN_PW + "\n",
+            bad = subprocess.run([EBP_BIN, "backup", "verify", path], input="not the password\n",
                                  capture_output=True, text=True, timeout=60)
-            assert bad.returncode != 0, "the admin password must not open the backup"
+            assert bad.returncode != 0, "a wrong password must not open the backup"
             out = os.path.join(tmp, "restored")
             rest = subprocess.run([EBP_BIN, "backup", "restore", path, out], input=bk_pw + "\n",
                                   capture_output=True, text=True, timeout=60)

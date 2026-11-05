@@ -44,9 +44,10 @@ words are the only thing that turns a dead server back into your money.
 ## The one-click encrypted backup (Settings tab)
 
 In the admin page, Settings → **Download a backup**. You type your admin
-password (to prove it is you) and choose a **backup password** — different
-from the admin password, 12+ characters, typed twice. EBP never stores it.
-Your browser saves one file ending in `.ebpbackup`.
+password and your browser saves one file ending in `.ebpbackup`, locked with
+that same password — nothing new to remember or store. (Optional: a
+disclosure lets you pick a different password for the file instead.) EBP
+never stores either.
 
 - It holds your order history and settings. When this server runs the
   wallet itself (managed mode) it also holds the wallet folder. With a
@@ -55,7 +56,10 @@ Your browser saves one file ending in `.ebpbackup`.
 - It does NOT hold the server's encryption key (`EBP_KEY_ENCRYPTION_KEY` /
   `ebp.key`). Keep that key somewhere else. Without it, restored webhook
   secrets cannot be read and you re-issue them.
-- Lose the backup password and the file cannot be opened. There is no reset.
+- The file opens with the password it was locked with — the admin password
+  AT THE TIME of the download. If you later change or reset the admin
+  password, older backups still need the old one, so download a fresh backup
+  after changing it. Lose the password and the file cannot be opened.
 - Keep the file off the server (a password manager's file storage, a USB
   stick, another cloud account). A backup on the same disk is not a backup.
 - It is a copy at one moment. Download a fresh one after anything important,

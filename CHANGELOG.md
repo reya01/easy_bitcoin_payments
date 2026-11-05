@@ -12,7 +12,7 @@
 - Payments completed after an invoice's deadline are parked as `paid_after_expiry` regardless of watcher tick order.
 
 ### Added
-- Encrypted backup download: Settings tab → "Download a backup" (needs the admin password again plus a separate backup password that is never stored). One file holds a consistent database snapshot (signed-in sessions removed) and, in managed-barkd mode, the wallet folder; ChaCha20-Poly1305 with a PBKDF2 (600k) key. `ebp backup verify <file>` and `ebp backup restore <file> <new-folder>` (never overwrites; integrity-checks the database). Covered by unit tests, an API test and the browser e2e.
+- Encrypted backup download: Settings tab → "Download a backup" (locked with the admin password by default so there is nothing new to remember; an optional separate password; neither is stored). One file holds a consistent database snapshot (signed-in sessions removed) and, in managed-barkd mode, the wallet folder; ChaCha20-Poly1305 with a PBKDF2 (600k) key. `ebp backup verify <file>` and `ebp backup restore <file> <new-folder>` (never overwrites; integrity-checks the database). Covered by unit tests, an API test and the browser e2e.
 - Checkout shows a QR code (vendored same-origin generator, `/assets/qr.js`).
 - `PUT /api/v1/stores/webhook` and `POST /api/v1/stores/rotate-key`.
 - On-chain confirmation gate: payments are matched by output script from `/onchain/transactions` and credited only at `EBP_ONCHAIN_MIN_CONFIRMATIONS` (default 1) depth; an invoice with a payment seen before its deadline is held open (max 24h) and is not treated as late. Checkout shows "waiting for confirmation". History-feed on-chain receipts are never credited directly.

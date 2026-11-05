@@ -13,6 +13,7 @@
 
 ### Added
 - Beginner docs pass (from an independent role-play review): new `docs/START_HERE.md` (honest status, what you need, single-container install, "how you know it worked", glossary); walkthrough now covers the setup code (`start.sh`), the admin password and the webhook secret, and no longer overwrites `.env`; dead references in the backup recipe marked as not-yet-available.
+- Admin Payments tab: "Try a payment" creates a test payment request (amount in sats) and links to its checkout page, so a shop owner can see a payment end to end without any command line. Covered by the browser e2e.
 - Encrypted backup download: Settings tab → "Download a backup" (locked with the admin password, so there is nothing new to remember; not stored). One file holds a consistent database snapshot (signed-in sessions removed) and, in managed-barkd mode, the wallet folder; ChaCha20-Poly1305 with a PBKDF2 (600k) key. `ebp backup verify <file>` and `ebp backup restore <file> <new-folder>` (never overwrites; integrity-checks the database). Covered by unit tests, an API test and the browser e2e.
 - Checkout shows a QR code (vendored same-origin generator, `/assets/qr.js`).
 - `PUT /api/v1/stores/webhook` and `POST /api/v1/stores/rotate-key`.

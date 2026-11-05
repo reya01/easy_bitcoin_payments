@@ -358,6 +358,25 @@ def main():
             got = wait_for(lambda: status_of(inv)["paid_sats"] == 2000 and status_of(inv), "partial credited")
             assert got["status"] != "paid", got
 
+        @step("admin: create a test payment from the Payments tab, pay it, see it paid in the list")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="orders"]')
+            page.fill("#tp-sats", "1500")
+            page.click("#tp-go")
+            wait_for(lambda: page.is_visible("#tp-link"), "checkout link shown")
+            href = page.get_attribute("#tp-link", "href")
+            assert "/i/" in href, href
+            inv_id = href.rstrip("/").split("/")[-1]
+            code, inv = http("GET", f"{BASE}/i/{inv_id}/json")
+            assert code == 200, (code, inv)
+            ctl(action="pay_ark", address=inv["ark_address"], sats=1500)
+            wait_for(lambda: status_of({"id": inv_id})["status"] == "paid", "test payment paid")
+            page.click('#tabs button[data-v="home"]')
+            page.click('#tabs button[data-v="orders"]')
+            wait_for(lambda: "paid" in page.inner_text("#orders"), "paid shown in list")
+
         @step("backup: encrypted download from the settings tab opens with the admin password only")
         def _():
             page.goto(f"{BASE}/admin")

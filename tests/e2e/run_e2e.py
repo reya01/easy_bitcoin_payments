@@ -100,7 +100,14 @@ def start_ebp():
     return p
 
 
-def step(name):
+PAGE = {"page": None, "net": []}
+
+
+class Abort(Exception):
+    pass
+
+
+def step(name, critical=False):
     def deco(fn):
         t0 = time.time()
         try:
@@ -108,8 +115,11 @@ def step(name):
             results.append((name, True, ""))
             print(f"PASS  {name}  ({time.time() - t0:.1f}s)", flush=True)
         except Exception as e:  # noqa: BLE001
-            results.append((name, False, repr(e)))
-            print(f"FAIL  {name}: {e!r}", flush=True)
+            results.append((name, False, repr(e)[:600]))
+            print(f"FAIL  {name}: {repr(e)[:600]}", flush=True)
+            if critical:
+                dump_failure_context(PAGE["page"])
+                raise Abort(name)
         return fn
 
     return deco
@@ -148,6 +158,11 @@ def dump_failure_context(page=None):
     if page is not None:
         try:
             print("URL:", page.url)
+            vis = page.evaluate(
+                "Array.from(document.querySelectorAll('section')).filter(s => !s.classList.contains('hidden')).map(s => s.id)"
+            )
+            print("VISIBLE SECTIONS:", vis)
+            print("RECENT REQUESTS:", PAGE["net"][-12:])
             print("PAGE TEXT:", page.inner_text("body")[:1500].replace("\n", " | "))
         except Exception:
             pass
@@ -172,11 +187,18 @@ def main():
         browser = pw.chromium.launch()
         page = browser.new_page(viewport={"width": 1100, "height": 900})
         errors = []
+        PAGE["page"] = page
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on(
+            "response",
+            lambda r: PAGE["net"].append(f"{r.request.method} {r.url.replace(BASE, '')} -> {r.status}")
+            if "/setup" in r.url or "/admin" in r.url
+            else None,
+        )
         page.on("dialog", lambda d: d.accept())
 
         # ------------------------------------------------------- setup wizard
-        @step("wizard: wrong setup code is refused, right code accepted")
+        @step("wizard: wrong setup code is refused, right code accepted", critical=True)
         def _():
             page.goto(f"{BASE}/setup")
             page.wait_for_selector("#step-code:not(.hidden)")
@@ -187,7 +209,7 @@ def main():
             page.click("#btn-code")
             page.wait_for_selector("#step-wallet:not(.hidden)")
 
-        @step("wizard: create wallet, show words once, wrong quiz refused, right quiz accepted")
+        @step("wizard: create wallet, show words once, wrong quiz refused, right quiz accepted", critical=True)
         def _():
             page.click("#btn-wallet")
             page.wait_for_selector("#step-backup:not(.hidden)")
@@ -212,7 +234,7 @@ def main():
             page.click("#btn-quiz")
             page.wait_for_selector("#step-token:not(.hidden)")
 
-        @step("wizard: connect token, name the store, set the admin password")
+        @step("wizard: connect token, name the store, set the admin password", critical=True)
         def _():
             page.fill("#token", TOKEN)
             page.click("#btn-token")
@@ -358,7 +380,10 @@ def main():
 
 if __name__ == "__main__":
     try:
-        rc = main()
+        try:
+            rc = main()
+        except Abort:
+            rc = 1
     finally:
         for p in procs:
             try:

@@ -399,10 +399,17 @@ pub async fn create(
     let now = now_unix();
 
     // BARK INTEGRATION: Phase 1 derives these from the Bark wallet.
-    let addresses = state
-        .wallet
-        .receive_addresses(&invoice_id)
-        .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))?;
+    //
+    // The wallet adapter is synchronous (barkd = blocking HTTP bridge), so it
+    // runs on the blocking pool, never on an async worker (beta hardening).
+    let addresses = {
+        let wallet = state.wallet.clone();
+        let id = invoice_id.clone();
+        tokio::task::spawn_blocking(move || wallet.receive_addresses(&id))
+            .await
+            .map_err(|e| AppError::Internal(format!("wallet task failed: {e}")))?
+            .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))?
+    };
 
     // Metadata carries the store's own key/value data plus two internal
     // markers: `test` (set in test mode; test invoices are excluded from
@@ -460,10 +467,18 @@ pub async fn create(
     // the ASP's gateway. Best effort — when the gateway is unavailable the
     // checkout still works over Ark and on-chain.
     let lightning_invoice = if state.config.lightning_receive_enabled {
-        match state
-            .wallet
-            .lightning_invoice(amount_sats, &format!("invoice {}", invoice.id))
-        {
+        let ln_result = {
+            let wallet = state.wallet.clone();
+            let description = format!("invoice {}", invoice.id);
+            tokio::task::spawn_blocking(move || wallet.lightning_invoice(amount_sats, &description))
+                .await
+                .unwrap_or_else(|e| {
+                    Err(crate::wallet::WalletError::Unavailable(format!(
+                        "wallet task failed: {e}"
+                    )))
+                })
+        };
+        match ln_result {
             Ok(ln) => {
                 let bolt11 = ln.bolt11.clone();
                 let identifier = ln.identifier.clone();

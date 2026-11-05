@@ -215,7 +215,7 @@ def main():
             page.wait_for_selector("#step-backup:not(.hidden)")
             page.check("#safe-check")
             page.click("#btn-show-words")
-            page.wait_for_function("document.getElementById('words').innerText.trim().length > 20")
+            wait_for(lambda: len(page.inner_text("#words").strip()) > 20, "recovery words to appear")
             shown = page.inner_text("#words").split()
             assert [w for w in shown if w.isalpha()][-12:] == WORDS or all(w in shown for w in WORDS), shown
             page.check("#backup-check")

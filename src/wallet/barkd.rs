@@ -101,6 +101,9 @@ const PATH_BITCOIN_TIP: &str = "/bitcoin/tip";
 const PATH_ARK_SEND: &str = "/wallet/send";
 /// Cooperative on-chain withdrawal of the whole Ark balance. POST.
 const PATH_OFFBOARD_ALL: &str = "/wallet/offboard/all";
+/// Offboard a chosen set of VTXOs (pinned OpenAPI OffboardVtxosRequest:
+/// required `vtxos`, optional `address`).
+const PATH_OFFBOARD_VTXOS: &str = "/wallet/offboard/vtxos";
 /// Refresh every spendable VTXO in the next round. POST.
 const PATH_REFRESH_ALL: &str = "/wallet/refresh/all";
 /// Refresh specific VTXOs in the next round. POST.
@@ -727,6 +730,17 @@ impl BarkdClient {
         // the pinned extract; address is our best-effort model.
         let body = serde_json::json!({ "address": address });
         self.post(PATH_OFFBOARD_ALL, &body).await
+    }
+
+    /// Cooperative on-chain withdrawal of specific VTXOs (R8): lets the
+    /// sweep move only the excess over the hot cap instead of the whole till.
+    pub async fn offboard_vtxos(
+        &self,
+        address: &str,
+        vtxo_ids: &[String],
+    ) -> Result<Json, WalletError> {
+        let body = serde_json::json!({ "address": address, "vtxos": vtxo_ids });
+        self.post(PATH_OFFBOARD_VTXOS, &body).await
     }
 
     /// Refresh every spendable VTXO in the next ASP round.

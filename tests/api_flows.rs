@@ -801,19 +801,44 @@ async fn wizard_store_step_sets_the_admin_password() {
         password_hash_iterations: 1_000,
         ..Config::default()
     };
-    let (_base, state, _store_id, _key) = serve_with(config).await;
-    // Too-short passwords are refused before anything is stored.
-    let short = easy_bitcoin_payments::admin_auth::validate_password("short");
-    assert!(short.is_err());
+    let (base, state, _store_id, _key) = serve_with(config).await;
     state
         .db
-        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_complete", "false"))
         .await
         .unwrap();
+    let client = reqwest::Client::new();
+    let post = |body: serde_json::Value| {
+        client
+            .post(format!("{base}/setup/store"))
+            .header("host", "localhost")
+            .json(&body)
+            .send()
+    };
+
+    // Too short: refused, nothing set.
+    let r = post(serde_json::json!({"name": "Shop", "admin_password": "short"}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
     let set = state
         .db
         .call(|c| easy_bitcoin_payments::admin_auth::password_is_set(c))
         .await
         .unwrap();
-    assert!(set);
+    assert!(!set);
+
+    // Good password: stored hashed, and it logs in.
+    let r = post(serde_json::json!({"name": "Shop", "admin_password": "a good long password"}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let login = client
+        .post(format!("{base}/admin/login"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status().as_u16(), 200);
 }

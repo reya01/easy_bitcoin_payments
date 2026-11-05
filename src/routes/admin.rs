@@ -170,6 +170,11 @@ pub async fn status(
     // Plain-language checklist for the Home tab (pure rules in health_checks).
     let mut facts = crate::health_checks::Facts {
         https: state.config.public_base_url.starts_with("https://"),
+        local_only: {
+            let u = state.config.public_base_url.to_lowercase();
+            let host = u.split("://").nth(1).unwrap_or("");
+            host.starts_with("localhost") || host.starts_with("127.") || host.starts_with("[::1]")
+        },
         hot_wallet_cap_sats: state.config.hot_wallet_cap_sats,
         unmatched_open: counters["unmatched_payments_open"].as_i64().unwrap_or(0),
         webhooks_failed: counters["webhooks_failed"].as_i64().unwrap_or(0),

@@ -262,7 +262,7 @@ def main():
             page.wait_for_selector("#v-home:not(.hidden)")
             wait_for(lambda: "Wallet is connected" in page.inner_text("#health"), "wallet connected line")
             text = page.inner_text("#health")
-            assert "not secure" in text, "plain http must be flagged"
+            assert "only works on this computer" in text, "a localhost address must be flagged"
 
         @step("connect tab: save webhook, test notification arrives with a valid signature")
         def _():
@@ -347,11 +347,9 @@ def main():
             ctl(action="pay_ark", address=inv["ark_address"], sats=1200)
             wait_for(lambda: status_of(inv)["status"] == "paid", "paid after restart")
             page.goto(f"{BASE}/admin")
-            page.wait_for_selector("#login-form:not(.hidden), #v-home:not(.hidden)")
-            if page.is_visible("#login-form"):
-                page.fill("#pw", ADMIN_PW)
-                page.click("#login-btn")
-            page.wait_for_selector("#v-home:not(.hidden)")
+            wait_for(lambda: page.is_visible("#login-form") or page.is_visible("#v-home"), "login or home")
+            # The session is stored server-side, so it should survive a restart.
+            assert page.is_visible("#v-home"), "signed-in session should survive a server restart"
 
         @step("underpayment is not marked paid")
         def _():

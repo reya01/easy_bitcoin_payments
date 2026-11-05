@@ -74,7 +74,7 @@ pub async fn status(
 ) -> Result<Json<Value>, AppError> {
     authorize(&state, &headers).await?;
 
-    let (counters, recent_settlements) = state
+    let (counters, recent_settlements, webhook_configured) = state
         .db
         .call(|conn| {
             let count = |sql: &str| -> Result<i64, AppError> {
@@ -105,7 +105,10 @@ pub async fn status(
                     }))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok((counters, rows))
+            let configured = count(
+                "SELECT COUNT(*) FROM stores WHERE webhook_url IS NOT NULL AND webhook_url <> ''",
+            )? > 0;
+            Ok((counters, rows, configured))
         })
         .await?;
 
@@ -120,12 +123,18 @@ pub async fn status(
                 Ok(b) => {
                     out.insert("offchain_sats".into(), json!(b.offchain_sats));
                     out.insert("onchain_sats".into(), json!(b.onchain_sats));
+                    out.insert("needs_refresh_sats".into(), json!(b.needs_refresh_sats));
                     out.insert(
                         "hot_wallet_cap_sats".into(),
                         json!(state.config.hot_wallet_cap_sats),
                     );
                 }
                 Err(e) => errors.push(format!("balances: {e}")),
+            }
+            if let Ok(c) = client.connected().await {
+                if let Some(v) = c.connected {
+                    out.insert("asp_connected".into(), json!(v));
+                }
             }
             match (client.vtxos().await, client.onchain_balance().await) {
                 (Ok(vtxos), Ok(onchain)) => {
@@ -158,7 +167,31 @@ pub async fn status(
         }
     };
 
+    // Plain-language checklist for the Home tab (pure rules in health_checks).
+    let mut facts = crate::health_checks::Facts {
+        https: state.config.public_base_url.starts_with("https://"),
+        hot_wallet_cap_sats: state.config.hot_wallet_cap_sats,
+        unmatched_open: counters["unmatched_payments_open"].as_i64().unwrap_or(0),
+        webhooks_failed: counters["webhooks_failed"].as_i64().unwrap_or(0),
+        webhook_configured,
+        last_settlement_failed: recent_settlements
+            .first()
+            .map(|s| s["status"] == "failed")
+            .unwrap_or(false),
+        ..Default::default()
+    };
+    facts.wallet_reachable = wallet.get("offchain_sats").is_some();
+    facts.offchain_sats = wallet.get("offchain_sats").and_then(Value::as_i64);
+    facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
+    if let Some(r) = wallet.get("exit_reserve") {
+        facts.exit_reserve_ok = r["ok"].as_bool();
+        facts.exit_reserve_shortfall_sats = r["shortfall_sats"].as_i64().unwrap_or(0);
+    }
+    facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
+    let checks = crate::health_checks::build(&facts);
+
     Ok(Json(json!({
+        "checks": checks,
         "mode": state.config.mode,
         "onchain_rail_enabled": state.config.onchain_rail_enabled,
         "version": crate::VERSION,

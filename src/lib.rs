@@ -12,6 +12,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod health_checks;
 pub mod invoice;
 pub mod managed_barkd;
 pub mod models;

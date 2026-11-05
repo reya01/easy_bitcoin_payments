@@ -179,6 +179,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/webhook-deliveries/{id}/resend` | Queue a delivery again |
 | `GET` | `/api/v1/audit-log?limit=&offset=` | Security trail: key/webhook changes, resends, resolved late payments |
 | `PUT` | `/api/v1/stores/webhook` | Set/clear the store's webhook URL; issues the signing secret once (`rotate_secret` to replace) |
+| `GET` | `/api/v1/admin/version` | Current version, whether a newer release exists, open-order count |
 | `POST` | `/api/v1/stores/webhook/test` | Send a harmless `webhook.test` notification to the store's webhook |
 | `POST` | `/api/v1/stores/rotate-key` | Revoke all API keys for the store and issue a new one (shown once) |
 | `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
@@ -253,6 +254,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
 | `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
+| `EBP_UPDATE_CHECK` | `true` | Let the admin page check the public releases page for a newer version (one anonymous cached request). EBP never updates itself |
 | `EBP_MANAGED_BARKD` | `false` (`true` in the default Docker image) | EBP runs the barkd wallet daemon itself, so setup needs no token copying or terminal commands. Use `docker-compose.managed.yml` |
 | `EBP_ALLOW_INSECURE_SETUP` | `false` | The setup wizard refuses to run over plain `http://` on a non-local address (your recovery words and keys would cross the network unprotected). Set `true` only on a trusted LAN or for throwaway testing |
 | `EBP_SETUP_TOKEN` | unset | Optional fixed setup code for automation. Normally leave it unset: until setup is finished the server makes a one-time **SETUP CODE** on every start, prints it where the server runs (`docker compose logs ebp`), and the setup page asks for it |

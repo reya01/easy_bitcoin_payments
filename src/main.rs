@@ -66,7 +66,8 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         &config.database_path,
     )?;
 
-    let db = Db::open(&config.database_path)?;
+    let db =
+        Db::open(&config.database_path).map_err(|e| format!("could not open the database: {e}"))?;
 
     // R9: no technical setup needed to keep strangers out of the first-run
     // wizard. If the operator did not choose a setup token and setup is not

@@ -7,6 +7,43 @@ release, and the multi-arch (amd64 + arm64) image at
 URLs; `scripts/release.sh` builds the same artifacts locally without
 publishing.
 
+## EBP never updates itself
+
+There is no auto-update, no "stable" branch that deploys on its own, and no
+option to turn one on. You choose when to update:
+
+- The admin page's Home tab shows "Update available" (and "Security update"
+  when the release title contains `[security]`) with the steps for your host
+  and how many orders are open. It learns this from one anonymous request to
+  the public releases page, cached for hours; switch it off with
+  `EBP_UPDATE_CHECK=false`. It never installs anything.
+- On Render, `render.yaml` sets `autoDeploy: false`; update with
+  Manual Deploy -> Deploy latest commit. Leave auto-deploy off.
+- Restarting is safe at any time: pending payments and webhook notifications
+  are stored and resume.
+
+## Automatic backup before every upgrade
+
+If a new version needs to change the database, the server first copies it to
+a `backups` folder beside it (the last three are kept, readable only by the
+server's user). If the copy cannot be made, the server does not start rather
+than change your data. The reverse is also protected: an OLDER version refuses
+to start on data written by a NEWER one, with a plain message. To roll back,
+stop the server, put the copy back as `ebp.sqlite3`, and run the older
+version. These copies live on the same disk, so they guard against a bad
+upgrade, not against losing the disk: see RECIPE_BACKUP.md.
+
+## Verifying a release (optional, advanced)
+
+Release images are built by this repository's release workflow, published by
+immutable digest (there is deliberately no `latest` tag), signed keylessly
+with sigstore/cosign, and carry build provenance and an SBOM. The release
+notes list the image digest and the exact `cosign verify` command. To pin a
+deployment, use `image: ghcr.io/<owner>/<repo>@sha256:<digest>`.
+Maintainer to-do (a repository setting, not code): protect the `v*` tag
+pattern so only maintainers can create release tags. The release workflow has
+not been run yet; run it on a test tag before the first real release.
+
 ## Docker one-liner deploy (the supported path)
 
 ```

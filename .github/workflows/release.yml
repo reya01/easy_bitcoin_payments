@@ -16,6 +16,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # keyless image signing (sigstore) uses the workflow's OIDC identity
 
 env:
   CARGO_TERM_COLOR: always
@@ -101,14 +102,20 @@ jobs:
           fail_on_unmatched_files: true
 
   docker:
-    name: push the multi-arch image
+    name: push, sign and attest the multi-arch image
     runs-on: ubuntu-latest
     needs: binaries
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Work out the image name (ghcr requires lowercase)
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+        id: name
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -121,12 +128,39 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # No `latest` tag on purpose: nothing should follow a moving tag.
+      # Deployments pin the immutable digest printed in the release notes.
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: true
+          sbom: true
           tags: |
             ${{ env.IMAGE }}:${{ github.ref_name }}
-            ${{ env.IMAGE }}:latest
+
+      - uses: sigstore/cosign-installer@v3
+
+      # Keyless signature bound to THIS workflow's identity (no key to steal).
+      - name: Sign the image by digest
+        run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"
+
+  annotate:
+    name: put the verified image digest in the release notes
+    runs-on: ubuntu-latest
+    needs: [release, docker]
+    steps:
+      - name: Append image + verification instructions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          IMAGE: ${{ needs.docker.outputs.image }}
+          DIGEST: ${{ needs.docker.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          body="$(gh release view "$TAG" --repo "$REPO" --json body -q .body)"
+          notes="$(printf '%s\n\n## Container image\n\n`%s@%s`\n\nVerify the signature (optional, advanced):\n\n```\ncosign verify %s@%s \\\n  --certificate-identity-regexp "^https://github.com/%s/\\.github/workflows/release\\.yml@" \\\n  --certificate-oidc-issuer https://token.actions.githubusercontent.com\n```\n' "$body" "$IMAGE" "$DIGEST" "$IMAGE" "$DIGEST" "$REPO")"
+          gh release edit "$TAG" --repo "$REPO" --notes "$notes"

@@ -42,7 +42,9 @@ impl Db {
         let conn = if path == ":memory:" {
             Connection::open_in_memory()?
         } else {
-            Connection::open(path)?
+            let conn = Connection::open(path)?;
+            backup_before_migrating(&conn, path)?;
+            conn
         };
 
         Self::from_connection(conn)
@@ -91,8 +93,79 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), AppE
     crate::settings::set(conn, key, value)
 }
 
+fn plain_error(message: String) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(message.into())
+}
+
+/// How many pre-upgrade copies to keep.
+const KEEP_BACKUPS: usize = 3;
+
+/// Before an UPGRADE changes an existing database, keep a copy beside it in
+/// `backups/` (the last three). A fresh database or one that is already up
+/// to date is left alone. Fails closed: if the copy cannot be made, the
+/// server does not touch the data.
+fn backup_before_migrating(conn: &Connection, path: &str) -> Result<(), rusqlite::Error> {
+    let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if current <= 0 || current as usize >= MIGRATIONS.len() {
+        return Ok(());
+    }
+    let dir = Path::new(path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .join("backups");
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        plain_error(format!(
+            "could not create the backups folder before upgrading: {e}"
+        ))
+    })?;
+    let file = dir.join(format!(
+        "ebp-{}-before-v{}.sqlite3",
+        crate::util::now_unix(),
+        MIGRATIONS.len()
+    ));
+    conn.execute("VACUUM INTO ?1", [file.to_string_lossy().as_ref()])
+        .map_err(|e| {
+            plain_error(format!(
+                "could not back up the database before upgrading: {e}"
+            ))
+        })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
+    }
+    prune_backups(&dir, KEEP_BACKUPS);
+    tracing::info!(backup = %file.display(), "database backed up before upgrade");
+    Ok(())
+}
+
+fn prune_backups(dir: &Path, keep: usize) {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut names: Vec<String> = read
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| n.starts_with("ebp-") && n.ends_with(".sqlite3"))
+        .collect();
+    names.sort();
+    names.reverse();
+    for old in names.into_iter().skip(keep) {
+        let _ = std::fs::remove_file(dir.join(old));
+    }
+}
+
 fn migrate(conn: &mut Connection) -> Result<(), rusqlite::Error> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if current as usize > MIGRATIONS.len() {
+        return Err(plain_error(format!(
+            "this database was written by a NEWER version of Easy Bitcoin Payments \
+             (schema {current}, this version understands {}). Update the software; do not run an \
+             older version on newer data.",
+            MIGRATIONS.len()
+        )));
+    }
 
     for (index, sql) in MIGRATIONS.iter().enumerate() {
         let version = (index + 1) as i64;
@@ -109,6 +182,53 @@ fn migrate(conn: &mut Connection) -> Result<(), rusqlite::Error> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upgrade_backup_and_downgrade_protection() {
+        use super::*;
+        let dir = std::env::temp_dir().join(format!("ebp-db-test-{}", crate::util::random_hex(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ebp.sqlite3");
+        let path_s = path.to_string_lossy().to_string();
+
+        // A fresh database is never "backed up".
+        let conn = Connection::open(&path).unwrap();
+        backup_before_migrating(&conn, &path_s).unwrap();
+        assert!(!dir.join("backups").exists());
+        drop(conn);
+
+        // An older database is copied before it is upgraded.
+        let db = Db::open(&path_s).unwrap();
+        drop(db);
+        let conn = Connection::open(&path).unwrap();
+        conn.pragma_update(None, "user_version", (MIGRATIONS.len() - 1) as i64)
+            .unwrap();
+        backup_before_migrating(&conn, &path_s).unwrap();
+        let copies = std::fs::read_dir(dir.join("backups")).unwrap().count();
+        assert_eq!(copies, 1);
+
+        // Only the newest three are kept.
+        for i in 0..5 {
+            std::fs::write(
+                dir.join("backups")
+                    .join(format!("ebp-{i:010}-before-v1.sqlite3")),
+                b"x",
+            )
+            .unwrap();
+        }
+        prune_backups(&dir.join("backups"), 3);
+        assert_eq!(std::fs::read_dir(dir.join("backups")).unwrap().count(), 3);
+
+        // A database from a newer version is refused with a plain message.
+        let mut newer = Connection::open_in_memory().unwrap();
+        newer
+            .pragma_update(None, "user_version", (MIGRATIONS.len() + 1) as i64)
+            .unwrap();
+        let err = migrate(&mut newer).unwrap_err().to_string();
+        assert!(err.contains("NEWER version"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     fn memory_db() -> Db {

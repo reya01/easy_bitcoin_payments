@@ -41,7 +41,9 @@ advanced users.
 included, log viewer for the setup code, secret variables for
 `EBP_KEY_ENCRYPTION_KEY`). Needs 1b first because such hosts run one container.
 
-### 2. Admin page with login (manage from a phone)
+### 2. Admin page with login (manage from a phone) — BUILT
+Status: built (`/admin`, also `/dashboard`). Password is chosen in the setup wizard and hashed with PBKDF2-HMAC-SHA256 (600k rounds; no new dependency). Not done: passkeys (needs a WebAuthn library), multiple admins, argon2 (a possible later swap). Original plan:
+
 Mobile-first page for: webhook URL/secret, rotate API key, unmatched payments,
 delivery log, audit log, settlement. Login by a password chosen in the wizard
 (argon2 hash) and optionally a passkey; HttpOnly + SameSite=Strict session

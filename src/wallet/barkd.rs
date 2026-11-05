@@ -579,6 +579,7 @@ impl BarkdClient {
             onchain_sats: 0,
             offchain_sats: spendable,
             claimable_lightning_sats: claimable,
+            needs_refresh_sats: flex::i64_field(&v, &["needs_refresh_sat"]).unwrap_or(0),
         })
     }
 
@@ -1231,6 +1232,8 @@ pub struct Balances {
     pub offchain_sats: i64,
     /// Claimable Lightning receives (VERIFIED: claimable_lightning_receive_sat).
     pub claimable_lightning_sats: i64,
+    /// Coins the wallet says are due for renewal (`needs_refresh_sat`).
+    pub needs_refresh_sats: i64,
 }
 
 impl Balances {

@@ -327,6 +327,18 @@ async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
     assert_eq!(ok["counters"]["unmatched_payments_open"], 0);
     assert_eq!(ok["counters"]["webhooks_failed"], 0);
     assert!(ok["wallet"]["error"].is_string());
+    // The plain-language checklist: no wallet configured and a plain-http
+    // address are both reported as problems, worst first.
+    let checks = ok["checks"].as_array().expect("checks array");
+    assert_eq!(checks[0]["level"], "bad");
+    let level_of = |id: &str| {
+        checks
+            .iter()
+            .find(|c| c["id"] == id)
+            .map(|c| c["level"].clone())
+    };
+    assert_eq!(level_of("wallet"), Some(serde_json::json!("bad")));
+    assert_eq!(level_of("https"), Some(serde_json::json!("bad")));
 }
 
 #[tokio::test]

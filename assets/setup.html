@@ -148,7 +148,13 @@
         <input type="checkbox" id="backup-check">
         <label for="backup-check">I wrote the words down on paper, twice, and stored the two copies in two separate safe places.</label>
       </div>
-      <button class="primary" id="btn-backup" type="button" disabled>Confirm the backup</button>
+      <button class="primary" id="btn-backup" type="button" disabled>Check my backup</button>
+      <div class="hidden" id="quiz">
+        <p class="note"><strong>Check your paper copy.</strong> The words are hidden now. Look at your paper and type the words it asks for.</p>
+        <div id="quiz-fields"></div>
+        <button class="primary" id="btn-quiz" type="button">Check and continue</button>
+        <button id="btn-quiz-back" type="button">Show the words again</button>
+      </div>
     </div>
     <div class="error hidden" id="backup-error"></div>
   </section>
@@ -350,6 +356,20 @@
       fail(els.walletError, "Could not read the setup status: " + err.message);
     });
 
+  // The words live only in this variable and the DOM; both are wiped once
+  // the backup is confirmed. They are never sent back to the server.
+  var recoveryWords = [];
+  function renderWords(mnemonic) {
+    recoveryWords = mnemonic.trim().split(/\s+/);
+    els.words.textContent = "";
+    recoveryWords.forEach(function (word, index) {
+      var item = document.createElement("span");
+      item.textContent = (index + 1) + ". " + word;
+      els.words.appendChild(item);
+    });
+    els.words.classList.remove("hidden");
+  }
+
   els.btnWallet.addEventListener("click", function () {
     clearFail(els.walletError);
     els.btnWallet.disabled = true;
@@ -359,12 +379,7 @@
     })
       .then(function (result) {
         if (result.mnemonic) {
-          els.words.textContent = "";
-          result.mnemonic.trim().split(/\s+/).forEach(function (word, index) {
-            var item = document.createElement("span");
-            item.textContent = (index + 1) + ". " + word;
-            els.words.appendChild(item);
-          });
+          renderWords(result.mnemonic);
         } else {
           // The create response never carries the words (verified barkd
           // 0.8.0): the ceremony button is the way to see them.
@@ -392,13 +407,7 @@
     api("POST", "/setup/wallet/mnemonic", {})
       .then(function (result) {
         if (result.mnemonic) {
-          els.words.textContent = "";
-          result.mnemonic.trim().split(/\s+/).forEach(function (word, index) {
-            var item = document.createElement("span");
-            item.textContent = (index + 1) + ". " + word;
-            els.words.appendChild(item);
-          });
-          els.words.classList.remove("hidden");
+          renderWords(result.mnemonic);
           els.wordsManual.textContent = result.instructions || "";
           els.wordsManual.classList.remove("hidden");
           els.ceremonyNote.classList.add("hidden");
@@ -417,14 +426,74 @@
     els.btnBackup.disabled = !els.backupCheck.checked;
   });
 
+  var quizPositions = [];
+  function startQuiz() {
+    // Three random, distinct positions, in order.
+    var picks = [];
+    var buf = new Uint32Array(32);
+    window.crypto.getRandomValues(buf);
+    for (var k = 0; k < buf.length && picks.length < 3; k++) {
+      var n = buf[k] % recoveryWords.length;
+      if (picks.indexOf(n) < 0) picks.push(n);
+    }
+    quizPositions = picks.sort(function (a, b) { return a - b; });
+    var box = document.getElementById("quiz-fields");
+    box.textContent = "";
+    quizPositions.forEach(function (pos) {
+      var label = document.createElement("label");
+      label.textContent = "Word number " + (pos + 1);
+      var input = document.createElement("input");
+      input.type = "text";
+      input.autocomplete = "off";
+      input.autocapitalize = "none";
+      input.spellcheck = false;
+      input.setAttribute("data-pos", String(pos));
+      box.appendChild(label);
+      box.appendChild(input);
+    });
+    els.words.classList.add("hidden");
+    els.btnBackup.classList.add("hidden");
+    document.getElementById("quiz").classList.remove("hidden");
+  }
+
   els.btnBackup.addEventListener("click", function () {
     clearFail(els.backupError);
-    els.btnBackup.disabled = true;
+    if (!recoveryWords.length) {
+      fail(els.backupError, "Show your recovery words first, write them down, then check your backup.");
+      return;
+    }
+    startQuiz();
+  });
+
+  document.getElementById("btn-quiz-back").addEventListener("click", function () {
+    clearFail(els.backupError);
+    document.getElementById("quiz").classList.add("hidden");
+    els.btnBackup.classList.remove("hidden");
+    els.words.classList.remove("hidden");
+  });
+
+  document.getElementById("btn-quiz").addEventListener("click", function () {
+    clearFail(els.backupError);
+    var inputs = document.querySelectorAll("#quiz-fields input");
+    var ok = inputs.length === 3;
+    inputs.forEach(function (input) {
+      var want = recoveryWords[Number(input.getAttribute("data-pos"))];
+      if (input.value.trim().toLowerCase() !== want) ok = false;
+    });
+    if (!ok) {
+      fail(els.backupError, "Those don't match. Check the numbers against your paper copy, or tap \"Show the words again\" and re-copy them.");
+      return;
+    }
+    els.btnQuiz = document.getElementById("btn-quiz");
+    els.btnQuiz.disabled = true;
     api("POST", "/setup/wallet/confirm-backup", { confirmed: true })
       .then(function () {
         // Shown-exactly-once, honored in the DOM too: the words leave the
         // page as soon as the backup is confirmed (and stay gone through
         // back/forward cache — see the pageshow wipe below).
+        recoveryWords = [];
+        document.getElementById("quiz-fields").textContent = "";
+        document.getElementById("quiz").classList.add("hidden");
         els.words.textContent = "";
         els.words.classList.add("hidden");
         els.wordsManual.textContent = "";
@@ -432,7 +501,7 @@
         markStep(2); show("token");
       })
       .catch(function (err) { fail(els.backupError, err.message); })
-      .finally(function () { els.btnBackup.disabled = false; });
+      .finally(function () { els.btnQuiz.disabled = false; });
   });
 
   els.btnToken.addEventListener("click", function () {
@@ -504,6 +573,7 @@
   // DOM: wipe them on every persisted pageshow.
   window.addEventListener("pageshow", function (event) {
     if (event.persisted) {
+      recoveryWords = [];
       if (els.words) { els.words.textContent = ""; els.words.classList.add("hidden"); }
       if (els.wordsManual) { els.wordsManual.textContent = ""; }
       if (els.apiKey) { els.apiKey.textContent = ""; }

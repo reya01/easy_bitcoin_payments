@@ -12,12 +12,7 @@ use crate::error::AppError;
 use crate::routes::AppState;
 
 fn secure(state: &AppState) -> bool {
-    state
-        .config
-        .public_base_url
-        .trim()
-        .to_ascii_lowercase()
-        .starts_with("https://")
+    aa::is_secure(&state.config.public_base_url)
 }
 
 fn with_cookie(mut resp: Response, cookie: &str) -> Response {
@@ -40,7 +35,7 @@ pub async fn session(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let token = aa::token_from_headers(&headers);
+    let token = aa::token_from_headers(&headers, secure(&state));
     let (set, csrf) = state
         .db
         .call(move |c| {
@@ -108,7 +103,7 @@ pub(crate) async fn require_session(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<String, AppError> {
-    let token = aa::token_from_headers(headers).ok_or(AppError::Unauthorized)?;
+    let token = aa::token_from_headers(headers, secure(state)).ok_or(AppError::Unauthorized)?;
     let t2 = token.clone();
     let csrf = state
         .db

@@ -22,16 +22,18 @@ being fixed.
 
 - **DNS rebinding** of webhook hostnames is still not caught (the filter is
   textual). Documented limitation; needs a custom resolver or egress rules.
-- Release actions are pinned by version tag, not commit SHA, and the binary
-  tarballs are not signed (images are). Worth doing before the first release.
-- Session cookie lacks the `__Host-` prefix; failed logins write one audit row
-  each (trimmed by the retention sweep); `/admin/password` has no extra rate
-  limit (needs a valid session and CSRF token first).
+- **Fixed afterwards:** every GitHub Action is pinned by commit SHA (with a
+  weekly Dependabot PR to update them); `SHA256SUMS` is signed (sigstore,
+  keyless), which covers the tarballs (release workflow still not run); over
+  https the session cookie is `__Host-ebp_session` and a plain look-alike
+  cookie is ignored.
+- Failed logins write one audit row each (trimmed by the retention sweep to
+  500 rows / 14 days; the login rate limit bounds the flood between sweeps);
+  `/admin/password` has no extra rate limit (needs a valid session and CSRF
+  token first).
 - Managed mode keeps barkd, the encryption key and the database in one user
   and one volume, so a barkd compromise is a full compromise.
-- Two crates in `Cargo.lock` are yanked (`spin 0.9.8`, `crossbeam-channel
-  0.5.13`); `cargo audit` reports no vulnerabilities. Run `cargo update` in a
-  PR when crates.io is reachable.
+- The two yanked crates noted earlier (`spin 0.9.8`, `crossbeam-channel 0.5.13`) are no longer in `Cargo.lock` (checked 2026-11-05); `cargo audit` runs in CI.
 
 ## Checked and found fine
 

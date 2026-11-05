@@ -1,0 +1,12 @@
+# Opens pull requests for newer GitHub Actions (pinned by commit SHA) and
+# Rust crates. Nothing merges by itself: every update is a PR you review.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly

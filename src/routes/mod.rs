@@ -41,6 +41,10 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            setup::setup_token_guard,
+        ))
         .with_state(state.clone());
 
     // Public checkout routes (unauthenticated) get a per-client rate limit

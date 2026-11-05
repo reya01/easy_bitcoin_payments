@@ -91,6 +91,11 @@ public_rate_limit_per_min = 120
 # every client behind the proxy shares one address (and one limit).
 trust_proxy_headers = false
 
+# Optional shared secret for the first-run wizard: when set, wizard actions
+# (every non-GET /setup/* request) need the X-EBP-Setup-Token header; the
+# wizard page prompts for it. Prefer the EBP_SETUP_TOKEN env var over this file.
+# setup_token = "change-me"
+
 # BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).
 [static_rates]
 EUR = 95000.0

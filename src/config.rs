@@ -66,6 +66,13 @@ pub struct Config {
     /// Trust `X-Forwarded-For` for the rate-limit client key. Enable ONLY
     /// behind a reverse proxy that overwrites the header.
     pub trust_proxy_headers: bool,
+    /// Optional shared secret for the first-run wizard (beta hardening).
+    /// When set, every NON-GET `/setup/*` request must carry it in the
+    /// `X-EBP-Setup-Token` header; the page and `/setup/status` stay open.
+    /// Closes the window where anyone who can reach an unfinished instance
+    /// could create the wallet, read the recovery words, or mint the first
+    /// store API key. Env-only recommended (`EBP_SETUP_TOKEN`).
+    pub setup_token: Option<String>,
 }
 
 impl Default for Config {
@@ -103,6 +110,7 @@ impl Default for Config {
             mode: "test".to_string(),
             public_rate_limit_per_min: 120,
             trust_proxy_headers: false,
+            setup_token: None,
         }
     }
 }
@@ -188,6 +196,7 @@ struct FileConfig {
     mode: Option<String>,
     public_rate_limit_per_min: Option<u32>,
     trust_proxy_headers: Option<bool>,
+    setup_token: Option<String>,
 }
 
 impl Config {
@@ -301,6 +310,9 @@ impl Config {
         if let Some(v) = file.trust_proxy_headers {
             self.trust_proxy_headers = v;
         }
+        if let Some(v) = file.setup_token {
+            self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
+        }
         Ok(())
     }
 
@@ -401,6 +413,10 @@ impl Config {
                     key: "EBP_PUBLIC_RATE_LIMIT_PER_MIN".to_string(),
                     value: v.clone(),
                 })?;
+        }
+        if let Some(v) = lookup("EBP_SETUP_TOKEN") {
+            // Compose passes an empty string when unset: treat as absent.
+            self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
         }
         if let Some(v) = lookup("EBP_TRUST_PROXY_HEADERS") {
             self.trust_proxy_headers = parse_bool("EBP_TRUST_PROXY_HEADERS", &v)?;

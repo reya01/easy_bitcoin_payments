@@ -236,13 +236,26 @@
     element.classList.add("hidden");
   }
 
-  function api(method, path, body) {
+  // Optional setup token (EBP_SETUP_TOKEN): if the server answers 401
+  // "setup_token_required", ask once, remember it for this page load, retry.
+  var setupToken = "";
+
+  function api(method, path, body, retried) {
+    var headers = { "content-type": "application/json", "accept": "application/json" };
+    if (setupToken) headers["x-ebp-setup-token"] = setupToken;
     return fetch(path, {
       method: method,
-      headers: { "content-type": "application/json", "accept": "application/json" },
+      headers: headers,
       body: body ? JSON.stringify(body) : undefined
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
+        if (res.status === 401 && data.error === "setup_token_required" && !retried) {
+          var entered = window.prompt("This server requires its setup token (EBP_SETUP_TOKEN):");
+          if (entered) {
+            setupToken = entered.trim();
+            return api(method, path, body, true);
+          }
+        }
         if (!res.ok) {
           throw new Error(data.message || data.error || "The server answered HTTP " + res.status + ".");
         }

@@ -24,7 +24,11 @@ use easy_bitcoin_payments::webhook::WebhookEmitter;
 /// Serve the router with setup marked complete; returns (base url, state,
 /// store id, api key).
 async fn serve() -> (String, AppState, String, String) {
-    let config = Arc::new(Config::default());
+    serve_with(Config::default()).await
+}
+
+async fn serve_with(config: Config) -> (String, AppState, String, String) {
+    let config = Arc::new(config);
     let db = Db::open(":memory:").unwrap();
     let (shop, api_key, _) = db
         .call(|conn| store::create(conn, "Flow Shop", None))
@@ -203,4 +207,58 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
         .await
         .unwrap();
     assert_eq!(cross.status(), 404);
+}
+
+#[tokio::test]
+async fn setup_token_guards_wizard_writes_but_not_reads() {
+    let (base, _state, _store, _key) = serve_with(Config {
+        setup_token: Some("s3cret".to_string()),
+        ..Config::default()
+    })
+    .await;
+    let client = reqwest::Client::new();
+
+    // Reads stay open so the wizard page can load and show progress.
+    let status = client
+        .get(format!("{base}/setup/status"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(status.status(), 200);
+
+    // Writes without the token: 401 setup_token_required.
+    let denied = client
+        .post(format!("{base}/setup/wallet/mnemonic"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 401);
+    let body: serde_json::Value = denied.json().await.unwrap();
+    assert_eq!(body["error"], "setup_token_required");
+
+    // Wrong token: same.
+    let wrong = client
+        .post(format!("{base}/setup/wallet/mnemonic"))
+        .header("host", "localhost")
+        .header("x-ebp-setup-token", "nope")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), 401);
+
+    // Right token: the guard lets it through (the handler then answers on
+    // its own terms; here setup is already complete, so not 401).
+    let ok = client
+        .post(format!("{base}/setup/wallet/mnemonic"))
+        .header("host", "localhost")
+        .header("x-ebp-setup-token", "s3cret")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(ok.status(), 401);
 }

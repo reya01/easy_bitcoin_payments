@@ -63,6 +63,11 @@ impl ManagedBarkd {
         }
     }
 
+    /// Where barkd keeps its wallet files (for the encrypted backup).
+    pub fn datadir(&self) -> &Path {
+        &self.datadir
+    }
+
     pub fn api_url(&self) -> String {
         format!("http://127.0.0.1:{}/api/v1", self.port)
     }

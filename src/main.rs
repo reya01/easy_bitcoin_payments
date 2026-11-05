@@ -18,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "serve" => serve().await,
         "store" => store_command(&args[1..]).await,
         "admin" => admin_command(&args[1..]).await,
+        "backup" => backup_command(&args[1..]),
         "help" | "--help" | "-h" => {
             print_help();
             Ok(())
@@ -43,6 +44,9 @@ fn print_help() {
          \x20     Revoke every API key of a store and print a new one once\n\
          \x20     (lost-key recovery; --store is optional with one store)\n\
          \x20 ebp admin set-password          Set/reset the admin-page password\n\
+         \x20 ebp backup verify <FILE>       Check a downloaded backup opens (asks for its password)\n\
+         \x20 ebp backup restore <FILE> <NEW-FOLDER>\n\
+         \x20     Unpack a backup into a new, empty folder (never overwrites)\n\
          \x20 ebp help                        Show this help\n\
          \n\
          CONFIGURATION:\n\
@@ -425,4 +429,77 @@ async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     .await?;
     println!("Admin password updated. All signed-in sessions were signed out.");
     Ok(())
+}
+
+/// Read a password from the terminal without showing it when possible.
+fn read_secret_line(prompt: &str) -> std::io::Result<String> {
+    use std::io::IsTerminal;
+    eprint!("{prompt}");
+    let tty = std::io::stdin().is_terminal();
+    let hidden = tty
+        && std::process::Command::new("stty")
+            .arg("-echo")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    let mut line = String::new();
+    let res = std::io::stdin().read_line(&mut line);
+    if hidden {
+        let _ = std::process::Command::new("stty").arg("echo").status();
+        eprintln!();
+    }
+    res?;
+    Ok(line.trim_end_matches(['\r', '\n']).to_string())
+}
+
+fn usage() -> ! {
+    eprintln!("usage: ebp backup verify <FILE>\n       ebp backup restore <FILE> <NEW-FOLDER>");
+    std::process::exit(2);
+}
+
+fn backup_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    use easy_bitcoin_payments::backup;
+    let (sub, file) = match (args.first(), args.get(1)) {
+        (Some(s), Some(f)) => (s.as_str(), f),
+        _ => usage(),
+    };
+    let bytes = std::fs::read(file).map_err(|e| format!("could not read {file}: {e}"))?;
+    let password = read_secret_line("Backup password: ")?;
+    let entries = backup::open(&bytes, &password)?;
+    match sub {
+        "verify" => {
+            println!("Backup opened. It contains {} file(s):", entries.len());
+            for e in &entries {
+                println!("  {}  ({} bytes)", e.name, e.data.len());
+            }
+            if !entries.iter().any(|e| e.name.starts_with("barkd/")) {
+                println!("No wallet files are inside (barkd runs outside EBP). Your recovery words are the wallet backup.");
+            }
+            Ok(())
+        }
+        "restore" => {
+            let Some(dest) = args.get(2) else { usage() };
+            backup::restore_to(&entries, std::path::Path::new(dest))?;
+            // Prove the restored database is sound before anyone relies on it.
+            let db = std::path::Path::new(dest).join("ebp.sqlite3");
+            if db.exists() {
+                let conn = rusqlite::Connection::open_with_flags(
+                    &db,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )?;
+                let check: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+                if check != "ok" {
+                    return Err(format!(
+                        "the restored database failed its integrity check: {check}"
+                    )
+                    .into());
+                }
+            }
+            println!("Restored {} file(s) into {dest}.", entries.len());
+            println!("Stop the server, put these files into its data folder, and start it again.");
+            println!("The webhook secrets inside still need the SAME key-encryption key (EBP_KEY_ENCRYPTION_KEY or ebp.key) as before.");
+            Ok(())
+        }
+        _ => usage(),
+    }
 }

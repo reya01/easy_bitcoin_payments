@@ -104,7 +104,10 @@ pub async fn login(
 }
 
 /// Require a live session AND the CSRF header; returns the session token.
-async fn require_session(state: &AppState, headers: &HeaderMap) -> Result<String, AppError> {
+pub(crate) async fn require_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<String, AppError> {
     let token = aa::token_from_headers(headers).ok_or(AppError::Unauthorized)?;
     let t2 = token.clone();
     let csrf = state

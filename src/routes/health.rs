@@ -18,6 +18,10 @@ pub struct HealthResponse {
     pub database: &'static str,
     pub wallet: WalletHealthView,
     pub asp: &'static str,
+    /// Seconds since the payment watcher last completed a tick; `null`
+    /// until the first tick. A value much larger than the poll interval
+    /// means the watcher is wedged or failing (beta hardening).
+    pub watcher_last_tick_age_secs: Option<i64>,
 }
 
 pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -46,7 +50,11 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         "down"
     };
 
+    let last_tick = crate::watcher::LAST_TICK_UNIX.load(std::sync::atomic::Ordering::Relaxed);
+    let watcher_last_tick_age_secs = (last_tick > 0).then(|| crate::util::now_unix() - last_tick);
+
     Json(HealthResponse {
+        watcher_last_tick_age_secs,
         status: overall,
         version: crate::VERSION,
         database: if db_ok { "ok" } else { "down" },

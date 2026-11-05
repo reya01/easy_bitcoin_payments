@@ -94,10 +94,15 @@ impl SettlementEngine {
         ));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // SUPERVISION (beta hardening): one spawned task per tick so a panic
+        // is logged and the engine keeps running (renewal is what keeps
+        // funds alive; it must not die silently).
+        let this = Arc::new(self);
         loop {
             ticker.tick().await;
-            match self.tick().await {
-                Ok(report)
+            let worker = Arc::clone(&this);
+            match tokio::spawn(async move { worker.tick().await }).await {
+                Ok(Ok(report))
                     if report.refreshed_vtxos > 0
                         || report.swept_sats.is_some()
                         || report.sweep_refused.is_some() =>
@@ -108,8 +113,11 @@ impl SettlementEngine {
                         "settlement tick acted"
                     );
                 }
-                Ok(_) => {}
-                Err(err) => tracing::warn!(error = %err, "settlement tick failed"),
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => tracing::warn!(error = %err, "settlement tick failed"),
+                Err(join_err) => {
+                    tracing::error!(error = %join_err, "settlement tick PANICKED; continuing")
+                }
             }
         }
     }

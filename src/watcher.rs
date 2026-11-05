@@ -13,6 +13,7 @@
 //! unique VTXO/txid guards, so at-least-once polling is safe.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -27,6 +28,11 @@ use crate::store;
 use crate::util::{now_unix, to_rfc3339};
 use crate::wallet::{WalletAdapter, WalletVtxo};
 use crate::webhook::WebhookEmitter;
+
+/// UNIX time of the last watcher tick that completed without error; 0 until
+/// the first one. Surfaced by `/api/v1/health` so a wedged or crash-looping
+/// watcher is visible to monitoring (beta hardening).
+pub static LAST_TICK_UNIX: AtomicI64 = AtomicI64::new(0);
 
 /// `settings` key holding the persisted history cursor (UNIX seconds).
 const HISTORY_CURSOR_KEY: &str = "watcher.history_cursor";
@@ -90,12 +96,24 @@ impl PollingWatcher {
         let mut ticker = tokio::time::interval(self.interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        // SUPERVISION (beta hardening): each tick runs in its own spawned
+        // task, so a panic inside one tick is logged and the loop carries on
+        // instead of silently ending payment detection until a restart.
+        let this = Arc::new(self);
         loop {
             ticker.tick().await;
-            match self.tick().await {
-                Ok(0) => {}
-                Ok(applied) => tracing::info!(applied, "watcher applied payments"),
-                Err(err) => tracing::warn!(error = %err, "watcher tick failed"),
+            let worker = Arc::clone(&this);
+            match tokio::spawn(async move { worker.tick().await }).await {
+                Ok(Ok(applied)) => {
+                    LAST_TICK_UNIX.store(now_unix(), Ordering::Relaxed);
+                    if applied > 0 {
+                        tracing::info!(applied, "watcher applied payments");
+                    }
+                }
+                Ok(Err(err)) => tracing::warn!(error = %err, "watcher tick failed"),
+                Err(join_err) => {
+                    tracing::error!(error = %join_err, "watcher tick PANICKED; continuing")
+                }
             }
         }
     }

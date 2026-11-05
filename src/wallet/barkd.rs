@@ -1468,21 +1468,40 @@ impl BarkdWallet {
         &self.client
     }
 
-    fn block_on<T: Send + 'static, F: Future<Output = T> + Send + 'static>(&self, fut: F) -> T {
+    /// Run `fut` on the bridge runtime and wait for it.
+    ///
+    /// BETA-HARDENING: this used to `panic!` when the bridge thread was gone
+    /// or a job was dropped, which took the caller (watcher / request
+    /// handler) down with it. Every failure mode now surfaces as
+    /// `WalletError::Unavailable`, and a panic INSIDE the future is caught on
+    /// the bridge thread so one bad response cannot kill the bridge for all
+    /// later calls.
+    fn block_on<T: Send + 'static, F: Future<Output = Result<T, WalletError>> + Send + 'static>(
+        &self,
+        fut: F,
+    ) -> Result<T, WalletError> {
         let (tx, rx) = mpsc::channel();
         let job: Job = Box::new(move |rt| {
-            let _ = tx.send(rt.block_on(fut));
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rt.block_on(fut)))
+                    .unwrap_or_else(|_| {
+                        Err(WalletError::Unavailable(
+                            "the barkd bridge task panicked".to_string(),
+                        ))
+                    });
+            let _ = tx.send(outcome);
         });
         let sender = self
             .tx
             .lock()
-            .ok()
-            .unwrap_or_else(|| panic!("barkd bridge poisoned"));
-        sender
-            .send(job)
-            .unwrap_or_else(|_| panic!("the barkd bridge thread has exited"));
-        rx.recv()
-            .unwrap_or_else(|_| panic!("the barkd bridge dropped a job without answering"))
+            .map_err(|_| WalletError::Unavailable("barkd bridge lock poisoned".to_string()))?;
+        sender.send(job).map_err(|_| {
+            WalletError::Unavailable("the barkd bridge thread has exited".to_string())
+        })?;
+        drop(sender);
+        rx.recv().map_err(|_| {
+            WalletError::Unavailable("the barkd bridge dropped a job without answering".to_string())
+        })?
     }
 }
 

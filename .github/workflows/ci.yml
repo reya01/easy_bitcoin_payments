@@ -36,13 +36,13 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      # TEMPORARY: export the resolved lockfile so it can be committed after a
+      # TEMPORARY: print the lockfile change so it can be committed after a
       # dependency change (no crates.io access in the authoring sandbox).
-      - name: Upload resolved Cargo.lock
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-lock
-          path: Cargo.lock
+      - name: Show Cargo.lock diff
+        run: |
+          echo "=====LOCKDIFF-BEGIN====="
+          git diff --no-color Cargo.lock
+          echo "=====LOCKDIFF-END====="
 
   docker:
     name: docker image builds (amd64 + arm64)

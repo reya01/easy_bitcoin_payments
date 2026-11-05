@@ -58,7 +58,7 @@ expiry, a payment in "unmatched", repeated webhook failures. Health indicator
 at the top of the admin page.
 
 ### 4. Recovery-words gate — BUILT
-The wizard hides the words and asks for three random words (by number) from the merchant's paper copy before it will continue. The check runs in the browser, so it protects the merchant from skipping the backup; it is not a server-enforced control (the server never stores the words, by design). Original plan:
+Words appear only after a "I'm alone, no screenshots" checklist, for 60 seconds at a time (Hide now wipes them), and the page keeps no copy. The merchant then types three random words by number into password-style fields (no keyboard learning/suggestions); the SERVER checks them by re-reading the words from barkd for that one request (nothing kept in the browser or in server memory) and `confirm-backup` is refused until that succeeds. Remaining exposure: browser extensions/malware on the merchant's device while the words show, and the host's TLS termination in transit. Original plan:
 Block going live until the merchant has recorded the words and passed a
 confirmation check. (Verify what the wizard enforces today.)
 

@@ -138,11 +138,17 @@
 
   <section id="step-backup" class="hidden">
     <h1>Write down your recovery words</h1>
-    <p class="sub">These words are the root backup of the till: with them, the wallet can be rebuilt on any machine. They are shown <strong>once</strong>. Never paste them into a chat, a document, or an AI assistant.</p>
+    <p class="sub">These words are the root backup of the till: with them, the wallet can be rebuilt on any machine. They appear on screen for 60 seconds at a time and are never stored. Never paste them into a chat, a document, or an AI assistant.</p>
+    <p class="note">These words control only your <strong>till</strong> &mdash; the working balance this server holds until it is moved to your own wallet &mdash; not your personal wallet. Keep them private all the same.</p>
     <div class="card">
+      <div class="check">
+        <input type="checkbox" id="safe-check">
+        <label for="safe-check">I am alone, I am not sharing my screen, and I will copy the words onto paper &mdash; <strong>not</strong> take a screenshot or photo (those often upload to the cloud).</label>
+      </div>
       <div class="words" id="words"></div>
+      <p class="note hidden" id="reveal-bar"><span id="reveal-left"></span> <button class="small" id="btn-hide" type="button">Hide now</button></p>
       <p class="note hidden" id="words-manual"></p>
-      <button class="primary hidden" id="btn-show-words" type="button">Show my recovery words</button>
+      <button class="primary hidden" id="btn-show-words" type="button" disabled>Show my recovery words</button>
       <p class="note hidden" id="words-ceremony-note">Tap &ldquo;Show my recovery words&rdquo; to read the words straight from barkd&rsquo;s one-time <code>--expose-mnemonic</code> ceremony. EBP shows them once and never stores or logs them. After you confirm the backup, the command shown will restart barkd WITHOUT the flag.</p>
       <div class="check">
         <input type="checkbox" id="backup-check">
@@ -150,7 +156,7 @@
       </div>
       <button class="primary" id="btn-backup" type="button" disabled>Check my backup</button>
       <div class="hidden" id="quiz">
-        <p class="note"><strong>Check your paper copy.</strong> The words are hidden now. Look at your paper and type the words it asks for.</p>
+        <p class="note"><strong>Check your paper copy.</strong> The words are hidden now. Look at your paper and type the words it asks for. The server checks them; this page never keeps the words.</p>
         <div id="quiz-fields"></div>
         <button class="primary" id="btn-quiz" type="button">Check and continue</button>
         <button id="btn-quiz-back" type="button">Show the words again</button>
@@ -356,19 +362,44 @@
       fail(els.walletError, "Could not read the setup status: " + err.message);
     });
 
-  // The words live only in this variable and the DOM; both are wiped once
-  // the backup is confirmed. They are never sent back to the server.
-  var recoveryWords = [];
-  function renderWords(mnemonic) {
-    recoveryWords = mnemonic.trim().split(/\s+/);
+  // The words are on screen only while "revealed" (60 s at most) and are
+  // wiped from the page the moment they are hidden. This page keeps NO copy:
+  // the quiz is checked by the server, which re-reads the words from barkd.
+  var wordCount = 0;
+  var revealTimer = null;
+  function hideWords() {
+    if (revealTimer) { clearInterval(revealTimer); revealTimer = null; }
     els.words.textContent = "";
-    recoveryWords.forEach(function (word, index) {
+    els.words.classList.add("hidden");
+    document.getElementById("reveal-bar").classList.add("hidden");
+    els.btnShowWords.classList.remove("hidden");
+  }
+  function renderWords(mnemonic) {
+    var list = mnemonic.trim().split(/\s+/);
+    wordCount = list.length;
+    els.words.textContent = "";
+    list.forEach(function (word, index) {
       var item = document.createElement("span");
       item.textContent = (index + 1) + ". " + word;
       els.words.appendChild(item);
     });
     els.words.classList.remove("hidden");
+    els.btnShowWords.classList.add("hidden");
+    var left = 60;
+    var label = document.getElementById("reveal-left");
+    label.textContent = "Hiding in " + left + " seconds. ";
+    document.getElementById("reveal-bar").classList.remove("hidden");
+    if (revealTimer) clearInterval(revealTimer);
+    revealTimer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) { hideWords(); return; }
+      label.textContent = "Hiding in " + left + " seconds. ";
+    }, 1000);
   }
+  document.getElementById("btn-hide").addEventListener("click", hideWords);
+  document.getElementById("safe-check").addEventListener("change", function () {
+    els.btnShowWords.disabled = !this.checked;
+  });
 
   els.btnWallet.addEventListener("click", function () {
     clearFail(els.walletError);
@@ -419,89 +450,89 @@
         }
       })
       .catch(function (err) { fail(els.backupError, err.message); })
-      .finally(function () { els.btnShowWords.disabled = false; });
+      .finally(function () { els.btnShowWords.disabled = !document.getElementById("safe-check").checked; });
   });
 
   els.backupCheck.addEventListener("change", function () {
     els.btnBackup.disabled = !els.backupCheck.checked;
   });
 
-  var quizPositions = [];
   function startQuiz() {
     // Three random, distinct positions, in order.
     var picks = [];
     var buf = new Uint32Array(32);
     window.crypto.getRandomValues(buf);
     for (var k = 0; k < buf.length && picks.length < 3; k++) {
-      var n = buf[k] % recoveryWords.length;
+      var n = (buf[k] % wordCount) + 1;
       if (picks.indexOf(n) < 0) picks.push(n);
     }
-    quizPositions = picks.sort(function (a, b) { return a - b; });
+    picks.sort(function (a, b) { return a - b; });
     var box = document.getElementById("quiz-fields");
     box.textContent = "";
-    quizPositions.forEach(function (pos) {
+    picks.forEach(function (pos) {
       var label = document.createElement("label");
-      label.textContent = "Word number " + (pos + 1);
+      label.textContent = "Word number " + pos;
       var input = document.createElement("input");
-      input.type = "text";
+      // Password-style: phone keyboards do not learn or suggest the words,
+      // and nobody can read them over a shoulder.
+      input.type = "password";
       input.autocomplete = "off";
       input.autocapitalize = "none";
+      input.setAttribute("autocorrect", "off");
       input.spellcheck = false;
       input.setAttribute("data-pos", String(pos));
       box.appendChild(label);
       box.appendChild(input);
     });
-    els.words.classList.add("hidden");
     els.btnBackup.classList.add("hidden");
     document.getElementById("quiz").classList.remove("hidden");
   }
 
   els.btnBackup.addEventListener("click", function () {
     clearFail(els.backupError);
-    if (!recoveryWords.length) {
+    if (!wordCount) {
       fail(els.backupError, "Show your recovery words first, write them down, then check your backup.");
       return;
     }
+    hideWords();
     startQuiz();
   });
 
   document.getElementById("btn-quiz-back").addEventListener("click", function () {
     clearFail(els.backupError);
+    document.getElementById("quiz-fields").textContent = "";
     document.getElementById("quiz").classList.add("hidden");
     els.btnBackup.classList.remove("hidden");
-    els.words.classList.remove("hidden");
   });
 
   document.getElementById("btn-quiz").addEventListener("click", function () {
     clearFail(els.backupError);
-    var inputs = document.querySelectorAll("#quiz-fields input");
-    var ok = inputs.length === 3;
-    inputs.forEach(function (input) {
-      var want = recoveryWords[Number(input.getAttribute("data-pos"))];
-      if (input.value.trim().toLowerCase() !== want) ok = false;
+    var answers = [];
+    document.querySelectorAll("#quiz-fields input").forEach(function (input) {
+      answers.push({ position: Number(input.getAttribute("data-pos")), word: input.value });
     });
-    if (!ok) {
-      fail(els.backupError, "Those don't match. Check the numbers against your paper copy, or tap \"Show the words again\" and re-copy them.");
-      return;
-    }
-    els.btnQuiz = document.getElementById("btn-quiz");
-    els.btnQuiz.disabled = true;
-    api("POST", "/setup/wallet/confirm-backup", { confirmed: true })
-      .then(function () {
-        // Shown-exactly-once, honored in the DOM too: the words leave the
-        // page as soon as the backup is confirmed (and stay gone through
-        // back/forward cache — see the pageshow wipe below).
-        recoveryWords = [];
-        document.getElementById("quiz-fields").textContent = "";
-        document.getElementById("quiz").classList.add("hidden");
-        els.words.textContent = "";
-        els.words.classList.add("hidden");
-        els.wordsManual.textContent = "";
-        els.btnShowWords.classList.add("hidden");
-        markStep(2); show("token");
+    var button = document.getElementById("btn-quiz");
+    button.disabled = true;
+    api("POST", "/setup/wallet/verify-backup", { answers: answers })
+      .then(function (r) {
+        if (!r.verified) {
+          fail(els.backupError, "Those don't match. Check the numbers against your paper copy, or tap \"Show the words again\" and re-copy them.");
+          return null;
+        }
+        return api("POST", "/setup/wallet/confirm-backup", { confirmed: true }).then(function () {
+          document.getElementById("quiz-fields").textContent = "";
+          document.getElementById("quiz").classList.add("hidden");
+          hideWords();
+          els.wordsManual.textContent = "";
+          els.btnShowWords.classList.add("hidden");
+          markStep(2); show("token");
+        });
       })
       .catch(function (err) { fail(els.backupError, err.message); })
-      .finally(function () { els.btnQuiz.disabled = false; });
+      .finally(function () {
+        button.disabled = false;
+        document.querySelectorAll("#quiz-fields input").forEach(function (i) { i.value = ""; });
+      });
   });
 
   els.btnToken.addEventListener("click", function () {
@@ -573,7 +604,7 @@
   // DOM: wipe them on every persisted pageshow.
   window.addEventListener("pageshow", function (event) {
     if (event.persisted) {
-      recoveryWords = [];
+      if (typeof hideWords === "function") hideWords();
       if (els.words) { els.words.textContent = ""; els.words.classList.add("hidden"); }
       if (els.wordsManual) { els.wordsManual.textContent = ""; }
       if (els.apiKey) { els.apiKey.textContent = ""; }

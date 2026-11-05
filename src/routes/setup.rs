@@ -864,6 +864,19 @@ pub async fn confirm_backup(
         ));
     }
 
+    // Server-enforced: the merchant must have proved they hold the words
+    // (three correct, see `verify_backup`) before the backup counts.
+    let verified = state
+        .db
+        .call(|conn| settings::get_bool(conn, "setup_backup_verified"))
+        .await?;
+    if !verified {
+        return Err(AppError::Conflict(
+            "check your backup first: type three of your recovery words from your paper copy"
+                .into(),
+        ));
+    }
+
     let setup_complete = state
         .db
         .call(|conn| {
@@ -876,6 +889,79 @@ pub async fn confirm_backup(
         backup_confirmed: true,
         setup_complete,
     }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /setup/wallet/verify-backup — prove the merchant holds the words
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct BackupAnswer {
+    /// 1-based word number.
+    pub position: usize,
+    pub word: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyBackupRequest {
+    pub answers: Vec<BackupAnswer>,
+}
+
+/// At least three DIFFERENT positions, every one correct.
+fn answers_match(mnemonic: &str, answers: &[BackupAnswer]) -> bool {
+    let words: Vec<&str> = mnemonic.split_whitespace().collect();
+    let mut seen = std::collections::HashSet::new();
+    for a in answers {
+        if a.position == 0 || a.position > words.len() {
+            return false;
+        }
+        if !seen.insert(a.position) {
+            return false;
+        }
+        if a.word.trim().to_lowercase() != words[a.position - 1] {
+            return false;
+        }
+    }
+    seen.len() >= 3
+}
+
+/// Checks the merchant's answers against the REAL words, read from barkd
+/// again for this one request (the ceremony window opens and closes inside
+/// `wallet_mnemonic`). Nothing is kept between requests: not in the browser,
+/// not in server memory. Success records `setup_backup_verified`, which
+/// `confirm_backup` requires.
+pub async fn verify_backup(
+    State(state): State<AppState>,
+    Json(req): Json<VerifyBackupRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    ensure_wizard_open(&state).await?;
+    if req.answers.len() < 3 || req.answers.len() > 24 {
+        return Err(AppError::BadRequest(
+            "answer at least three recovery words".into(),
+        ));
+    }
+    let resp = wallet_mnemonic(State(state.clone())).await;
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+        .await
+        .map_err(|_| AppError::Internal("could not read the wallet answer".into()))?;
+    let body: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|_| AppError::Internal("unexpected wallet answer".into()))?;
+    let Some(words) = body.get("mnemonic").and_then(|m| m.as_str()) else {
+        let msg = body
+            .get("instructions")
+            .and_then(|m| m.as_str())
+            .unwrap_or("The recovery words could not be read right now. Try again.");
+        return Err(AppError::Conflict(format!("({status}) {msg}")));
+    };
+    let ok = answers_match(words, &req.answers);
+    if ok {
+        state
+            .db
+            .call(|conn| settings::set(conn, "setup_backup_verified", "true"))
+            .await?;
+    }
+    Ok(Json(serde_json::json!({ "verified": ok })))
 }
 
 // ---------------------------------------------------------------------------
@@ -1335,6 +1421,39 @@ fn recompute_setup_complete(conn: &rusqlite::Connection) -> Result<bool, AppErro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn backup_answers_need_three_distinct_correct_positions() {
+        let m = "abandon ability able about above absent";
+        let a = |p: usize, w: &str| super::BackupAnswer {
+            position: p,
+            word: w.to_string(),
+        };
+        assert!(super::answers_match(
+            m,
+            &[a(1, "abandon"), a(3, " ABLE "), a(6, "absent")]
+        ));
+        assert!(
+            !super::answers_match(m, &[a(1, "abandon"), a(3, "able")]),
+            "two is not enough"
+        );
+        assert!(
+            !super::answers_match(m, &[a(1, "abandon"), a(1, "abandon"), a(3, "able")]),
+            "duplicates"
+        );
+        assert!(!super::answers_match(
+            m,
+            &[a(1, "abandon"), a(3, "wrong"), a(6, "absent")]
+        ));
+        assert!(!super::answers_match(
+            m,
+            &[a(0, "x"), a(3, "able"), a(6, "absent")]
+        ));
+        assert!(!super::answers_match(
+            m,
+            &[a(1, "abandon"), a(3, "able"), a(9, "absent")]
+        ));
+    }
+
     use std::io::{Read, Write};
     use std::net::TcpListener;
 

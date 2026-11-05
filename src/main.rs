@@ -37,6 +37,10 @@ fn print_help() {
          \x20 ebp serve                       Start the payments server\n\
          \x20 ebp store create --name <NAME>  Create a store and print its API key once\n\
          \x20     [--webhook-url <URL>]\n\
+         \x20 ebp store list                  List stores (id and name)\n\
+         \x20 ebp store rotate-key [--store <ID>]\n\
+         \x20     Revoke every API key of a store and print a new one once\n\
+         \x20     (lost-key recovery; --store is optional with one store)\n\
          \x20 ebp help                        Show this help\n\
          \n\
          CONFIGURATION:\n\
@@ -220,8 +224,11 @@ async fn shutdown_signal() {
 
 async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let sub = args.first().map(String::as_str).unwrap_or("create");
-    if sub != "create" {
-        return Err(format!("unknown store subcommand: {sub}").into());
+    match sub {
+        "create" => {}
+        "list" => return store_list().await,
+        "rotate-key" => return store_rotate_key(args).await,
+        other => return Err(format!("unknown store subcommand: {other}").into()),
     }
 
     let mut name: Option<String> = None;
@@ -275,5 +282,86 @@ async fn store_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     }
     println!();
     println!("Use it as: Authorization: Bearer <api key>");
+    Ok(())
+}
+
+/// `ebp store list` — ids and names only (no secrets).
+async fn store_list() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::load()?;
+    let db = Db::open(&config.database_path)?;
+    let rows: Vec<(String, String)> = db
+        .call(|conn| {
+            let mut stmt = conn.prepare("SELECT id, name FROM stores ORDER BY created_at")?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    if rows.is_empty() {
+        println!("No stores yet.");
+    }
+    for (id, name) in rows {
+        println!("{id}  {name}");
+    }
+    Ok(())
+}
+
+/// `ebp store rotate-key [--store ID]` — lost-key recovery. Revokes every
+/// active key of the store and prints one new key, once. With exactly one
+/// store the id may be omitted (the beginner case).
+async fn store_rotate_key(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    use easy_bitcoin_payments::error::AppError;
+    let mut store_id: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--store" => {
+                store_id = args.get(i + 1).cloned();
+                i += 2;
+            }
+            other => return Err(format!("unknown flag: {other}").into()),
+        }
+    }
+    let config = Config::load()?;
+    let db = Db::open(&config.database_path)?;
+    let key = db
+        .call(move |conn| {
+            let id = match store_id {
+                Some(id) => id,
+                None => {
+                    let mut stmt = conn.prepare("SELECT id FROM stores")?;
+                    let ids = stmt
+                        .query_map([], |r| r.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    match ids.as_slice() {
+                        [only] => only.clone(),
+                        [] => return Err(AppError::BadRequest("there are no stores yet".into())),
+                        _ => {
+                            return Err(AppError::BadRequest(
+                                "several stores exist: pass --store <ID> (see `ebp store list`)"
+                                    .into(),
+                            ))
+                        }
+                    }
+                }
+            };
+            let key = store::rotate_api_key(conn, &id)?;
+            easy_bitcoin_payments::audit::record(
+                conn,
+                &id,
+                "store.api_keys_rotated",
+                Some("via CLI"),
+            )?;
+            Ok(key)
+        })
+        .await?;
+    println!("All previous API keys for this store are now revoked.");
+    println!();
+    println!("  New API key (shown once - store it now):");
+    println!("    {key}");
+    println!();
+    println!("Update the key in your shop plugin / integration, then confirm an");
+    println!("order still creates an invoice.");
     Ok(())
 }

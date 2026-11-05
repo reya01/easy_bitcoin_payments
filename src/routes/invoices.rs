@@ -337,7 +337,7 @@ pub async fn create(
                 }
                 // Upper bound = the entire bitcoin money supply in sats;
                 // anything above is a typo, not an invoice.
-                if sats > 2_100_000_000_000_000 {
+                if sats > crate::invoice::MAX_INVOICE_SATS {
                     return Err(AppError::BadRequest(
                         "sats is out of the supported range".into(),
                     ));

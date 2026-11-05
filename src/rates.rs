@@ -306,7 +306,11 @@ pub fn fiat_to_sats(fiat_amount: f64, fiat_per_btc: f64) -> Result<i64, AppError
 
     let sats = (fiat_amount / fiat_per_btc) * 100_000_000.0;
 
-    if !sats.is_finite() || sats < 1.0 || sats > i64::MAX as f64 {
+    // Upper bound = the entire bitcoin money supply in sats
+    // (`invoice::MAX_INVOICE_SATS`, also enforced at insert). Rejecting here
+    // gives the fiat path the same early 400 the `sats` path has instead of
+    // letting an absurd conversion travel as far as the insert.
+    if !sats.is_finite() || sats < 1.0 || sats > crate::invoice::MAX_INVOICE_SATS as f64 {
         return Err(AppError::BadRequest(
             "amount is out of the supported range".into(),
         ));
@@ -318,6 +322,14 @@ pub fn fiat_to_sats(fiat_amount: f64, fiat_per_btc: f64) -> Result<i64, AppError
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fiat_amounts_beyond_the_money_supply_are_rejected() {
+        // 95,000 per BTC: 1e12 fiat ≈ 1.05e7 BTC ≈ 1.05e15 sats is still
+        // possible, but 1e13 fiat exceeds 21M BTC.
+        assert!(fiat_to_sats(1e13, 95_000.0).is_err());
+        assert!(fiat_to_sats(42.0, 95_000.0).is_ok());
+    }
 
     fn provider() -> StaticRateProvider {
         StaticRateProvider::new(HashMap::from([

@@ -2462,7 +2462,11 @@ mod tests {
         });
         let (db, sid) = e2e_db(2500).await;
         let w = e2e_watcher(base, &db);
-        assert_eq!(w.tick().await.unwrap(), 0, "outage credits nothing");
+        // A full outage makes the whole tick fail (the run loop logs and retries).
+        assert!(
+            w.tick().await.is_err(),
+            "outage is surfaced, never swallowed as success"
+        );
         assert_eq!(
             e2e_invoice(&db, &sid).await.0,
             crate::models::InvoiceStatus::Pending

@@ -1,5 +1,9 @@
 # Setup recipe — zero to a live testnet invoice
 
+> **Shop owner, not a developer?** Start with [START_HERE.md](START_HERE.md).
+> This recipe is the longer, AI-assisted version and includes manual
+> fallback steps.
+
 Recipe version: v1 (matches the first `v*` release cut by
 `.github/workflows/release.yml`; version and upgrade notes:
 docs/UPGRADING.md)

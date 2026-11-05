@@ -12,6 +12,7 @@
 - Payments completed after an invoice's deadline are parked as `paid_after_expiry` regardless of watcher tick order.
 
 ### Added
+- Beginner docs pass (from an independent role-play review): new `docs/START_HERE.md` (honest status, what you need, single-container install, "how you know it worked", glossary); walkthrough now covers the setup code (`start.sh`), the admin password and the webhook secret, and no longer overwrites `.env`; dead references in the backup recipe marked as not-yet-available.
 - Encrypted backup download: Settings tab → "Download a backup" (locked with the admin password, so there is nothing new to remember; not stored). One file holds a consistent database snapshot (signed-in sessions removed) and, in managed-barkd mode, the wallet folder; ChaCha20-Poly1305 with a PBKDF2 (600k) key. `ebp backup verify <file>` and `ebp backup restore <file> <new-folder>` (never overwrites; integrity-checks the database). Covered by unit tests, an API test and the browser e2e.
 - Checkout shows a QR code (vendored same-origin generator, `/assets/qr.js`).
 - `PUT /api/v1/stores/webhook` and `POST /api/v1/stores/rotate-key`.

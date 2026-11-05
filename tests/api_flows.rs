@@ -132,13 +132,15 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
             invoice::expire_if_due(conn, "inv_late")?;
             invoice::record_unmatched(
                 conn,
-                "ark1qlate",
-                "ark",
-                1000,
-                Some("v_late"),
-                None,
-                1,
-                None,
+                &invoice::UnmatchedInput {
+                    address: "ark1qlate",
+                    rail: "ark",
+                    amount_sats: 1000,
+                    vtxo_id: Some("v_late"),
+                    txid: None,
+                    detected_at: 1,
+                    reason_override: None,
+                },
             )?;
             Ok(())
         })

@@ -931,13 +931,15 @@ mod tests {
             .call(|conn| {
                 record_unmatched(
                     conn,
-                    "ark1qinv_1",
-                    "ark",
-                    1000,
-                    Some("vtxo_late"),
-                    None,
-                    5,
-                    None,
+                    &UnmatchedInput {
+                        address: "ark1qinv_1",
+                        rail: "ark",
+                        amount_sats: 1000,
+                        vtxo_id: Some("vtxo_late"),
+                        txid: None,
+                        detected_at: 5,
+                        reason_override: None,
+                    },
                 )
             })
             .await
@@ -947,13 +949,15 @@ mod tests {
             .call(|conn| {
                 record_unmatched(
                     conn,
-                    "ark1qinv_1",
-                    "ark",
-                    1000,
-                    Some("vtxo_late"),
-                    None,
-                    5,
-                    None,
+                    &UnmatchedInput {
+                        address: "ark1qinv_1",
+                        rail: "ark",
+                        amount_sats: 1000,
+                        vtxo_id: Some("vtxo_late"),
+                        txid: None,
+                        detected_at: 5,
+                        reason_override: None,
+                    },
                 )
             })
             .await

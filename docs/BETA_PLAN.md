@@ -26,9 +26,19 @@ and `gh pr create` are unavailable in Claude Code sessions; use REST).
 | 11 | **Public-route rate limiting.** In-memory fixed-window limiter (`public_rate_limit_per_min`, default 120/client/min, 0=off) on `/i/*` only; 429 + `Retry-After`. Client key = peer IP (main.rs uses `into_make_service_with_connect_info`), or first `X-Forwarded-For` when `trust_proxy_headers=true`. Not a DDoS defence; resets on restart. API routes are NOT limited (they are API-key authenticated). | `src/ratelimit.rs`, `src/routes/mod.rs`, `src/config.rs`, `ebp.example.toml` |
 | 12 | **Optional wizard setup token.** `EBP_SETUP_TOKEN` / `setup_token`: when set, every non-GET `/setup/*` request needs `X-EBP-Setup-Token` (constant-time compare); page + `/setup/status` stay open; `assets/setup.html` prompts on a 401 `setup_token_required` and retries. Compose passes `EBP_SETUP_TOKEN` through. Default unset = old behaviour (wizard open until setup completes). NOT yet browser-tested: the prompt flow in `setup.html` is covered only by the server-side test in `tests/api_flows.rs`. | `src/routes/setup.rs::setup_token_guard`, `src/routes/mod.rs`, `assets/setup.html`, `src/config.rs`, `docker-compose.yml` |
 | 13 | **Operator status endpoint.** `GET /api/v1/admin/status` with `Authorization: Bearer $EBP_ADMIN_TOKEN` (a store API key is NOT accepted; 404 when no admin token is configured). Returns DB counters (pending invoices, open unmatched payments, pending/failed webhooks), last 10 settlements, and barkd figures: off/on-chain balances, exit-reserve check (confirmed on-chain vs 15,000 sat per spendable VTXO), optional `?funding_address=1` to get a fresh on-chain top-up address (consumes a wallet address per call). Wallet failures are reported in `wallet.error`; counters are still returned. | `src/routes/admin.rs`, `src/routes/mod.rs` |
+| 14 | **Smaller fixes.** `POST /api/v1/invoices` wallet calls (`receive_addresses`, `lightning_invoice`) now run via `spawn_blocking`; `rates::fiat_to_sats` rejects conversions above `invoice::MAX_INVOICE_SATS` (21M BTC) early with a 400, matching the `sats` path. | `src/routes/invoices.rs`, `src/rates.rs` |
 | 7 | **Supervised background loops.** Watcher and settlement run each tick in its own spawned task; a panic is logged (`ERROR ... PANICKED; continuing`) and the loop continues. | `src/watcher.rs::run`, `src/wallet/settlement.rs::run` |
 | 8 | **Bridge errors, not panics.** `BarkdWallet::block_on` returns `WalletError::Unavailable` for a dead/poisoned bridge and catches panics inside bridged futures. | `src/wallet/barkd.rs` |
 | 9 | **Watcher heartbeat.** `/api/v1/health` now includes `watcher_last_tick_age_secs` (null until first successful tick). Alert if it grows well beyond `watcher_interval_secs`. | `src/watcher.rs::LAST_TICK_UNIX`, `src/routes/health.rs` |
+
+## CI status note
+
+Build + test + clippy: green on the latest push (all rows above). The
+`docker image builds (amd64 + arm64)` job was still `in_progress` for a very
+long time on the last runs (arm64 under emulation) and has NOT been seen to
+complete from this sandbox; re-check it on the PR before relying on it. The
+Dockerfile already copies `migrations/` and `assets/`, so new migrations and
+the `setup.html` change are included.
 
 ## Not done — pick up here (priority order)
 

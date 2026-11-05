@@ -15,6 +15,7 @@
 - `GET /api/v1/unmatched-payments` and `POST /api/v1/unmatched-payments/{id}/resolve` to review and close out late payments.
 
 ### Changed
+- Invoice creation runs its synchronous wallet calls on the blocking pool; fiat amounts above the money supply are rejected up front.
 - `POST /api/v1/invoices` is idempotent per `order_id`: a retry with the same store, order and amount returns the existing open invoice with HTTP 200 instead of creating a duplicate (201).
 - `GET /api/v1/health` adds `watcher_last_tick_age_secs`.
 - Watcher and settlement ticks are supervised: a panic is logged and the loop continues. Barkd bridge failures return `WalletError::Unavailable` instead of panicking.

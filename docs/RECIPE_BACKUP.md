@@ -79,11 +79,12 @@ up the wallet datadir, encrypted with a key derived from the wallet's
 mnemonic. Run it next to barkd:
 
 ```
-docker compose up -d bark-backupd   # when the image ships with the stack
+# not available yet — see the note below
 ```
 
-Until the companion is packaged with the stack (tracked in the Phase 1
-close-out), the honest fallback is:
+The companion is NOT packaged with the stack yet, so the command above does
+not work today. The honest fallback is the Settings-tab download described
+above, plus:
 
 - The recovery words ARE the backup. Everything else is convenience.
 - If you snapshot the datadir manually, stop barkd first
@@ -141,9 +142,11 @@ Proves the backup is real. Budget an hour. Do it on signet first.
 2. On a fresh machine (or a wiped datadir): install per
    docs/RECIPE_SETUP.md step 1 (barkd only).
 3. Restore the wallet from the recovery words using barkd's own restore
-   command on the server — the merchant types the words, never the AI;
-   see barkd's documentation for the exact command. The wizard's create
-   step accepts a restored datadir unchanged.
+   command on the server — the merchant types the words, never the AI.
+   NOTE: the exact command is not written down here yet; it is confirmed
+   during the live signet drill (docs/SIGNET_DRILL.md) and will be added
+   then. Do not guess it. The wizard's create step accepts a restored
+   datadir unchanged.
 4. Point EBP at it (`EBP_BARKD_TOKEN` from `barkd secret show`), start
    the payments server, open the dashboard.
 5. **STOP** — the balance from step 1 is shown again. VTXOs may take a

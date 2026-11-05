@@ -140,10 +140,14 @@ out of memory — your instance is not t4g.medium; fix per Part 1.4 and redo
 from `docker compose build`.
 
 ```
-sudo docker compose up -d
+sudo ./scripts/start.sh
 ```
+→ Starts everything and, after a minute or two, prints a box with a **SETUP
+CODE** (like `ABCD-1234`). Write it on paper: the setup page in Part 6 asks
+for it first. (If you ever start with plain `docker compose up -d` instead,
+find the code with `sudo docker compose logs ebp | grep "SETUP CODE"`.)
 
-Wait 60 seconds, then check:
+Check that it is running:
 ```
 sudo docker compose ps
 ```
@@ -180,15 +184,22 @@ Safari → `http://localhost:8080/setup`
    Copy the long code → paste into the wizard → **Verify** → connected ✓
 7. **IMPORTANT** (hands the token to the server permanently): in Termius:
    ```
-   echo "EBP_BARKD_TOKEN=PASTE_THE_LONG_CODE_HERE" > ~/easy_bitcoin_payments/.env
+   echo "EBP_BARKD_TOKEN=PASTE_THE_LONG_CODE_HERE" >> ~/easy_bitcoin_payments/.env
    ```
    (replace PASTE_THE_LONG_CODE_HERE with the code — keep `EBP_BARKD_TOKEN=`
-   before it), then:
+   before it; the double `>>` ADDS to the file instead of replacing it, so it
+   cannot wipe anything already there), then:
    ```
    cd ~/easy_bitcoin_payments && sudo docker compose up -d
    ```
-8. **Store name** → e.g. `Test Shop` → Create
-9. **API key appears ONCE** → copy to paper, labelled "API key" → Finish
+8. **Store name** → e.g. `Test Shop`, and **choose an admin password**
+   (10+ characters; a few random words works well). This password is how you
+   sign in to the admin page later (`/admin`) — put it in your password
+   manager. → Create
+9. **Two secrets appear ONCE**: the **API key** and the **webhook signing
+   secret**. Copy both to paper (or a password manager), labelled, → Finish.
+   They cannot be shown again (the API key can be replaced later, from the
+   admin page's Connect tab).
 
 The wizard closes itself; the payments system is now ON.
 

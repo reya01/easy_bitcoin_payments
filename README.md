@@ -8,6 +8,8 @@
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
+> 🛍 **Shop owner?** Start with [docs/START_HERE.md](docs/START_HERE.md) — what this is, what you need, and how to tell it worked, in plain words.
+
 > 📱 **Testing EBP?** Follow [docs/MASTER_TEST_WALKTHROUGH.md](docs/MASTER_TEST_WALKTHROUGH.md) — the complete beginner walkthrough (AWS + iPhone, every known error and its fix). It is updated whenever a new failure is discovered.
 
 Easy Bitcoin Payments (EBP) is a single Rust binary plus SQLite that sits between
@@ -35,6 +37,7 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 
 ### Documentation map
 
+- [docs/START_HERE.md](docs/START_HERE.md) — shop owners start here.
 - [docs/HANDOFF.md](docs/HANDOFF.md) — one-stop context for a new developer/agent.
 - [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — open issues and debug procedures.
 - [docs/PHASE0_SPIKE_PLAN.md](docs/PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions and log.

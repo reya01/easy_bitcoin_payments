@@ -97,3 +97,6 @@ jobs:
 
       - name: Check the barkd client's paths against the pinned OpenAPI spec
         run: bash scripts/check_barkd_drift.sh
+
+      - name: Check every field we send or read against the pinned OpenAPI spec
+        run: python3 scripts/check_barkd_contract.py

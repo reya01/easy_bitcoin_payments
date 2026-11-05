@@ -12,9 +12,9 @@ Easy Bitcoin Payments (EBP) lets your online shop take Bitcoin payments into
 Three things are not finished, and you should know before you invest time:
 
 - **No shop plugin yet.** There is no WooCommerce / Shopify button. Your shop
-  (or a developer) has to call EBP to create a payment request.
-- **No "create invoice" button** in the admin page yet. For the test below you
-  paste one command.
+  (or a developer) has to call EBP to create payment requests, so there are no
+  automatic orders. You can still try a payment by hand: admin page →
+  Payments → **Try a payment**.
 - **Checkout is reachable only by you** in the safest setup (see "Taking real
   customers" below). Opening it to the public needs an HTTPS address.
 
@@ -63,7 +63,7 @@ You are done when ALL of these are true:
 
 - [ ] The admin page (`/admin`) opens after you sign in, and its **Home**
       checklist has no red items.
-- [ ] A test payment shows **Paid** on the checkout page.
+- [ ] A test payment (admin → Payments → **Try a payment**) shows **Paid** on the checkout page.
 - [ ] The same payment appears under **Payments** in the admin page.
 - [ ] You downloaded a backup (**Settings → Download a backup**) and stored
       the file somewhere that is not this server.

@@ -66,6 +66,14 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-orders" class="hidden">
+  <h2>Try a payment</h2>
+  <div class="card">
+    <p class="muted">Makes a payment request so you can see the checkout page and pay it from your wallet. Use play money (signet) while EBP is in testing.</p>
+    <label for="tp-sats">Amount in sats</label><input type="text" id="tp-sats" inputmode="numeric" value="1000">
+    <div class="btns"><button class="primary" id="tp-go" type="button">Create a test payment request</button></div>
+    <p class="msg hidden" id="tp-msg"></p>
+    <p class="hidden" id="tp-link-box"><a id="tp-link" target="_blank" rel="noopener">Open the checkout page</a></p>
+  </div>
   <h2>Recent payments</h2>
   <div class="card" id="orders"></div>
 </section>
@@ -257,6 +265,17 @@ function loadHome() {
     if (!sw.firstChild) sw.appendChild(el("span", "None yet.", "muted"));
   }).catch(function (e) { var h = $("health"); clear(h); h.appendChild(el("span", e.message, "bad")); });
 }
+
+$("tp-go").addEventListener("click", function () {
+  var sats = parseInt($("tp-sats").value, 10);
+  if (!(sats > 0)) { say("tp-msg", "Enter a whole number of sats, like 1000.", true); return; }
+  var b = $("tp-go"); b.disabled = true; $("tp-link-box").classList.add("hidden");
+  api("POST", "/api/v1/invoices", { sats: sats, metadata: { source: "admin test payment" } }).then(function (inv) {
+    $("tp-link").href = inv.checkout_url; $("tp-link-box").classList.remove("hidden");
+    say("tp-msg", "Created. Open the checkout page and pay it from your wallet; it will show up below once paid.");
+    loadOrders();
+  }).catch(function (e) { say("tp-msg", e.message, true); }).then(function () { b.disabled = false; });
+});
 
 function loadOrders() {
   api("GET", "/api/v1/invoices?limit=30").then(function (list) {

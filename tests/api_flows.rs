@@ -842,3 +842,21 @@ async fn wizard_store_step_sets_the_admin_password() {
         .unwrap();
     assert_eq!(login.status().as_u16(), 200);
 }
+
+#[tokio::test]
+async fn backup_cannot_be_confirmed_without_verifying_the_words() {
+    let (base, state, _store_id, _key) = serve_with(Config::default()).await;
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_complete", "false"))
+        .await
+        .unwrap();
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/setup/wallet/confirm-backup"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"confirmed": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 409);
+}

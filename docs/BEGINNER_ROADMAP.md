@@ -49,12 +49,16 @@ delivery log, audit log, settlement. Login by a password chosen in the wizard
 (argon2 hash) and optionally a passkey; HttpOnly + SameSite=Strict session
 cookie, CSRF protection, existing rate limits. No API key kept in the browser.
 
-### 3. Alerts (nobody reads logs)
+### 3. Alerts (nobody reads logs) — DEFERRED to beta/production releases
+Decision 2026-11-05: too much setup for a beginner at this stage. Preferred design when picked up: ntfy with an auto-generated private topic, shown as a QR/link on the admin Settings tab (tap "Turn on phone alerts", install the free ntfy app, tap the link, send a test). Messages stay generic (no amounts, addresses or order numbers); the topic is stored encrypted and resettable; one alert per problem with a repeat and an "all clear". Later upgrade: Web Push straight from the admin page (no extra app; iPhone needs Add to Home Screen). Email/Telegram are harder for beginners. Limit: if the whole server is down nothing can alert; an outside uptime check would cover that. Until then the admin Home tab shows wallet health and what needs attention.
+
+Original plan:
 Push/email (ntfy or Telegram, email) for: barkd unreachable, VTXOs nearing
 expiry, a payment in "unmatched", repeated webhook failures. Health indicator
 at the top of the admin page.
 
-### 4. Recovery-words gate
+### 4. Recovery-words gate — BUILT
+Words appear only after a "I'm alone, no screenshots" checklist, for 60 seconds at a time (Hide now wipes them), and the page keeps no copy. The merchant then types three random words by number into password-style fields (no keyboard learning/suggestions); the SERVER checks them by re-reading the words from barkd for that one request (nothing kept in the browser or in server memory) and `confirm-backup` is refused until that succeeds. Remaining exposure: browser extensions/malware on the merchant's device while the words show, and the host's TLS termination in transit. Original plan:
 Block going live until the merchant has recorded the words and passed a
 confirmation check. (Verify what the wizard enforces today.)
 

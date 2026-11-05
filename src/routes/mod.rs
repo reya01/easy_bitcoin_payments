@@ -43,6 +43,7 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/wallet", post(setup::create_wallet))
         .route("/setup/wallet/confirm-backup", post(setup::confirm_backup))
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
+        .route("/setup/wallet/verify-backup", post(setup::verify_backup))
         .route("/setup/verify-code", post(setup::verify_code))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))

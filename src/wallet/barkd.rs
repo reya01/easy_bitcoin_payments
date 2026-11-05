@@ -2313,4 +2313,184 @@ mod tests {
         assert!(!health.reachable);
         assert_eq!(health.asp, AspStatus::Unknown);
     }
+
+    // -- End to end: real barkd client over a mock daemon -> watcher -> invoice --
+
+    const E2E_TX: &str = "010000000107070707070707070707070707070707070707070707070707070707070707070000000000ffffffff02c409000000000000160014751e76e8199196d454941c45d1b3a323f1433bd66300000000000000016a00000000";
+    const E2E_ADDR: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+
+    async fn e2e_db(amount_sats: i64) -> (crate::db::Db, String) {
+        use crate::invoice::{self, NewInvoice};
+        let db = crate::db::Db::open(":memory:").unwrap();
+        let (store, _, _) = db
+            .call(|c| crate::store::create(c, "Shop", None))
+            .await
+            .unwrap();
+        let sid = store.id.clone();
+        db.call(move |c| {
+            invoice::insert(
+                c,
+                &NewInvoice {
+                    id: "inv_e2e".to_string(),
+                    store_id: sid,
+                    order_id: Some("o-1".to_string()),
+                    amount_sats,
+                    fiat_currency: None,
+                    fiat_amount: None,
+                    rate: None,
+                    rate_source: None,
+                    rate_locked_at: None,
+                    ark_address: "ark1qe2e".to_string(),
+                    onchain_address: E2E_ADDR.to_string(),
+                    expires_at: crate::util::now_unix() + 1200,
+                    confs_required: 1,
+                    metadata_json: "{}".to_string(),
+                },
+            )
+        })
+        .await
+        .unwrap();
+        (db, store.id)
+    }
+
+    fn e2e_watcher(base: String, db: &crate::db::Db) -> crate::watcher::PollingWatcher {
+        let wallet = BarkdWallet::new(BarkdConfig::new(base, "t")).unwrap();
+        crate::watcher::PollingWatcher::new(
+            std::sync::Arc::new(wallet),
+            db.clone(),
+            std::sync::Arc::new(crate::webhook::WebhookEmitter::new(1)),
+            std::time::Duration::from_secs(1),
+            604_800,
+        )
+        .with_onchain_rail(true)
+        .with_onchain_min_confirmations(1)
+    }
+
+    fn e2e_tx_list(entries: &[(&str, Option<i64>)]) -> String {
+        let items: Vec<String> = entries
+            .iter()
+            .map(|(txid, height)| {
+                let conf = match height {
+                    Some(h) => format!(r#"{{"height": {h}, "hash": "h"}}"#),
+                    None => "null".to_string(),
+                };
+                format!(
+                    r#"{{"txid": "{txid}", "tx": "{E2E_TX}", "balance_change_sat": 2500, "is_cpfp": false, "confirmation": {conf}}}"#
+                )
+            })
+            .collect();
+        format!("[{}]", items.join(","))
+    }
+
+    async fn e2e_invoice(
+        db: &crate::db::Db,
+        store_id: &str,
+    ) -> (crate::models::InvoiceStatus, i64) {
+        let sid = store_id.to_string();
+        let inv = db
+            .call(move |c| crate::invoice::get(c, &sid, "inv_e2e"))
+            .await
+            .unwrap()
+            .unwrap();
+        (inv.status, inv.paid_sats)
+    }
+
+    #[tokio::test]
+    async fn e2e_mempool_then_confirmed_credits_exactly_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let phase = std::sync::Arc::new(AtomicUsize::new(0));
+        let p = phase.clone();
+        let (base, _) = mock::spawn(move |req| match req.route() {
+            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
+            _ => match p.load(Ordering::SeqCst) {
+                0 => (200, e2e_tx_list(&[("aa", None)])),
+                _ => (200, e2e_tx_list(&[("aa", Some(800))])),
+            },
+        });
+        let (db, sid) = e2e_db(2500).await;
+        let w = e2e_watcher(base, &db);
+        assert_eq!(w.tick().await.unwrap(), 0, "mempool is not money");
+        assert_eq!(
+            e2e_invoice(&db, &sid).await.0,
+            crate::models::InvoiceStatus::Pending
+        );
+        phase.store(1, Ordering::SeqCst);
+        assert_eq!(w.tick().await.unwrap(), 1);
+        assert_eq!(w.tick().await.unwrap(), 0, "never credited twice");
+        assert_eq!(
+            e2e_invoice(&db, &sid).await,
+            (crate::models::InvoiceStatus::Paid, 2500)
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_rbf_replacement_is_credited_once_not_twice() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let phase = std::sync::Arc::new(AtomicUsize::new(0));
+        let p = phase.clone();
+        let (base, _) = mock::spawn(move |req| match req.route() {
+            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
+            _ => match p.load(Ordering::SeqCst) {
+                // The sender first broadcasts "aa" ...
+                0 => (200, e2e_tx_list(&[("aa", None)])),
+                // ... then replaces it with "bb", which confirms; "aa" is gone.
+                _ => (200, e2e_tx_list(&[("bb", Some(800))])),
+            },
+        });
+        let (db, sid) = e2e_db(2500).await;
+        let w = e2e_watcher(base, &db);
+        assert_eq!(w.tick().await.unwrap(), 0);
+        phase.store(1, Ordering::SeqCst);
+        w.tick().await.unwrap();
+        w.tick().await.unwrap();
+        assert_eq!(
+            e2e_invoice(&db, &sid).await,
+            (crate::models::InvoiceStatus::Paid, 2500),
+            "the replacement counts once; the dropped original never counts"
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_barkd_outage_fails_closed_then_recovers() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let phase = std::sync::Arc::new(AtomicUsize::new(0));
+        let p = phase.clone();
+        let (base, _) = mock::spawn(move |req| match (req.route(), p.load(Ordering::SeqCst)) {
+            (_, 0) => (500, r#"{"error":"boom"}"#.to_string()),
+            ("/api/v1/bitcoin/tip", _) => (200, r#"{"tip_height": 800}"#.to_string()),
+            _ => (200, e2e_tx_list(&[("aa", Some(790))])),
+        });
+        let (db, sid) = e2e_db(2500).await;
+        let w = e2e_watcher(base, &db);
+        // A full outage makes the whole tick fail (the run loop logs and retries).
+        assert!(
+            w.tick().await.is_err(),
+            "outage is surfaced, never swallowed as success"
+        );
+        assert_eq!(
+            e2e_invoice(&db, &sid).await.0,
+            crate::models::InvoiceStatus::Pending
+        );
+        phase.store(1, Ordering::SeqCst);
+        assert_eq!(w.tick().await.unwrap(), 1, "recovers on the next poll");
+        assert_eq!(
+            e2e_invoice(&db, &sid).await.0,
+            crate::models::InvoiceStatus::Paid
+        );
+    }
+
+    #[tokio::test]
+    async fn e2e_underpayment_is_not_marked_paid() {
+        let (base, _) = mock::spawn(move |req| match req.route() {
+            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
+            _ => (200, e2e_tx_list(&[("aa", Some(800))])),
+        });
+        // The invoice asks for 5000 sats; the chain shows 2500.
+        let (db, sid) = e2e_db(5000).await;
+        let w = e2e_watcher(base, &db);
+        w.tick().await.unwrap();
+        let (status, paid) = e2e_invoice(&db, &sid).await;
+        assert_ne!(status, crate::models::InvoiceStatus::Paid);
+        assert_eq!(paid, 2500);
+    }
 }

@@ -1,0 +1,21 @@
+# One-click deploy blueprint for Render (https://render.com): UNTESTED on the
+# live service — try it on signet first. Render supplies HTTPS and the public
+# address (RENDER_EXTERNAL_URL, read automatically). The setup code appears in
+# the service's Logs tab: look for "SETUP CODE".
+#
+# Needs a paid instance with a persistent disk: the wallet and database live
+# on /data and must survive restarts.
+services:
+  - type: web
+    name: easy-bitcoin-payments
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/v1/health
+    disk:
+      name: ebp-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: EBP_ONCHAIN_MIN_CONFIRMATIONS
+        value: "1"

@@ -33,7 +33,9 @@ services:
     restart: unless-stopped
 
   ebp:
-    build: .
+    build:
+      context: .
+      target: runtime
     environment:
       EBP_BIND_ADDR: 0.0.0.0:8080
       EBP_DATABASE_PATH: /data/ebp.sqlite3
@@ -58,6 +60,7 @@ services:
       EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
       # On-chain rail is off by default (beta). Set to true to offer it.
       EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
+      EBP_ALLOW_INSECURE_SETUP: ${EBP_ALLOW_INSECURE_SETUP:-false}
       EBP_ONCHAIN_MIN_CONFIRMATIONS: ${EBP_ONCHAIN_MIN_CONFIRMATIONS:-1}
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
       EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}

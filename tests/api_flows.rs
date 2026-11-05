@@ -640,3 +640,40 @@ async fn generated_setup_code_is_typo_tolerant_and_wrong_codes_are_refused() {
     assert_eq!(verify("K7QM-2XPD-9TWF").await, 401);
     assert_eq!(verify("").await, 401);
 }
+
+#[tokio::test]
+async fn setup_writes_are_refused_over_plain_http_on_a_public_address() {
+    let config = Config {
+        public_base_url: "http://pay.example.com".to_string(),
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    // The harness finishes setup; reopen it so the wizard status applies.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_complete", "false"))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+
+    let status: serde_json::Value = client
+        .get(format!("{base}/setup/status"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["https_required"], true);
+
+    let resp = client
+        .post(format!("{base}/setup/verify-code"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 403);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "https_required");
+}

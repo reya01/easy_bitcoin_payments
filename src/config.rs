@@ -90,6 +90,13 @@ pub struct Config {
     /// paid (minimum 1: zero-confirmation payments can be replaced by the
     /// sender via RBF, so they are never credited).
     pub onchain_min_confirmations: u64,
+    /// Allow the setup wizard over plain HTTP on a non-local address. Off by
+    /// default: the setup code and API keys would cross the network in the
+    /// clear. Meant only for a trusted LAN or throwaway testing.
+    pub allow_insecure_setup: bool,
+    /// Run barkd as a child process of EBP (single-container install). The
+    /// wizard then needs no terminal steps. See `managed_barkd`.
+    pub managed_barkd: bool,
 }
 
 impl Default for Config {
@@ -131,6 +138,8 @@ impl Default for Config {
             setup_token_generated: false,
             onchain_rail_enabled: false,
             onchain_min_confirmations: 1,
+            allow_insecure_setup: false,
+            managed_barkd: false,
         }
     }
 }
@@ -219,6 +228,35 @@ struct FileConfig {
     setup_token: Option<String>,
     onchain_rail_enabled: Option<bool>,
     onchain_min_confirmations: Option<u64>,
+    allow_insecure_setup: Option<bool>,
+    managed_barkd: Option<bool>,
+}
+
+impl Config {
+    /// May the setup wizard run? Yes over HTTPS, on a loopback address
+    /// (reached locally or through an SSH tunnel), or when explicitly
+    /// overridden. Judged from `public_base_url`, which is what the merchant
+    /// and buyers actually use (a TLS-terminating proxy keeps the app on
+    /// HTTP internally).
+    pub fn setup_transport_ok(&self) -> bool {
+        if self.allow_insecure_setup {
+            return true;
+        }
+        let url = self.public_base_url.trim().to_ascii_lowercase();
+        if url.starts_with("https://") {
+            return true;
+        }
+        let Some(rest) = url.strip_prefix("http://") else {
+            return false;
+        };
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = if let Some(v6) = authority.strip_prefix('[') {
+            v6.split(']').next().unwrap_or("")
+        } else {
+            authority.split(':').next().unwrap_or("")
+        };
+        host == "localhost" || host == "::1" || host.starts_with("127.")
+    }
 }
 
 impl Config {
@@ -335,6 +373,12 @@ impl Config {
         if let Some(v) = file.onchain_rail_enabled {
             self.onchain_rail_enabled = v;
         }
+        if let Some(v) = file.managed_barkd {
+            self.managed_barkd = v;
+        }
+        if let Some(v) = file.allow_insecure_setup {
+            self.allow_insecure_setup = v;
+        }
         if let Some(v) = file.onchain_min_confirmations {
             self.onchain_min_confirmations = v.max(1);
         }
@@ -372,6 +416,10 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_PUBLIC_BASE_URL") {
             self.public_base_url = v;
+        } else if let Some(v) = lookup("RENDER_EXTERNAL_URL") {
+            // One-click host (Render) tells us its own https address, so a
+            // beginner never has to type it.
+            self.public_base_url = v.trim_end_matches('/').to_string();
         }
         if let Some(v) = lookup("EBP_DEFAULT_EXPIRY_MINUTES") {
             self.default_expiry_minutes = parse_int("EBP_DEFAULT_EXPIRY_MINUTES", &v)?;
@@ -444,6 +492,12 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_MANAGED_BARKD") {
+            self.managed_barkd = parse_bool("EBP_MANAGED_BARKD", &v)?;
+        }
+        if let Some(v) = lookup("EBP_ALLOW_INSECURE_SETUP") {
+            self.allow_insecure_setup = parse_bool("EBP_ALLOW_INSECURE_SETUP", &v)?;
         }
         if let Some(v) = lookup("EBP_ONCHAIN_MIN_CONFIRMATIONS") {
             self.onchain_min_confirmations = positive_u64("EBP_ONCHAIN_MIN_CONFIRMATIONS", &v)?;
@@ -584,6 +638,27 @@ fn positive_u64(key: &str, value: &str) -> Result<u64, ConfigError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn setup_transport_rules() {
+        let mut c = super::Config::default();
+        for (url, ok) in [
+            ("https://pay.example.com", true),
+            ("http://localhost:8080", true),
+            ("http://127.0.0.1:8080", true),
+            ("http://[::1]:8080", true),
+            ("http://pay.example.com", false),
+            ("http://203.0.113.5:8080", false),
+            ("http://localhost.evil.com", false),
+            ("ftp://x", false),
+        ] {
+            c.public_base_url = url.to_string();
+            assert_eq!(c.setup_transport_ok(), ok, "{url}");
+        }
+        c.public_base_url = "http://pay.example.com".into();
+        c.allow_insecure_setup = true;
+        assert!(c.setup_transport_ok());
+    }
+
     use super::*;
 
     #[test]

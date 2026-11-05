@@ -39,7 +39,8 @@ pub struct InvoiceResponse {
     pub rate_locked_at: Option<String>,
     pub checkout_url: String,
     pub ark_address: String,
-    pub onchain_address: String,
+    /// `null` while the on-chain rail is disabled (the default).
+    pub onchain_address: Option<String>,
     /// BOLT11 invoice from the ASP's Lightning gateway, when one exists.
     pub lightning_invoice: Option<String>,
     /// Estimated Lightning gateway fee for this invoice, in sats, fetched
@@ -59,9 +60,11 @@ pub struct InvoiceResponse {
 
 fn to_response(
     invoice: &Invoice,
-    base_url: &str,
+    config: &crate::config::Config,
     lightning_invoice: Option<String>,
 ) -> InvoiceResponse {
+    let base_url = config.public_base_url.as_str();
+    let onchain_enabled = config.onchain_rail_enabled;
     let metadata = serde_json::from_str(&invoice.metadata_json)
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
 
@@ -77,7 +80,7 @@ fn to_response(
         rate_locked_at: invoice.rate_locked_at.map(to_rfc3339),
         checkout_url: format!("{}/i/{}", base_url.trim_end_matches('/'), invoice.id),
         ark_address: invoice.ark_address.clone(),
-        onchain_address: invoice.onchain_address.clone(),
+        onchain_address: onchain_enabled.then(|| invoice.onchain_address.clone()),
         lightning_invoice,
         lightning_fee_estimate_sat: metadata
             .get("lightning_fee_estimate_sat")
@@ -378,8 +381,7 @@ pub async fn create(
                     .db
                     .call(move |conn| invoice::get_lightning_invoice(conn, &invoice_id))
                     .await?;
-                let response =
-                    to_response(&existing, &state.config.public_base_url, lightning_invoice);
+                let response = to_response(&existing, &state.config, lightning_invoice);
                 return Ok((StatusCode::OK, Json(response)));
             }
         }
@@ -520,7 +522,7 @@ pub async fn create(
         None
     };
 
-    let response = to_response(&invoice, &state.config.public_base_url, lightning_invoice);
+    let response = to_response(&invoice, &state.config, lightning_invoice);
     Ok((StatusCode::CREATED, Json(response)))
 }
 
@@ -550,7 +552,7 @@ pub async fn get_one(
 
     Ok(Json(to_response(
         &invoice,
-        &state.config.public_base_url,
+        &state.config,
         lightning_invoice,
     )))
 }
@@ -584,11 +586,11 @@ pub async fn list(
         .call(move |conn| invoice::list(conn, &store_id, status, since, limit))
         .await?;
 
-    let base_url = &state.config.public_base_url;
+    let config = &state.config;
     Ok(Json(
         invoices
             .iter()
-            .map(|invoice| to_response(invoice, base_url, None))
+            .map(|invoice| to_response(invoice, config, None))
             .collect(),
     ))
 }
@@ -604,9 +606,5 @@ pub async fn cancel(
         .call(move |conn| invoice::cancel(conn, &store_id, &id))
         .await?;
 
-    Ok(Json(to_response(
-        &invoice,
-        &state.config.public_base_url,
-        None,
-    )))
+    Ok(Json(to_response(&invoice, &state.config, None)))
 }

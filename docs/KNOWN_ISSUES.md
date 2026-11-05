@@ -7,7 +7,7 @@ See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
 - Late/unmatched payments land in the `unmatched_payments` table with no dashboard UI yet — use `GET /api/v1/unmatched-payments` (store API key) or query the table directly
 - Webhooks are delivered from a durable outbox (`webhook_deliveries`); failed rows (after 6 attempts) stay for inspection with no re-send UI yet. Webhook URL validation is textual and does not stop DNS rebinding — restrict container egress in production.
 - Webhook secrets are stored in plaintext (`key_encryption_key` is not implemented).
-- On-chain receive detection depends on an UNPINNED `/wallet/history` shape; do not enable the on-chain rail for real funds before a live signet drill.
+- On-chain receive detection depends on an UNPINNED `/wallet/history` shape. The rail is therefore OFF by default (`EBP_ONCHAIN_RAIL_ENABLED`); do not enable it for real funds before a live signet drill.
 
 ## RESOLVED & CONFIRMED — VPS aarch64 container restart-loop (~60s, 22h duration)
 

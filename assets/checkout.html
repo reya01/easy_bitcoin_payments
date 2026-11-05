@@ -79,6 +79,8 @@ fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "applicat
     if (!d) { setStatus("Invoice not found.", "err"); return; }
     s.data = d; s.uri = d.bip321 || ""; s.deadline = d.expires_at_unix || 0;
     if (d.lightning && d.lightning.bolt11) { s.ln = d.lightning; tabs.ln.hidden = false; }
+    // On-chain is off by default (server config onchain_rail_enabled): hide its tab.
+    if (!d.onchain_enabled) tabs.chain.hidden = true;
     if (d.test_mode) els.banner.classList.remove("hidden");
     els.store.textContent = d.store_name || "This store";
     var sats = Number(d.amount_sats).toLocaleString("en-US");

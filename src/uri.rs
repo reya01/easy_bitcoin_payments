@@ -67,5 +67,11 @@ mod tests {
             combined(1_000, Some("bc1q"), None, Some("tark1t")), // disabled rail: no param
             "bitcoin:bc1q?amount=0.00001&ark=tark1t"
         );
+        // On-chain rail off (the beta default): empty path, BIP321 allows it
+        // when other payment instructions are present.
+        assert_eq!(
+            combined(1_000, None, Some("lntbs1i"), Some("tark1t")),
+            "bitcoin:?amount=0.00001&lightning=lntbs1i&ark=tark1t"
+        );
     }
 }

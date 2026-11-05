@@ -15,6 +15,7 @@
 - `GET /api/v1/unmatched-payments` and `POST /api/v1/unmatched-payments/{id}/resolve` to review and close out late payments.
 
 ### Changed
+- **On-chain rail is off by default** (`onchain_rail_enabled`, env `EBP_ONCHAIN_RAIL_ENABLED=true` to enable): no tab, no address in the QR/API, and any on-chain payment that arrives is parked in `unmatched_payments`.
 - Invoice creation runs its synchronous wallet calls on the blocking pool; fiat amounts above the money supply are rejected up front.
 - `POST /api/v1/invoices` is idempotent per `order_id`: a retry with the same store, order and amount returns the existing open invoice with HTTP 200 instead of creating a duplicate (201).
 - `GET /api/v1/health` adds `watcher_last_tick_age_secs`.

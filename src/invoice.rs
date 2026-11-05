@@ -316,6 +316,7 @@ pub fn record_unmatched(
     vtxo_id: Option<&str>,
     txid: Option<&str>,
     detected_at: i64,
+    reason_override: Option<&str>,
 ) -> Result<bool, AppError> {
     let found: Option<(String, String)> = conn
         .query_row(
@@ -330,10 +331,13 @@ pub fn record_unmatched(
     let Some((invoice_id, status)) = found else {
         return Ok(false);
     };
-    let reason = if status == "expired" {
-        "invoice_expired"
-    } else {
-        "invoice_closed"
+    // `reason_override` lets the watcher park payments that arrive on a rail
+    // that is switched off (e.g. `onchain_rail_disabled`) even though the
+    // invoice itself is still pending.
+    let reason = match reason_override {
+        Some(reason) => reason,
+        None if status == "expired" => "invoice_expired",
+        None => "invoice_closed",
     };
     let changed = conn.execute(
         "INSERT OR IGNORE INTO unmatched_payments
@@ -911,14 +915,32 @@ mod tests {
 
         let first = db
             .call(|conn| {
-                record_unmatched(conn, "ark1qinv_1", "ark", 1000, Some("vtxo_late"), None, 5)
+                record_unmatched(
+                    conn,
+                    "ark1qinv_1",
+                    "ark",
+                    1000,
+                    Some("vtxo_late"),
+                    None,
+                    5,
+                    None,
+                )
             })
             .await
             .unwrap();
         assert!(first, "first sighting writes an audit row");
         let again = db
             .call(|conn| {
-                record_unmatched(conn, "ark1qinv_1", "ark", 1000, Some("vtxo_late"), None, 5)
+                record_unmatched(
+                    conn,
+                    "ark1qinv_1",
+                    "ark",
+                    1000,
+                    Some("vtxo_late"),
+                    None,
+                    5,
+                    None,
+                )
             })
             .await
             .unwrap();
@@ -926,7 +948,7 @@ mod tests {
 
         // Addresses that belong to no invoice are not recorded.
         let unknown = db
-            .call(|conn| record_unmatched(conn, "ark1qnobody", "ark", 1, Some("v2"), None, 5))
+            .call(|conn| record_unmatched(conn, "ark1qnobody", "ark", 1, Some("v2"), None, 5, None))
             .await
             .unwrap();
         assert!(!unknown);

@@ -30,11 +30,16 @@ pub async fn invoice_json(
     let fee = serde_json::from_str::<serde_json::Value>(&inv.metadata_json)
         .ok()
         .and_then(|m| m.get("lightning_fee_estimate_sat").and_then(|v| v.as_i64()));
+    let onchain_enabled = app.config.onchain_rail_enabled;
     Ok(Json(serde_json::json!({
         "store_name": store_name, "status": inv.status.as_str(), "amount_sats": inv.amount_sats,
         "fiat_currency": inv.fiat_currency, "fiat_amount": inv.fiat_amount,
-        "ark_address": inv.ark_address, "onchain_address": inv.onchain_address, "expires_at_unix": inv.expires_at,
-        "bip321": uri::combined(inv.amount_sats, Some(&inv.onchain_address), bolt11.as_deref(), Some(&inv.ark_address)),
+        "ark_address": inv.ark_address, "expires_at_unix": inv.expires_at,
+        // On-chain rail is OFF by default (config.onchain_rail_enabled): no
+        // address, no URI path, and the page hides the tab.
+        "onchain_enabled": onchain_enabled,
+        "onchain_address": onchain_enabled.then(|| inv.onchain_address.clone()),
+        "bip321": uri::combined(inv.amount_sats, onchain_enabled.then_some(inv.onchain_address.as_str()), bolt11.as_deref(), Some(&inv.ark_address)),
         "lightning": bolt11.map(|b| serde_json::json!({ "bolt11": b, "fee_estimate_sat": fee })),
         "test_mode": app.config.mode == "test",
     })))

@@ -130,7 +130,16 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
                 },
             )?;
             invoice::expire_if_due(conn, "inv_late")?;
-            invoice::record_unmatched(conn, "ark1qlate", "ark", 1000, Some("v_late"), None, 1)?;
+            invoice::record_unmatched(
+                conn,
+                "ark1qlate",
+                "ark",
+                1000,
+                Some("v_late"),
+                None,
+                1,
+                None,
+            )?;
             Ok(())
         })
         .await
@@ -316,4 +325,51 @@ async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
     assert_eq!(ok["counters"]["unmatched_payments_open"], 0);
     assert_eq!(ok["counters"]["webhooks_failed"], 0);
     assert!(ok["wallet"]["error"].is_string());
+}
+
+#[tokio::test]
+async fn onchain_rail_is_off_by_default_and_switchable() {
+    let client = reqwest::Client::new();
+
+    // Default: no on-chain address in the API, the checkout JSON, or the QR.
+    let (base, _s, _store, key) = serve().await;
+    let (_, inv) = create(&client, &base, &key, "wc-oc", 2_000).await;
+    assert!(inv["onchain_address"].is_null());
+    let id = inv["id"].as_str().unwrap();
+    let co: serde_json::Value = client
+        .get(format!("{base}/i/{id}/json"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(co["onchain_enabled"], false);
+    assert!(co["onchain_address"].is_null());
+    assert!(co["bip321"]
+        .as_str()
+        .unwrap()
+        .starts_with("bitcoin:?amount="));
+
+    // Opt in: the address and the URI path come back.
+    let (base, _s, _store, key) = serve_with(Config {
+        onchain_rail_enabled: true,
+        ..Config::default()
+    })
+    .await;
+    let (_, inv) = create(&client, &base, &key, "wc-oc", 2_000).await;
+    assert!(inv["onchain_address"].is_string());
+    let id = inv["id"].as_str().unwrap();
+    let co: serde_json::Value = client
+        .get(format!("{base}/i/{id}/json"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(co["onchain_enabled"], true);
+    assert!(co["bip321"].as_str().unwrap().starts_with("bitcoin:bc1q"));
 }

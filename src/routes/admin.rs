@@ -150,6 +150,7 @@ pub async fn status(
 
     Ok(Json(json!({
         "mode": state.config.mode,
+        "onchain_rail_enabled": state.config.onchain_rail_enabled,
         "version": crate::VERSION,
         "counters": counters,
         "recent_settlements": recent_settlements,

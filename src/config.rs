@@ -73,6 +73,16 @@ pub struct Config {
     /// could create the wallet, read the recovery words, or mint the first
     /// store API key. Env-only recommended (`EBP_SETUP_TOKEN`).
     pub setup_token: Option<String>,
+    /// Offer the on-chain rail at checkout. DEFAULT OFF (beta): barkd's
+    /// on-chain receive entry in `/wallet/history` is not yet pinned by a
+    /// live drill, so on-chain payments cannot be detected with confidence
+    /// and a customer could pay an address we would never credit. Off =
+    /// no on-chain tab, no on-chain path in the BIP321 URI, `null`
+    /// `onchain_address` in the API, and any on-chain payment that still
+    /// arrives is parked in `unmatched_payments`, never auto-credited.
+    /// Enable with `EBP_ONCHAIN_RAIL_ENABLED=true` once the signet drill in
+    /// docs/BETA_PLAN.md has passed.
+    pub onchain_rail_enabled: bool,
 }
 
 impl Default for Config {
@@ -111,6 +121,7 @@ impl Default for Config {
             public_rate_limit_per_min: 120,
             trust_proxy_headers: false,
             setup_token: None,
+            onchain_rail_enabled: false,
         }
     }
 }
@@ -197,6 +208,7 @@ struct FileConfig {
     public_rate_limit_per_min: Option<u32>,
     trust_proxy_headers: Option<bool>,
     setup_token: Option<String>,
+    onchain_rail_enabled: Option<bool>,
 }
 
 impl Config {
@@ -310,6 +322,9 @@ impl Config {
         if let Some(v) = file.trust_proxy_headers {
             self.trust_proxy_headers = v;
         }
+        if let Some(v) = file.onchain_rail_enabled {
+            self.onchain_rail_enabled = v;
+        }
         if let Some(v) = file.setup_token {
             self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
         }
@@ -413,6 +428,9 @@ impl Config {
                     key: "EBP_PUBLIC_RATE_LIMIT_PER_MIN".to_string(),
                     value: v.clone(),
                 })?;
+        }
+        if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
+            self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
         }
         if let Some(v) = lookup("EBP_SETUP_TOKEN") {
             // Compose passes an empty string when unset: treat as absent.

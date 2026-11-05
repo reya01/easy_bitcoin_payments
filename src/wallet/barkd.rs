@@ -94,7 +94,7 @@ const PATH_ONCHAIN_BALANCE: &str = "/onchain/balance";
 /// shape: a bare JSON array `[]` — no wrapper object.
 const PATH_VTXOS: &str = "/wallet/vtxos";
 /// Cursored wallet history (the watcher's payment source). GET.
-const PATH_HISTORY: &str = "/wallet/history";
+const PATH_HISTORY: &str = "/history";
 /// Chain tip (height + timestamp) for expiry-height conversion. GET.
 const PATH_BITCOIN_TIP: &str = "/bitcoin/tip";
 /// Ark send (settlement sweep to a same-ASP destination). POST.
@@ -139,11 +139,6 @@ const PATH_FEES_LIGHTNING_RECEIVE: &str = "/fees/lightning/receive";
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// TCP connect timeout against the sidecar.
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// Page size for cursored history.
-const HISTORY_PAGE_SIZE: u32 = 500;
-/// Hard cap on pages per `payments_since` call so a buggy daemon cannot
-/// loop us forever.
-const MAX_HISTORY_PAGES: usize = 100;
 
 /// On-chain sats kept per VTXO so an emergency exit can always be CPFP'd
 /// (learn_exit.md: unilateral exits cost >= 15,000 sats per VTXO in fees).
@@ -691,54 +686,24 @@ impl BarkdClient {
 
     // -- Payment history ----------------------------------------------------
 
-    /// One page of wallet history.
-    // VERIFY: field shape + query params — the /wallet/history dump is empty
-    // in the pinned extract. `since` (unix seconds) and `cursor` are our
-    // best-effort query parameters; if barkd ignores them the caller's
-    // dedupe keys (vtxo id / txid) keep replays harmless. /wallet/movements
-    // is the documented fallback if history's shape does not fit.
-    pub async fn history(&self, query: &HistoryQuery) -> Result<HistoryPage, WalletError> {
-        let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(since) = query.since {
-            params.push(("since", since.to_string()));
-        }
-        if let Some(cursor) = &query.cursor {
-            params.push(("cursor", cursor.clone()));
-        }
-        if let Some(limit) = query.limit {
-            params.push(("limit", limit.to_string()));
-        }
-        let v: Json = self.get_query(PATH_HISTORY, &params).await?;
+    /// The full wallet history (`GET /api/v1/history`, newest first).
+    ///
+    /// R14: this replaces the DEPRECATED `GET /api/v1/wallet/history`
+    /// (both are marked deprecated-vs-current in the pinned OpenAPI and in
+    /// https://second.tech/docs). The current endpoint documents no
+    /// paging, `since`, or cursor parameters, so none are sent; the watcher's
+    /// dedupe keys (vtxo id / txid) make re-reading the same entries harmless.
+    pub async fn history(&self) -> Result<HistoryPage, WalletError> {
+        let v: Json = self.get(PATH_HISTORY).await?;
         parse_history_page(v)
     }
 
-    /// History at or after `since` (UNIX seconds), following the cursor
-    /// until the list is exhausted.
-    pub async fn payments_since(&self, since: i64) -> Result<Vec<HistoryEntry>, WalletError> {
-        let mut out = Vec::new();
-        let mut query = HistoryQuery {
-            since: Some(since),
-            cursor: None,
-            limit: Some(HISTORY_PAGE_SIZE),
-        };
-        for _ in 0..MAX_HISTORY_PAGES {
-            let page = self.history(&query).await?;
-            out.extend(page.entries);
-            match page.next_cursor {
-                Some(cursor) => {
-                    // After the first page the cursor alone positions us.
-                    query.since = None;
-                    query.cursor = Some(cursor);
-                }
-                None => return Ok(out),
-            }
-        }
-        // Fail, don't truncate: a partial page returned as success would let
-        // the caller advance its watermark and permanently skip the
-        // unreturned tail (paid-but-uncredited invoices).
-        Err(WalletError::Unavailable(format!(
-            "barkd history exceeded {MAX_HISTORY_PAGES} pages — refusing to return partial history"
-        )))
+    /// All history entries. `_since` is accepted for the `WalletAdapter`
+    /// signature but NOT sent: barkd cannot filter by time, and filtering
+    /// client-side on a timestamp we do not control could silently skip a
+    /// payment. Fail-closed crediting plus dedupe handle replays.
+    pub async fn payments_since(&self, _since: i64) -> Result<Vec<HistoryEntry>, WalletError> {
+        Ok(self.history().await?.entries)
     }
 
     // -- Settlement ---------------------------------------------------------
@@ -881,7 +846,7 @@ pub struct Vtxo {
     pub expires_at: Option<i64>,
 }
 
-/// One entry of `GET /wallet/history`.
+/// One movement of `GET /api/v1/history` (formerly the deprecated `/wallet/history`).
 ///
 /// Live-verified barkd 0.8.0 shape: there is NO entry-level address, amount,
 /// or id. Attribution lives in `received_on[]` (destination objects), the
@@ -1185,23 +1150,13 @@ impl HistoryEntry {
     }
 }
 
-/// One page of cursored history.
+/// The wallet history as returned by `GET /api/v1/history`: a bare JSON
+/// array of movements, newest first. The endpoint takes no paging or time
+/// parameters (only the optional `type`+`value` pair, which filters to one
+/// payment destination), so there is no cursor.
 #[derive(Debug, Clone, Default)]
 pub struct HistoryPage {
     pub entries: Vec<HistoryEntry>,
-    /// Opaque cursor for the next page; `None` when history is exhausted.
-    pub next_cursor: Option<String>,
-}
-
-/// Query for [`BarkdClient::history`]. All fields optional.
-#[derive(Debug, Clone, Default)]
-pub struct HistoryQuery {
-    /// Only entries at or after this UNIX timestamp.
-    pub since: Option<i64>,
-    /// Opaque cursor from a previous page's `next_cursor`.
-    pub cursor: Option<String>,
-    /// Max entries in the page.
-    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1354,11 +1309,7 @@ fn parse_history_page(v: Json) -> Result<HistoryPage, WalletError> {
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let next_cursor = flex::str_field(&v, &["next_cursor", "cursor"]).filter(|c| !c.is_empty());
-    Ok(HistoryPage {
-        entries,
-        next_cursor,
-    })
+    Ok(HistoryPage { entries })
 }
 
 /// Best-effort field extraction for endpoints whose response schema is not
@@ -1872,33 +1823,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn history_paging_follows_the_cursor() {
-        let page1 = r#"{"payments": [{"address": "ark1qinv", "amount_sats": 1000, "vtxo_id": "v1", "detected_at": 100}], "next_cursor": "cursor-2"}"#;
-        let page2 = r#"{"payments": [{"address": "bc1qinv", "amount_sats": 2000, "txid": "tx1", "detected_at": 101}]}"#;
-        let (base, recorded) = mock::spawn(move |req| {
-            if req.path.contains("cursor=cursor-2") {
-                (200, page2.to_string())
-            } else {
-                (200, page1.to_string())
-            }
-        });
+    async fn history_reads_the_current_endpoint_with_no_query() {
+        // R14: GET /api/v1/history (not the deprecated /wallet/history),
+        // bare array, and no speculative since/cursor/limit parameters.
+        let page = r#"[{"id": 1, "status": "successful", "subsystem": {"name": "lightning", "kind": "receive"}, "received_on": [{"destination": {"type": "invoice", "value": "lnbc1"}, "amount_sat": 1000}], "metadata": {"htlc_vtxos": ["v1"]}, "time": {"created_at": "2026-11-01T13:50:21Z", "updated_at": "2026-11-01T13:50:21Z"}}]"#;
+        let (base, recorded) = mock::spawn(move |_| (200, page.to_string()));
         let entries = client(&base).payments_since(99).await.unwrap();
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].vtxo_id.as_deref(), Some("v1"));
-        assert_eq!(entries[1].txid.as_deref(), Some("tx1"));
-
+        assert_eq!(entries.len(), 1);
         let all = recorded.lock().unwrap();
-        assert_eq!(all.len(), 2);
-        assert!(
-            all[0].path.contains("since=99"),
-            "first page: {}",
-            all[0].path
-        );
-        assert!(
-            all[1].path.contains("cursor=cursor-2"),
-            "second page: {}",
-            all[1].path
-        );
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].path, "/api/v1/history");
     }
 
     #[test]

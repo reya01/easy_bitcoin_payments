@@ -9,10 +9,10 @@ merchants.
 - **`spec.md` is authoritative.** Where code and spec disagree, the code
   changes. PRs that intentionally deviate must say so and update the spec
   first.
-- **Phase 0 is foundations.** The wallet layer is deliberately a stub; every
-  Bark integration point is marked `// BARK INTEGRATION` in the source. Do
-  not wire real funds in before the Phase 0 spike
-  (`docs/PHASE0_SPIKE_PLAN.md`) is answered.
+- **Phase 0 is done; Phase 1 is code-complete.** The wallet layer is a real
+  barkd client, live-verified on signet (docs/HANDOFF.md is the status/ops
+  entry point and records the drills). The EXPERIMENTAL / signet-only banner
+  still applies: never wire real funds without the maintainer's go-ahead.
 - **Out of scope by design:** refund tooling, watch-only/external-signing
   custody, Lightning send, Shopify, standalone storefront mode (see the
   spec's "Explicitly not v1.0" list). Don't build these in PRs.

@@ -1,7 +1,11 @@
 # Phase 0 — Bark Integration Spike Plan
 
-**Status:** open
-**Owner:** TBD
+**Status:** ANSWERED — Phase 0 completed 2026-11-01; Q1–Q5 were answered by
+the live signet drills recorded in docs/PHASE1_PLAN.md (drill log) and
+docs/HANDOFF.md (drills section). This file is retained as the original
+question sheet; the pinned-version rule below still applies when re-running
+any of these commands.
+**Owner:** completed by the maintainer + agent sessions (2026-10-31..11-01)
 **Gate:** Phase 0 acceptance requires this document to be answered in writing,
 with a regtest demo of receive → refresh → exit and one real testnet sweep.
 

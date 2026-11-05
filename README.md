@@ -2,8 +2,8 @@
 
 > **⚠ EXPERIMENTAL STATUS — NOT FOR REAL FUNDS.** EBP is pre-release software
 > under active development. Its wallet integration has not been audited, its
-> response shapes are pinned by fixture tests, not a security audit; nothing here has been
-> completed. **Do not connect it to mainnet or real bitcoin.** Use signet or
+> response shapes are pinned by fixture tests, not a security audit, and no independent
+> security audit has been completed. **Do not connect it to mainnet or real bitcoin.** Use signet or
 > regtest only until this notice is removed.
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
@@ -15,8 +15,8 @@ your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
 This repository is at **Phase 1 code-complete** (2026-11-01) and remains
-**EXPERIMENTAL — not for real funds**. The full suite is green (`cargo test`:
-**134 passed, 0 failed**). All client-facing barkd response shapes are
+**EXPERIMENTAL — not for real funds**. The full suite is green (`cargo test --all --all-features`:
+**134 passed, 0 failed**). Every Lightning-side client-facing barkd shape is
 live-verified against **barkd 0.8.0 on signet** and pinned in
 [`src/wallet/barkd/live_shapes.rs`](src/wallet/barkd/live_shapes.rs) with shape tests;
 remaining `VERIFY` markers are limited to request/edge shapes the pinned
@@ -55,7 +55,8 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 - **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
 - **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
 - **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
-- **Merchant dashboard placeholder** — mobile-first shell at `/dashboard`.
+- **Merchant dashboard shell** — mobile-first info page at `/dashboard` (status
+  and store info; it cannot create invoices — use the API, see below).
 - **Config** — env vars plus an optional TOML file, with sane defaults.
 - **Deployment** — Docker one-liner on a VPS (public IP, DNS, TLS; clearnet HTTPS), plus multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
 
@@ -71,10 +72,12 @@ yours). The server authenticates with a bearer token:
 export EBP_BARKD_TOKEN="$(barkd --datadir /path/to/bark secret show)"
 ```
 
-The token is env-only (`EBP_BARKD_TOKEN`), never written to a config file and
-never logged. Rotate it with `barkd secret refresh` + a restart of both
-daemons. `--expose-mnemonic` stays off: the server never calls
-`GET /wallet/mnemonic`.
+The token is env-only (`EBP_BARKD_TOKEN`), lives in the deployment env / a
+`.env` file next to the compose file, and is never logged. Rotate it with
+`barkd secret refresh` + a restart of both daemons. `--expose-mnemonic` stays
+off on the compose service; the setup wizard's one-time backup ceremony runs
+a separate temporary barkd WITH the flag, reads `GET /wallet/mnemonic` exactly
+once, then removes it — the words are never stored or logged by EBP.
 
 Without a token the server boots on the Phase 0 stub wallet (deterministic
 placeholder addresses, no payments observed) so development and tests never
@@ -168,8 +171,9 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |
+| `GET` | `/i/{id}/json` | Full invoice JSON (fetched once by the checkout page) |
 | `GET` | `/i/{id}/status` | Checkout status JSON (polled by the page) |
-| `GET` | `/dashboard` | Merchant dashboard placeholder |
+| `GET` | `/dashboard` | Merchant dashboard (static info shell; no invoice creation) |
 
 ### Invoice states
 
@@ -224,12 +228,13 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_BARKD_TOKEN` | unset | barkd bearer token (`barkd secret show`); env-only |
 | `EBP_SETTLEMENT_DESTINATION` | unset | Merchant's Ark or on-chain sweep destination |
 | `EBP_SETTLEMENT_INTERVAL_SECS` | `300` | Settlement engine cadence |
+| `EBP_CONFIG` | unset | Path to an extra TOML config file (see `ebp.example.toml`) |
 | `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | Renew/settle VTXOs this long before expiry |
 | `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
-| `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is not yet supported and is refused by the EXPERIMENTAL banner |
+| `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is accepted as a config value but is NOT supported in this EXPERIMENTAL release: never point it at real funds |
 | `EBP_RATES_PROVIDER` | `static` | `static` (deterministic, offline) or `live` (median of public APIs) |
 | `EBP_RATES_TIMEOUT_SECS` | `5` | Live-rate fetch timeout |
-| `EBP_MAX_EXPIRY_MINUTES` | `60` | Upper bound on invoice lifetime |
+| `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 

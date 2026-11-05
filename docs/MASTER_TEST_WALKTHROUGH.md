@@ -195,8 +195,16 @@ The wizard closes itself; the payments system is now ON.
 ## PART 7 — Test payment — 20 min (mostly faucet waiting)
 
 1. Safari → `http://localhost:8080` → Share → **Add to Home Screen**
-2. Dashboard → create a test invoice for **1,000 sats** → checkout page with
-   a QR code appears
+2. The dashboard is an info page only — it cannot create invoices. Create
+   the test invoice with the **API key you wrote down in Part 6 step 9**:
+   ```
+   curl -sS -X POST http://localhost:8080/api/v1/invoices \
+     -H "Authorization: Bearer PASTE-API-KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"sats": 1000}'
+   ```
+   Copy the `"id"` from the reply (looks like `inv_...`) → open
+   `http://localhost:8080/i/THAT-ID` in Safari → checkout page with a QR
 3. Install **Arké** (iPhone) → create wallet → ✍️ write ITS 12 words on the
    paper too (label "Arké wallet")
 4. Safari → `https://signet.2nd.dev/` → GitHub sign-in → paste Arké's
@@ -235,7 +243,7 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 | `could not read Username for 'https://github.com'` during build | old barkd Dockerfile cloned a nonexistent GitHub repo | fixed — `cd ~/easy_bitcoin_payments && git pull`, rebuild |
 | `manifest unknown` or 404 during build | arm64 asset-name mismatch (fixed) | `git pull` and rebuild |
 | `failed to solve` during build (general) | read the LAST error line above it | send the last 10 lines to the developer |
-| Ping returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry |
+| Health curl returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry the `/api/v1/health` curl |
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |
 | `set: Illegal option -o pipefail` | script run with `sh` instead of `bash` | fixed in repo; use `bash scripts/...` |
 | `ebp` restart-loops, `docker inspect` shows ExitCode 0, and `docker run --rm easy_bitcoin_payments-ebp --help` prints NOTHING | the image shipped the build system's placeholder binary (cargo skipped the real rebuild over stale file timestamps — fixed in the repo) | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build ebp` (must pass the build's own usage check), verify `sudo docker run --rm easy_bitcoin_payments-ebp --help` prints a usage block, then `sudo docker compose up -d` |

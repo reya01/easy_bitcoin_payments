@@ -2,7 +2,9 @@
 
 **Status:** Phase 1 code-complete (2026-11-01), **EXPERIMENTAL — not for real funds**.
 `cargo test`: **134 passed, 0 failed**. All client-facing barkd response shapes are
-live-verified against **barkd 0.8.0 on signet** and pinned in
+live-verified against **barkd 0.8.0 on signet** (Lightning side; the on-chain
+receive history entry shape is still unpinned — crediting is fail-closed) and
+pinned in
 [`src/wallet/barkd/live_shapes.rs`](../src/wallet/barkd/live_shapes.rs) with shape tests.
 Remaining `VERIFY` markers are limited to request/edge shapes the pinned OpenAPI
 does not schema.
@@ -123,10 +125,10 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 1. **Release cut.** A human chooses and confirms the `v*` tag. Pushing it makes
    `.github/workflows/release.yml` build x86_64 + aarch64 musl binaries,
-   `SHA256SUMS`, and the multi-arch ghcr.io image used by the Docker/
-   compose deploy (install.sh and release.sh use the release tarballs, not
-   ghcr; the ghcr package may need a manual visibility flip in the GitHub
-   UI before anyone can pull it).
+   `SHA256SUMS`, and the multi-arch ghcr.io image (the compose deploy
+   builds locally instead of pulling it; install.sh and release.sh use the
+   release tarballs, not ghcr; the ghcr package may need a manual visibility
+   flip in the GitHub UI before anyone can pull it).
 2. **UX gate.** A non-technical tester must go zero → live signet invoice using
    only [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) (the
    single-source-of-truth tester guide) and an iPhone.
@@ -134,6 +136,11 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
    fixed + confirmed). What remains on the VPS is the tester finishing the
    first-run wizard (wallet + recovery-words ceremony) and the walkthrough's
    Part 7 test payment — the formal UX gate (also listed as #2).
+4. **Open drills** (from docs/PHASE1_PLAN.md close-out): pin the on-chain
+   receive history entry shape (LN receive is pinned; crediting is
+   fail-closed — watch for the "no receive evidence" warn line during the
+   gate if the tester pays on-chain), and run the round-flip/sweep drill
+   (needs EBP_SETTLEMENT_DESTINATION, unset by default).
 
 ## Cold-start commands
 

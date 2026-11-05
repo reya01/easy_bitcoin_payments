@@ -8,8 +8,10 @@
 # Its datadir lives on the barkd-data volume; the API is plain HTTP bound to
 # the internal compose network only — no `ports:` mapping, so barkd is
 # unreachable from outside and every /api/v1 call still requires the bearer
-# token (barkd_start.md). `--expose-mnemonic` is deliberately NOT passed:
-# GET /wallet/mnemonic stays disabled and ebp never calls it.
+# token (barkd_start.md). `--expose-mnemonic` is deliberately NOT passed on
+# this service: GET /wallet/mnemonic stays disabled HERE. The setup wizard's
+# one-time backup ceremony runs a SEPARATE temporary barkd WITH the flag,
+# reads the words exactly once, then removes it (walkthrough Part 6).
 
 services:
   barkd:

@@ -1,16 +1,19 @@
 # Phase 1 — barkd integration plan
 
 **Status:** Phase 1 code-complete (2026-11-01) — all twelve tasks below
-are DONE in code, every client-facing barkd shape is live-verified
-(barkd 0.8.0, signet), and the full suite is green (`cargo test`: 130
-passed, 0 failed). Nothing code-side remains. Two items are left, both
+are DONE in code, every Lightning-side client-facing barkd shape is
+live-verified (barkd 0.8.0, signet; the on-chain receive history entry
+shape is still unpinned — fail-closed), and the full suite is green
+(`cargo test --all --all-features`: 134 passed, 0 failed).
+Nothing code-side remains. The open items are all in the close-out list
 human, and gate the phase sign-off: (1) the non-technical UX gate (task
 12: zero → live signet invoice using only the recipe and an iPhone),
 and (2) cutting the first release — a human chooses and confirms the
 `v*` tag; pushing it makes `.github/workflows/release.yml` build the
 x86_64 + aarch64 musl binaries, `SHA256SUMS`, the GitHub release, and
-the multi-arch ghcr.io image that `scripts/install.sh`,
-`scripts/release.sh`, and the recipe resolve.
+the multi-arch ghcr.io image that `scripts/release.sh` publishes and the
+recipe/`scripts/install.sh` ecosystem consumes alongside the release
+tarballs install.sh actually fetches.
 **Depends on:** Phase 0 spike log (docs/PHASE0_SPIKE_PLAN.md) answered in writing
 **Window:** months 1–3
 
@@ -69,9 +72,11 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 - **What:** first-run wizard step: create the wallet, back up the mnemonic,
   provision and rotate the API token.
-- **How:** `POST /api/v1/wallet/create` with the ASP address (per the pinned
-  spec); mnemonic shown once from the create response — `--expose-mnemonic`
-  stays off and `GET /api/v1/wallet/mnemonic` is never called; written-down
+- **How:** `POST /api/v1/wallet/create` on an empty datadir; the create
+  response never carries the words (verified barkd 0.8.0), so the wizard
+  runs the expose-mnemonic ceremony: barkd restarted WITH `--expose-mnemonic`,
+  EBP reads `GET /wallet/mnemonic` exactly once, then barkd restarts without
+  the flag; written-down
   confirmation required before receiving is enabled; token from
   `barkd secret show` passed to ebp via `EBP_BARKD_TOKEN` (env-only), never
   logged; rotation = `barkd secret refresh` + restart + update ebp, written
@@ -98,7 +103,7 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 ### 5. Receive addresses + payment attribution — DONE
 
-> DONE: fresh Ark + on-chain addresses per invoice with invoice↔address persisted; attribution keys on the address, with an amount+window fallback that flags the payment for review instead of silently crediting an invoice.
+> DONE: fresh Ark + on-chain addresses per invoice with invoice↔address persisted; attribution keys on the address, with an amount+window fallback that flags the payment for review instead of silently crediting an invoice. CAVEAT: the code-level task is done; the 20-payment real-history attribution DRILL is still open (see close-out), and the on-chain receive shape is unpinned.
 
 - **What:** fresh address per invoice; deterministic attribution; the
   same-ASP caveat handled explicitly.
@@ -202,7 +207,10 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 ### 12. Setup recipe + the non-technical UX gate — recipe DONE, gate OPEN
 
-> DONE: the recipe (docs/RECIPE_SETUP.md v1) ships and now resolves the release URLs. OPEN: the UX gate itself — a non-technical tester goes zero → live signet invoice using only the recipe and an iPhone — plus cutting the first release (tag `v*` → .github/workflows/release.yml).
+> DONE: the recipe ships and now resolves the release URLs. OPEN: the UX gate
+> itself — a non-technical tester goes zero → live signet invoice using only
+> docs/MASTER_TEST_WALKTHROUGH.md (the single gate instrument) and an iPhone —
+> plus cutting the first release (tag `v*` → .github/workflows/release.yml).
 
 - **What:** the plain-text + AI-assisted recipe, and the gate itself.
 - **How:** write the recipe (install → provision → mnemonic backup → first
@@ -256,8 +264,8 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 ## Remaining (Phase 1 close-out) — SUPERSEDED, kept for history
 
 > **SUPERSEDED 2026-11-01:** the block below predates the Phase 1 close-out
-> build. Everything it lists as unbuilt (wizard, test mode, LN fee display,
-> expiry sweep, drift CI, backup recipes) LANED in the 264bbf5..c410294
+commit. Everything it lists as unbuilt (wizard, test mode, LN fee display,
+expiry sweep, drift CI, backup recipes) landed in
 > commits and the close-out block further down is the ground truth. Read it
 > instead; this block is retained only as the original plan-of-record trail.
 

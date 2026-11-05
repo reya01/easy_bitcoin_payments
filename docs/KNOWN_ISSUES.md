@@ -43,7 +43,7 @@ table: settings', found via tester's first-run". That was code inspection
 presented as an observation — no error text was ever captured, `settings` is
 read from wizard routes (not boot), and the first image was already a stub
 that cannot query anything. The `"/ping never answers"` symptom was also
-trivially true: `/ping` does not exist; the health endpoint is
+trivially true: EBP has no `/ping` route (the health endpoint is
 `/api/v1/health`. The 0004 migration registration fix remains correct as a
 real latent bug (it would have broken the setup wizard on fresh databases)
 but was never the cause of the loop.

@@ -21,6 +21,7 @@ pub mod util;
 pub mod wallet;
 pub mod watcher;
 pub mod webhook;
+pub mod webhook_outbox;
 
 /// Crate version, surfaced by `GET /api/v1/health`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

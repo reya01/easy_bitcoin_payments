@@ -105,6 +105,18 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         webhooks: webhooks.clone(),
     };
 
+    // Durable webhook outbox dispatcher (beta hardening): delivers events the
+    // watcher queued in `webhook_deliveries`, with backoff, surviving
+    // restarts. Exactly ONE dispatcher must run.
+    let allow_private_webhooks = std::env::var("EBP_WEBHOOK_ALLOW_PRIVATE")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    tokio::spawn(easy_bitcoin_payments::webhook_outbox::run(
+        db.clone(),
+        webhooks.clone(),
+        allow_private_webhooks,
+    ));
+
     // Payment watcher skeleton: polls the wallet adapter on an interval and
     // applies observed payments to invoices. With the stub wallet it observes
     // nothing; the loop, matching, state transitions and webhook emission are

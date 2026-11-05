@@ -40,6 +40,10 @@ const HISTORY_CURSOR_KEY: &str = "watcher.history_cursor";
 pub struct PollingWatcher {
     wallet: Arc<dyn WalletAdapter>,
     db: Db,
+    /// Unused since the durable outbox (webhook_outbox.rs) took over
+    /// delivery; kept so `PollingWatcher::new`'s signature (used by many
+    /// tests) stays stable.
+    #[allow(dead_code)]
     webhooks: Arc<WebhookEmitter>,
     interval: Duration,
     cursor: Mutex<i64>,
@@ -288,9 +292,10 @@ impl PollingWatcher {
             }
         };
 
-        let (Some(url), Some(secret)) = (store.webhook_url, store.webhook_secret) else {
+        // No webhook configured for this store: nothing to queue.
+        if store.webhook_url.is_none() || store.webhook_secret.is_none() {
             return;
-        };
+        }
 
         let event = match status {
             InvoiceStatus::Paid => "invoice.paid",
@@ -313,33 +318,29 @@ impl PollingWatcher {
 
         let idempotency_key = format!("{}:{}:{}", invoice.id, event, invoice.paid_sats);
 
-        // BETA-HARDENING: deliver in a detached task with retries so a slow
-        // or down merchant endpoint can neither stall the watcher loop nor
-        // lose the event on one failed attempt. Receivers dedupe on the
-        // idempotency key. KNOWN LIMITATION: retries are in-memory — a
-        // restart mid-backoff drops pending retries. A durable outbox
-        // (webhook_deliveries table) is the remaining Phase 2 item; see
-        // docs/KNOWN_ISSUES.md.
-        let webhooks = Arc::clone(&self.webhooks);
-        tokio::spawn(async move {
-            const BACKOFF_SECS: [u64; 4] = [0, 30, 300, 1800];
-            for (attempt, delay) in BACKOFF_SECS.iter().enumerate() {
-                if *delay > 0 {
-                    tokio::time::sleep(Duration::from_secs(*delay)).await;
-                }
-                match webhooks
-                    .emit(&url, &secret, event, &idempotency_key, &payload)
-                    .await
-                {
-                    Ok(()) => return,
-                    Err(err) => tracing::warn!(
-                        error = %err, event, attempt = attempt + 1,
-                        "webhook delivery failed"
-                    ),
-                }
-            }
-            tracing::error!(event, "webhook delivery gave up after all retries");
-        });
+        // BETA-HARDENING: write the event to the durable outbox
+        // (`webhook_deliveries`, migration 0006). The dispatcher in
+        // `webhook_outbox::run` delivers it with backoff and survives
+        // restarts. The idempotency key is UNIQUE, so re-observing the same
+        // payment cannot queue the event twice.
+        let (store_id, invoice_id) = (invoice.store_id.clone(), invoice.id.clone());
+        let event_name = event.to_string();
+        if let Err(err) = self
+            .db
+            .call(move |conn| {
+                crate::webhook_outbox::enqueue(
+                    conn,
+                    &store_id,
+                    &invoice_id,
+                    &event_name,
+                    &idempotency_key,
+                    &payload,
+                )
+            })
+            .await
+        {
+            tracing::error!(error = %err, event, "could not queue webhook event");
+        }
     }
 }
 

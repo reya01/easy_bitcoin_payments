@@ -32,7 +32,7 @@ button:disabled{opacity:.5}
 .secret{font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;background:var(--bg);border:1px dashed var(--line);border-radius:10px;padding:10px;margin:6px 0}
 .msg{margin:10px 0;font-size:14px}
 nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--bg);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
-nav button{flex:1;border:0;border-radius:0;min-height:56px;background:none;font-size:13px;color:var(--muted)}
+nav button{flex:1;min-width:0;border:0;border-radius:0;min-height:56px;padding:0 2px;background:none;font-size:12px;color:var(--muted)}
 nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--accent)}
 .pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .badge{background:var(--bad);color:#fff;border-radius:999px;font-size:11px;padding:1px 6px;margin-left:4px}
@@ -76,8 +76,23 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-hooks" class="hidden">
-  <h2>Store notifications (webhook)</h2>
+  <h2>Connect your shop</h2>
+  <p class="muted">Your shop plugin asks for these three things. Do the steps in order; each one has a copy button.</p>
   <div class="card">
+    <strong>1. Server address</strong>
+    <div class="secret" id="base"></div>
+    <button class="small" data-copy="base" type="button">Copy</button>
+  </div>
+  <div class="card">
+    <strong>2. API key</strong>
+    <p class="muted">This lets your shop create payment requests. It is shown only once. Making a new one stops the old one working immediately.</p>
+    <div class="btns"><button id="rotate" type="button">Make a new API key</button></div>
+    <div class="hidden" id="key-box"><p class="muted">Copy it into your shop now:</p><div class="secret" id="newkey"></div><button class="small" data-copy="newkey" type="button">Copy</button></div>
+    <p class="msg hidden" id="rotate-msg"></p>
+  </div>
+  <div class="card">
+    <strong>3. Payment notifications to your shop</strong>
+    <p class="muted">Your shop gives you a webhook address. Paste it here so this server can tell your shop when a payment arrives.</p>
     <label for="hook-url">Your shop's webhook address</label>
     <input type="url" id="hook-url" placeholder="https://myshop.com/…">
     <div class="btns">
@@ -88,19 +103,17 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <p class="msg hidden" id="hook-msg"></p>
     <div class="hidden" id="hook-secret-box"><p class="muted">Signing secret — shown once. Paste it into your shop plugin now:</p><div class="secret" id="hook-secret"></div><button class="small" data-copy="hook-secret" type="button">Copy</button></div>
   </div>
+  <div class="card">
+    <strong>4. Test it</strong>
+    <p class="muted">Sends a harmless test message to your shop. No payment happens.</p>
+    <div class="btns"><button class="primary" id="hook-test" type="button">Send a test notification</button></div>
+    <p class="msg hidden" id="test-msg"></p>
+  </div>
   <h2>Delivery log</h2>
   <div class="card" id="deliveries"></div>
 </section>
 
 <section id="v-set" class="hidden">
-  <h2>Connect your shop</h2>
-  <div class="card">
-    <div class="row"><span>Server address</span><span id="base"></span></div>
-    <p class="muted">Your shop plugin needs the server address and an API key. Keys are shown only once. If you lost yours, make a new one — the old one stops working immediately.</p>
-    <div class="btns"><button id="rotate" type="button">Make a new API key</button></div>
-    <div class="hidden" id="key-box"><p class="muted">New API key — shown once. Copy it into your shop now:</p><div class="secret" id="newkey"></div><button class="small" data-copy="newkey" type="button">Copy</button></div>
-    <p class="msg hidden" id="rotate-msg"></p>
-  </div>
   <h2>Change admin password</h2>
   <div class="card">
     <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
@@ -117,7 +130,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <button data-v="home" type="button">Home</button>
   <button data-v="orders" type="button">Payments</button>
   <button data-v="alerts" type="button">Alerts<span class="badge hidden" id="alert-badge"></span></button>
-  <button data-v="hooks" type="button">Notify</button>
+  <button data-v="hooks" type="button">Connect</button>
   <button data-v="set" type="button">Settings</button>
 </nav>
 
@@ -264,6 +277,25 @@ function hook(body, doneMsg) {
 $("hook-save").addEventListener("click", function () { var u = $("hook-url").value.trim(); if (!u) return say("hook-msg", "Enter your shop's webhook address first.", true); hook({ url: u }, "Saved."); });
 $("hook-rotate").addEventListener("click", function () { var u = $("hook-url").value.trim(); if (!u) return say("hook-msg", "Enter the webhook address first.", true); hook({ url: u, rotate_secret: true }, "New secret made. Update your shop with it."); });
 $("hook-off").addEventListener("click", function () { hook({ url: null }, "Notifications turned off."); });
+
+$("hook-test").addEventListener("click", function () {
+  var btn = $("hook-test"); btn.disabled = true;
+  say("test-msg", "Sending…");
+  api("POST", "/api/v1/stores/webhook/test", {}).then(function () {
+    var tries = 0;
+    (function check() {
+      api("GET", "/api/v1/webhook-deliveries?limit=10").then(function (list) {
+        var t = null;
+        for (var i = 0; i < list.length; i++) if (list[i].event === "webhook.test") { t = list[i]; break; }
+        if (t && t.status === "delivered") { say("test-msg", "Your shop received the test. You're connected."); btn.disabled = false; loadDeliveries(); return; }
+        if (t && t.status === "failed") { say("test-msg", "Your shop did not accept it" + (t.last_error ? " (" + String(t.last_error).slice(0, 120) + ")" : "") + ". Check the address and the signing secret.", true); btn.disabled = false; loadDeliveries(); return; }
+        if (++tries > 15) { say("test-msg", "No answer yet. It keeps retrying; see the delivery log below.", true); btn.disabled = false; loadDeliveries(); return; }
+        if (t && t.attempts > 0 && t.last_error) say("test-msg", "Not there yet, retrying… (" + String(t.last_error).slice(0, 80) + ")", true);
+        setTimeout(check, 2000);
+      }).catch(function (e) { say("test-msg", e.message, true); btn.disabled = false; });
+    })();
+  }).catch(function (e) { say("test-msg", e.message, true); btn.disabled = false; });
+});
 
 $("rotate").addEventListener("click", function () {
   if (!confirm("Make a new API key? The current key stops working immediately, so your shop will need the new one.")) return;

@@ -179,6 +179,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/webhook-deliveries/{id}/resend` | Queue a delivery again |
 | `GET` | `/api/v1/audit-log?limit=&offset=` | Security trail: key/webhook changes, resends, resolved late payments |
 | `PUT` | `/api/v1/stores/webhook` | Set/clear the store's webhook URL; issues the signing secret once (`rotate_secret` to replace) |
+| `POST` | `/api/v1/stores/webhook/test` | Send a harmless `webhook.test` notification to the store's webhook |
 | `POST` | `/api/v1/stores/rotate-key` | Revoke all API keys for the store and issue a new one (shown once) |
 | `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |

@@ -140,7 +140,7 @@ POST   /api/v1/invoices
 GET    /api/v1/invoices/{id}            # source of truth for stores
 GET    /api/v1/invoices?status=&since=
 POST   /api/v1/invoices/{id}/cancel
-GET    /api/v1/unmatched-payments       # late payments to expired/closed invoices (store-scoped)
+GET    /api/v1/unmatched-payments?limit=&offset=   # late payments to expired/closed invoices (store-scoped)
 POST   /api/v1/unmatched-payments/{id}/resolve   # mark handled (refund / manual fulfilment)
 GET    /api/v1/rates?currency=EUR
 GET    /api/v1/settlements              # expiry queue + history
@@ -150,7 +150,8 @@ POST   /api/v1/settlements/sweep-now
 GET    /api/v1/admin/status             # operator view; EBP_ADMIN_TOKEN bearer, 404 if unset
 GET    /api/v1/health                   # server, wallet, ASP reachability, watcher_last_tick_age_secs
 GET    /api/v1/exports/accounting.csv?from=&to=
-POST   /api/v1/stores/rotate-key
+POST   /api/v1/stores/rotate-key      # as built: revokes ALL active keys, returns the new one once
+PUT    /api/v1/stores/webhook         # as built: {url|null, rotate_secret?}; returns the secret once when newly issued
 ```
 
 ## Webhooks & store-side verification

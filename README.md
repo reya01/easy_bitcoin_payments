@@ -154,7 +154,7 @@ curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
 
 With the sidecar running, invoices get real Ark + on-chain addresses and a
 Lightning invoice (best effort, via the ASP gateway), the watcher polls
-`/wallet/history` with a persisted cursor, and the settlement engine sweeps
+`/history` (barkd's current history endpoint) with a persisted cursor, and the settlement engine sweeps
 the till to `EBP_SETTLEMENT_DESTINATION` while keeping a 15,000 sat/VTXO
 on-chain emergency-exit reserve.
 
@@ -170,8 +170,10 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
-| `GET` | `/api/v1/unmatched-payments` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
+| `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled |
+| `PUT` | `/api/v1/stores/webhook` | Set/clear the store's webhook URL; issues the signing secret once (`rotate_secret` to replace) |
+| `POST` | `/api/v1/stores/rotate-key` | Revoke all API keys for the store and issue a new one (shown once) |
 | `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |

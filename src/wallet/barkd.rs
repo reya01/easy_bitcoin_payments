@@ -1860,8 +1860,15 @@ mod tests {
         });
         let queue = client(&base).vtxo_queue().await.unwrap();
         assert_eq!(queue.len(), 1);
-        // 100 blocks * 600s after the tip timestamp.
-        assert_eq!(queue[0].expires_at, 1_000_000 + 100 * 600);
+        // barkd's tip carries no timestamp (pinned OpenAPI: only
+        // `tip_height`), so the tip time is "now": expiry = now + 100 blocks
+        // * 600s, within a few seconds of test runtime.
+        let expected = crate::util::now_unix() + 100 * 600;
+        assert!(
+            (queue[0].expires_at - expected).abs() <= 5,
+            "expires_at {} not within 5s of {expected}",
+            queue[0].expires_at
+        );
     }
 
     #[tokio::test]

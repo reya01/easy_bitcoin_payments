@@ -10,7 +10,7 @@
 //! Scoping: a row belongs to a store through `invoice_id -> invoices.store_id`.
 //! Rows are never returned across stores.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use rusqlite::params;
 use serde::Serialize;
@@ -20,6 +20,13 @@ use crate::error::AppError;
 use crate::routes::AppState;
 use crate::util::{now_unix, to_rfc3339};
 
+/// `?limit=` (default 100, max 500) and `?offset=` (R12).
+#[derive(Debug, serde::Deserialize)]
+pub struct ListQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UnmatchedPaymentView {
     pub id: String,
@@ -27,7 +34,7 @@ pub struct UnmatchedPaymentView {
     pub order_id: Option<String>,
     pub rail: String,
     pub amount_sats: i64,
-    /// `invoice_expired` | `invoice_closed`
+    /// `invoice_expired` | `invoice_closed` | `paid_after_expiry` | `onchain_rail_disabled`
     pub reason: String,
     pub detected_at: String,
     /// RFC 3339 once the merchant marked it handled; `null` while open.
@@ -39,8 +46,11 @@ pub struct UnmatchedPaymentView {
 pub async fn list(
     State(state): State<AppState>,
     auth: StoreAuth,
+    Query(page): Query<ListQuery>,
 ) -> Result<Json<Vec<UnmatchedPaymentView>>, AppError> {
     let store_id = auth.store.id.clone();
+    let limit = page.limit.unwrap_or(100).clamp(1, 500);
+    let offset = page.offset.unwrap_or(0).max(0);
     let rows = state
         .db
         .call(move |conn| {
@@ -50,11 +60,11 @@ pub async fn list(
                  FROM unmatched_payments u
                  JOIN invoices i ON i.id = u.invoice_id
                  WHERE i.store_id = ?1
-                 ORDER BY (u.resolved_at IS NOT NULL), u.detected_at DESC
-                 LIMIT 500",
+                 ORDER BY (u.resolved_at IS NOT NULL), u.detected_at DESC, u.id
+                 LIMIT ?2 OFFSET ?3",
             )?;
             let rows = stmt
-                .query_map(params![store_id], |row| {
+                .query_map(params![store_id, limit, offset], |row| {
                     Ok(UnmatchedPaymentView {
                         id: row.get(0)?,
                         invoice_id: row.get(1)?,

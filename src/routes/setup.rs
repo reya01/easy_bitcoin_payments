@@ -734,10 +734,17 @@ async fn create_till_wallet(
 
     let response = client
         .post(format!("{base_url}{PATH_WALLET_CREATE}"))
-        .json(&serde_json::json!({ "network": network, "ark": asp_url }))
+        // Pinned OpenAPI CreateWalletRequest: the field is `ark_server`.
+        // (`ark` was silently ignored by barkd, so a custom ASP never applied.)
+        .json(&serde_json::json!({ "network": network, "ark_server": asp_url }))
         .send()
         .await
-        .map_err(|err| AppError::Internal(format!("could not reach barkd at {base_url}: {err}")))?;
+        .map_err(|err| {
+            // Log the detail; return a generic message (no internal URL) to
+            // the unauthenticated caller (R9).
+            tracing::warn!(error = %err, "setup: could not reach barkd");
+            AppError::Internal("could not reach the wallet service".into())
+        })?;
 
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(|err| {
@@ -943,9 +950,10 @@ async fn verify_barkd_token(base_url: &str, token: &str) -> Result<Option<bool>,
         .send()
         .await
         .map_err(|err| {
-            AppError::BadRequest(format!(
-                "could not reach barkd at {base_url}: {err} — is the sidecar running?"
-            ))
+            tracing::warn!(error = %err, "setup: could not reach barkd");
+            AppError::BadRequest(
+                "could not reach the wallet service — is the barkd sidecar running?".into(),
+            )
         })?;
 
     if !response.status().is_success() {

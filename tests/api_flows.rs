@@ -481,3 +481,32 @@ async fn webhook_config_and_key_rotation() {
     let fresh = put(serde_json::json!({ "url": null }), new_key).await;
     assert_eq!(fresh.status(), 200);
 }
+
+#[tokio::test]
+async fn invoice_inputs_are_bounded_and_unmatched_list_paginates() {
+    let (base, _state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    let long = "x".repeat(129);
+    let (status, _) = create(&client, &base, &key, &long, 1000).await;
+    assert_eq!(status, 400, "order_id over 128 bytes is rejected");
+
+    let big = serde_json::json!({ "pad": "y".repeat(5000) });
+    let resp = client
+        .post(format!("{base}/api/v1/invoices"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .json(&serde_json::json!({ "order_id": "ok", "sats": 1000, "metadata": big }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "metadata over 4096 bytes is rejected");
+
+    let page = client
+        .get(format!("{base}/api/v1/unmatched-payments?limit=1&offset=0"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+}

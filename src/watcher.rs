@@ -194,6 +194,18 @@ impl PollingWatcher {
                 .db
                 .call(move |conn| invoice::find_pending_by_address(conn, &address))
                 .await?;
+            // R6: completed after the invoice's deadline (plus skew grace)?
+            // Then it is a late payment even though `expire_due` has not
+            // flipped the invoice yet; deterministic on the wallet's time.
+            let mut late_reason: Option<&'static str> = None;
+            let invoice = invoice.filter(|i| {
+                if payment.detected_at > i.expires_at + invoice::LATE_PAYMENT_GRACE_SECS {
+                    late_reason = Some("paid_after_expiry");
+                    false
+                } else {
+                    true
+                }
+            });
 
             let Some(invoice) = invoice else {
                 // BETA-HARDENING: no PENDING invoice owns this address. If it
@@ -216,7 +228,7 @@ impl PollingWatcher {
                                 vtxo_id: vtxo.as_deref(),
                                 txid: txid.as_deref(),
                                 detected_at: seen,
-                                reason_override: None,
+                                reason_override: late_reason,
                             },
                         )
                     })
@@ -671,6 +683,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(unmatched, 0, "credited payments are never 'late'");
+    }
+
+    #[tokio::test]
+    async fn payment_completed_after_the_deadline_is_parked_even_if_still_pending() {
+        // R6: the invoice has not been flipped to expired yet (same tick),
+        // but the wallet says the payment completed long after expires_at.
+        let (db, _) = setup(vec![]).await;
+        let payment = WalletPayment {
+            address: "ark1qinv_1".to_string(),
+            rail: Rail::Ark,
+            amount_sats: 1000,
+            vtxo_id: Some("vtxo_late".to_string()),
+            txid: None,
+            detected_at: now_unix() + 30 * 86_400,
+            confirmed_at: None,
+        };
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![payment],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        assert_eq!(watcher.tick().await.unwrap(), 0, "must not be credited");
+        let reason: String = db
+            .call(|conn| {
+                Ok(conn.query_row("SELECT reason FROM unmatched_payments", [], |r| r.get(0))?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(reason, "paid_after_expiry");
     }
 
     #[tokio::test]

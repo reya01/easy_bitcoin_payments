@@ -798,7 +798,7 @@ pub struct CreateWalletRequest {
     pub network: String,
     /// Ark server URL. When omitted, barkd uses Second's server for the
     /// network (connection-details.md).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ark_server", skip_serializing_if = "Option::is_none")]
     pub ark: Option<String>,
     /// Chain source (Esplora URL or bitcoind). When omitted, barkd falls
     /// back to the network's Esplora endpoint (connection-details.md).

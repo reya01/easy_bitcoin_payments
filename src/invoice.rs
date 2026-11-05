@@ -38,6 +38,14 @@ pub fn status_after_payment(paid_total: i64, amount_due: i64) -> InvoiceStatus {
 
 /// Hard ceiling on a single invoice: 21M BTC in sats. Anything larger is
 /// a conversion bug or an attack, not an order.
+/// Seconds past `expires_at` during which a payment completed on a
+/// still-pending invoice is still credited (clock skew between barkd and
+/// this host). Later completions are parked in `unmatched_payments` with
+/// reason `paid_after_expiry` instead of racing `expire_due` (R6): the rule
+/// depends on the wallet's completion time, not on which watcher tick
+/// happened to run first.
+pub const LATE_PAYMENT_GRACE_SECS: i64 = 120;
+
 pub const MAX_INVOICE_SATS: i64 = 2_100_000_000_000_000;
 
 pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> {

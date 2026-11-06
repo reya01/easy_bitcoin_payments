@@ -78,6 +78,24 @@ minute.) Then the setup page walks you through, in this order:
 6. **Finish.** The server restarts once, so the page may not answer for about
    a minute. Then open `/admin` and sign in with your admin password.
 
+## Using Render instead of your own server (experimental)
+
+Render (render.com) can run EBP for you with no terminal, using the
+`render.yaml` file in this repository. **This route is untested; try it with
+play money only.**
+
+> **⚠ Render needs a PAID plan or EBP will break.** EBP stores your wallet and
+> your order history on a disk that must survive restarts. Render only offers
+> such a disk on paid services (see <https://render.com/docs/disks>). On a free
+> plan there is no disk: **everything is erased every time the service restarts
+> or redeploys, including your wallet files.** Choose a paid plan (the one in
+> `render.yaml` is "Starter"), check the current price on Render's site, and do
+> not switch it to a free plan later.
+
+On Render the setup code is in the service's **Logs** tab (search for
+`SETUP CODE`), and you update by pressing **Manual Deploy**; nothing updates
+by itself.
+
 ## Make a test payment
 
 1. Admin page → **Payments** → **Try a payment** → **Create a test payment

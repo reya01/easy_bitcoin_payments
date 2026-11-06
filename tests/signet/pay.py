@@ -201,6 +201,15 @@ def main():
     def _():
         setup_ebp()
         assert state["api_key"].startswith("ebp_")
+        # The server restarts itself once after the wizard; wait until its
+        # wallet is reachable again before creating invoices.
+        def wallet_up():
+            rc, out = sh(f"curl -fsS {BASE}/api/v1/health")
+            try:
+                return rc == 0 and json.loads(out)["wallet"]["reachable"]
+            except Exception:  # noqa: BLE001
+                return False
+        wait_for(wallet_up, "EBP's wallet reachable after setup", 180, 3)
 
     @step("payer: a second barkd starts and creates its own signet wallet", critical=True)
     def _():
@@ -332,7 +341,8 @@ def main():
     @step("payout: set the payout address; EBP moves the excess above the till cap there by itself")
     def _():
         def ebp_admin(method, path, body=None):
-            cmd = (f"curl -sS -m 60 -b jar -c jar -X {method} -H 'content-type: application/json' "
+            csrf = state.get("csrf", "")
+            cmd = (f"curl -sS -m 60 -b jar -c jar -X {method} -H 'content-type: application/json' -H 'x-ebp-csrf: {csrf}' "
                    f"-w '\\n%{{http_code}}' {BASE}{path}")
             if body is not None:
                 cmd += " -d @-"
@@ -345,6 +355,7 @@ def main():
 
         code, r = ebp_admin("POST", "/admin/login", {"password": ADMIN_PW})
         assert code == 200, ("admin login", code)
+        state["csrf"] = (r or {}).get("csrf", "")
         code, a = payer("POST", "/api/v1/wallet/addresses/next")
         assert code == 200, (code, a)
         dest = a["address"]

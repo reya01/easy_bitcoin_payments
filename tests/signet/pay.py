@@ -108,6 +108,20 @@ def payer(method, path, body=None, timeout=120):
         return int(code) if code.strip().isdigit() else 0, text[:300]
 
 
+def start_payer():
+    sh("docker compose exec -d ebp barkd --datadir /tmp/payer --host 127.0.0.1 --port 3001")
+    wait_for(lambda: sh("docker compose exec -T ebp curl -fsS -m 3 http://127.0.0.1:3001/ping")[0] == 0, "payer barkd ping", 60)
+
+
+def pay(dest, sats, what):
+    """Send from the payer; record exactly what barkd answered."""
+    code, r = payer("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": sats})
+    b = balance()
+    notes.append(f"{what}: send {sats} -> http {code} {str(r)[:160]} | payer now spendable={b['spendable_sat']} in_round={b['pending_in_round_sat']} arkoor_pending={b['pending_arkoor_send_sat']}")
+    assert code == 200, (what, code, r)
+    return r
+
+
 def invoice(order, sats, **kw):
     code, inv = ebp("POST", "/api/v1/invoices", {"order_id": order, "sats": sats, **kw})
     assert code in (200, 201), (code, inv)
@@ -190,8 +204,7 @@ def main():
 
     @step("payer: a second barkd starts and creates its own signet wallet", critical=True)
     def _():
-        sh("docker compose exec -d ebp barkd --datadir /tmp/payer --host 127.0.0.1 --port 3001")
-        wait_for(lambda: sh("docker compose exec -T ebp curl -fsS -m 3 http://127.0.0.1:3001/ping")[0] == 0, "payer barkd ping", 60)
+        start_payer()
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
         state["payer_token"] = tok.strip().splitlines()[-1].strip()
         assert state["payer_token"], "no payer token"
@@ -237,8 +250,7 @@ def main():
     @step("2.2 exact Ark payment: paid within one poll, credited once")
     def _():
         inv = invoice("pay-exact", 2000)
-        code, r = payer("POST", "/api/v1/wallet/send", {"destination": inv["ark_address"], "amount_sat": 2000})
-        assert code == 200, (code, r)
+        pay(inv["ark_address"], 2000, "exact")
         got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "invoice paid", 180, 3)
         assert got["paid_sats"] == 2000, got
         time.sleep(25)
@@ -247,18 +259,18 @@ def main():
     @step("2.3 underpay then top up: underpaid, then paid")
     def _():
         inv = invoice("pay-under", 3000)
-        payer("POST", "/api/v1/wallet/send", {"destination": inv["ark_address"], "amount_sat": 1000})
+        pay(inv["ark_address"], 1000, "underpay part 1")
         s = wait_for(lambda: (s := inv_state(inv))["paid_sats"] >= 1000 and s, "partial credit", 180, 3)
         notes.append(f"Underpaid invoice shows: status={s['status']} paid_sats={s['paid_sats']} of {s['amount_sats']}")
         assert s["status"] == "underpaid", s["status"]
-        payer("POST", "/api/v1/wallet/send", {"destination": inv["ark_address"], "amount_sat": 2000})
+        pay(inv["ark_address"], 2000, "underpay top-up")
         got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "paid after top-up", 180, 3)
         assert got["paid_sats"] == 3000, got
 
     @step("2.4 overpay: paid, surplus visible")
     def _():
         inv = invoice("pay-over", 1500)
-        payer("POST", "/api/v1/wallet/send", {"destination": inv["ark_address"], "amount_sat": 2500})
+        pay(inv["ark_address"], 2500, "overpay")
         got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "paid", 180, 3)
         notes.append(f"Overpaid invoice shows: paid_sats={got['paid_sats']} amount={got['amount_sats']}")
         assert got["paid_sats"] == 2500, got
@@ -267,22 +279,12 @@ def main():
     def _():
         inv = invoice("pay-late", 1200, expiry_minutes=1)
         time.sleep(75)
-        payer("POST", "/api/v1/wallet/send", {"destination": inv["ark_address"], "amount_sat": 1200})
+        pay(inv["ark_address"], 1200, "late payment")
         def unmatched():
             code, u = ebp("GET", "/api/v1/unmatched-payments")
             return code == 200 and any(1200 == x.get("amount_sats") for x in (u if isinstance(u, list) else u.get("items", u.get("payments", []))))
         wait_for(unmatched, "unmatched payment listed", 180, 3)
         assert inv_state(inv)["status"] != "paid"
-
-    @step("2.6 server restart mid-payment: nothing lost, nothing doubled")
-    def _():
-        inv = invoice("pay-restart", 1800)
-        payer("POST", "/api/v1/wallet/send", {"destination": inv["ark_address"], "amount_sat": 1800})
-        sh("docker compose restart ebp", timeout=240)
-        wait_for(lambda: sh(f"curl -fsS {BASE}/api/v1/health")[0] == 0, "health", 180, 3)
-        got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "paid after restart", 240, 3)
-        time.sleep(25)
-        assert inv_state(inv)["paid_sats"] == 1800 == got["paid_sats"]
 
     @step("Lightning: the payer pays EBP's BOLT11 invoice through the ASP gateway")
     def _():
@@ -294,13 +296,24 @@ def main():
         got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "lightning invoice paid", 240, 4)
         notes.append(f"Lightning invoice credited: paid_sats={got['paid_sats']} of {got['amount_sats']}")
 
+    @step("2.6 server restart mid-payment: nothing lost, nothing doubled")
+    def _():
+        inv = invoice("pay-restart", 1800)
+        pay(inv["ark_address"], 1800, "restart test")
+        sh("docker compose restart ebp", timeout=240)
+        wait_for(lambda: sh(f"curl -fsS {BASE}/api/v1/health")[0] == 0, "health", 180, 3)
+        got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "paid after restart", 240, 3)
+        time.sleep(25)
+        assert inv_state(inv)["paid_sats"] == 1800 == got["paid_sats"]
+        start_payer()  # the restart stopped the payer barkd too (same container)
+
     @step("capture: barkd's real history/movements for the payments above")
     def _():
         rc, out = sh("./scripts/drill_capture.sh")
         assert rc == 0, out[-300:]
         f = sorted(x for x in os.listdir(".") if x.startswith("drill-capture-"))[-1]
         cap = open(f).read()
-        notes.append("Real barkd answers after payments:\n" + cap[:9000])
+        notes.append("Real barkd answers after payments:\n" + cap[:30000])
 
     @step("return leftovers to RETURN_TO (best effort)")
     def _():

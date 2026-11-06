@@ -94,7 +94,6 @@ pub async fn cancel(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     let cfg = state.config.settlement_destination.clone();
-    let delay = state.config.payout_change_delay_secs;
     let s = state
         .db
         .call(move |c| {

@@ -1,0 +1,40 @@
+# The automated half of docs/SIGNET_DRILL.md: the REAL single-container install
+# (real barkd, real signet Ark server) driven by a browser. Run by hand:
+# Actions -> signet-smoke -> Run workflow. Read-only: publishes nothing, needs
+# no secrets, never touches real funds (signet only). The report is an
+# artifact; it holds no recovery words, keys, tokens or passwords.
+name: signet-smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: real container + real signet server
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and start the stack
+        run: docker compose up -d --build
+      - name: Install the browser driver
+        run: |
+          python3 -m pip install --user playwright
+          python3 -m playwright install --with-deps chromium
+      - name: Run the smoke checks
+        run: python3 tests/signet/smoke.py
+      - name: Server log (for failures; the log never contains the words, keys or password)
+        if: always()
+        run: docker compose logs --no-color --tail 300 ebp | sed -E 's/(SETUP CODE: *)[A-Z0-9-]+/\1<hidden>/' | tee server-log.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: signet-smoke-report
+          path: |
+            smoke-report.md
+            drill-capture-*.txt
+            server-log.txt
+          if-no-files-found: ignore

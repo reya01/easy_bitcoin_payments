@@ -11,6 +11,9 @@ Every step has a plain-text fallback: you can follow this document with no
 AI at all. If anything you see does not match what this recipe says, that
 is a bug in the recipe — report it; every stumble becomes a fix.
 
+> Reading this yourself, without an AI assistant? Skip the section called
+> "Rules for the AI assistant"; the steps work on their own.
+
 ## Rules for the AI assistant (read before anything else)
 
 1. Your job is to read each step to the merchant, explain it in plain
@@ -63,8 +66,14 @@ that same password — nothing new to remember or store. EBP never stores it.
 - It is a copy at one moment. Download a fresh one after anything important,
   and always keep the recovery words on paper.
 
-To check a backup opens (no server needed, nothing is changed):
-`ebp backup verify my-backup.ebpbackup`
+To check a backup opens (nothing is changed): `ebp backup verify my-backup.ebpbackup`.
+With the single-container install the `ebp` program lives inside the
+container, so copy the file in first and run it there:
+
+```
+docker compose cp my-backup.ebpbackup ebp:/tmp/b.ebpbackup
+docker compose exec ebp ebp backup verify /tmp/b.ebpbackup
+```
 
 To restore on a new machine: stop EBP, then
 `ebp backup restore my-backup.ebpbackup ./restored` (it refuses to write into

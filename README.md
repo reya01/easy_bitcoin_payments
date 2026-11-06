@@ -59,8 +59,8 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 - **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
 - **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
 - **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
-- **Merchant dashboard shell** — mobile-first admin page at `/admin` (also `/dashboard`) with password login (status
-  and store info; it cannot create invoices — use the API, see below).
+- **Merchant dashboard shell** — mobile-first admin page at `/admin` (also `/dashboard`) with password login (status,
+  recent payments, a "Try a payment" button, shop connection, backup download; real orders come from your shop through the API, see below).
 - **Config** — env vars plus an optional TOML file, with sane defaults.
 - **Deployment** — Docker one-liner on a VPS (public IP, DNS, TLS; clearnet HTTPS), plus multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
 

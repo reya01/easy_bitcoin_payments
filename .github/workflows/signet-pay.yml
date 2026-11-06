@@ -1,0 +1,50 @@
+# Signet PAYMENT drill (needs signet coins from you). Manual only.
+# Starts the real single-container install plus a second barkd that acts as a
+# payer wallet. The job prints (and writes to the job summary) an address; send
+# signet coins there, then it pays EBP's invoices for real. Signet play money
+# only; the payer wallet's words are never printed and the machine is destroyed
+# at the end (give return_to to get leftovers sent back).
+name: signet-pay
+
+on:
+  workflow_dispatch:
+    inputs:
+      return_to:
+        description: "Signet address to send leftover coins back to (optional, an Ark address is best)"
+        required: false
+        default: ""
+      min_sats:
+        description: "Sats the payer needs before the tests start"
+        required: false
+        default: "20000"
+      wait_minutes:
+        description: "How long to wait for you to fund it"
+        required: false
+        default: "55"
+
+permissions:
+  contents: read
+
+jobs:
+  pay:
+    name: real container + payer wallet
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and start the stack
+        run: docker compose up -d --build
+      - name: Install the browser driver
+        run: |
+          python3 -m pip install --user playwright
+          python3 -m playwright install --with-deps chromium
+      - name: Run the payment drill
+        env:
+          RETURN_TO: ${{ inputs.return_to }}
+          MIN_SATS: ${{ inputs.min_sats }}
+          WAIT_MIN: ${{ inputs.wait_minutes }}
+        run: python3 tests/signet/pay.py
+      - name: Server log
+        if: always()
+        run: |
+          docker compose logs --no-color --tail 300 ebp | sed -E 's/(SETUP CODE: *)[A-Z0-9-]+/\1<hidden>/' | tee server-log.txt

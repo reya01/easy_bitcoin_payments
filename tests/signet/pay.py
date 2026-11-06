@@ -205,6 +205,28 @@ def summary(text):
             f.write(text + "\n")
 
 
+def ebp_admin(method, path, body=None):
+    """Call EBP's admin endpoints with the signed-in session (cookie jar + CSRF)."""
+    csrf = state.get("csrf", "")
+    cmd = (f"curl -sS -m 60 -b jar -c jar -X {method} -H 'content-type: application/json' -H 'x-ebp-csrf: {csrf}' "
+           f"-w '\\n%{{http_code}}' {BASE}{path}")
+    if body is not None:
+        cmd += " -d @-"
+    _, out = sh(cmd, inp=json.dumps(body) if body is not None else None, timeout=90)
+    text, _, code = out.rpartition("\n")
+    try:
+        return int(code), (json.loads(text) if text.strip() else None)
+    except Exception:  # noqa: BLE001
+        return 0, text[:200]
+
+
+def onchain_total():
+    payer("POST", "/api/v1/onchain/sync")
+    code, b = payer("GET", "/api/v1/onchain/balance")
+    assert code == 200, (code, b)
+    return int(b.get("total_sat", 0))
+
+
 def main():
     @step("setup: EBP's real wizard completes (managed barkd)", critical=True)
     def _():
@@ -367,19 +389,6 @@ def main():
 
     @step("payout: set the payout address; EBP moves the excess above the till cap there by itself")
     def _():
-        def ebp_admin(method, path, body=None):
-            csrf = state.get("csrf", "")
-            cmd = (f"curl -sS -m 60 -b jar -c jar -X {method} -H 'content-type: application/json' -H 'x-ebp-csrf: {csrf}' "
-                   f"-w '\\n%{{http_code}}' {BASE}{path}")
-            if body is not None:
-                cmd += " -d @-"
-            _, out = sh(cmd, inp=json.dumps(body) if body is not None else None, timeout=90)
-            text, _, code = out.rpartition("\n")
-            try:
-                return int(code), (json.loads(text) if text.strip() else None)
-            except Exception:  # noqa: BLE001
-                return 0, text[:200]
-
         code, r = ebp_admin("POST", "/admin/login", {"password": ADMIN_PW})
         assert code == 200, ("admin login", code)
         state["csrf"] = (r or {}).get("csrf", "")
@@ -406,6 +415,68 @@ def main():
             notes.append("server log (sweep lines):\n" + "\n".join(hits))
         notes.append(f"payer spendable before={before} after={balance()['spendable_sat']}")
         assert balance()["spendable_sat"] > before, "payout wallet did not receive the sweep"
+
+    @step("on-chain sweep: payout set to an on-chain address; EBP withdraws there once fees are low")
+    def _():
+        code, o = payer("POST", "/api/v1/onchain/addresses/next")
+        assert code == 200 and o.get("address"), (code, o)
+        dest = o["address"]
+        notes.append(f"on-chain payout address is a {dest[:3]}… address")
+        code, r = ebp_admin("POST", "/admin/payout", {"address": dest, "admin_password": ADMIN_PW})
+        assert code == 200, ("switch payout to on-chain", code, r)
+        # What the network charges right now (EBP's own wallet answers).
+        rc, tok = sh("docker compose exec -T ebp barkd --datadir /data/barkd secret show")
+        etok = [l.strip() for l in tok.splitlines() if re.fullmatch(r"[A-Za-z0-9_-]{30,80}", l.strip())][-1]
+        _, fees = sh(f"docker compose exec -T ebp curl -sS -m 30 -H 'Authorization: Bearer {etok}' http://127.0.0.1:3000/api/v1/fees/onchain")
+        notes.append(f"network fee rates (sat/vB): {fees.strip()[:200]}")
+        before = onchain_total()
+        # Give the till something over the on-chain cap (set small for this drill).
+        inv = invoice("pay-onchain-sweep", 6000)
+        pay(inv["ark_address"], 6000, "funds for the on-chain sweep")
+        wait_for(lambda: inv_state(inv)["status"] in ("paid", "overpaid"), "invoice paid", 180, 3)
+        def arrived():
+            now = onchain_total()
+            return now > before
+        try:
+            wait_for(arrived, "the on-chain withdrawal to show up in the payout wallet", 900, 20)
+        finally:
+            _, lg = sh("docker compose logs --no-color --tail 400 ebp")
+            hits = [l[-240:] for l in lg.splitlines() if "sweep" in l.lower() or "fee" in l.lower()][-10:]
+            notes.append("server log (on-chain sweep lines):\n" + "\n".join(hits))
+        notes.append(f"payout wallet on-chain total before={before} after={onchain_total()}")
+
+    @step("manual sweep button: the whole till moves to the payout address on request")
+    def _():
+        # Switch the payout back to an Ark address (free to test), put LESS than
+        # the Ark cap in the till so the automatic sweep stays quiet, then press
+        # the button.
+        code, a = payer("POST", "/api/v1/wallet/addresses/next")
+        assert code == 200, (code, a)
+        code, r = ebp_admin("POST", "/admin/payout", {"address": a["address"], "admin_password": ADMIN_PW})
+        assert code == 200, ("switch payout back to Ark", code, r)
+        # Empty the till first (also the first, unmeasured use of the button), so
+        # the 1500 below is the only thing in it and sits under the Ark cap.
+        ebp_admin("POST", "/admin/sweep", {})
+        time.sleep(60)
+        payer("POST", "/api/v1/wallet/sync"); payer("POST", "/api/v1/wallet/sync/mailbox")
+        before = balance()["spendable_sat"]
+        inv = invoice("pay-manual-sweep", 1500)
+        pay(inv["ark_address"], 1500, "funds for the manual sweep")
+        wait_for(lambda: inv_state(inv)["status"] in ("paid", "overpaid"), "invoice paid", 180, 3)
+        mid = balance()["spendable_sat"]
+        time.sleep(70)  # two settlement ticks: below the cap, nothing may move by itself
+        payer("POST", "/api/v1/wallet/sync"); payer("POST", "/api/v1/wallet/sync/mailbox")
+        quiet = balance()["spendable_sat"]
+        notes.append(f"before pressing the button: payer spendable {mid} -> {quiet} (must not grow by itself)")
+        assert quiet <= mid + 5, "an automatic sweep moved money that was under the cap"
+        code, r = ebp_admin("POST", "/admin/sweep", {})
+        notes.append(f"manual sweep -> http {code} {str(r)[:200]}")
+        assert code == 200 and (r or {}).get("swept_sats"), (code, r)
+        def arrived():
+            payer("POST", "/api/v1/wallet/sync"); payer("POST", "/api/v1/wallet/sync/mailbox")
+            return balance()["spendable_sat"] > quiet
+        wait_for(arrived, "the manual sweep to arrive", 240, 10)
+        notes.append(f"payer spendable after the manual sweep: {balance()['spendable_sat']}")
 
     @step("keep the coins: EBP's wallet goes back to the payer wallet (or RETURN_TO)")
     def _():

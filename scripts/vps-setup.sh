@@ -5,7 +5,8 @@
 #   2. starts Docker
 #   3. runs ./scripts/start.sh --https (free padlock address)
 #   4. copies the "open this page / type this code" box into
-#      /root/EBP-START-HERE.txt AND the console login screen (/etc/issue),
+#      /root/EBP-START-HERE.txt AND the console login screen (/etc/issue)
+#      and the after-login message (/etc/motd),
 #      so a beginner sees it in the provider's web console without a terminal.
 #
 # Safe to run again: it only adds swap once and refreshes the box.
@@ -15,6 +16,7 @@ EBP_DIR="${EBP_DIR:-/opt/ebp}"
 START_CMD="${EBP_START_CMD:-./scripts/start.sh --https}"
 INFO_FILE="${EBP_INFO_FILE:-/root/EBP-START-HERE.txt}"
 ISSUE_FILE="${EBP_ISSUE_FILE:-/etc/issue}"
+MOTD_FILE="${EBP_MOTD_FILE:-/etc/motd}"
 LOG_FILE="${EBP_LOG_FILE:-/var/log/ebp-start.log}"
 SWAP_FILE="${EBP_SWAP_FILE:-/swapfile}"
 SKIP_SYSTEM="${EBP_SKIP_SYSTEM:-}"
@@ -56,6 +58,15 @@ if [ -w "$ISSUE_FILE" ] || [ ! -e "$ISSUE_FILE" ]; then
     cat "$INFO_FILE"
     echo
   } > "$ISSUE_FILE"
+fi
+
+# And the message shown right after logging in (the browser Console and SSH).
+if [ -w "$MOTD_FILE" ] || [ ! -e "$MOTD_FILE" ]; then
+  {
+    echo
+    cat "$INFO_FILE"
+    echo
+  } > "$MOTD_FILE"
 fi
 
 # `ebp-info` re-runs start.sh (harmless) so the setup code is always current.

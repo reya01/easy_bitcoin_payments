@@ -26,7 +26,7 @@ chmod +x "$T/fake-start.sh"
 
 run() {
   EBP_SKIP_SYSTEM=1 EBP_DIR="$T/ebp" EBP_START_CMD="$T/fake-start.sh" \
-    EBP_INFO_FILE="$T/info.txt" EBP_ISSUE_FILE="$T/issue" EBP_LOG_FILE="$T/log.txt" \
+    EBP_INFO_FILE="$T/info.txt" EBP_ISSUE_FILE="$T/issue" EBP_MOTD_FILE="$T/motd" EBP_LOG_FILE="$T/log.txt" \
     ./scripts/vps-setup.sh >/dev/null
 }
 fail() { echo "FAIL  $1"; exit 1; }
@@ -35,6 +35,7 @@ run
 grep -q "https://203-0-113-7.sslip.io/setup" "$T/info.txt" || fail "info file has the setup address"
 grep -q "ABCD-1234" "$T/info.txt" || fail "info file has the setup code"
 grep -q "ABCD-1234" "$T/issue" || fail "console login screen shows the setup code"
+grep -q "ABCD-1234" "$T/motd" || fail "message after login shows the setup code"
 grep -q "=====" "$T/info.txt" && fail "the box rules are not copied"
 echo "PASS  setup address and code are copied to the info file and the login screen"
 

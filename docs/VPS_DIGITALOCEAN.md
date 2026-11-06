@@ -36,10 +36,11 @@ The server installs everything by itself. Building the first time takes
 When it's ready:
 
 1. Open your Droplet in DigitalOcean and click **Console** (top right).
-2. The login screen shows a box with **a web address** and a **SETUP CODE**.
-   You do not need to log in.
-3. If the box says the server is still starting, wait two minutes and press
-   Enter on the console to refresh, or log in as `root` and type `ebp-info`.
+2. The Console opens already signed in. It shows a box with **a web address**
+   and a **SETUP CODE**. (If it asks you to log in, the same box is on the
+   login screen.)
+3. If the box says the server is still starting, wait two minutes, then type
+   `ebp-info` and press Enter.
 
 ## 3. Finish setup in your browser
 

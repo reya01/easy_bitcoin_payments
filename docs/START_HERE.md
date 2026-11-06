@@ -125,13 +125,41 @@ You are done when ALL of these are true:
       the file somewhere that is not this server.
 - [ ] Your recovery words are on paper in two places.
 
-## Taking real customers (later)
+## Getting a padlock (https) address
 
-Customers need to reach your checkout over `https://`. That means a domain
-name plus either a tunnel service or a reverse proxy in front of EBP, and
-setting `EBP_PUBLIC_BASE_URL` to that address. Until the test version is
-finished, do this only with play money. Never set `EBP_ALLOW_INSECURE_SETUP`
-on a server reachable from the internet.
+Customers, and the setup page itself, need a padlock (`https://`) address.
+EBP can set that up for you with one extra word. You need a server on the
+internet (a small rented one is fine) that accepts visitors on **ports 80 and
+443**. Most hosting companies leave these open; if yours has a firewall page,
+open both.
+
+**Easiest: no domain name needed.** In the EBP folder, run:
+
+```
+./scripts/start.sh --https
+```
+
+It finds your server's address and builds a free padlock address from it,
+for example `https://203-0-113-7.sslip.io`. It prints that address and your
+setup code at the end. Open the address, enter the code, and continue as
+before. The first time can take a minute while the padlock is issued.
+
+**With your own domain** (looks nicer, e.g. `pay.myshop.com`): in your
+domain's settings, point the name at your server's address, then run:
+
+```
+./scripts/start.sh --domain pay.myshop.com
+```
+
+The choice is remembered. After that, plain `./scripts/start.sh` (and
+upgrades) keep https on and renew the padlock by themselves.
+
+If it prints "the padlock address is not answering yet", the cause is nearly
+always closed ports 80/443 or (own domain) a name that does not point at the
+server yet. Fix that and run the same command again; nothing is lost.
+
+Until the test version is finished, take only play money. Never set
+`EBP_ALLOW_INSECURE_SETUP` on a server reachable from the internet.
 
 ## Updating
 

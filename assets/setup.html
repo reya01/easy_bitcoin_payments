@@ -529,7 +529,12 @@
           hideWords();
           els.wordsManual.textContent = "";
           els.btnShowWords.classList.add("hidden");
-          markStep(2); show("token");
+          // Re-read the status and continue from there: on the single-container
+          // install the server already holds barkd's token and applies it
+          // itself (resume), so the merchant never sees a token step.
+          return api("GET", "/setup/status")
+            .then(function (s) { resume(s, true); })
+            .catch(function () { markStep(2); show("token"); });
         });
       })
       .catch(function (err) { fail(els.backupError, err.message); })

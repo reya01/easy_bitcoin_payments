@@ -131,6 +131,7 @@
       <input type="text" id="asp" value="https://ark.signet.2nd.dev" autocomplete="off">
       <label for="network">Network</label>
       <input type="text" id="network" value="signet" autocomplete="off">
+      <p class="sub">Leave these two as they are while EBP is in testing (practice network, play money).</p>
       <button class="primary" id="btn-wallet" type="button">Create the wallet</button>
     </div>
     <div class="error hidden" id="wallet-error"></div>
@@ -187,6 +188,9 @@
       <label for="admin-pw">Choose an admin password</label>
       <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 10 characters — a few random words works well">
       <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager.</p>
+      <label for="payout">Where should your money go? (optional)</label>
+      <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Paste your own wallet's address (Ark or Bitcoin)">
+      <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control (for example Arké). You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
       <div class="hidden" id="store-secrets">
         <p class="note">API key — shown once, save it in a password manager:</p>
@@ -572,7 +576,7 @@
       return;
     }
     els.btnStore.disabled = true;
-    api("POST", "/setup/store", { name: name, admin_password: pw })
+    api("POST", "/setup/store", { name: name, admin_password: pw, payout_address: document.getElementById("payout").value.trim() || null })
       .then(function (result) {
         document.getElementById("admin-pw").value = "";
         if (result.api_key) {

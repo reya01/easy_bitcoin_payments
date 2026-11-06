@@ -111,15 +111,10 @@ docker buildx version
 ```
 → Both print a version. Continue.
 
-## PART 4 — Get EBP and start it — 20-30 min (mostly waiting)
+## PART 4 — Get EBP and start it — 5 min (plus a wait on the first start)
 
 ```
 cd ~
-```
-```
-rm -rf easy_bitcoin_payments   # FIRST SETUP ONLY — a re-run would delete
-                               # your .env (the barkd token). If this server
-                               # is already set up, use `git pull` instead.
 ```
 ```
 git clone https://github.com/reya01/easy_bitcoin_payments.git
@@ -131,32 +126,21 @@ and report — that means something changed.
 cd ~/easy_bitcoin_payments
 ```
 ```
-sudo docker compose build
-```
-→ **~15–30 minutes** on the first build (the barkd sidecar is a prebuilt
-binary download; the EBP server itself compiles). Scrolling output is normal
-— silence is what a hang looks like. If it ends with **Killed**:
-out of memory — your instance is not t4g.medium; fix per Part 1.4 and redo
-from `docker compose build`.
-
-```
 sudo ./scripts/start.sh
 ```
-→ Starts everything and, after a minute or two, prints a box with a **SETUP
-CODE** (like `ABCD-1234`). Write it on paper: the setup page in Part 6 asks
-for it first. (If you ever start with plain `docker compose up -d` instead,
-find the code with `sudo docker compose logs ebp | grep "SETUP CODE"`.)
+→ Starts everything and prints a box with a **SETUP CODE** (like
+`ABCD-1234`). Write it on paper: the setup page in Part 6 asks for it first.
+The very first start can take **15–30 minutes** while the software is built
+(scrolling output is normal; silence for a long time is not — see
+Troubleshooting). If the script says "No setup code yet", wait a minute and
+run it again. If it ends with **Killed**, your instance ran out of memory:
+fix per Part 1.4 and run it again.
 
 Check that it is running:
 ```
-sudo docker compose ps
-```
-→ Two services, both `Up` (one may say `health: starting` — fine).
-
-```
 curl -s http://localhost:8080/api/v1/health ; echo
 ```
-→ **JSON status output** (any JSON = pass). If not, see TROUBLESHOOTING (bottom).
+→ **JSON status output** (any JSON = pass).
 
 ## PART 5 — Secure tunnel — 5 min
 
@@ -169,34 +153,23 @@ The setup wizard must only travel over an encrypted path.
 2. Keep the forwarding active whenever you use the app (wizard, dashboard,
    checkout — not just during setup).
 
-## PART 6 — The setup wizard — 15 min
+## PART 6 — The setup wizard — 10 min
 
-Safari → `http://localhost:8080/setup`
+Safari → `http://localhost:8080/setup` (through your tunnel from Part 5)
 
-1. **Create till wallet** → wait ~30 s
-2. Wizard shows a command → copy → paste in Termius → Return (special mode)
-3. Safari → **Show my recovery words** → ✍️ write the **12 words on paper,
-   numbered** — the ONLY recovery path. Never photograph, never type.
-4. Tick **"I have written down my recovery words"**
-5. Wizard shows a **second command** → paste in Termius → Return (special
-   mode OFF again)
-6. **Token step**: wizard shows a command; its output is a long code.
-   Copy the long code → paste into the wizard → **Verify** → connected ✓
-7. **IMPORTANT** (hands the token to the server permanently): in Termius:
-   ```
-   echo "EBP_BARKD_TOKEN=PASTE_THE_LONG_CODE_HERE" >> ~/easy_bitcoin_payments/.env
-   ```
-   (replace PASTE_THE_LONG_CODE_HERE with the code — keep `EBP_BARKD_TOKEN=`
-   before it; the double `>>` ADDS to the file instead of replacing it, so it
-   cannot wipe anything already there), then:
-   ```
-   cd ~/easy_bitcoin_payments && sudo docker compose up -d
-   ```
-8. **Store name** → e.g. `Test Shop`, and **choose an admin password**
-   (10+ characters; a few random words works well). This password is how you
-   sign in to the admin page later (`/admin`) — put it in your password
-   manager. → Create
-9. **Two secrets appear ONCE**: the **API key** and the **webhook signing
+1. **Setup code** → type the code from Part 4
+2. **Create wallet** → one button; wait ~30 s (the server restarts once by
+   itself — the page may pause for a minute)
+3. **Show my recovery words** → ✍️ write the **12 words on paper,
+   numbered, twice**; keep the copies in different places. This is the ONLY
+   recovery path. Never photograph, never type them anywhere. They hide
+   after 60 seconds; you can show them again. Tick **"I have written down my
+   recovery words"**, then type the three words the wizard asks for.
+4. **Store name** → e.g. `Test Shop`, and **choose an admin password**
+   (10+ characters; a few random words works well). This password signs you
+   in to the admin page later (`/admin`) and locks your backups — put it in
+   your password manager. → Create
+5. **Two secrets appear ONCE**: the **API key** and the **webhook signing
    secret**. Copy both to paper (or a password manager), labelled, → Finish.
    They cannot be shown again (the API key can be replaced later, from the
    admin page's Connect tab).
@@ -205,39 +178,27 @@ The wizard closes itself; the payments system is now ON.
 
 ## PART 7 — Test payment — 20 min (mostly faucet waiting)
 
-1. Safari → `http://localhost:8080` → Share → **Add to Home Screen**
-2. The dashboard is an info page only — it cannot create invoices. Create
-   the test invoice with the **API key you wrote down in Part 6 step 9**:
-   ```
-   curl -sS -X POST http://localhost:8080/api/v1/invoices \
-     -H "Authorization: Bearer PASTE-API-KEY" \
-     -H "Content-Type: application/json" \
-     -d '{"sats": 1000}'
-   ```
-   Copy the `"id"` from the reply (looks like `inv_...`) → open
-   `http://localhost:8080/i/THAT-ID` in Safari → checkout page with a QR
+1. Safari → `http://localhost:8080/admin` → sign in with your admin password
+   → Share → **Add to Home Screen** (optional)
+2. Tap **Payments** → **Try a payment** → leave 1000 → **Create a test
+   payment request** → tap **Open the checkout page** → a page with a QR code
 3. Install **Arké** (iPhone) → create wallet → ✍️ write ITS 12 words on the
    paper too (label "Arké wallet")
 4. Safari → `https://signet.2nd.dev/` → GitHub sign-in → paste Arké's
    **Receive** address → request sats → **wait 5–10 min** (signet is slow)
 5. Arké → **Send** → scan the invoice QR → confirm 1,000 sats
-6. Checkout flips to **✓ Paid** within seconds. The dashboard is an info-only
-   shell in Phase 1; verify the invoice through the checkout page or the API
-   (`GET /api/v1/invoices/THAT-ID` with your API key).
+6. Checkout flips to **✓ Paid** within seconds, and the payment shows as paid
+   under **Payments** in the admin page.
 7. 🎉 Tester flow complete — write down: easiest step, hardest step, anything
    confusing, and whether you'd use it for a real store. Report this for the
    formal UX-gate sign-off.
 
 ## PART 8 — Cleanup — 2 min (stops billing)
 
-**Before you stop it (optional but good hygiene): one backup snapshot —**
-```
-cd ~/easy_bitcoin_payments && bash scripts/backup.sh
-```
-Saves a consistent database snapshot + the wallet datadir (kept 14
-snapshots, wallet file 600-perms) into `~/ebp-backups`. The paper recovery
-words remain the only human-verifiable wallet backup; keep the paper AND the
-`.env` file whenever you keep anything.
+**Before you stop it (optional but good hygiene): download a backup —**
+admin page → **Settings** → **Download a backup**. It is locked with your
+admin password and holds everything needed to restore. The paper recovery
+words remain the only human-verifiable wallet backup; keep the paper.
 
 AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 **Terminate** (erases everything; signet sats are play money).
@@ -246,22 +207,21 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 
 # TROUBLESHOOTING (every error we've hit so far)
 
+Using the older two-container install? See [ADVANCED_TWO_CONTAINER.md](ADVANCED_TWO_CONTAINER.md).
+
 | Error | Cause | Fix |
 |---|---|---|
 | `Authentication failed` on git clone | repo was private (fixed — it is now public) | just retry the clone |
 | `compose is not a docker command` | Compose plugin missing | Part 3, compose curl block |
 | `compose build requires buildx 0.17.0 or later` | Buildx plugin missing | Part 3, buildx curl block |
-| `required variable EBP_BARKD_TOKEN is missing` | HISTORICAL (pre-2026-11-02 compose) — fixed in repo | `git pull`, retry. Do NOT run `echo "EBP_BARKD_TOKEN=" > .env` on an already-set-up server — it would erase the provisioned token (re-coverable via `docker compose exec barkd barkd --datadir /data secret show`) |
+| Build ends with `Killed` | out of RAM (t4g.small) | use t4g.medium and run `sudo ./scripts/start.sh` again |
 | `cd: no such file or directory .../deploy` | the compose file is at the repo ROOT | `cd ~/easy_bitcoin_payments` (no /deploy) |
-| Build ends with `Killed` | out of RAM (t4g.small) | use t4g.medium, rebuild |
-| `could not read Username for 'https://github.com'` during build | old barkd Dockerfile cloned a nonexistent GitHub repo | fixed — `cd ~/easy_bitcoin_payments && git pull`, rebuild |
 | `manifest unknown` or 404 during build | arm64 asset-name mismatch (fixed) | `git pull` and rebuild |
 | `failed to solve` during build (general) | read the LAST error line above it | send the last 10 lines to the developer |
 | Health curl returns nothing after `up` | build still running or service starting | `sudo docker compose ps`, wait 60 s, retry the `/api/v1/health` curl |
 | Termius can't connect after restart | instance IPv4 changed on stop/start | update the host Address |
 | `set: Illegal option -o pipefail` | script run with `sh` instead of `bash` | fixed in repo; use `bash scripts/...` |
 | `ebp` restart-loops, `docker inspect` shows ExitCode 0, and `docker run --rm easy_bitcoin_payments-ebp --help` prints NOTHING | the image shipped the build system's placeholder binary (cargo skipped the real rebuild over stale file timestamps — fixed in the repo) | `cd ~/easy_bitcoin_payments && git pull && sudo docker compose build ebp` (must pass the build's own usage check), verify `sudo docker run --rm easy_bitcoin_payments-ebp --help` prints a usage block, then `sudo docker compose up -d` |
-| barkd unhealthy / ebp waits on it | old cached barkd image | `sudo docker compose build --no-cache barkd` then `up -d` |
 
 **Universal debugging pattern:** run the failing command again, copy the
 LAST 10 lines of output, send them. Never retype an error by hand.

@@ -1,0 +1,85 @@
+# ADVANCED: the older two-container stack (ebp + a separate barkd wallet
+# container). Beginners use docker-compose.yml (single container). To use this
+# file, put COMPOSE_FILE=docker-compose.two-container.yml in a .env file next
+# to it; see docs/ADVANCED_TWO_CONTAINER.md.
+#
+# Easy Bitcoin Payments — Phase 1 stack: the ebp server plus its barkd
+# sidecar (Second's reference Bark wallet daemon).
+#
+# barkd runs Second's PREBUILT 0.8.0 release binary (docker/barkd.Dockerfile,
+# checksum-pinned) because Second publishes no registry image we can
+# digest-pin yet — when one appears, replace the build block with
+# `image: <registry>/barkd@sha256:…`.
+# Its datadir lives on the barkd-data volume; the API is plain HTTP bound to
+# the internal compose network only — no `ports:` mapping, so barkd is
+# unreachable from outside and every /api/v1 call still requires the bearer
+# token (barkd_start.md). `--expose-mnemonic` is deliberately NOT passed on
+# this service: GET /wallet/mnemonic stays disabled HERE. The setup wizard's
+# one-time backup ceremony runs a SEPARATE temporary barkd WITH the flag,
+# reads the words exactly once, then removes it (walkthrough Part 6).
+
+services:
+  barkd:
+    build:
+      context: .
+      dockerfile: docker/barkd.Dockerfile
+    image: ebp-barkd:0.8.0
+    # --host 0.0.0.0 binds inside the container only; without a `ports:`
+    # mapping nothing outside the compose network can reach it.
+    command: ["--datadir", "/data", "--host", "0.0.0.0", "--port", "3000"]
+    volumes:
+      - barkd-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ebp:
+    build:
+      context: .
+      target: runtime
+    environment:
+      EBP_BIND_ADDR: 0.0.0.0:8080
+      EBP_DATABASE_PATH: /data/ebp.sqlite3
+      EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
+      # The "plain HTTP on a non-loopback host" warning at boot is EXPECTED
+      # for this topology: barkd:3000 is the compose-internal bridge hop
+      # (isolated network, no ports mapping, unreachable from outside). The
+      # token still crosses it in cleartext BY DESIGN at Phase 1 — see
+      # ebp.example.toml before exposing anything beyond this stack.
+      EBP_BARKD_URL: http://barkd:3000/api/v1
+      # Provision once: docker compose exec barkd barkd --datadir /data secret show
+      # Empty by default: the token does not exist until the setup wizard
+      # provisions it. After the wizard's token step, put the token in a
+      # `.env` file next to this compose file (EBP_BARKD_TOKEN=...) and run
+      # `docker compose up -d` again to hand it to the server.
+      EBP_BARKD_TOKEN: ${EBP_BARKD_TOKEN:-}
+      # Optional fixed setup code (automation only). Leave empty: the server then
+      # prints a one-time SETUP CODE in `docker compose logs ebp` until setup is done.
+      EBP_SETUP_TOKEN: ${EBP_SETUP_TOKEN:-}
+      # 64 hex chars (`openssl rand -hex 32`) in the .env file: encrypts webhook
+      # secrets at rest. Empty = a key file is created in the data volume.
+      EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
+      # On-chain rail is off by default (beta). Set to true to offer it.
+      EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
+      EBP_ALLOW_INSECURE_SETUP: ${EBP_ALLOW_INSECURE_SETUP:-false}
+      EBP_ONCHAIN_MIN_CONFIRMATIONS: ${EBP_ONCHAIN_MIN_CONFIRMATIONS:-1}
+      EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
+      EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}
+    ports:
+      # Loopback by default: reach it through your HTTPS tunnel/proxy. Set
+      # EBP_BIND_HOST=0.0.0.0 only if something you trust in front handles HTTPS.
+      - "${EBP_BIND_HOST:-127.0.0.1}:8080:8080"
+    volumes:
+      - ebp-data:/data
+    depends_on:
+      barkd:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  barkd-data:
+  ebp-data:

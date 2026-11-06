@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# ebp backup — snapshots of the payments stack. The SQLite snapshot is
+# ebp backup — snapshots of the TWO-CONTAINER payments stack (advanced).
+# The default single-container install is backed up from the admin page
+# (Settings → Download a backup).
+# The SQLite snapshot is
 # consistent while the server is live (online-backup API, read-only mount);
 # the barkd datadir tarball is crash-consistent at best (a plain tar of a
 # live datadir) — the paper recovery words remain the authoritative wallet

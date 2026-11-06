@@ -3,8 +3,10 @@
 # address (RENDER_EXTERNAL_URL, read automatically). The setup code appears in
 # the service's Logs tab: look for "SETUP CODE".
 #
-# Needs a paid instance with a persistent disk: the wallet and database live
-# on /data and must survive restarts.
+# !!! NEEDS A PAID PLAN. The wallet and database live on a persistent disk
+# (/data) and Render only offers disks on paid services. On a free plan the
+# disk does not exist and ALL DATA, INCLUDING THE WALLET FILES, IS ERASED on
+# every restart or redeploy. Do not change `plan` to a free one.
 services:
   - type: web
     name: easy-bitcoin-payments

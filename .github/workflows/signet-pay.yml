@@ -53,6 +53,9 @@ jobs:
           # payout wallet shows up during the drill.
           EBP_HOT_WALLET_CAP_SATS: "3000"
           EBP_SETTLEMENT_INTERVAL_SECS: "30"
+          EBP_ONCHAIN_SWEEP_CAP_SATS: "1000"
+          # Allow switching the payout address without the 24-hour wait.
+          EBP_PAYOUT_CHANGE_DELAY_SECS: "0"
           # Signet coins live about a day, shorter than the real-world 7-day
           # renewal window, which would keep every coin locked in a refresh.
           EBP_RENEWAL_LEAD_TIME_SECS: "3600"

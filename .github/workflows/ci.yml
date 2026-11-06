@@ -49,6 +49,16 @@ jobs:
       - name: Browser end-to-end test
         run: python3 tests/e2e/run_e2e.py target/release/ebp
 
+      # WooCommerce plugin: PHP syntax + logic tests, then a real WordPress +
+      # WooCommerce (docker) paying an order through this binary.
+      - name: WooCommerce plugin checks
+        run: |
+          for f in $(find integrations -name '*.php'); do php -l "$f" >/dev/null; done
+          php integrations/woocommerce/tests/core-test.php
+
+      - name: WooCommerce end-to-end test
+        run: python3 tests/woo/run_woo.py target/release/ebp
+
   docker:
     name: docker image builds (amd64 + arm64)
     runs-on: ubuntu-latest

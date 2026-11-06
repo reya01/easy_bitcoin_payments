@@ -208,11 +208,20 @@ def main():
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
         state["payer_token"] = tok.strip().splitlines()[-1].strip()
         assert state["payer_token"], "no payer token"
-        code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
-        assert code == 200, (code, out)
+        code, _ = payer("GET", "/api/v1/wallet")
+        if code == 200:
+            # Restored from the previous run: the coins you already sent are still here.
+            notes.append("Reusing the payer wallet saved by an earlier run.")
+            payer("POST", "/api/v1/wallet/sync")
+        else:
+            code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
+            assert code == 200, (code, out)
 
     @step("payer: wait for YOU to fund it (watch the job summary / log for the address)", critical=True)
     def _():
+        if balance()["spendable_sat"] >= MIN_SATS:
+            notes.append(f"Payer already holds {balance()['spendable_sat']} sats from an earlier run; no new funding needed.")
+            return
         code, a = payer("POST", "/api/v1/wallet/addresses/next")
         assert code == 200, (code, a)
         ark = a["address"]
@@ -316,11 +325,14 @@ def main():
         cap = open(f).read()
         notes.append("Real barkd answers after payments:\n" + cap[:30000])
 
-    @step("return leftovers to RETURN_TO (payer wallet AND EBP's wallet)")
+    @step("keep the coins: EBP's wallet goes back to the payer wallet (or RETURN_TO)")
     def _():
-        if not RETURN_TO:
-            notes.append("No RETURN_TO given: leftovers stay on the (destroyed) test machine.")
-            return
+        dest = RETURN_TO
+        if not dest:
+            code, a = payer("POST", "/api/v1/wallet/addresses/next")
+            assert code == 200, (code, a)
+            dest = a["address"]
+            notes.append("No RETURN_TO: EBP's coins move back into the saved payer wallet; the workflow keeps that wallet for the next run.")
 
         def sweep(call, bal, what):
             amt = bal()
@@ -335,11 +347,13 @@ def main():
                     return True
             return False
 
-        ok1 = sweep(
-            lambda a: payer("POST", "/api/v1/wallet/send", {"destination": RETURN_TO, "amount_sat": a}),
-            lambda: balance()["spendable_sat"],
-            "payer wallet",
-        )
+        ok1 = True
+        if RETURN_TO:
+            ok1 = sweep(
+                lambda a: payer("POST", "/api/v1/wallet/send", {"destination": RETURN_TO, "amount_sat": a}),
+                lambda: balance()["spendable_sat"],
+                "payer wallet",
+            )
         # EBP's own wallet received the test payments; send those back too.
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /data/barkd secret show")
         etok = tok.strip().splitlines()[-1].strip()
@@ -359,11 +373,17 @@ def main():
                 return 0, text[:200]
 
         ok2 = sweep(
-            lambda a: ebp_barkd("POST", "/api/v1/wallet/send", {"destination": RETURN_TO, "amount_sat": a}),
+            lambda a: ebp_barkd("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": a}),
             lambda: ebp_barkd("GET", "/api/v1/wallet/balance")[1]["spendable_sat"],
             "EBP wallet",
         )
         assert ok1 and ok2, "could not return all funds"
+        # Let the payer wallet see what just arrived before the workflow saves it.
+        for _ in range(6):
+            time.sleep(10)
+            payer("POST", "/api/v1/wallet/sync")
+            payer("POST", "/api/v1/wallet/sync/mailbox")
+        notes.append(f"Payer wallet saved with spendable={balance()['spendable_sat']} sats")
 
 
 try:

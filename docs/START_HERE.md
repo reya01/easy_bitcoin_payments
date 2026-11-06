@@ -43,8 +43,7 @@ Two things are not finished, and you should know before you invest time:
   them to arrive.
 
 Step-by-step with every known error and its fix, for a cloud server and an
-iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) (that guide
-uses the older two-container install; the steps below are shorter).
+iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md).
 
 ## The short version (single-container install)
 

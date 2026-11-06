@@ -6,8 +6,7 @@
 # (or: docker compose up -d --build). With a public https address:
 #   EBP_PUBLIC_BASE_URL=https://pay.example.com ./scripts/start.sh
 #
-# This is THE default install. The older two-container version (separate
-# wallet container) is docker-compose.two-container.yml.
+# This is THE install: EBP runs the wallet daemon itself.
 #
 # Setup needs an https:// address (or http://localhost). `restart:
 # unless-stopped` matters: the server restarts itself once, right after the

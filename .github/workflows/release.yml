@@ -1,7 +1,7 @@
 # Release plumbing (Phase 1 close-out): a v* tag push builds the release
 # binaries, checksums them, publishes the GitHub release, and pushes the
 # multi-arch Docker image to ghcr.io — the URLs that scripts/install.sh,
-# scripts/release.sh, and docs/RECIPE_SETUP.md resolve.
+# scripts/release.sh, and docs/START_HERE.md resolve.
 #
 # Everything authenticates with the workflow's own GITHUB_TOKEN
 # (contents: write to cut the release, packages: write to push the

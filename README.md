@@ -19,7 +19,7 @@ your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
 This repository is at **Phase 1 code-complete** (2026-11-01) and remains
-**EXPERIMENTAL — not for real funds**. CI is green; the canonical suite is `cargo test --all --all-features` (**134 passed, 0 failed**).
+**EXPERIMENTAL — not for real funds**. CI is green; the canonical suite is `cargo test --all --all-features` (**234 passed, 0 failed**).
 Every Lightning-side client-facing barkd shape is live-verified against
 **barkd 0.8.0 on signet** and pinned in
 [`src/wallet/barkd/live_shapes.rs`](src/wallet/barkd/live_shapes.rs) with shape tests;
@@ -44,7 +44,6 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 - [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — open issues and debug procedures.
 - [docs/PHASE0_SPIKE_PLAN.md](docs/PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions and log.
 - [docs/PHASE1_PLAN.md](docs/PHASE1_PLAN.md) — Phase 1 tasks, status, and close-out.
-- [docs/RECIPE_SETUP.md](docs/RECIPE_SETUP.md) — zero-to-live-testnet-invoice recipe.
 - [docs/RECIPE_BACKUP.md](docs/RECIPE_BACKUP.md) — backup/restore recipe.
 - [docs/UPGRADING.md](docs/UPGRADING.md) — version and upgrade notes.
 - [docs/MASTER_TEST_WALKTHROUGH.md](docs/MASTER_TEST_WALKTHROUGH.md) — beginner AWS + iPhone walkthrough.
@@ -281,28 +280,6 @@ docker run --rm -v ebp-data:/data easy-bitcoin-payments store create --name "My 
 
 The image runs as a non-root user, stores its database on the `/data` volume,
 and exposes a healthcheck against `/api/v1/health`.
-
-### Advanced: two-container stack with the barkd sidecar
-
-Most people should use the default single-container install (`./scripts/start.sh`, see [docs/START_HERE.md](docs/START_HERE.md)). The two-container stack is selected with `export COMPOSE_FILE=docker-compose.two-container.yml`.
-
-```bash
-export COMPOSE_FILE=docker-compose.two-container.yml
-# 1. Start barkd alone and read its token (generated on first start).
-docker compose up -d barkd
-export EBP_BARKD_TOKEN="$(docker compose exec barkd barkd --datadir /data secret show)"
-
-# 2. Bring up the whole stack.
-EBP_PUBLIC_BASE_URL=https://pay.example.com \
-EBP_SETTLEMENT_DESTINATION=ark1your-arke-wallet \
-docker compose up -d
-```
-
-`docker-compose.yml` is the default single-container install (EBP runs the wallet daemon itself, no tokens to copy). The advanced `docker-compose.two-container.yml` runs barkd from a checksum-pinned prebuilt 0.8.0 binary, keeps its datadir on
-the `barkd-data` volume, healthchecks it against `GET /ping`, and publishes no
-barkd ports — it is reachable only on the internal compose network, and every
-`/api/v1` call still needs the bearer token. `--expose-mnemonic` is
-deliberately absent.
 
 ---
 

@@ -51,9 +51,8 @@ removed after the drill.
    cooperation and loses payment history and in-progress exit state; it
    recommends backing up the wallet database after every state change, to
    storage that outlives the host, encrypted with a key derived from the
-   mnemonic. Today: `scripts/backup.sh` is a manual, Docker-Compose-only
-   script (not usable in the single-container beginner install), and the
-   pre-upgrade copies cover only EBP's own database, not barkd's data. For a
+   mnemonic. Today: the admin page offers a manual encrypted download (Settings
+   → Download a backup), nothing runs automatically, and the pre-upgrade copies cover only EBP's own database, not barkd's data. For a
    beginner the practical answer is host-level disk snapshots (Render and most
    VPS providers offer them) plus an in-app encrypted download of the wallet
    data; both are future work. Until then, KNOWN_ISSUES says plainly that the

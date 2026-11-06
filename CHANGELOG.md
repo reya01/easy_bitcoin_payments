@@ -9,6 +9,7 @@
 
 ### Release
 - Dropped the `chacha20poly1305` crate: the same ChaCha20-Poly1305 now comes from `ring`, already in the TLS stack. Stored secrets and backups are unchanged (RFC 8439 test vector pinned).
+- Removed the two-container install (`docker-compose.two-container.yml`, its walkthrough, `scripts/backup.sh`, the old two-container setup recipe). One install path; the admin page's backup download replaces the script. Test count in the README refreshed.
 - The release workflow can be dry-run from the Actions tab (builds and tests; publishes, pushes and signs nothing unless a `v*` tag).
 - `docker-compose.yml` accepts `EBP_IMAGE` (a signed prebuilt image); `scripts/start.sh` pulls it and falls back to building.
 

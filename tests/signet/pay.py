@@ -216,7 +216,14 @@ def main():
         if have:
             # Restored from the previous run: the coins you already sent are still here.
             notes.append("Reusing the payer wallet saved by an earlier run.")
-            payer("POST", "/api/v1/wallet/sync")
+            c1, _ = payer("GET", "/api/v1/wallet/balance")
+            c2, r2 = payer("POST", "/api/v1/wallet/sync")
+            c3, _ = payer("GET", "/api/v1/wallet/balance")
+            _, tok2 = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
+            same = tok2.strip().splitlines()[-1].strip() == state["payer_token"]
+            print(f"restored wallet calls: balance={c1} sync={c2} {str(r2)[:120]} balance={c3} token_unchanged={same}", flush=True)
+            if not same:
+                state["payer_token"] = tok2.strip().splitlines()[-1].strip()
         else:
             code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
             assert code == 200, (code, out)

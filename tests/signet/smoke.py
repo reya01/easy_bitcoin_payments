@@ -163,7 +163,7 @@ def main():
             page.goto(f"{BASE}/admin")
             # A still-valid session (cookie survives a server restart) goes
             # straight to Home; otherwise sign in.
-            page.wait_for_selector("#login-form:not(.hidden), #v-home:not(.hidden)", timeout=60000)
+            wait_for(lambda: page.is_visible("#login-form") or page.is_visible("#v-home"), "login form or home", 60, 0.5)
             if page.is_visible("#login-form"):
                 page.fill("#pw", ADMIN_PW)
                 page.click("#login-btn")

@@ -10,6 +10,7 @@
 //! request must carry the session's CSRF token in a header.
 
 use axum::http::{header, HeaderMap};
+use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -56,12 +57,12 @@ pub fn pbkdf2(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] {
     let mut first = base.clone();
     first.update(salt);
     first.update(&1u32.to_be_bytes());
-    let mut u = first.finalize().into_bytes();
+    let mut u: [u8; 32] = first.finalize().into_bytes().into();
     let mut t = u;
     for _ in 1..iterations {
         let mut m = base.clone();
         m.update(&u);
-        u = m.finalize().into_bytes();
+        u = m.finalize().into_bytes().into();
         for (a, b) in t.iter_mut().zip(u.iter()) {
             *a ^= b;
         }

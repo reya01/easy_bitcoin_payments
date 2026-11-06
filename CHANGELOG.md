@@ -13,6 +13,7 @@
 - Payments completed after an invoice's deadline are parked as `paid_after_expiry` regardless of watcher tick order.
 
 ### Added
+- The encrypted backup now includes the at-rest encryption key (`ebp.key`), so one file restores everything; START_HERE no longer asks beginners to generate and save a key.
 - Signet drill: pre-flight checklist, new steps (https cookie, Try a payment, backup download/verify/restore against the real barkd folder) and `scripts/drill_capture.sh`, a read-only helper that saves barkd's real answers (never tokens or recovery words) for comparison with the parser.
 - Beginner docs round 2 (second independent review): START_HERE now has a "choose where to run it" box (this computer vs a server + tunnel), Docker/git/terminal prerequisites, wallet and faucet, a `.env` that pins the single-container compose file and creates the encryption key, a test-payment and a backup section; MASTER walkthrough uses the Try a payment button instead of `curl`; managed compose passes the sweep destination and cap; `start.sh` no longer claims setup is finished when the first build is just slow; setup wizard says to leave the network fields alone.
 - Beginner docs pass (from an independent role-play review): new `docs/START_HERE.md` (honest status, what you need, single-container install, "how you know it worked", glossary); walkthrough now covers the setup code (`start.sh`), the admin password and the webhook secret, and no longer overwrites `.env`; dead references in the backup recipe marked as not-yet-available.

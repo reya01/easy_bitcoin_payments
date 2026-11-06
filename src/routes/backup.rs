@@ -58,7 +58,7 @@ pub async fn download(
 
     // Consistent database snapshot, plus the wallet folder in managed mode.
     let db_entry = state.db.call(|c| crate::backup::database_entry(c)).await?;
-    let mut entries = vec![db_entry];
+    let mut entries = vec![db_entry, crate::backup::key_entry()];
     let wallet_included = match crate::managed_barkd::get() {
         Some(m) => {
             let dir = m.datadir().to_path_buf();

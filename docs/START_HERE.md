@@ -57,17 +57,11 @@ us, use it and tell us where it hurts.)
 git clone https://github.com/reya01/easy_bitcoin_payments.git
 cd easy_bitcoin_payments
 echo "COMPOSE_FILE=docker-compose.managed.yml" >> .env
-echo "EBP_KEY_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 ./scripts/start.sh
 ```
 
-The two `echo` lines write into a file called `.env` in this folder. The first
-tells Docker to use the single-container setup every time (including for
-updates). The second makes the key that protects your stored secrets. **Do
-this before the first start, and save that key now:** run `cat .env` and copy
-the `EBP_KEY_ENCRYPTION_KEY=...` line into your password manager. Without it,
-a restored backup cannot read your shop's webhook secret (you would have to
-make a new one). Do not paste the key anywhere else.
+The `echo` line writes a file called `.env` in this folder that tells Docker
+to use the single-container setup every time (including for updates).
 
 The script prints a boxed **SETUP CODE** and the address of the setup page.
 (If the first start is still compiling it will say so; run it again in a

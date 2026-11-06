@@ -205,25 +205,17 @@ The wizard closes itself; the payments system is now ON.
 
 ## PART 7 — Test payment — 20 min (mostly faucet waiting)
 
-1. Safari → `http://localhost:8080` → Share → **Add to Home Screen**
-2. The dashboard is an info page only — it cannot create invoices. Create
-   the test invoice with the **API key you wrote down in Part 6 step 9**:
-   ```
-   curl -sS -X POST http://localhost:8080/api/v1/invoices \
-     -H "Authorization: Bearer PASTE-API-KEY" \
-     -H "Content-Type: application/json" \
-     -d '{"sats": 1000}'
-   ```
-   Copy the `"id"` from the reply (looks like `inv_...`) → open
-   `http://localhost:8080/i/THAT-ID` in Safari → checkout page with a QR
+1. Safari → `http://localhost:8080/admin` → sign in with your admin password
+   → Share → **Add to Home Screen** (optional)
+2. Tap **Payments** → **Try a payment** → leave 1000 → **Create a test
+   payment request** → tap **Open the checkout page** → a page with a QR code
 3. Install **Arké** (iPhone) → create wallet → ✍️ write ITS 12 words on the
    paper too (label "Arké wallet")
 4. Safari → `https://signet.2nd.dev/` → GitHub sign-in → paste Arké's
    **Receive** address → request sats → **wait 5–10 min** (signet is slow)
 5. Arké → **Send** → scan the invoice QR → confirm 1,000 sats
-6. Checkout flips to **✓ Paid** within seconds. The dashboard is an info-only
-   shell in Phase 1; verify the invoice through the checkout page or the API
-   (`GET /api/v1/invoices/THAT-ID` with your API key).
+6. Checkout flips to **✓ Paid** within seconds, and the payment shows as paid
+   under **Payments** in the admin page.
 7. 🎉 Tester flow complete — write down: easiest step, hardest step, anything
    confusing, and whether you'd use it for a real store. Report this for the
    formal UX-gate sign-off.

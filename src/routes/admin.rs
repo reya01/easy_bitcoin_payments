@@ -204,6 +204,9 @@ pub async fn status(
             .await
         {
             use crate::health_checks::Payout;
+            if let Some(active) = s.active.as_deref() {
+                facts.hot_wallet_cap_sats = state.config.sweep_cap_for(active);
+            }
             facts.payout = match (s.active.is_some(), s.effective_at) {
                 (_, Some(at)) if s.pending.is_some() => Payout::ChangePending(at),
                 (true, _) => Payout::Set,

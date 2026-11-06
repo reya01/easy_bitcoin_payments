@@ -87,3 +87,13 @@ but was never the cause of the loop.
 - **`rotate-key` shows the new key once.** If the response is lost, run `ebp store rotate-key` on the server (inside Docker: `docker compose exec ebp ebp store rotate-key`) to mint another. It is audit-logged.
 - **The setup code is shown in the server log.** Detached `docker compose up -d` hides it; the recipe tells the merchant to run `docker compose logs ebp`. A platform that injects `EBP_SETUP_TOKEN` (one-click installers) skips this.
 - **Defensive parsing left from before live captures.** `barkd.rs` still accepts several alternative field names and envelope shapes (`flex::*`, history/vtxo fallbacks). Now that the OpenAPI is pinned and a live history capture exists, trim them after the signet drill so unexpected shapes fail loudly.
+
+## On-chain payouts reuse one address (privacy trade-off)
+
+An on-chain payout address is a single fixed address: every withdrawal goes
+to it. That keeps setup simple for beginners, but anyone watching the chain can
+link all your payouts together. Ark payouts do not have this problem. This is a
+deliberate, known trade-off. Planned improvement: accept a Silent Payments
+address (BIP 352) as the on-chain payout destination, so each withdrawal lands
+on a fresh address without changing the simple "paste one address" setup. That
+waits on wallet and ecosystem support.

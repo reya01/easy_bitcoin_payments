@@ -16,9 +16,21 @@ use crate::error::AppError;
 use crate::routes::admin_session::require_session;
 use crate::routes::AppState;
 
-fn view(s: &crate::payout::Status, delay_secs: i64) -> Value {
+fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
+    let delay_secs = config.payout_change_delay_secs;
+    let kind = s.active.as_deref().map(|a| {
+        if crate::config::is_ark_destination(a) {
+            "ark"
+        } else {
+            "onchain"
+        }
+    });
     json!({
         "address": s.active,
+        "kind": kind,
+        "cap_sats": s.active.as_deref().map(|a| config.sweep_cap_for(a)),
+        "ark_cap_sats": config.hot_wallet_cap_sats,
+        "onchain_cap_sats": config.onchain_sweep_cap_sats,
         "pending_address": s.pending,
         "pending_effective_at": s.effective_at,
         "set_by_server_config": s.from_server_config,
@@ -32,7 +44,7 @@ pub async fn get(State(state): State<AppState>, _auth: StoreAuth) -> Result<Json
         .db
         .call(move |c| crate::payout::status(c, cfg.as_deref()))
         .await?;
-    Ok(Json(view(&s, state.config.payout_change_delay_secs)))
+    Ok(Json(view(&s, &state.config)))
 }
 
 #[derive(Deserialize)]
@@ -71,7 +83,7 @@ pub async fn change(
             Ok((ch, s))
         })
         .await?;
-    let mut v = view(&s, delay);
+    let mut v = view(&s, &state.config);
     v["applied_now"] = json!(matches!(change, crate::payout::Change::Now));
     Ok(Json(v))
 }
@@ -82,7 +94,6 @@ pub async fn cancel(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     let cfg = state.config.settlement_destination.clone();
-    let delay = state.config.payout_change_delay_secs;
     let s = state
         .db
         .call(move |c| {
@@ -90,5 +101,5 @@ pub async fn cancel(
             crate::payout::status(c, cfg.as_deref())
         })
         .await?;
-    Ok(Json(view(&s, delay)))
+    Ok(Json(view(&s, &state.config)))
 }

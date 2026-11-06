@@ -221,6 +221,12 @@ def main():
     def order_status():
         return wpcli("eval", f"echo wc_get_order({state['order']})->get_status();")
 
+    @step("the EBP checkout page links back to the shop's order page")
+    def _():
+        code, _, d = jhttp("GET", f"{base}/i/{state['invoice']}/json")
+        assert code == 200 and d.get("return_url", "").startswith(f"{wp}/"), d
+        assert f"order-received/{state['order']}" in d["return_url"] or f"order_id={state['order']}" in d["return_url"] or "key=wc_order" in d["return_url"], d["return_url"]
+
     inv_auth = {"authorization": f"Bearer {api_key}"}
 
     @step("the invoice is for the order total and carries the order reference")

@@ -3,6 +3,7 @@
 ## OPEN — beta-hardening follow-ups (2026-11-05)
 
 See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
+- **DigitalOcean install (`deploy/cloud-init.yaml`, `scripts/vps-setup.sh`) is unverified on a real server.** CI tests the banner script and validates the file; the full flow (Docker install, Let's Encrypt via sslip.io, console banner) needs a human run on a real droplet. Until a release exists the server builds from source (15–30 min, 2 GB).
 - **Managed barkd is unverified live.** `EBP_MANAGED_BARKD` (starting barkd as a child, `barkd secret show`, the recovery-words restart, the self-restart after setup) and `render.yaml` have only been compiled and unit-tested. Whether `secret show` works before a wallet exists is also unconfirmed (the code falls back to restarting once after setup). Run the full wizard on signet before trusting it.
 - **Recovery words are still shown in a browser.** They appear for 60 seconds at a time and are never kept by the page or the server, and the backup check is enforced server-side, but a malicious browser extension or malware on the merchant's device can read them while shown, and screenshots (which often sync to the cloud) are only discouraged, not prevented.
 - **Webhook DNS rebinding** is not caught by the address filter (a public name that later resolves to a private address). See docs/SECURITY_REVIEW_2026-11-05.md for this and the other accepted items.

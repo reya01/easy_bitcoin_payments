@@ -23,6 +23,8 @@ pub struct CreateInvoiceRequest {
     pub fiat: Option<FiatAmount>,
     pub sats: Option<i64>,
     pub expiry_minutes: Option<i64>,
+    /// Where the checkout page's "back to the shop" link goes (http/https).
+    pub return_url: Option<String>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -107,6 +109,20 @@ const PATH_LN_RECEIVE_FEES: &str = "/fees/lightning/receive";
 
 const MAX_ORDER_ID_LEN: usize = 128;
 const MAX_METADATA_BYTES: usize = 4096;
+const MAX_RETURN_URL_LEN: usize = 2048;
+
+/// A return link must be a plain http(s) URL with a host and no spaces or
+/// control characters. Checked when the invoice is created AND again when the
+/// checkout page is served, so nothing else (javascript:, data:) can ride along.
+pub fn valid_return_url(u: &str) -> bool {
+    if u.len() > MAX_RETURN_URL_LEN || u.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return false;
+    }
+    let rest = u
+        .strip_prefix("https://")
+        .or_else(|| u.strip_prefix("http://"));
+    rest.is_some_and(|r| !r.is_empty() && !r.starts_with('/') && !r.starts_with('?'))
+}
 
 /// Ask barkd for the ASP gateway's Lightning receive fee for `amount_sats`.
 /// Best effort: any transport or HTTP failure is logged (without secrets)
@@ -381,6 +397,15 @@ pub async fn create(
         )));
     }
     if req
+        .return_url
+        .as_deref()
+        .is_some_and(|u| !valid_return_url(u))
+    {
+        return Err(AppError::BadRequest(
+            "return_url must be an http:// or https:// address".into(),
+        ));
+    }
+    if req
         .metadata
         .as_ref()
         .is_some_and(|m| m.to_string().len() > MAX_METADATA_BYTES)
@@ -466,6 +491,11 @@ pub async fn create(
         // checkout would display as authoritative.
         fields.remove("test");
         fields.remove("lightning_fee_estimate_sat");
+        // Also reserved: only the validated top-level `return_url` counts.
+        fields.remove("return_url");
+        if let Some(u) = req.return_url.as_deref() {
+            fields.insert("return_url".to_string(), serde_json::Value::from(u));
+        }
         if state.config.mode == "test" {
             fields.insert("test".to_string(), serde_json::Value::Bool(true));
         }
@@ -642,4 +672,33 @@ pub async fn cancel(
         .await?;
 
     Ok(Json(to_response(&invoice, &state.config, None)))
+}
+
+#[cfg(test)]
+mod return_url_tests {
+    use super::valid_return_url;
+
+    #[test]
+    fn only_plain_http_and_https_links_pass() {
+        assert!(valid_return_url(
+            "https://shop.example.com/checkout/order-received/5/?key=wc_order_x"
+        ));
+        assert!(valid_return_url("http://localhost:8080/thanks"));
+        for bad in [
+            "javascript:alert(1)",
+            "data:text/html,hi",
+            "//evil.example.com",
+            "ftp://x.example.com",
+            "https://",
+            "https:///path",
+            "https://shop.example.com/a b",
+            "https://shop.example.com/\n",
+            "shop.example.com",
+            "",
+        ] {
+            assert!(!valid_return_url(bad), "{bad:?} must be refused");
+        }
+        let long = format!("https://a.example/{}", "x".repeat(2100));
+        assert!(!valid_return_url(&long));
+    }
 }

@@ -51,5 +51,10 @@ check( 'plain http to localhost is allowed', EBP_Core::is_secure_enough( 'http:/
 $req = EBP_Core::invoice_request( 7, 'usd', 19.9, 2 );
 check( 'invoice request carries ref, currency and amount', 'wc-7' === $req['order_id'] && 'USD' === $req['fiat']['currency'] && '19.90' === $req['fiat']['amount'] && ! isset( $req['expiry_minutes'] ) );
 
+$req = EBP_Core::invoice_request( 7, 'USD', 5, 2, null, 'https://shop.example.com/order-received/7/?key=k' );
+check( 'return link is passed along', 'https://shop.example.com/order-received/7/?key=k' === $req['return_url'] );
+$req = EBP_Core::invoice_request( 7, 'USD', 5, 2, null, 'javascript:alert(1)' );
+check( 'a non-http return link is dropped', ! isset( $req['return_url'] ) );
+
 echo $fail ? "\n$fail failed\n" : "\nall passed\n";
 exit( $fail ? 1 : 0 );

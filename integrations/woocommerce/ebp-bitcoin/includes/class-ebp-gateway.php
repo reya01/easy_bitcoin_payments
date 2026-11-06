@@ -132,7 +132,9 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			$order->get_id(),
 			$order->get_currency(),
 			$order->get_total(),
-			wc_get_price_decimals()
+			wc_get_price_decimals(),
+			null,
+			$this->get_return_url( $order )
 		);
 		// The server returns the same open invoice for a repeated order reference.
 		$invoice = $this->client()->create_invoice( $body );

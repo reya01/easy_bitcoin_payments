@@ -102,7 +102,7 @@ class EBP_Core {
 	}
 
 	/** Body for POST /api/v1/invoices. */
-	public static function invoice_request( $order_id, $currency, $total, $decimals, $expiry_minutes = null ) {
+	public static function invoice_request( $order_id, $currency, $total, $decimals, $expiry_minutes = null, $return_url = '' ) {
 		$body = array(
 			'order_id' => self::order_ref( $order_id ),
 			'fiat'     => array(
@@ -111,6 +111,9 @@ class EBP_Core {
 			),
 			'metadata' => array( 'source' => 'woocommerce' ),
 		);
+		if ( is_string( $return_url ) && preg_match( '#^https?://[^\s]+$#i', $return_url ) ) {
+			$body['return_url'] = $return_url;
+		}
 		if ( $expiry_minutes ) {
 			$body['expiry_minutes'] = (int) $expiry_minutes;
 		}

@@ -7,6 +7,10 @@
 - **Webhook secrets are now encrypted at rest** (ChaCha20-Poly1305; `EBP_KEY_ENCRYPTION_KEY` or a 0600 `ebp.key`). New dependency: `chacha20poly1305`. Back the key up separately from the database.
 - Audit trail (`audit_log`, `GET /api/v1/audit-log`) for key rotation, webhook changes, re-sends and resolved late payments; webhook delivery log + re-send endpoints.
 
+### Release
+- The release workflow can be dry-run from the Actions tab (builds and tests; publishes, pushes and signs nothing unless a `v*` tag).
+- `docker-compose.yml` accepts `EBP_IMAGE` (a signed prebuilt image); `scripts/start.sh` pulls it and falls back to building.
+
 ### Fixed
 - Wizard wallet-create now sends the field barkd actually reads (`ark_server`); a custom ASP was silently ignored before.
 - Barkd request shapes aligned with the pinned OpenAPI (`amount_sat`, `vtxos`, `tip_height`); wallet history read from `/api/v1/history` (the old endpoint is deprecated).

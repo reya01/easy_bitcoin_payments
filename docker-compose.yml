@@ -14,6 +14,10 @@
 # setup wizard finishes, so the wallet connects.
 services:
   ebp:
+    # Default: build from this folder. To use a signed prebuilt image from a
+    # release instead (much faster, no build), set EBP_IMAGE to the
+    # `image@sha256:...` line in the release notes; start.sh then pulls it.
+    image: ${EBP_IMAGE:-easy_bitcoin_payments-ebp}
     build:
       context: .
     environment:

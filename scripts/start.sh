@@ -10,6 +10,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Optional prebuilt image (EBP_IMAGE=ghcr.io/...@sha256:...). If the pull
+# fails we say so and fall back to building from source.
+if [ -n "${EBP_IMAGE:-}" ]; then
+  docker compose pull ebp || echo "(could not pull $EBP_IMAGE - building from source instead)"
+fi
+
 docker compose up -d "$@"
 
 echo "==> waiting for the server to start (up to 2 minutes)"

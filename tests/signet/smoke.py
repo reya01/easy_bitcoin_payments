@@ -161,10 +161,13 @@ def main():
 
         def login():
             page.goto(f"{BASE}/admin")
-            page.wait_for_selector("#login-form:not(.hidden)")
-            page.fill("#pw", ADMIN_PW)
-            page.click("#login-btn")
-            page.wait_for_selector("#v-home:not(.hidden)")
+            # A still-valid session (cookie survives a server restart) goes
+            # straight to Home; otherwise sign in.
+            page.wait_for_selector("#login-form:not(.hidden), #v-home:not(.hidden)", timeout=60000)
+            if page.is_visible("#login-form"):
+                page.fill("#pw", ADMIN_PW)
+                page.click("#login-btn")
+                page.wait_for_selector("#v-home:not(.hidden)")
 
         @step("4.1 admin login; the checklist says the wallet is connected to the real server")
         def _():
@@ -197,7 +200,8 @@ def main():
 
         @step("5.5 download a backup from Settings and verify it opens with the admin password")
         def _():
-            page.click("nav button[data-v=settings]")
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#bk-go")
             page.fill("#bk-admin", ADMIN_PW)
             with page.expect_download(timeout=120000) as dl:
                 page.click("#bk-go")

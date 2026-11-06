@@ -88,10 +88,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Package the WooCommerce plugin
+        run: |
+          mkdir -p dist
+          (cd integrations/woocommerce && zip -r -X ../../dist/ebp-bitcoin-woocommerce.zip ebp-bitcoin)
+
       - name: Generate SHA256SUMS
         run: |
           cd dist
-          sha256sum ebp-*.tar.gz > SHA256SUMS
+          sha256sum ebp-*.tar.gz ebp-bitcoin-woocommerce.zip > SHA256SUMS
           cat SHA256SUMS
 
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
@@ -107,6 +112,7 @@ jobs:
         with:
           files: |
             dist/ebp-*.tar.gz
+            dist/ebp-bitcoin-woocommerce.zip
             dist/SHA256SUMS
             dist/SHA256SUMS.sigstore.json
           generate_release_notes: true

@@ -40,6 +40,7 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 ### Documentation map
 
 - [docs/START_HERE.md](docs/START_HERE.md) — shop owners start here.
+- [docs/WOOCOMMERCE.md](docs/WOOCOMMERCE.md) — connect a WooCommerce shop.
 - [docs/HANDOFF.md](docs/HANDOFF.md) — one-stop context for a new developer/agent.
 - [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) — open issues and debug procedures.
 - [docs/PHASE0_SPIKE_PLAN.md](docs/PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions and log.

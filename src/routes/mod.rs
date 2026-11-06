@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod admin_session;
+pub mod alerts;
 pub mod backup;
 pub mod checkout;
 pub mod checkout_rails;
@@ -129,6 +130,10 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/logout", post(admin_session::logout))
         .route("/admin/payout/cancel", post(payout::cancel))
         .route("/admin/sweep", post(payout::sweep_now))
+        .route("/admin/alerts/status", post(alerts::get))
+        .route("/admin/alerts/enable", post(alerts::enable))
+        .route("/admin/alerts/disable", post(alerts::disable))
+        .route("/admin/alerts/test", post(alerts::test))
         .route("/admin/password", post(admin_session::change_password))
         .merge(
             Router::new()

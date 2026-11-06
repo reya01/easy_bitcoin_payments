@@ -26,6 +26,7 @@ label{display:block;font-size:14px;color:var(--muted);margin:12px 0 4px}
 input[type=text],input[type=password],input[type=url]{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 button{font:inherit;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 button.primary{background:var(--accent);border-color:var(--accent);color:#1a1100;font-weight:600}
+button.plain{background:transparent}
 button.small{min-height:36px;padding:0 12px;font-size:14px}
 button:disabled{opacity:.5}
 .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
@@ -56,6 +57,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-home" class="hidden">
+  <div class="card hidden" id="phone-home"></div>
   <div class="card hidden" id="update"></div>
   <h2>Is everything OK?</h2>
   <div class="card" id="health"></div>
@@ -123,6 +125,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-set" class="hidden">
+  <h2>Phone alerts</h2>
+  <div class="card" id="phone-set"></div>
   <h2>Change admin password</h2>
   <div class="card">
     <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
@@ -169,6 +173,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <button data-v="set" type="button">Settings</button>
 </nav>
 
+<script src="/assets/qr.js"></script>
 <script>
 (function () {
 "use strict";
@@ -206,6 +211,7 @@ function show(name) {
   if (name === "alerts") loadAlerts();
   if (name === "hooks") loadDeliveries();
   if (name === "set") { loadAudit(); loadPayout(); }
+  if (name === "home" || name === "set") loadPhone();
 }
 function signedOut() { csrf = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
@@ -252,6 +258,84 @@ function loadVersion() {
       var a = el("a", "What changed in this version"); a.href = v.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer";
       u.appendChild(a);
     }
+  }).catch(function () {});
+}
+
+// ---- Phone alerts (optional, via the free ntfy app) ----
+function phoneBtn(label, fn, plain) {
+  var b = el("button", label); b.type = "button"; if (plain) b.className = "plain";
+  b.addEventListener("click", function () { b.disabled = true; fn(b); });
+  return b;
+}
+function phoneAct(path, body, done) {
+  api("POST", path, body || {}).then(function (r) { done(null, r); }).catch(function (e) { done(e); });
+}
+function renderPhone(box, a, onHome) {
+  clear(box);
+  if (a.state === "undecided") {
+    box.appendChild(el("strong", "Get alerts on your phone?"));
+    box.appendChild(el("p", "If something needs you (the payment wallet is unreachable, a payment can't be matched to an order, a withdrawal fails) we can send a short message to your phone. Messages never contain amounts or addresses. It's free and takes about a minute.", "muted"));
+    var btns = el("div", "", "btns");
+    btns.appendChild(phoneBtn("Set up phone alerts", function () { phoneAct("/admin/alerts/enable", {}, function () { loadPhone(); }); }));
+    btns.appendChild(phoneBtn("No thanks", function () { phoneAct("/admin/alerts/disable", {}, function () { loadPhone(); }); }, true));
+    box.appendChild(btns);
+    return;
+  }
+  if (onHome) return;
+  if (a.state === "off") {
+    box.appendChild(el("p", "Phone alerts are off. You will only see problems when you open this dashboard.", "muted"));
+    var b2 = el("div", "", "btns");
+    b2.appendChild(phoneBtn("Turn phone alerts on", function () { phoneAct("/admin/alerts/enable", {}, function () { loadPhone(); }); }));
+    box.appendChild(b2);
+    return;
+  }
+  var host = a.server.replace(/^https?:\/\//, "");
+  box.appendChild(el("p", "1. On your phone, install the free \"ntfy\" app (App Store or Google Play).", "muted"));
+  box.appendChild(el("p", "2. Open it, tap +, and type this topic name exactly" + (a.server !== a.default_server ? " (and use the server " + host + ")" : "") + ":", "muted"));
+  var t = el("div", a.topic, "secret"); t.id = "phone-topic"; box.appendChild(t);
+  var c = el("button", "Copy"); c.type = "button"; c.setAttribute("data-copy", "phone-topic"); box.appendChild(c);
+  box.appendChild(el("p", "Keep this topic private: anyone who knows it could read your alerts.", "muted"));
+  var link = "ntfy://" + host + "/" + a.topic;
+  var q = el("p", "Or on the same phone, tap: ", "muted");
+  var ln = el("a", "open in ntfy"); ln.href = link; q.appendChild(ln);
+  box.appendChild(q);
+  try {
+    var img = document.createElement("img");
+    img.alt = "QR code for the alerts topic"; img.width = 160; img.height = 160;
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg(link));
+    box.appendChild(img);
+  } catch (e) {}
+  var msg = el("p", "", "msg hidden"); msg.id = "phone-msg";
+  var row2 = el("div", "", "btns");
+  row2.appendChild(phoneBtn("Send a test alert", function (b) {
+    phoneAct("/admin/alerts/test", {}, function (e) {
+      b.disabled = false; msg.classList.remove("hidden");
+      msg.className = "msg " + (e ? "bad" : "ok");
+      msg.textContent = e ? e.message : "Sent. It should appear on your phone in a few seconds.";
+    });
+  }));
+  row2.appendChild(phoneBtn("Turn phone alerts off", function () { phoneAct("/admin/alerts/disable", {}, function () { loadPhone(); }); }, true));
+  box.appendChild(row2);
+  box.appendChild(msg);
+  var d = document.createElement("details");
+  d.appendChild(el("summary", "Use my own ntfy server (advanced)"));
+  var inp = document.createElement("input"); inp.type = "text"; inp.id = "phone-server"; inp.placeholder = "https://ntfy.example.com";
+  d.appendChild(inp);
+  var sv = phoneBtn("Save server", function (b) {
+    phoneAct("/admin/alerts/enable", { server: inp.value }, function (e) {
+      b.disabled = false;
+      if (e) { msg.classList.remove("hidden"); msg.className = "msg bad"; msg.textContent = e.message; } else loadPhone();
+    });
+  }, true);
+  d.appendChild(sv);
+  box.appendChild(d);
+}
+function loadPhone() {
+  api("POST", "/admin/alerts/status", {}).then(function (a) {
+    var h = $("phone-home"), s = $("phone-set");
+    renderPhone(h, a, true);
+    h.classList.toggle("hidden", a.state !== "undecided");
+    renderPhone(s, a, false);
   }).catch(function () {});
 }
 

@@ -34,6 +34,7 @@ services:
       EBP_ONCHAIN_SWEEP_CAP_SATS: ${EBP_ONCHAIN_SWEEP_CAP_SATS:-1000000}
       EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB: ${EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB:-50}
       EBP_SETTLEMENT_INTERVAL_SECS: ${EBP_SETTLEMENT_INTERVAL_SECS:-300}
+      EBP_RENEWAL_LEAD_TIME_SECS: ${EBP_RENEWAL_LEAD_TIME_SECS:-604800}
       EBP_ALLOW_INSECURE_SETUP: ${EBP_ALLOW_INSECURE_SETUP:-false}
       # start.sh sets this to true with --https (Caddy adds the real visitor
       # address, which the rate limiter then uses).

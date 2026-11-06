@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  issues: write # post the funding address (and the report) where it can be read live
 
 jobs:
   pay:
@@ -40,6 +41,7 @@ jobs:
           python3 -m playwright install --with-deps chromium
       - name: Run the payment drill
         env:
+          GH_TOKEN: ${{ github.token }}
           RETURN_TO: ${{ inputs.return_to }}
           MIN_SATS: ${{ inputs.min_sats }}
           WAIT_MIN: ${{ inputs.wait_minutes }}

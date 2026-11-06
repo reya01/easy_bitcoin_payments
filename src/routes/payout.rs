@@ -3,6 +3,8 @@
 //! * `GET  /api/v1/payout`         — current / pending address (signed in).
 //! * `POST /admin/payout`          — change it (session + CSRF + admin password).
 //! * `POST /admin/payout/cancel`   — cancel a pending change (session + CSRF).
+//! * `POST /admin/sweep`           — move the whole till to the payout address now
+//!   (session + CSRF; it can only ever pay the saved payout address).
 
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -31,6 +33,7 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
         "cap_sats": s.active.as_deref().map(|a| config.sweep_cap_for(a)),
         "ark_cap_sats": config.hot_wallet_cap_sats,
         "onchain_cap_sats": config.onchain_sweep_cap_sats,
+        "onchain_max_fee_sat_vb": config.onchain_sweep_max_fee_sat_vb,
         "pending_address": s.pending,
         "pending_effective_at": s.effective_at,
         "set_by_server_config": s.from_server_config,
@@ -102,4 +105,38 @@ pub async fn cancel(
         })
         .await?;
     Ok(Json(view(&s, &state.config)))
+}
+
+/// `POST /admin/sweep` — the merchant asks for the whole till to be sent to
+/// the saved payout address right now (ignores the till cap and the on-chain
+/// fee limit). It cannot redirect money: the destination is always the saved
+/// payout address.
+pub async fn sweep_now(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    let cfg = state.config.settlement_destination.clone();
+    let has_destination = state
+        .db
+        .call(move |c| crate::payout::effective(c, cfg.as_deref()))
+        .await?
+        .is_some_and(|d| !d.trim().is_empty());
+    if !has_destination {
+        return Err(AppError::BadRequest(
+            "add a payout address first; there is nowhere to send the money yet".into(),
+        ));
+    }
+    let client = crate::wallet::barkd::BarkdClient::from_app_config(&state.config)
+        .map_err(AppError::from)?;
+    let engine = crate::wallet::settlement::SettlementEngine::new(
+        client,
+        state.db.clone(),
+        state.config.clone(),
+    );
+    let report = engine.sweep_now().await?;
+    Ok(Json(json!({
+        "swept_sats": report.swept_sats,
+        "note": report.sweep_refused,
+    })))
 }

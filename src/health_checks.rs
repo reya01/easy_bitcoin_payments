@@ -170,7 +170,7 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 Level::Warn,
                 "Safety reserve is low",
                 &format!(
-                    "Add about {} sats of regular on-chain bitcoin to the wallet so you could always withdraw on your own. Automatic withdrawals are paused until then.",
+                    "Add about {} sats of regular on-chain bitcoin to the wallet so you could always withdraw on your own if the payment network stopped working. Payments and automatic withdrawals keep working without it; this only matters for the money held in the shop wallet at that moment.",
                     f.exit_reserve_shortfall_sats.max(0)
                 ),
             );

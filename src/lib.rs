@@ -7,6 +7,7 @@
 //! EXPERIMENTAL — use signet or regtest only, never mainnet or real funds.
 
 pub mod admin_auth;
+pub mod aead;
 pub mod audit;
 pub mod auth;
 pub mod backup;

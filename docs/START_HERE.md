@@ -69,8 +69,10 @@ minute.) Then the setup page walks you through, in this order:
    on paper, twice, keep the copies in different places. Never photograph,
    never type them anywhere else. You will be asked to type three of them
    back to prove you wrote them down correctly.
-4. **Name your store and choose an admin password** (10+ characters). The
-   admin password signs you in to the admin page (`/admin`) later.
+4. **Name your store, choose an admin password** (10+ characters; it signs
+   you in to the admin page and locks your backups) **and paste the address
+   of your own wallet** (where the till empties to; you can skip it and add
+   it later in Settings).
 5. **Two secrets appear once** — the **API key** and the **webhook signing
    secret**. Save both in a password manager. They cannot be shown again.
 6. **Finish.** The server restarts once, so the page may not answer for about

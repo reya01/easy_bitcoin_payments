@@ -13,6 +13,7 @@
 - Payments completed after an invoice's deadline are parked as `paid_after_expiry` regardless of watcher tick order.
 
 ### Added
+- Payout address (where the till empties to): asked for in the setup wizard and editable in Settings. The first address applies at once; changing it later needs the admin password, waits 24 hours (`EBP_PAYOUT_CHANGE_DELAY_SECS`), is logged, shows a warning on Home and can be cancelled. On-chain addresses get a checksum check. An address in the server configuration still wins.
 - One install path: `docker-compose.yml` is now the single-container install (EBP runs the wallet daemon itself); the old two-container stack is `docker-compose.two-container.yml` with its own guide (`docs/ADVANCED_TWO_CONTAINER.md`). The AWS walkthrough is rewritten for the single path (setup code, no token copying, no `.env`); no `COMPOSE_FILE` step is needed any more.
 - The encrypted backup now includes the at-rest encryption key (`ebp.key`), so one file restores everything; START_HERE no longer asks beginners to generate and save a key.
 - Signet drill: pre-flight checklist, new steps (https cookie, Try a payment, backup download/verify/restore against the real barkd folder) and `scripts/drill_capture.sh`, a read-only helper that saves barkd's real answers (never tokens or recovery words) for comparison with the parser.

@@ -160,6 +160,21 @@ def setup_ebp():
         browser.close()
 
 
+def post_issue(title, body):
+    """Publish where it can be read while the job is still running (the job
+    log and summary are not available until the job ends)."""
+    if not os.environ.get("GH_TOKEN"):
+        return
+    rc, out = sh("gh issue create --title %s --body-file -" % json.dumps(title), inp=body)
+    state["issue"] = out.strip().splitlines()[-1] if rc == 0 else None
+    print("issue:", state.get("issue") or out[-200:], flush=True)
+
+
+def comment_issue(body):
+    if state.get("issue") and os.environ.get("GH_TOKEN"):
+        sh("gh issue comment %s --body-file -" % state["issue"], inp=body)
+
+
 def summary(text):
     p = os.environ.get("GITHUB_STEP_SUMMARY")
     if p:
@@ -198,6 +213,7 @@ def main():
         )
         print("\n" + "=" * 60 + "\n" + msg.replace("**", "") + "\n" + "=" * 60 + "\n", flush=True)
         summary(msg)
+        post_issue("signet-pay: send signet coins now", msg)
         # Annotations show up on the check run (readable live through the API).
         print(f"::notice title=SEND SIGNET COINS (Ark)::{ark}", flush=True)
         if onchain:
@@ -317,4 +333,5 @@ finally:
     open("pay-report.md", "w").write("\n".join(lines) + "\n")
     print("\n".join(lines))
     summary("\n".join(lines))
+    comment_issue("\n".join(lines)[:60000])
     sys.exit(0 if results and all(r == "PASS" for _, r, _ in results) else 1)

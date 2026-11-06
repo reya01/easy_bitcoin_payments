@@ -52,6 +52,11 @@ docker compose build
 docker compose up -d
 ```
 
+If you installed with the single-container setup from START_HERE, your
+`.env` file already names the right compose file (`COMPOSE_FILE=...`), so
+these same three commands update it. Never run them with a different
+compose file than you installed with: that would start a second, empty stack.
+
 SQLite migrations run automatically on boot. Afterwards check
 `GET /api/v1/health` and the dashboard's ASP indicator before taking
 payments again.

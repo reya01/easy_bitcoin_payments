@@ -35,7 +35,10 @@ async fn view(state: &AppState) -> Result<Json<Value>, AppError> {
     Ok(Json(v))
 }
 
-pub async fn get(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<Value>, AppError> {
+pub async fn get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     view(&state).await
 }

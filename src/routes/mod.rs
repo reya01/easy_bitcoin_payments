@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod admin_session;
+pub mod alerts;
 pub mod backup;
 pub mod checkout;
 pub mod checkout_rails;
@@ -7,7 +8,6 @@ pub mod dashboard;
 pub mod deliveries;
 pub mod health;
 pub mod invoices;
-pub mod alerts;
 pub mod payout;
 pub mod setup;
 pub mod stores;

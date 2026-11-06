@@ -247,7 +247,14 @@ pub async fn send(
         .post(format!("{}/{}", server.trim_end_matches('/'), topic))
         .header("Title", title)
         .header("Priority", if urgent { "high" } else { "default" })
-        .header("Tags", if urgent { "warning" } else { "white_check_mark" })
+        .header(
+            "Tags",
+            if urgent {
+                "warning"
+            } else {
+                "white_check_mark"
+            },
+        )
         .body(body.to_string())
         .send()
         .await
@@ -261,9 +268,7 @@ pub async fn send(
 
 /// `POST /admin/alerts/test` helper.
 pub async fn send_test(db: &Db) -> Result<(), AppError> {
-    let (server, topic) = db
-        .call(|c| Ok((server(c)?, topic(c)?)))
-        .await?;
+    let (server, topic) = db.call(|c| Ok((server(c)?, topic(c)?))).await?;
     let topic = topic.ok_or_else(|| AppError::BadRequest("turn phone alerts on first".into()))?;
     send(
         &server,

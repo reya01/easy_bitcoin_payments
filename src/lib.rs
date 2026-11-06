@@ -8,6 +8,7 @@
 
 pub mod admin_auth;
 pub mod aead;
+pub mod alerts;
 pub mod audit;
 pub mod auth;
 pub mod backup;

@@ -158,6 +158,12 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         webhooks: webhooks.clone(),
     };
 
+    // Optional phone alerts (ntfy). Idle unless the merchant turned them on.
+    tokio::spawn(easy_bitcoin_payments::alerts::run(
+        db.clone(),
+        state.wallet.clone(),
+    ));
+
     // Durable webhook outbox dispatcher (beta hardening): delivers events the
     // watcher queued in `webhook_deliveries`, with backoff, surviving
     // restarts. Exactly ONE dispatcher must run.

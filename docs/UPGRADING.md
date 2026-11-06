@@ -17,7 +17,7 @@ option to turn one on. You choose when to update:
   and how many orders are open. It learns this from one anonymous request to
   the public releases page, cached for hours; switch it off with
   `EBP_UPDATE_CHECK=false`. It never installs anything.
-- On Render, `render.yaml` sets `autoDeploy: false`; update with
+- On Render (paid plan required; see START_HERE), `render.yaml` sets `autoDeploy: false`; update with
   Manual Deploy -> Deploy latest commit. Leave auto-deploy off.
 - Restarting is safe at any time: pending payments and webhook notifications
   are stored and resume.

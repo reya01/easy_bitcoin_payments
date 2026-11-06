@@ -18,6 +18,7 @@ pub mod invoice;
 pub mod managed_barkd;
 pub mod models;
 pub mod onchain;
+pub mod payout;
 pub mod ratelimit;
 pub mod rates;
 pub mod retention;

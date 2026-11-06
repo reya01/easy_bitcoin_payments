@@ -8,6 +8,8 @@
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
+> ☁ **Using Render?** It needs a **paid plan** or your data (including wallet files) is erased on every restart; see [docs/START_HERE.md](docs/START_HERE.md#using-render-instead-of-your-own-server-experimental).
+
 > 🛍 **Shop owner?** Start with [docs/START_HERE.md](docs/START_HERE.md) — what this is, what you need, and how to tell it worked, in plain words.
 
 > 📱 **Testing EBP?** Follow [docs/MASTER_TEST_WALKTHROUGH.md](docs/MASTER_TEST_WALKTHROUGH.md) — the complete beginner walkthrough (AWS + iPhone, every known error and its fix). It is updated whenever a new failure is discovered.

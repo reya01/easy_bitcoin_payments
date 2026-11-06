@@ -14,6 +14,7 @@
 - `docker-compose.yml` accepts `EBP_IMAGE` (a signed prebuilt image); `scripts/start.sh` pulls it and falls back to building.
 
 ### Fixed
+- **Found by the first live signet run:** wallet creation on the single-container install failed with a 401 (barkd already held a token and EBP sent none), and after the recovery-words quiz the page always asked the merchant to paste a barkd token instead of applying it itself. Both fixed; `signet-smoke` (manual workflow) now exercises the real container, wizard, backup coverage, restore and restart against the real signet Ark server.
 - Wizard wallet-create now sends the field barkd actually reads (`ark_server`); a custom ASP was silently ignored before.
 - Barkd request shapes aligned with the pinned OpenAPI (`amount_sat`, `vtxos`, `tip_height`); wallet history read from `/api/v1/history` (the old endpoint is deprecated).
 - Payments completed after an invoice's deadline are parked as `paid_after_expiry` regardless of watcher tick order.

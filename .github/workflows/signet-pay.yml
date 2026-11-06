@@ -57,7 +57,7 @@ jobs:
             docker compose cp payer-wallet/. ebp:/tmp/payer
             # Files copied in are owned by root; barkd runs as the container's user.
             uid_gid="$(docker compose exec -T ebp sh -c 'echo $(id -u):$(id -g)')"
-            docker compose exec -T -u root ebp sh -c "chown -R $uid_gid /tmp/payer; rm -f /tmp/payer/LOCK /tmp/payer/barkd.lock /tmp/payer/auth_token"
+            docker compose exec -T -u root ebp sh -c "chown -R $uid_gid /tmp/payer; chmod 700 /tmp/payer; rm -f /tmp/payer/LOCK /tmp/payer/barkd.lock /tmp/payer/auth_token"
             echo "restored a saved payer wallet"
           fi
       - name: Install the browser driver

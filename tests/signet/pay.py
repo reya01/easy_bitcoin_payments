@@ -206,25 +206,17 @@ def main():
     def _():
         start_payer()
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
-        state["payer_token"] = tok.strip().splitlines()[-1].strip()
+        # barkd prints warnings on the same stream; the token is the one
+        # line that is only token characters.
+        toks = [l.strip() for l in tok.splitlines() if re.fullmatch(r"[A-Za-z0-9_-]{30,80}", l.strip())]
+        state["payer_token"] = toks[-1] if toks else ""
         assert state["payer_token"], "no payer token"
         # The mnemonic file exists only once a wallet was created (a restored one).
-        print(sh("docker compose exec -T ebp ls -la /tmp/payer")[1], flush=True)
-        print(sh("docker compose exec -T ebp sh -c 'ps aux | grep [b]arkd'")[1], flush=True)
         have = sh("docker compose exec -T ebp test -s /tmp/payer/mnemonic")[0] == 0
-        print("restored wallet present:", have, flush=True)
         if have:
             # Restored from the previous run: the coins you already sent are still here.
             notes.append("Reusing the payer wallet saved by an earlier run.")
-            c1, _ = payer("GET", "/api/v1/wallet/balance")
-            c2, r2 = payer("POST", "/api/v1/wallet/sync")
-            c3, _ = payer("GET", "/api/v1/wallet/balance")
-            _, tok2 = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
-            same = tok2.strip().splitlines()[-1].strip() == state["payer_token"]
-            print(f"restored wallet calls: balance={c1} sync={c2} {str(r2)[:120]} balance={c3} token_unchanged={same}", flush=True)
-            if not same:
-                state["payer_token"] = tok2.strip().splitlines()[-1].strip()
-            print(sh("docker compose exec -T ebp sh -c 'sha256sum /tmp/payer/auth_token | cut -c1-12; tail -n 25 /tmp/payer/debug.log; cat /tmp/payer/config.toml | sed -E \"s/(token|key)[^=]*=.*/\\1=<hidden>/\"'")[1][-3000:], flush=True)
+            payer("POST", "/api/v1/wallet/sync")
         else:
             code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
             assert code == 200, (code, out)

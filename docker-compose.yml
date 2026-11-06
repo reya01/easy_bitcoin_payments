@@ -31,6 +31,7 @@ services:
       # money in the till for now.
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
       EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-500000}
+      EBP_SETTLEMENT_INTERVAL_SECS: ${EBP_SETTLEMENT_INTERVAL_SECS:-300}
       EBP_ALLOW_INSECURE_SETUP: ${EBP_ALLOW_INSECURE_SETUP:-false}
       # start.sh sets this to true with --https (Caddy adds the real visitor
       # address, which the rate limiter then uses).

@@ -18,6 +18,10 @@ on:
         description: "Sats the payer needs before the tests start"
         required: false
         default: "20000"
+      rebuild_payer:
+        description: "Rebuild the saved payer wallet from its recovery words (fixes stale coin records)"
+        required: false
+        default: "false"
       wait_minutes:
         description: "How long to wait for you to fund it"
         required: false
@@ -44,6 +48,11 @@ jobs:
           key: signet-payer-none
           restore-keys: signet-payer-
       - name: Build and start the stack
+        env:
+          # Small cap and fast checks so the automatic transfer to the
+          # payout wallet shows up during the drill.
+          EBP_HOT_WALLET_CAP_SATS: "3000"
+          EBP_SETTLEMENT_INTERVAL_SECS: "30"
         run: docker compose up -d --build
       - name: Put the saved payer wallet in place
         run: |
@@ -52,7 +61,7 @@ jobs:
             docker compose cp payer-wallet/. ebp:/tmp/payer
             # Files copied in are owned by root; barkd runs as the container's user.
             uid_gid="$(docker compose exec -T ebp sh -c 'echo $(id -u):$(id -g)')"
-            docker compose exec -T -u root ebp sh -c "chown -R $uid_gid /tmp/payer; rm -f /tmp/payer/LOCK /tmp/payer/barkd.lock /tmp/payer/auth_token"
+            docker compose exec -T -u root ebp sh -c "chown -R $uid_gid /tmp/payer; chmod 700 /tmp/payer; rm -f /tmp/payer/LOCK /tmp/payer/barkd.lock /tmp/payer/auth_token"
             echo "restored a saved payer wallet"
           fi
       - name: Install the browser driver
@@ -65,6 +74,7 @@ jobs:
           RETURN_TO: ${{ inputs.return_to }}
           MIN_SATS: ${{ inputs.min_sats }}
           WAIT_MIN: ${{ inputs.wait_minutes }}
+          REBUILD_PAYER: ${{ inputs.rebuild_payer }}
         run: python3 tests/signet/pay.py
       - name: Save the payer wallet for the next run
         if: always()

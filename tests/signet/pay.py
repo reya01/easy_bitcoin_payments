@@ -26,6 +26,7 @@ ADMIN_PW = "signet drill pay password"
 RETURN_TO = os.environ.get("RETURN_TO", "").strip()
 MIN_SATS = int(os.environ.get("MIN_SATS", "20000") or 20000)
 WAIT_MIN = int(os.environ.get("WAIT_MIN", "55") or 55)
+REBUILD = os.environ.get("REBUILD_PAYER", "") == "true"
 results, notes = [], []
 state = {}
 
@@ -116,6 +117,14 @@ def start_payer():
 def pay(dest, sats, what):
     """Send from the payer; record exactly what barkd answered."""
     code, r = payer("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": sats})
+    for _ in range(2):
+        if code == 200:
+            break
+        # The payer's own coin bookkeeping can lag right after a send; sync and retry.
+        notes.append(f"{what}: first attempt http {code} {str(r)[:160]} -> sync and retry")
+        payer("POST", "/api/v1/wallet/sync")
+        time.sleep(8)
+        code, r = payer("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": sats})
     b = balance()
     notes.append(f"{what}: send {sats} -> http {code} {str(r)[:160]} | payer now spendable={b['spendable_sat']} in_round={b['pending_in_round_sat']} arkoor_pending={b['pending_arkoor_send_sat']}")
     assert code == 200, (what, code, r)
@@ -201,25 +210,52 @@ def main():
     def _():
         setup_ebp()
         assert state["api_key"].startswith("ebp_")
+        # The server restarts itself once after the wizard; wait until its
+        # wallet is reachable again before creating invoices.
+        def wallet_up():
+            rc, out = sh(f"curl -fsS {BASE}/api/v1/health")
+            try:
+                return rc == 0 and json.loads(out)["wallet"]["reachable"]
+            except Exception:  # noqa: BLE001
+                return False
+        wait_for(wallet_up, "EBP's wallet reachable after setup", 180, 3)
 
     @step("payer: a second barkd starts and creates its own signet wallet", critical=True)
     def _():
+        words = None
+        if REBUILD:
+            # Rebuild the payer's local records from its recovery words (read
+            # in memory only, never printed), to drop stale coin bookkeeping.
+            rc, w = sh("docker compose exec -T ebp cat /tmp/payer/mnemonic")
+            words = " ".join(w.split()) if rc == 0 else None
+            assert words and len(words.split()) in (12, 24), "no saved recovery words to rebuild from"
+            sh("docker compose exec -T ebp sh -c 'rm -rf /tmp/payer/* /tmp/payer/.[!.]*'")
         start_payer()
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
-        state["payer_token"] = tok.strip().splitlines()[-1].strip()
+        # barkd prints warnings on the same stream; the token is the one
+        # line that is only token characters.
+        toks = [l.strip() for l in tok.splitlines() if re.fullmatch(r"[A-Za-z0-9_-]{30,80}", l.strip())]
+        state["payer_token"] = toks[-1] if toks else ""
         assert state["payer_token"], "no payer token"
         # The mnemonic file exists only once a wallet was created (a restored one).
-        print(sh("docker compose exec -T ebp ls -la /tmp/payer")[1], flush=True)
-        print(sh("docker compose exec -T ebp sh -c 'ps aux | grep [b]arkd'")[1], flush=True)
-        have = sh("docker compose exec -T ebp test -s /tmp/payer/mnemonic")[0] == 0
-        print("restored wallet present:", have, flush=True)
+        have = (not REBUILD) and sh("docker compose exec -T ebp test -s /tmp/payer/mnemonic")[0] == 0
         if have:
             # Restored from the previous run: the coins you already sent are still here.
             notes.append("Reusing the payer wallet saved by an earlier run.")
             payer("POST", "/api/v1/wallet/sync")
         else:
-            code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
-            assert code == 200, (code, out)
+            body = {"network": "signet"}
+            if words:
+                body["mnemonic"] = words
+            code, out = payer("POST", "/api/v1/wallet/create", body)
+            assert code == 200, (code, str(out)[:200])
+            if words:
+                del words
+                for _ in range(6):
+                    payer("POST", "/api/v1/wallet/sync")
+                    payer("POST", "/api/v1/wallet/sync/mailbox")
+                    time.sleep(10)
+                notes.append(f"Rebuilt the payer wallet from its saved words: spendable={balance()['spendable_sat']} sats")
 
     @step("payer: wait for YOU to fund it (watch the job summary / log for the address)", critical=True)
     def _():
@@ -328,6 +364,48 @@ def main():
         f = sorted(x for x in os.listdir(".") if x.startswith("drill-capture-"))[-1]
         cap = open(f).read()
         notes.append("Real barkd answers after payments:\n" + cap[:30000])
+
+    @step("payout: set the payout address; EBP moves the excess above the till cap there by itself")
+    def _():
+        def ebp_admin(method, path, body=None):
+            csrf = state.get("csrf", "")
+            cmd = (f"curl -sS -m 60 -b jar -c jar -X {method} -H 'content-type: application/json' -H 'x-ebp-csrf: {csrf}' "
+                   f"-w '\\n%{{http_code}}' {BASE}{path}")
+            if body is not None:
+                cmd += " -d @-"
+            _, out = sh(cmd, inp=json.dumps(body) if body is not None else None, timeout=90)
+            text, _, code = out.rpartition("\n")
+            try:
+                return int(code), (json.loads(text) if text.strip() else None)
+            except Exception:  # noqa: BLE001
+                return 0, text[:200]
+
+        code, r = ebp_admin("POST", "/admin/login", {"password": ADMIN_PW})
+        assert code == 200, ("admin login", code)
+        state["csrf"] = (r or {}).get("csrf", "")
+        code, a = payer("POST", "/api/v1/wallet/addresses/next")
+        assert code == 200, (code, a)
+        dest = a["address"]
+        before = balance()["spendable_sat"]
+        code, r = ebp_admin("POST", "/admin/payout", {"address": dest, "admin_password": ADMIN_PW})
+        notes.append(f"set payout address -> http {code}")
+        if code != 200:
+            _, jar = sh("awk '{print $1, $2, $4, $6}' jar")
+            notes.append("cookie jar (domain, subdomains, secure, name):\n" + jar + f"\nresponse: {str(r)[:200]}")
+        assert code == 200, (code, r)
+        def grew():
+            payer("POST", "/api/v1/wallet/sync")
+            payer("POST", "/api/v1/wallet/sync/mailbox")
+            return balance()["spendable_sat"] > before
+
+        try:
+            wait_for(grew, "the automatic transfer to arrive in the payout wallet", 360, 15)
+        finally:
+            _, lg = sh("docker compose logs --no-color --tail 300 ebp")
+            hits = [l[-240:] for l in lg.splitlines() if "sweep" in l.lower() or "reserve" in l.lower() or "settle" in l.lower()][-10:]
+            notes.append("server log (sweep lines):\n" + "\n".join(hits))
+        notes.append(f"payer spendable before={before} after={balance()['spendable_sat']}")
+        assert balance()["spendable_sat"] > before, "payout wallet did not receive the sweep"
 
     @step("keep the coins: EBP's wallet goes back to the payer wallet (or RETURN_TO)")
     def _():

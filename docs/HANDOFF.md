@@ -33,7 +33,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   lets EBP stay a single Rust binary + SQLite. The SDK would couple EBP to
   Bark’s internal Rust API and force wallet state into the payments process.
 - **Capped till, Custody Level 0.** The server holds only a capped hot “till”
-  (`EBP_HOT_WALLET_CAP_SATS`, default 500,000 sats) and sweeps excess to the
+  (`EBP_HOT_WALLET_CAP_SATS`, default 20,000 sats for an Ark payout address; `EBP_ONCHAIN_SWEEP_CAP_SATS`, default 1,000,000, for an on-chain one) and sweeps excess to the
   merchant’s own wallet. WHY: passive Ark receive needs a server-side wallet,
   but the honest custody story is “minimize, cap, sweep home, document exactly.”
   The 15,000 sat/VTXO on-chain reserve keeps emergency exits fundable.

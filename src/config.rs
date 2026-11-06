@@ -22,7 +22,12 @@ pub struct Config {
     /// (the default); `rates_provider = "live"` uses the median of public
     /// spot APIs instead.
     pub static_rates: HashMap<String, f64>,
+    /// How much the till may hold before it sweeps to an ARK payout address.
+    /// Low on purpose: Ark transfers cost (almost) nothing.
     pub hot_wallet_cap_sats: i64,
+    /// Same, when the payout address is an ON-CHAIN address. Higher, because
+    /// every on-chain withdrawal pays a network fee.
+    pub onchain_sweep_cap_sats: i64,
     pub watcher_interval_secs: u64,
     pub webhook_timeout_secs: u64,
     pub log_level: String,
@@ -123,7 +128,8 @@ impl Default for Config {
             max_expiry_minutes: 1440,
             default_currency: "EUR".to_string(),
             static_rates,
-            hot_wallet_cap_sats: 500_000,
+            hot_wallet_cap_sats: 20_000,
+            onchain_sweep_cap_sats: 1_000_000,
             watcher_interval_secs: 10,
             webhook_timeout_secs: 10,
             log_level: "info,tower_http=info".to_string(),
@@ -219,6 +225,7 @@ struct FileConfig {
     default_currency: Option<String>,
     static_rates: Option<HashMap<String, f64>>,
     hot_wallet_cap_sats: Option<i64>,
+    onchain_sweep_cap_sats: Option<i64>,
     watcher_interval_secs: Option<u64>,
     webhook_timeout_secs: Option<u64>,
     log_level: Option<String>,
@@ -245,6 +252,16 @@ struct FileConfig {
 }
 
 impl Config {
+    /// The till cap that applies to a payout destination: Ark addresses use
+    /// the low cap, anything else (on-chain) the higher one.
+    pub fn sweep_cap_for(&self, destination: &str) -> i64 {
+        if is_ark_destination(destination) {
+            self.hot_wallet_cap_sats
+        } else {
+            self.onchain_sweep_cap_sats
+        }
+    }
+
     /// May the setup wizard run? Yes over HTTPS, on a loopback address
     /// (reached locally or through an SSH tunnel), or when explicitly
     /// overridden. Judged from `public_base_url`, which is what the merchant
@@ -327,6 +344,9 @@ impl Config {
         }
         if let Some(v) = file.static_rates {
             self.static_rates = v.into_iter().map(|(k, v)| (k.to_uppercase(), v)).collect();
+        }
+        if let Some(v) = file.onchain_sweep_cap_sats {
+            self.onchain_sweep_cap_sats = v;
         }
         if let Some(v) = file.hot_wallet_cap_sats {
             self.hot_wallet_cap_sats = v;
@@ -445,6 +465,9 @@ impl Config {
         if let Some(v) = lookup("EBP_DEFAULT_CURRENCY") {
             self.default_currency = v.to_uppercase();
         }
+        if let Some(v) = lookup("EBP_ONCHAIN_SWEEP_CAP_SATS") {
+            self.onchain_sweep_cap_sats = parse_int("EBP_ONCHAIN_SWEEP_CAP_SATS", &v)?;
+        }
         if let Some(v) = lookup("EBP_HOT_WALLET_CAP_SATS") {
             self.hot_wallet_cap_sats = parse_int("EBP_HOT_WALLET_CAP_SATS", &v)?;
         }
@@ -551,6 +574,12 @@ impl Config {
             return Err(ConfigError::Invalid {
                 key: "max_expiry_minutes".into(),
                 value: self.max_expiry_minutes.to_string(),
+            });
+        }
+        if self.onchain_sweep_cap_sats <= 0 {
+            return Err(ConfigError::Invalid {
+                key: "onchain_sweep_cap_sats".into(),
+                value: self.onchain_sweep_cap_sats.to_string(),
             });
         }
         if self.hot_wallet_cap_sats <= 0 {
@@ -693,7 +722,8 @@ mod tests {
     fn defaults_are_sane() {
         let c = Config::default();
         assert_eq!(c.default_expiry_minutes, 20);
-        assert_eq!(c.hot_wallet_cap_sats, 500_000);
+        assert_eq!(c.hot_wallet_cap_sats, 20_000);
+        assert_eq!(c.onchain_sweep_cap_sats, 1_000_000);
         assert!(c.static_rates.contains_key("EUR"));
         c.validate().expect("defaults validate");
     }
@@ -765,4 +795,10 @@ mod tests {
         assert_eq!(c.default_currency, "GBP");
         assert_eq!(c.static_rates.get("GBP"), Some(&80_000.0));
     }
+}
+
+/// Ark addresses are network-prefixed: `ark1…` (mainnet), `tark1…` (signet).
+pub fn is_ark_destination(destination: &str) -> bool {
+    let d = destination.trim().to_ascii_lowercase();
+    d.starts_with("ark1") || d.starts_with("tark1")
 }

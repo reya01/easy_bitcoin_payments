@@ -11,12 +11,14 @@
 //!    same ASP (e.g. their Arké wallet), or a cooperative offboard of the
 //!    whole till when it is an on-chain address (learn_offboard.md).
 //!    Emergency exits are never automated — they are a documented runbook.
-//! 3. **Exit reserve** — keep at least [`ONCHAIN_RESERVE_PER_VTXO_SATS`]
-//!    confirmed on-chain sats per spendable VTXO, checked against
-//!    `GET /onchain/balance`, so an emergency exit is always fundable. A
-//!    sweep that cannot keep this reserve is refused and logged: the VTXOs
-//!    being swept are exactly the VTXOs that would need an emergency exit
-//!    if the ASP stalls instead of cooperating.
+//! 3. **Exit reserve (advisory)** — the Home page warns when the till holds
+//!    less confirmed on-chain bitcoin than [`ONCHAIN_RESERVE_PER_VTXO_SATS`]
+//!    per spendable VTXO (so an emergency exit could be funded). It does NOT
+//!    block sweeps: a sweep moves coins out of the till, which is the safe
+//!    direction, and a new merchant has no on-chain reserve to begin with.
+//!
+//! An automatic ON-CHAIN sweep also waits until the network fee rate is at or
+//! below `onchain_sweep_max_fee_sat_vb`; the merchant can always sweep by hand.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -66,10 +68,6 @@ pub struct TickReport {
 /// determine (no timestamp and no resolvable height).
 const UNKNOWN_EXPIRY_RETRY_SECS: i64 = 3600;
 
-/// Minimum gap between reserve-driven consolidations (each is a refresh
-/// round that costs ASP fees).
-const CONSOLIDATION_RETRY_SECS: i64 = 3600;
-
 /// Pick VTXOs (largest first) until they cover `target` sats. Returns the
 /// chosen ids and their total. Offboarding is per whole VTXO, so the total
 /// can exceed `target` by up to one VTXO; it is never below it unless the
@@ -101,8 +99,6 @@ pub struct SettlementEngine {
     /// Last refused-sweep reason recorded, so a persistent refusal writes
     /// ONE `settlements` row instead of one per tick (was unbounded growth).
     last_refusal: std::sync::Mutex<Option<String>>,
-    /// Last time we consolidated VTXOs to relieve the exit reserve (R7).
-    last_consolidation: std::sync::Mutex<Option<i64>>,
 }
 
 impl SettlementEngine {
@@ -113,7 +109,6 @@ impl SettlementEngine {
             config,
             last_unknown_refresh: std::sync::Mutex::new(None),
             last_refusal: std::sync::Mutex::new(None),
-            last_consolidation: std::sync::Mutex::new(None),
         }
     }
 
@@ -154,6 +149,17 @@ impl SettlementEngine {
 
     /// One settlement cycle.
     pub async fn tick(&self) -> Result<TickReport, AppError> {
+        self.cycle(false).await
+    }
+
+    /// The merchant pressed "move my money now": one cycle that sweeps the
+    /// WHOLE till to the payout address, ignoring the till cap and the
+    /// on-chain fee limit (they asked for it).
+    pub async fn sweep_now(&self) -> Result<TickReport, AppError> {
+        self.cycle(true).await
+    }
+
+    async fn cycle(&self, manual: bool) -> Result<TickReport, AppError> {
         let mut report = TickReport::default();
 
         // NOTE: the sweep destination guard lives right before the sweep
@@ -162,11 +168,6 @@ impl SettlementEngine {
         // it must run regardless of where sweeps would go.
 
         let vtxos = self.client.vtxos().await.map_err(AppError::from)?;
-        let onchain = self
-            .client
-            .onchain_balance()
-            .await
-            .map_err(AppError::from)?;
         let balances = self.client.balances().await.map_err(AppError::from)?;
 
         let now = now_unix();
@@ -270,7 +271,12 @@ impl SettlementEngine {
         let offchain = balances.offchain_sats;
         // Ark payout: low cap (almost free). On-chain payout: higher cap
         // (every withdrawal pays a network fee).
-        let excess = offchain.saturating_sub(self.config.sweep_cap_for(&destination));
+        let cap = if manual {
+            0
+        } else {
+            self.config.sweep_cap_for(&destination)
+        };
+        let excess = offchain.saturating_sub(cap);
         if excess <= 0 {
             return Ok(report);
         }
@@ -280,81 +286,43 @@ impl SettlementEngine {
         let ark = crate::config::is_ark_destination(&destination);
         let kind = if ark { "sweep_ark" } else { "sweep_onchain" };
 
-        // 3. Exit-reserve gate, checked against /onchain/balance.
-        //
-        // An Ark-to-Ark sweep does NOT need the reserve: it moves coins out
-        // of the till (reducing what an emergency exit would have to cover)
-        // and needs no on-chain fee. Only the on-chain withdrawal path keeps
-        // the gate.
-        let reserve = exit_reserve(onchain.confirmed_sats, vtxos.spendable.len());
-        if !ark && !reserve.ok {
-            // R7: the reserve scales with the VTXO COUNT, and every customer
-            // payment can be its own VTXO. Before refusing, consolidate:
-            // refreshing all spendable VTXOs merges them into fewer outputs
-            // in the next round, which shrinks the reserve requirement.
-            // Throttled (each refresh costs ASP fees); the sweep is retried
-            // on a later tick once the round completes.
-            if reserve.vtxo_count > 1 {
-                let due_now = {
-                    let mut last = self
-                        .last_consolidation
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
-                    let ok = !matches!(*last, Some(t) if now - t < CONSOLIDATION_RETRY_SECS);
-                    if ok {
-                        *last = Some(now);
-                    }
-                    ok
-                };
-                if due_now {
-                    match self.client.refresh_all().await {
-                        Ok(_) => {
-                            let count = reserve.vtxo_count;
-                            self.db
-                                .call(move |conn| {
-                                    record(
-                                        conn,
-                                        "consolidate",
-                                        0,
-                                        "",
-                                        "broadcast",
-                                        Some(&format!(
-                                            "refreshed {count} vtxos to shrink the exit reserve requirement"
-                                        )),
-                                    )
-                                })
-                                .await?;
-                        }
-                        Err(err) => tracing::warn!(error = %err, "consolidation refresh failed"),
-                    }
+        // 3. On-chain fee limit. An automatic on-chain withdrawal waits for
+        //    cheap fees; Ark sweeps (almost free) and manual sweeps do not.
+        //    If the fee rate cannot be read we postpone: never overpay blind.
+        if !ark && !manual {
+            let max = self.config.onchain_sweep_max_fee_sat_vb;
+            let waiting = match self.client.onchain_fee_rates().await {
+                Ok(r) if r.regular_sat_per_vb <= max => None,
+                Ok(_) => Some(format!(
+                    "waiting for on-chain fees to drop to {max} sat/vB or less"
+                )),
+                Err(err) => {
+                    tracing::warn!(error = %err, "could not read on-chain fee rates");
+                    Some("could not read on-chain fee rates; withdrawal postponed".to_string())
                 }
-            }
-            let reason = format!(
-                "exit reserve short: {}/{} sats for {} spendable vtxos — fund the till's on-chain wallet",
-                reserve.onchain_sats, reserve.required_sats, reserve.vtxo_count
-            );
-            tracing::warn!(%reason, "sweep refused");
-            report.sweep_refused = Some(reason.clone());
-            // Dedupe: only write a row when the refusal reason changes.
-            let already = {
-                let mut last = self.last_refusal.lock().unwrap_or_else(|e| e.into_inner());
-                let same = last.as_deref() == Some(reason.as_str());
-                if !same {
-                    *last = Some(reason.clone());
-                }
-                same
             };
-            if !already {
-                let dest = destination.clone();
-                self.db
-                    .call(move |conn| record(conn, kind, excess, &dest, "failed", Some(&reason)))
-                    .await?;
+            if let Some(reason) = waiting {
+                tracing::info!(%reason, "on-chain sweep postponed");
+                report.sweep_refused = Some(reason.clone());
+                let already = {
+                    let mut last = self.last_refusal.lock().unwrap_or_else(|e| e.into_inner());
+                    let same = last.as_deref() == Some(reason.as_str());
+                    if !same {
+                        *last = Some(reason.clone());
+                    }
+                    same
+                };
+                if !already {
+                    let dest = destination.clone();
+                    self.db
+                        .call(move |conn| {
+                            record(conn, kind, excess, &dest, "waiting", Some(&reason))
+                        })
+                        .await?;
+                }
+                return Ok(report);
             }
-            return Ok(report);
         }
-
-        // Reserve is healthy again: forget the last refusal so a future
-        // refusal is logged afresh.
         *self.last_refusal.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         let (amount, result) = if ark {
@@ -572,6 +540,7 @@ mod tests {
                 200,
                 r#"{"spendable_sat": 150000}"#.to_string(),
             ),
+            "/api/v1/fees/onchain" => (200, r#"{"fast_sat_per_vb": 20, "regular_sat_per_vb": 10, "slow_sat_per_vb": 5}"#.to_string()),
             "/api/v1/wallet/offboard/vtxos" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
         }
@@ -626,63 +595,64 @@ mod tests {
         assert!(select_vtxos_covering(&[], 5).0.is_empty());
     }
 
-    #[tokio::test]
-    async fn refuses_a_sweep_that_would_breach_the_exit_reserve() {
-        // Two spendable VTXOs need 30,000 sats of reserve; the till holds
-        // 10,000 confirmed on-chain. The sweep must be refused and logged.
-        let (base, recorded) = mock::spawn(|req| {
-            match req.route() {
+    /// Mock for the fee tests: one 150,000-sat VTXO, NO on-chain reserve,
+    /// and a network fee rate of `regular` sat/vB.
+    fn fee_mock(
+        regular: i64,
+        till: i64,
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
+    ) {
+        mock::spawn(move |req| match req.route() {
             "/api/v1/wallet/vtxos" => (
                 200,
-                r#"[{"id": "v1", "amount_sat": 200000, "expires_at": 9999999999, "state": {"type": "spendable"}}, {"id": "v2", "amount_sat": 1, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": {till}, "expires_at": 9999999999, "state": {{"type": "spendable"}}}}]"#
+                ),
             ),
-            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 10000, "trusted_spendable_sat": 10000}"#.to_string()),
-            "/api/v1/wallet/balance" => (
+            "/api/v1/wallet/balance" => (200, format!(r#"{{"spendable_sat": {till}}}"#)),
+            "/api/v1/fees/onchain" => (
                 200,
-                r#"{"spendable_sat": 200001}"#.to_string(),
+                format!(
+                    r#"{{"fast_sat_per_vb": {}, "regular_sat_per_vb": {regular}, "slow_sat_per_vb": 1}}"#,
+                    regular + 10
+                ),
             ),
-            "/api/v1/wallet/refresh/all" => (200, "{}".to_string()),
+            "/api/v1/wallet/offboard/vtxos" => (200, "{}".to_string()),
             _ => (404, "{}".to_string()),
-        }
-        });
+        })
+    }
+
+    fn engine_for(base: &str, db: &Db, destination: &str, cap: i64) -> SettlementEngine {
         let client = crate::wallet::barkd::BarkdClient::new(
-            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+            crate::wallet::barkd::BarkdConfig::new(base, "t"),
         )
         .unwrap();
+        SettlementEngine::new(client, db.clone(), test_config(Some(destination), cap))
+    }
+
+    #[tokio::test]
+    async fn automatic_onchain_sweep_waits_for_low_fees() {
+        // No on-chain reserve at all, fees 80 > the 50 limit: nothing is sent,
+        // one calm "waiting" row is written (not one per tick).
+        let (base, recorded) = fee_mock(80, 150_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
-            client,
-            db.clone(),
-            test_config(Some("bc1qmerchant"), 100_000),
-        );
-        let report = engine.tick().await.unwrap();
-        assert!(report.swept_sats.is_none());
-        let reason = report.sweep_refused.expect("refusal reason");
-        assert!(reason.contains("reserve"), "{reason}");
-
-        // Guard dropped before the awaited DB call below (clippy::await_holding_lock).
-        {
-            let requests = recorded.lock().unwrap();
-            // R7: the only write allowed is the consolidating refresh; no
-            // send or offboard while the reserve is short.
-            assert!(
-                requests
-                    .iter()
-                    .all(|r| r.method == "GET" || r.route() == "/api/v1/wallet/refresh/all"),
-                "no sweep may be sent while the reserve is short"
-            );
-            assert!(
-                requests
-                    .iter()
-                    .any(|r| r.route() == "/api/v1/wallet/refresh/all"),
-                "two vtxos with a short reserve must trigger a consolidating refresh"
-            );
+        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        for _ in 0..3 {
+            let report = engine.tick().await.unwrap();
+            assert!(report.swept_sats.is_none());
+            assert!(report.sweep_refused.unwrap().contains("fees"));
         }
-
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
         let rows: i64 = db
             .call(|conn| {
                 Ok(conn.query_row(
-                    "SELECT COUNT(*) FROM settlements WHERE status = 'failed'",
+                    "SELECT COUNT(*) FROM settlements WHERE status = 'waiting' AND kind = 'sweep_onchain'",
                     [],
                     |r| r.get(0),
                 )?)
@@ -690,6 +660,60 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn automatic_onchain_sweep_goes_when_fees_are_low_even_without_a_reserve() {
+        let (base, recorded) = fee_mock(50, 150_000); // exactly at the limit
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.swept_sats, Some(150_000));
+        assert!(recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
+    }
+
+    #[tokio::test]
+    async fn manual_sweep_ignores_the_fee_limit_and_the_cap() {
+        // Fees 200 and the till (5,000) is far under the 100,000 cap: the
+        // automatic path does nothing, the button moves everything.
+        let (base, recorded) = fee_mock(200, 5_000);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        let report = engine.sweep_now().await.unwrap();
+        assert_eq!(report.swept_sats, Some(5_000));
+        let body = {
+            let requests = recorded.lock().unwrap();
+            let offboard = requests
+                .iter()
+                .find(|r| r.route() == "/api/v1/wallet/offboard/vtxos")
+                .expect("manual sweep must offboard");
+            serde_json::from_str::<serde_json::Value>(&offboard.body).unwrap()
+        };
+        assert_eq!(body["address"], "bc1qmerchant");
+    }
+
+    #[tokio::test]
+    async fn unreadable_fee_rates_postpone_an_automatic_onchain_sweep() {
+        let (base, _recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 150000}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        let report = engine.tick().await.unwrap();
+        assert!(report.swept_sats.is_none());
+        assert!(report.sweep_refused.unwrap().contains("fee rates"));
     }
 
     #[tokio::test]

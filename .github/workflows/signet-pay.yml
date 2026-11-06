@@ -18,6 +18,10 @@ on:
         description: "Sats the payer needs before the tests start"
         required: false
         default: "20000"
+      rebuild_payer:
+        description: "Rebuild the saved payer wallet from its recovery words (fixes stale coin records)"
+        required: false
+        default: "false"
       wait_minutes:
         description: "How long to wait for you to fund it"
         required: false
@@ -70,6 +74,7 @@ jobs:
           RETURN_TO: ${{ inputs.return_to }}
           MIN_SATS: ${{ inputs.min_sats }}
           WAIT_MIN: ${{ inputs.wait_minutes }}
+          REBUILD_PAYER: ${{ inputs.rebuild_payer }}
         run: python3 tests/signet/pay.py
       - name: Save the payer wallet for the next run
         if: always()

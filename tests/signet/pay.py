@@ -26,6 +26,7 @@ ADMIN_PW = "signet drill pay password"
 RETURN_TO = os.environ.get("RETURN_TO", "").strip()
 MIN_SATS = int(os.environ.get("MIN_SATS", "20000") or 20000)
 WAIT_MIN = int(os.environ.get("WAIT_MIN", "55") or 55)
+REBUILD = os.environ.get("REBUILD_PAYER", "") == "true"
 results, notes = [], []
 state = {}
 
@@ -221,6 +222,14 @@ def main():
 
     @step("payer: a second barkd starts and creates its own signet wallet", critical=True)
     def _():
+        words = None
+        if REBUILD:
+            # Rebuild the payer's local records from its recovery words (read
+            # in memory only, never printed), to drop stale coin bookkeeping.
+            rc, w = sh("docker compose exec -T ebp cat /tmp/payer/mnemonic")
+            words = " ".join(w.split()) if rc == 0 else None
+            assert words and len(words.split()) in (12, 24), "no saved recovery words to rebuild from"
+            sh("docker compose exec -T ebp sh -c 'rm -rf /tmp/payer/* /tmp/payer/.[!.]*'")
         start_payer()
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
         # barkd prints warnings on the same stream; the token is the one
@@ -229,14 +238,24 @@ def main():
         state["payer_token"] = toks[-1] if toks else ""
         assert state["payer_token"], "no payer token"
         # The mnemonic file exists only once a wallet was created (a restored one).
-        have = sh("docker compose exec -T ebp test -s /tmp/payer/mnemonic")[0] == 0
+        have = (not REBUILD) and sh("docker compose exec -T ebp test -s /tmp/payer/mnemonic")[0] == 0
         if have:
             # Restored from the previous run: the coins you already sent are still here.
             notes.append("Reusing the payer wallet saved by an earlier run.")
             payer("POST", "/api/v1/wallet/sync")
         else:
-            code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
-            assert code == 200, (code, out)
+            body = {"network": "signet"}
+            if words:
+                body["mnemonic"] = words
+            code, out = payer("POST", "/api/v1/wallet/create", body)
+            assert code == 200, (code, str(out)[:200])
+            if words:
+                del words
+                for _ in range(6):
+                    payer("POST", "/api/v1/wallet/sync")
+                    payer("POST", "/api/v1/wallet/sync/mailbox")
+                    time.sleep(10)
+                notes.append(f"Rebuilt the payer wallet from its saved words: spendable={balance()['spendable_sat']} sats")
 
     @step("payer: wait for YOU to fund it (watch the job summary / log for the address)", critical=True)
     def _():

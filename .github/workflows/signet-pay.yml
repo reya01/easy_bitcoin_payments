@@ -44,6 +44,11 @@ jobs:
           key: signet-payer-none
           restore-keys: signet-payer-
       - name: Build and start the stack
+        env:
+          # Small cap and fast checks so the automatic transfer to the
+          # payout wallet shows up during the drill.
+          EBP_HOT_WALLET_CAP_SATS: "8000"
+          EBP_SETTLEMENT_INTERVAL_SECS: "30"
         run: docker compose up -d --build
       - name: Put the saved payer wallet in place
         run: |

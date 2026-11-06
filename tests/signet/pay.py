@@ -315,24 +315,55 @@ def main():
         cap = open(f).read()
         notes.append("Real barkd answers after payments:\n" + cap[:30000])
 
-    @step("return leftovers to RETURN_TO (best effort)")
+    @step("return leftovers to RETURN_TO (payer wallet AND EBP's wallet)")
     def _():
         if not RETURN_TO:
             notes.append("No RETURN_TO given: leftovers stay on the (destroyed) test machine.")
             return
-        b = balance()
-        amt = b["spendable_sat"]
-        sent = None
-        for fee_guess in (0, 500, 1500, 4000):
-            a = amt - fee_guess
-            if a < 1000:
-                break
-            code, r = payer("POST", "/api/v1/wallet/send", {"destination": RETURN_TO, "amount_sat": a})
-            notes.append(f"return {a} sats: http {code} {str(r)[:120]}")
-            if code == 200:
-                sent = a
-                break
-        assert sent, "could not return funds"
+
+        def sweep(call, bal, what):
+            amt = bal()
+            for fee_guess in (0, 300, 1000, 3000):
+                a = amt - fee_guess
+                if a < 1000:
+                    notes.append(f"{what}: nothing worth returning ({amt} sats)")
+                    return True
+                code, r = call(a)
+                notes.append(f"{what}: return {a} sats -> http {code} {str(r)[:140]}")
+                if code == 200:
+                    return True
+            return False
+
+        ok1 = sweep(
+            lambda a: payer("POST", "/api/v1/wallet/send", {"destination": RETURN_TO, "amount_sat": a}),
+            lambda: balance()["spendable_sat"],
+            "payer wallet",
+        )
+        # EBP's own wallet received the test payments; send those back too.
+        rc, tok = sh("docker compose exec -T ebp barkd --datadir /data/barkd secret show")
+        etok = tok.strip().splitlines()[-1].strip()
+
+        def ebp_barkd(method, path, body=None):
+            cmd = (
+                f"docker compose exec -T ebp curl -sS -m 120 -X {method} -H 'Authorization: Bearer {etok}' "
+                f"-H 'content-type: application/json' -w '\\n%{{http_code}}' http://127.0.0.1:3000{path}"
+            )
+            if body is not None:
+                cmd += " -d @-"
+            _, out = sh(cmd, inp=json.dumps(body) if body is not None else None, timeout=180)
+            text, _, code = out.rpartition("\n")
+            try:
+                return int(code), (json.loads(text) if text.strip() else None)
+            except Exception:  # noqa: BLE001
+                return 0, text[:200]
+
+        ok2 = sweep(
+            lambda a: ebp_barkd("POST", "/api/v1/wallet/send", {"destination": RETURN_TO, "amount_sat": a}),
+            lambda: ebp_barkd("GET", "/api/v1/wallet/balance")[1]["spendable_sat"],
+            "EBP wallet",
+        )
+        assert ok1 and ok2, "could not return all funds"
+
 
 try:
     main()

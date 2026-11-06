@@ -6,6 +6,9 @@
 //!   removed from the copy. Secrets inside it (webhook secrets) stay
 //!   encrypted with the server's key-encryption key, which is NOT in the
 //!   bundle: keep that key separately.
+//! * `ebp.key` — the key that protects those stored secrets, so ONE file
+//!   restores everything (the bundle is itself locked with the admin
+//!   password, and it already holds the wallet folder, which matters more).
 //! * `barkd/...` — the wallet's data folder, ONLY in managed-barkd mode
 //!   (when EBP runs barkd itself). With a separate barkd container EBP
 //!   cannot see those files; the bundle says so.
@@ -260,6 +263,15 @@ pub fn database_entry(conn: &rusqlite::Connection) -> Result<Entry, AppError> {
         name: "ebp.sqlite3".into(),
         data: result?,
     })
+}
+
+/// The at-rest encryption key as a bundle entry (hex, same format as the
+/// `ebp.key` file the server reads when no environment key is set).
+pub fn key_entry() -> Entry {
+    Entry {
+        name: "ebp.key".into(),
+        data: crate::secrets::get().key_hex().into_bytes(),
+    }
 }
 
 /// The wallet folder as bundle entries (`barkd/<relative path>`). SQLite

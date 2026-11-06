@@ -1051,8 +1051,14 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
     assert!(!bytes.windows(15).any(|w| w == b"SQLite format 3"));
     assert!(easy_bitcoin_payments::backup::open(&bytes, "some other password").is_err());
     let entries = easy_bitcoin_payments::backup::open(&bytes, "a good long password").unwrap();
-    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].name, "ebp.sqlite3");
+    // The key rides inside the (encrypted) bundle so one file restores everything.
+    assert_eq!(entries[1].name, "ebp.key");
+    assert_eq!(
+        String::from_utf8(entries[1].data.clone()).unwrap(),
+        easy_bitcoin_payments::secrets::get().key_hex()
+    );
     assert!(entries[0].data.starts_with(b"SQLite format 3"));
     // The decrypted database has the shop, and no live logins.
     assert!(entries[0].data.windows(9).any(|w| w == b"Flow Shop"));

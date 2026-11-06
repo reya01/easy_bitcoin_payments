@@ -12,8 +12,9 @@
 //!     2. Otherwise a key file `ebp.key` (mode 0600) is created next to the
 //!        database on first start. This stops leaks of the SQLite file alone
 //!        (SQL injection, an exported DB, a log/ticket attachment) but NOT a
-//!        copy of the whole data volume, so back the key up separately and
-//!        prefer option 1 in production.
+//!        copy of the whole data volume. The encrypted backup download
+//!        includes this key, so one file restores everything; prefer
+//!        option 1 where you can keep the key outside the volume.
 //! * Never in plaintext: nothing here logs a secret or a key.
 //! * Not covered: API keys (stored only as SHA-256 hashes), the barkd token
 //!   and admin/setup tokens (environment only), the wallet mnemonic (never
@@ -36,13 +37,21 @@ const NONCE_LEN: usize = 12;
 
 pub struct SecretBox {
     cipher: ChaCha20Poly1305,
+    key: [u8; 32],
 }
 
 impl SecretBox {
     pub fn from_key_bytes(key: [u8; 32]) -> Self {
         Self {
             cipher: ChaCha20Poly1305::new(Key::from_slice(&key)),
+            key,
         }
+    }
+
+    /// The key as hex. ONLY for the encrypted backup bundle (see
+    /// `crate::backup`); never log or return it anywhere else.
+    pub fn key_hex(&self) -> String {
+        hex::encode(self.key)
     }
 
     /// Encrypt `plaintext`, binding `aad` (the owning row id).

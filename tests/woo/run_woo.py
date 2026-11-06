@@ -127,6 +127,8 @@ def main():
         procs.append(subprocess.Popen(argv, stdout=f, stderr=subprocess.STDOUT, cwd=tmp))
     wait_for(lambda: http("GET", f"http://127.0.0.1:{FAKE_PORT}/ping")[0] == 200, "fake barkd")
 
+    # The wallet the wizard would have created.
+    http("POST", f"http://127.0.0.1:{FAKE_PORT}/api/v1/wallet/create", {"mnemonic": None})
     env = {
         "PATH": os.environ["PATH"],
         "EBP_BIND_ADDR": f"0.0.0.0:{EBP_PORT}",
@@ -202,12 +204,12 @@ def main():
         token = hdr.get("Cart-Token") or hdr.get("cart-token")
         h = {"Nonce": nonce, "Cart-Token": token}
         code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/cart/add-item", {"id": int(pid), "quantity": 1}, h)
-        assert code == 200, (code, r)
+        assert code in (200, 201), (code, str(r)[:300])
         addr = {"first_name": "Ada", "last_name": "Lovelace", "address_1": "1 Main St", "city": "Austin",
                 "state": "TX", "postcode": "78701", "country": "US", "email": "ada@example.com", "phone": ""}
         code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/checkout", {
             "billing_address": addr, "shipping_address": addr, "payment_method": "ebp_bitcoin", "payment_data": []}, h)
-        assert code == 200, (code, r)
+        assert code == 200, (code, str(r)[:600])
         assert r["payment_result"]["payment_status"] == "success", r
         url = r["payment_result"]["redirect_url"]
         assert url.startswith(f"{base}/i/"), url

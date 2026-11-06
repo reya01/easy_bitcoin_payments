@@ -208,8 +208,9 @@ def main():
         rc, tok = sh("docker compose exec -T ebp barkd --datadir /tmp/payer secret show")
         state["payer_token"] = tok.strip().splitlines()[-1].strip()
         assert state["payer_token"], "no payer token"
-        code, _ = payer("GET", "/api/v1/wallet")
-        if code == 200:
+        # The mnemonic file exists only once a wallet was created (a restored one).
+        have = sh("docker compose exec -T ebp test -s /tmp/payer/mnemonic")[0] == 0
+        if have:
             # Restored from the previous run: the coins you already sent are still here.
             notes.append("Reusing the payer wallet saved by an earlier run.")
             payer("POST", "/api/v1/wallet/sync")

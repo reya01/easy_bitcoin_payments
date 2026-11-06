@@ -5,7 +5,8 @@
 //! 1. **Renewal** — refresh spendable VTXOs inside the renewal window,
 //!    before their per-VTXO expiry (learn_lifetime.md). Renewal never moves
 //!    funds.
-//! 2. **Sweep** — move the excess above `hot_wallet_cap_sats` to the
+//! 2. **Sweep** — move the excess above the till cap (`hot_wallet_cap_sats`
+//!    for an Ark payout address, `onchain_sweep_cap_sats` for an on-chain one) to the
 //!    merchant's own wallet: an Ark send when the destination is on the
 //!    same ASP (e.g. their Arké wallet), or a cooperative offboard of the
 //!    whole till when it is an on-chain address (learn_offboard.md).
@@ -267,20 +268,26 @@ impl SettlementEngine {
         };
 
         let offchain = balances.offchain_sats;
-        let excess = offchain.saturating_sub(self.config.hot_wallet_cap_sats);
+        // Ark payout: low cap (almost free). On-chain payout: higher cap
+        // (every withdrawal pays a network fee).
+        let excess = offchain.saturating_sub(self.config.sweep_cap_for(&destination));
         if excess <= 0 {
             return Ok(report);
         }
 
-        // Ark addresses are network-prefixed: `ark1…` (mainnet),
-        // `tark1…` (signet). Route either to the Ark-send path; anything
-        // else is treated as an on-chain destination.
-        let ark = destination.starts_with("ark1") || destination.starts_with("tark1");
+        // Route Ark addresses to the Ark-send path; anything else is treated
+        // as an on-chain destination.
+        let ark = crate::config::is_ark_destination(&destination);
         let kind = if ark { "sweep_ark" } else { "sweep_onchain" };
 
         // 3. Exit-reserve gate, checked against /onchain/balance.
+        //
+        // An Ark-to-Ark sweep does NOT need the reserve: it moves coins out
+        // of the till (reducing what an emergency exit would have to cover)
+        // and needs no on-chain fee. Only the on-chain withdrawal path keeps
+        // the gate.
         let reserve = exit_reserve(onchain.confirmed_sats, vtxos.spendable.len());
-        if !reserve.ok {
+        if !ark && !reserve.ok {
             // R7: the reserve scales with the VTXO COUNT, and every customer
             // payment can be its own VTXO. Before refusing, consolidate:
             // refreshing all spendable VTXOs merges them into fewer outputs
@@ -420,6 +427,7 @@ mod tests {
         Arc::new(Config {
             settlement_destination: destination.map(str::to_string),
             hot_wallet_cap_sats: cap,
+            onchain_sweep_cap_sats: cap,
             renewal_lead_time_secs: 604_800,
             ..Config::default()
         })
@@ -682,6 +690,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn ark_sweep_does_not_need_the_exit_reserve() {
+        // Same shape as the refused on-chain case (two VTXOs, 0 on-chain
+        // sats) but the payout is an Ark address: it must go through.
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 200000, "expires_at": 9999999999, "state": {"type": "spendable"}}, {"id": "v2", "amount_sat": 1, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string()),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 200001}"#.to_string()),
+            "/api/v1/wallet/send" => (200, r#"{"message": "ok"}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(Some("tark1merchant"), 100_000),
+        );
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.swept_sats, Some(100_001));
+        assert!(report.sweep_refused.is_none());
+        let sent = recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/send");
+        assert!(sent, "the Ark send must be made");
+    }
+
+    #[test]
+    fn each_payout_type_has_its_own_cap() {
+        let c = Config {
+            hot_wallet_cap_sats: 20_000,
+            onchain_sweep_cap_sats: 1_000_000,
+            ..Config::default()
+        };
+        assert_eq!(c.sweep_cap_for("ark1abc"), 20_000);
+        assert_eq!(c.sweep_cap_for("TARK1abc"), 20_000);
+        assert_eq!(c.sweep_cap_for("bc1qabc"), 1_000_000);
+        assert_eq!(c.sweep_cap_for("tb1qabc"), 1_000_000);
     }
 
     #[tokio::test]

@@ -137,6 +137,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div id="po-pending" class="msg hidden"></div>
     <div class="btns hidden" id="po-cancel-box"><button id="po-cancel" type="button">Cancel the pending change</button></div>
     <div id="po-form">
+      <div class="muted" id="po-kinds"></div>
       <label for="po-addr">New payout address</label><input type="text" id="po-addr" autocomplete="off" spellcheck="false">
       <label for="po-pw">Admin password</label><input type="password" id="po-pw" autocomplete="current-password">
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
@@ -409,7 +410,14 @@ $("bk-go").addEventListener("click", function () {
 
 function loadPayout() {
   api("GET", "/api/v1/payout").then(function (p) {
-    $("po-now").textContent = p.address ? "Current address: " + p.address : "No payout address yet — money stays in the till until you add one.";
+    var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
+    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + Number(p.cap_sats).toLocaleString() + " sats." : "No payout address yet — money stays in the till until you add one.";
+    var kinds = $("po-kinds"); clear(kinds);
+    [["Ark address (recommended)", "starts with ark1… — instant and almost free. The till is emptied above " + Number(p.ark_cap_sats).toLocaleString() + " sats."],
+     ["On-chain Bitcoin address", "starts with bc1… — slower, and each withdrawal pays a network fee, so it waits until the till holds more than " + Number(p.onchain_cap_sats).toLocaleString() + " sats."],
+     ["Lightning address", "not available yet."]].forEach(function (k) {
+      var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
+    });
     var pend = p.pending_address;
     $("po-pending").classList.toggle("hidden", !pend);
     $("po-cancel-box").classList.toggle("hidden", !pend);

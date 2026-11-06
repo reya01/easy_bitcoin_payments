@@ -8,6 +8,7 @@
 - Audit trail (`audit_log`, `GET /api/v1/audit-log`) for key rotation, webhook changes, re-sends and resolved late payments; webhook delivery log + re-send endpoints.
 
 ### Release
+- Removed the two-container install (`docker-compose.two-container.yml`, its walkthrough, `scripts/backup.sh`, the old two-container setup recipe). One install path; the admin page's backup download replaces the script. Test count in the README refreshed.
 - The release workflow can be dry-run from the Actions tab (builds and tests; publishes, pushes and signs nothing unless a `v*` tag).
 - `docker-compose.yml` accepts `EBP_IMAGE` (a signed prebuilt image); `scripts/start.sh` pulls it and falls back to building.
 

@@ -107,7 +107,7 @@ above, plus:
 
 ## The recovery-word ceremony (checklist)
 
-The first-run wizard (docs/RECIPE_SETUP.md, step 2) shows the words
+The first-run wizard (docs/START_HERE.md) shows the words
 exactly once. The checklist, for any wallet, any time:
 
 - [ ] Only the merchant is present — no AI, no screen sharing, no camera.
@@ -151,7 +151,7 @@ Proves the backup is real. Budget an hour. Do it on signet first.
 
 1. On the current server, note the balance shown in the dashboard.
 2. On a fresh machine (or a wiped datadir): install per
-   docs/RECIPE_SETUP.md step 1 (barkd only).
+   docs/START_HERE.md.
 3. Restore the wallet from the recovery words using barkd's own restore
    command on the server — the merchant types the words, never the AI.
    NOTE: the exact command is not written down here yet; it is confirmed

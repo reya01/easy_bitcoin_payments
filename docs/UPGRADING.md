@@ -52,11 +52,8 @@ docker compose build
 docker compose up -d
 ```
 
-These same three commands update the default (single-container) install. If
-you use the advanced two-container install, your `.env` has
-`COMPOSE_FILE=docker-compose.two-container.yml`; keep it there, and never run
-the commands with a different compose file than you installed with: that would
-start a second, empty stack.
+These three commands update your install. Always run them from the folder
+that holds `docker-compose.yml`.
 
 SQLite migrations run automatically on boot. Afterwards check
 `GET /api/v1/health` and the dashboard's ASP indicator before taking

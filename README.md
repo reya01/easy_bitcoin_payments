@@ -198,12 +198,14 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 
 ```
 pending → paid | underpaid | overpaid | expired | cancelled
-underpaid → expired
+underpaid → paid | overpaid | expired
 ```
 
-`overpaid` is treated as paid. There is no partial-payment top-up in v1.0: an
-underpaid invoice expires and the customer starts a fresh one at the current
-rate. Refunds are out of scope for v1.0 — Bitcoin payments are final, and the
+`overpaid` is treated as paid. An underpaid invoice keeps accepting payments
+for 15 minutes after the first partial payment (and never past its own
+expiry); if the total reaches the invoice amount it becomes `paid` (or
+`overpaid`). A top-up after that window lands in Unmatched payments for you to
+reconcile. Refunds are out of scope for v1.0 — Bitcoin payments are final, and the
 checkout page says so.
 
 ### Webhooks

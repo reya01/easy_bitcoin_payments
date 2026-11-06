@@ -46,6 +46,27 @@ pub fn status_after_payment(paid_total: i64, amount_due: i64) -> InvoiceStatus {
 /// happened to run first.
 pub const LATE_PAYMENT_GRACE_SECS: i64 = 120;
 
+/// How long after its FIRST partial payment an underpaid invoice still
+/// accepts a top-up. Short on purpose: most payments are Lightning/Ark and
+/// arrive in seconds, and the rate lock bounds it further (an invoice never
+/// accepts anything past its own expiry).
+pub const TOPUP_WINDOW_SECS: i64 = 15 * 60;
+
+/// True when `detected_at` falls after the top-up window of `invoice_id`
+/// (its first recorded payment + [`TOPUP_WINDOW_SECS`]).
+pub fn topup_window_closed(
+    conn: &Connection,
+    invoice_id: &str,
+    detected_at: i64,
+) -> Result<bool, AppError> {
+    let first: Option<i64> = conn.query_row(
+        "SELECT MIN(detected_at) FROM payments WHERE invoice_id = ?1",
+        params![invoice_id],
+        |r| r.get(0),
+    )?;
+    Ok(first.is_some_and(|f| detected_at > f + TOPUP_WINDOW_SECS))
+}
+
 pub const MAX_INVOICE_SATS: i64 = 2_100_000_000_000_000;
 
 pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> {
@@ -344,7 +365,8 @@ pub fn note_onchain_seen(
     Ok(Some(first))
 }
 
-/// Find the pending invoice that a received payment belongs to, by address.
+/// Find the open invoice (pending, or underpaid — the caller enforces the
+/// top-up window) that a received payment belongs to, by address.
 ///
 /// Till-issued keys only: the Ark receive address, the on-chain fallback,
 /// or — for LN receives, whose movements carry the BOLT11 in `received_on`
@@ -356,7 +378,7 @@ pub fn find_pending_by_address(
 ) -> Result<Option<Invoice>, AppError> {
     conn.query_row(
         "SELECT * FROM invoices
-         WHERE status = 'pending'
+         WHERE status IN ('pending', 'underpaid')
            AND (ark_address = ?1 OR onchain_address = ?1
                 OR id = (SELECT invoice_id FROM ln_invoices
                          WHERE bolt11 = ?1 LIMIT 1))
@@ -601,7 +623,10 @@ pub fn record_payment(
         return Ok(None);
     };
 
-    if current.status != InvoiceStatus::Pending {
+    if !matches!(
+        current.status,
+        InvoiceStatus::Pending | InvoiceStatus::Underpaid
+    ) {
         return Ok(None);
     }
 
@@ -902,6 +927,60 @@ mod tests {
         assert_eq!(status, InvoiceStatus::Underpaid);
         assert_eq!(invoice.status, InvoiceStatus::Underpaid);
         assert!(invoice.paid_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn topup_completes_an_underpaid_invoice() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 400, Some("vtxo_1"))))
+            .await
+            .unwrap();
+        let found = db
+            .call(|conn| find_pending_by_address(conn, "ark1qinv_1"))
+            .await
+            .unwrap();
+        assert_eq!(found.map(|i| i.id), Some("inv_1".to_string()));
+        let (invoice, status) = db
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 600, Some("vtxo_2"))))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, InvoiceStatus::Paid);
+        assert_eq!(invoice.paid_sats, 1000);
+        assert!(invoice.paid_at.is_some());
+        assert!(db
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 5, Some("vtxo_3"))))
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn topup_window_closes_after_the_first_partial_payment() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+        let first = obs("inv_1", "ark", 400, Some("vtxo_1"));
+        let at = first.detected_at;
+        db.call(move |conn| record_payment(conn, &first))
+            .await
+            .unwrap();
+        let inside = db
+            .call(move |conn| topup_window_closed(conn, "inv_1", at + TOPUP_WINDOW_SECS))
+            .await
+            .unwrap();
+        let outside = db
+            .call(move |conn| topup_window_closed(conn, "inv_1", at + TOPUP_WINDOW_SECS + 1))
+            .await
+            .unwrap();
+        assert!(!inside);
+        assert!(outside);
     }
 
     #[tokio::test]

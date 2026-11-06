@@ -256,7 +256,7 @@ def main():
         time.sleep(25)
         assert inv_state(inv)["paid_sats"] == 2000, "must not double-credit"
 
-    @step("2.3 underpay then top up: underpaid; the top-up is parked for the merchant, not lost")
+    @step("2.3 underpay then top up: underpaid, then the top-up completes it")
     def _():
         inv = invoice("pay-under", 3000)
         pay(inv["ark_address"], 1000, "underpay part 1")
@@ -264,15 +264,8 @@ def main():
         notes.append(f"Underpaid invoice shows: status={s['status']} paid_sats={s['paid_sats']} of {s['amount_sats']}")
         assert s["status"] == "underpaid", s["status"]
         pay(inv["ark_address"], 2000, "underpay top-up")
-        # Design: an underpaid invoice is final (underpaid -> expired only), so
-        # the top-up must land in unmatched payments for the merchant to
-        # reconcile. It must never vanish.
-        def parked():
-            code, u = ebp("GET", "/api/v1/unmatched-payments")
-            items = u if isinstance(u, list) else u.get("items", u.get("payments", []))
-            return code == 200 and any(2000 == x.get("amount_sats") for x in items)
-        wait_for(parked, "top-up listed as unmatched", 180, 3)
-        assert inv_state(inv)["paid_sats"] == 1000
+        got = wait_for(lambda: (s := inv_state(inv))["status"] == "paid" and s, "paid after top-up", 180, 3)
+        assert got["paid_sats"] == 3000, got
 
     @step("2.4 overpay: settled as overpaid, full amount recorded")
     def _():

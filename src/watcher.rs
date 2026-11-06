@@ -275,6 +275,24 @@ impl PollingWatcher {
                     true
                 }
             });
+            // An underpaid invoice accepts a top-up only inside the short
+            // window after its first partial payment.
+            let invoice = match invoice {
+                Some(i) if i.status == crate::models::InvoiceStatus::Underpaid => {
+                    let (id, seen) = (i.id.clone(), payment.detected_at);
+                    let closed = self
+                        .db
+                        .call(move |conn| invoice::topup_window_closed(conn, &id, seen))
+                        .await?;
+                    if closed {
+                        late_reason = Some("topup_window_closed");
+                        None
+                    } else {
+                        Some(i)
+                    }
+                }
+                other => other,
+            };
 
             let Some(invoice) = invoice else {
                 // BETA-HARDENING: no PENDING invoice owns this address. If it

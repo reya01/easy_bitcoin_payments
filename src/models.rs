@@ -7,12 +7,13 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```text
 /// pending → paid | underpaid | overpaid | expired | cancelled
-/// underpaid → expired
+/// underpaid → paid | underpaid | overpaid | expired
 /// ```
 ///
-/// All other states are terminal. In particular there is no partial-payment
-/// top-up path in v1.0: an underpaid invoice expires and the customer starts a
-/// fresh invoice at the current rate.
+/// All other states are terminal. An underpaid invoice keeps accepting
+/// payments (a top-up) for a short window after the first partial payment
+/// (`invoice::TOPUP_WINDOW_SECS`) and never past its own expiry; the
+/// watcher parks anything later in unmatched payments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InvoiceStatus {
@@ -55,6 +56,9 @@ impl InvoiceStatus {
                 | (Pending, Overpaid)
                 | (Pending, Expired)
                 | (Pending, Cancelled)
+                | (Underpaid, Paid)
+                | (Underpaid, Overpaid)
+                | (Underpaid, Underpaid)
                 | (Underpaid, Expired)
         )
     }
@@ -181,12 +185,14 @@ mod tests {
     }
 
     #[test]
-    fn underpaid_only_expires() {
+    fn underpaid_accepts_topups_or_expires() {
         use InvoiceStatus::*;
         assert!(Underpaid.can_transition_to(Expired));
-        assert!(!Underpaid.can_transition_to(Paid));
+        assert!(Underpaid.can_transition_to(Paid));
+        assert!(Underpaid.can_transition_to(Overpaid));
+        assert!(Underpaid.can_transition_to(Underpaid));
+        assert!(!Underpaid.can_transition_to(Pending));
         assert!(!Underpaid.can_transition_to(Cancelled));
-        assert!(!Underpaid.can_transition_to(Overpaid));
     }
 
     #[test]

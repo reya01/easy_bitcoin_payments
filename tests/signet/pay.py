@@ -351,27 +351,21 @@ def main():
         before = balance()["spendable_sat"]
         code, r = ebp_admin("POST", "/admin/payout", {"address": dest, "admin_password": ADMIN_PW})
         notes.append(f"set payout address -> http {code}")
+        if code != 200:
+            _, jar = sh("awk '{print $1, $2, $4, $6}' jar")
+            notes.append("cookie jar (domain, subdomains, secure, name):\n" + jar + f"\nresponse: {str(r)[:200]}")
         assert code == 200, (code, r)
-        seen = []
-
-        def swept():
-            code, st = ebp_admin("GET", "/api/v1/admin/status")
-            rows = (st or {}).get("recent_settlements") or [] if code == 200 and isinstance(st, dict) else []
-            seen[:] = rows
-            return any(x.get("kind", "").startswith("sweep") and x.get("status") not in ("pending",) for x in rows)
+        def grew():
+            payer("POST", "/api/v1/wallet/sync")
+            payer("POST", "/api/v1/wallet/sync/mailbox")
+            return balance()["spendable_sat"] > before
 
         try:
-            wait_for(swept, "a sweep to the payout address", 300, 10)
+            wait_for(grew, "the automatic transfer to arrive in the payout wallet", 360, 15)
         finally:
-            notes.append("settlements seen: " + json.dumps(seen)[:1500])
-            _, lg = sh("docker compose logs --no-color --tail 200 ebp")
-            hits = [l[-220:] for l in lg.splitlines() if "sweep" in l.lower() or "reserve" in l.lower()][-8:]
+            _, lg = sh("docker compose logs --no-color --tail 300 ebp")
+            hits = [l[-240:] for l in lg.splitlines() if "sweep" in l.lower() or "reserve" in l.lower() or "settle" in l.lower()][-10:]
             notes.append("server log (sweep lines):\n" + "\n".join(hits))
-        for _ in range(12):
-            payer("POST", "/api/v1/wallet/sync"); payer("POST", "/api/v1/wallet/sync/mailbox")
-            if balance()["spendable_sat"] > before:
-                break
-            time.sleep(10)
         notes.append(f"payer spendable before={before} after={balance()['spendable_sat']}")
         assert balance()["spendable_sat"] > before, "payout wallet did not receive the sweep"
 

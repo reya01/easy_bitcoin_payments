@@ -7,12 +7,21 @@
 - **Webhook secrets are now encrypted at rest** (ChaCha20-Poly1305; `EBP_KEY_ENCRYPTION_KEY` or a 0600 `ebp.key`). New dependency: `chacha20poly1305`. Back the key up separately from the database.
 - Audit trail (`audit_log`, `GET /api/v1/audit-log`) for key rotation, webhook changes, re-sends and resolved late payments; webhook delivery log + re-send endpoints.
 
+### Release
+- The release workflow can be dry-run from the Actions tab (builds and tests; publishes, pushes and signs nothing unless a `v*` tag).
+- `docker-compose.yml` accepts `EBP_IMAGE` (a signed prebuilt image); `scripts/start.sh` pulls it and falls back to building.
+
 ### Fixed
 - Wizard wallet-create now sends the field barkd actually reads (`ark_server`); a custom ASP was silently ignored before.
 - Barkd request shapes aligned with the pinned OpenAPI (`amount_sat`, `vtxos`, `tip_height`); wallet history read from `/api/v1/history` (the old endpoint is deprecated).
 - Payments completed after an invoice's deadline are parked as `paid_after_expiry` regardless of watcher tick order.
 
 ### Added
+- Payout address (where the till empties to): asked for in the setup wizard and editable in Settings. The first address applies at once; changing it later needs the admin password, waits 24 hours (`EBP_PAYOUT_CHANGE_DELAY_SECS`), is logged, shows a warning on Home and can be cancelled. On-chain addresses get a checksum check. An address in the server configuration still wins.
+- One install path: `docker-compose.yml` is now the single-container install (EBP runs the wallet daemon itself); the old two-container stack is `docker-compose.two-container.yml` with its own guide (`docs/ADVANCED_TWO_CONTAINER.md`). The AWS walkthrough is rewritten for the single path (setup code, no token copying, no `.env`); no `COMPOSE_FILE` step is needed any more.
+- The encrypted backup now includes the at-rest encryption key (`ebp.key`), so one file restores everything; START_HERE no longer asks beginners to generate and save a key.
+- Signet drill: pre-flight checklist, new steps (https cookie, Try a payment, backup download/verify/restore against the real barkd folder) and `scripts/drill_capture.sh`, a read-only helper that saves barkd's real answers (never tokens or recovery words) for comparison with the parser.
+- Beginner docs round 2 (second independent review): START_HERE now has a "choose where to run it" box (this computer vs a server + tunnel), Docker/git/terminal prerequisites, wallet and faucet, a `.env` that pins the single-container compose file and creates the encryption key, a test-payment and a backup section; MASTER walkthrough uses the Try a payment button instead of `curl`; managed compose passes the sweep destination and cap; `start.sh` no longer claims setup is finished when the first build is just slow; setup wizard says to leave the network fields alone.
 - Beginner docs pass (from an independent role-play review): new `docs/START_HERE.md` (honest status, what you need, single-container install, "how you know it worked", glossary); walkthrough now covers the setup code (`start.sh`), the admin password and the webhook secret, and no longer overwrites `.env`; dead references in the backup recipe marked as not-yet-available.
 - Admin Payments tab: "Try a payment" creates a test payment request (amount in sats) and links to its checkout page, so a shop owner can see a payment end to end without any command line. Covered by the browser e2e.
 - Encrypted backup download: Settings tab → "Download a backup" (locked with the admin password, so there is nothing new to remember; not stored). One file holds a consistent database snapshot (signed-in sessions removed) and, in managed-barkd mode, the wallet folder; ChaCha20-Poly1305 with a PBKDF2 (600k) key. `ebp backup verify <file>` and `ebp backup restore <file> <new-folder>` (never overwrites; integrity-checks the database). Covered by unit tests, an API test and the browser e2e.

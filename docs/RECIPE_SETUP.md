@@ -1,8 +1,11 @@
 # Setup recipe — zero to a live testnet invoice
 
 > **Shop owner, not a developer?** Start with [START_HERE.md](START_HERE.md).
-> This recipe is the longer, AI-assisted version and includes manual
-> fallback steps.
+> This recipe is the longer, AI-assisted version for the TWO-container
+> install (separate wallet container) and includes manual fallback steps.
+> It needs `COMPOSE_FILE=docker-compose.two-container.yml` in a `.env` file
+> (see ADVANCED_TWO_CONTAINER.md).
+> The one-command install in START_HERE does not need steps 1 and 2a-2d.
 
 Recipe version: v1 (matches the first `v*` release cut by
 `.github/workflows/release.yml`; version and upgrade notes:
@@ -19,6 +22,9 @@ AI at all. Steps the product does not cover yet are marked **[PENDING]**
 and give the manual commands that do the same job today. If anything you
 see does not match what this recipe says, that is a bug in the recipe —
 report it; every stumble becomes a fix.
+
+> Reading this yourself, without an AI assistant? Skip the section called
+> "Rules for the AI assistant"; the steps work on their own.
 
 ## Rules for the AI assistant (read before anything else)
 

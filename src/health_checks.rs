@@ -7,6 +7,18 @@
 
 use serde::Serialize;
 
+/// Where the till empties to.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Payout {
+    /// Could not find out (no check shown).
+    #[default]
+    Unknown,
+    NotSet,
+    Set,
+    /// A change is waiting; takes effect at this unix time.
+    ChangePending(i64),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
@@ -46,6 +58,7 @@ pub struct Facts {
     pub webhooks_failed: i64,
     pub webhook_configured: bool,
     pub last_settlement_failed: bool,
+    pub payout: Payout,
 }
 
 pub fn build(f: &Facts) -> Vec<Check> {
@@ -110,6 +123,28 @@ pub fn build(f: &Facts) -> Vec<Check> {
             "Your address is not secure (no HTTPS)",
             "Passwords and payment details could be read by others on the network. Put the shop behind an https:// address before real use.",
         );
+    }
+
+    match f.payout {
+        Payout::Unknown => {}
+        Payout::NotSet => push(
+            "payout",
+            Level::Warn,
+            "No payout address yet",
+            "Payments stay in the small till wallet and are not moved to your own wallet. Add your wallet's address in Settings.",
+        ),
+        Payout::Set => push(
+            "payout",
+            Level::Ok,
+            "Payout address is set",
+            "Money above the safety cap is sent to your own wallet.",
+        ),
+        Payout::ChangePending(_) => push(
+            "payout",
+            Level::Warn,
+            "A payout address change is waiting",
+            "Your payout address was changed in Settings and takes effect after a safety delay. If you did not do this, open Settings and cancel it, then change your admin password.",
+        ),
     }
 
     if f.unmatched_open > 0 {

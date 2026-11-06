@@ -8,6 +8,8 @@
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
+> ☁ **Using Render?** It needs a **paid plan** or your data (including wallet files) is erased on every restart; see [docs/START_HERE.md](docs/START_HERE.md#using-render-instead-of-your-own-server-experimental).
+
 > 🛍 **Shop owner?** Start with [docs/START_HERE.md](docs/START_HERE.md) — what this is, what you need, and how to tell it worked, in plain words.
 
 > 📱 **Testing EBP?** Follow [docs/MASTER_TEST_WALKTHROUGH.md](docs/MASTER_TEST_WALKTHROUGH.md) — the complete beginner walkthrough (AWS + iPhone, every known error and its fix). It is updated whenever a new failure is discovered.
@@ -59,8 +61,8 @@ smoke test guarding against the class). Rebuilt and serving on the VPS.
 - **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
 - **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
 - **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
-- **Merchant dashboard shell** — mobile-first admin page at `/admin` (also `/dashboard`) with password login (status
-  and store info; it cannot create invoices — use the API, see below).
+- **Merchant dashboard shell** — mobile-first admin page at `/admin` (also `/dashboard`) with password login (status,
+  recent payments, a "Try a payment" button, shop connection, backup download; real orders come from your shop through the API, see below).
 - **Config** — env vars plus an optional TOML file, with sane defaults.
 - **Deployment** — Docker one-liner on a VPS (public IP, DNS, TLS; clearnet HTTPS), plus multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
 
@@ -280,9 +282,12 @@ docker run --rm -v ebp-data:/data easy-bitcoin-payments store create --name "My 
 The image runs as a non-root user, stores its database on the `/data` volume,
 and exposes a healthcheck against `/api/v1/health`.
 
-### Full stack with the barkd sidecar
+### Advanced: two-container stack with the barkd sidecar
+
+Most people should use the default single-container install (`./scripts/start.sh`, see [docs/START_HERE.md](docs/START_HERE.md)). The two-container stack is selected with `export COMPOSE_FILE=docker-compose.two-container.yml`.
 
 ```bash
+export COMPOSE_FILE=docker-compose.two-container.yml
 # 1. Start barkd alone and read its token (generated on first start).
 docker compose up -d barkd
 export EBP_BARKD_TOKEN="$(docker compose exec barkd barkd --datadir /data secret show)"
@@ -293,7 +298,7 @@ EBP_SETTLEMENT_DESTINATION=ark1your-arke-wallet \
 docker compose up -d
 ```
 
-`docker-compose.yml` runs barkd from a checksum-pinned prebuilt 0.8.0 binary, keeps its datadir on
+`docker-compose.yml` is the default single-container install (EBP runs the wallet daemon itself, no tokens to copy). The advanced `docker-compose.two-container.yml` runs barkd from a checksum-pinned prebuilt 0.8.0 binary, keeps its datadir on
 the `barkd-data` volume, healthchecks it against `GET /ping`, and publishes no
 barkd ports — it is reachable only on the internal compose network, and every
 `/api/v1` call still needs the bearer token. `--expose-mnemonic` is

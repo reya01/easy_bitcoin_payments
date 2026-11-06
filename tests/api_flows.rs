@@ -1051,8 +1051,14 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
     assert!(!bytes.windows(15).any(|w| w == b"SQLite format 3"));
     assert!(easy_bitcoin_payments::backup::open(&bytes, "some other password").is_err());
     let entries = easy_bitcoin_payments::backup::open(&bytes, "a good long password").unwrap();
-    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].name, "ebp.sqlite3");
+    // The key rides inside the (encrypted) bundle so one file restores everything.
+    assert_eq!(entries[1].name, "ebp.key");
+    assert_eq!(
+        String::from_utf8(entries[1].data.clone()).unwrap(),
+        easy_bitcoin_payments::secrets::get().key_hex()
+    );
     assert!(entries[0].data.starts_with(b"SQLite format 3"));
     // The decrypted database has the shop, and no live logins.
     assert!(entries[0].data.windows(9).any(|w| w == b"Flow Shop"));
@@ -1073,4 +1079,122 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
         .unwrap()
         .iter()
         .any(|a| a["action"] == "admin.backup_downloaded"));
+}
+
+#[tokio::test]
+async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() {
+    let config = Config {
+        password_hash_iterations: 1_000,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let login = client
+        .post(format!("{base}/admin/login"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    let cookie = login.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let csrf = login.json::<serde_json::Value>().await.unwrap()["csrf"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let post = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
+            .json(&body)
+            .send()
+    };
+    let get = || async {
+        client
+            .get(format!("{base}/api/v1/payout"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+    };
+    let a = "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k";
+    let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+
+    assert!(get().await["address"].is_null());
+
+    // Wrong password, and a typo, are refused.
+    let r = post(
+        "/admin/payout",
+        serde_json::json!({"address": a, "admin_password": "nope nope nope"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = post(
+        "/admin/payout",
+        serde_json::json!({"address": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsy", "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    // First address: immediate.
+    let r: serde_json::Value = post(
+        "/admin/payout",
+        serde_json::json!({"address": a, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["applied_now"], true);
+    assert_eq!(get().await["address"], a);
+
+    // Changing it: waits, old address stays in use, can be cancelled.
+    let r: serde_json::Value = post(
+        "/admin/payout",
+        serde_json::json!({"address": b, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["applied_now"], false);
+    let g = get().await;
+    assert_eq!(g["address"], a);
+    assert_eq!(g["pending_address"], b);
+
+    let r = post("/admin/payout/cancel", serde_json::json!({}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert!(get().await["pending_address"].is_null());
+
+    // Not signed in: refused.
+    let r = client
+        .post(format!("{base}/admin/payout"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"address": a, "admin_password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
 }

@@ -26,8 +26,6 @@
 
 use std::path::{Path, PathBuf};
 
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use rand::RngCore;
 
 use crate::error::AppError;
@@ -139,9 +137,8 @@ fn decode(mut buf: &[u8]) -> Result<Vec<Entry>, AppError> {
     Ok(out)
 }
 
-fn cipher(password: &str, salt: &[u8], iterations: u32) -> ChaCha20Poly1305 {
-    let key = crate::admin_auth::pbkdf2(password.as_bytes(), salt, iterations);
-    ChaCha20Poly1305::new(Key::from_slice(&key))
+fn derive_key(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
+    crate::admin_auth::pbkdf2(password.as_bytes(), salt, iterations)
 }
 
 /// Encrypt `entries` under `password` (slow: PBKDF2; run on a blocking thread).
@@ -160,15 +157,12 @@ pub fn seal_with(entries: &[Entry], password: &str, iterations: u32) -> Result<V
     out.extend_from_slice(&iterations.to_be_bytes());
     out.extend_from_slice(&salt);
     out.extend_from_slice(&nonce);
-    let ct = cipher(password, &salt, iterations)
-        .encrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: &plain,
-                aad: &out[..HEADER_LEN],
-            },
-        )
-        .map_err(|_| AppError::Internal("could not encrypt the backup".into()))?;
+    let ct = crate::aead::seal(
+        &derive_key(password, &salt, iterations),
+        &nonce,
+        &out[..HEADER_LEN],
+        &plain,
+    );
     out.extend_from_slice(&ct);
     Ok(out)
 }
@@ -187,19 +181,18 @@ pub fn open(bytes: &[u8], password: &str) -> Result<Vec<Entry>, AppError> {
     }
     let salt = &bytes[12..28];
     let nonce = &bytes[28..40];
-    let plain = cipher(password, salt, iterations)
-        .decrypt(
-            Nonce::from_slice(nonce),
-            Payload {
-                msg: &bytes[HEADER_LEN..],
-                aad: &bytes[..HEADER_LEN],
-            },
+    let nonce: [u8; 12] = nonce.try_into().map_err(|_| corrupt())?;
+    let plain = crate::aead::open(
+        &derive_key(password, salt, iterations),
+        &nonce,
+        &bytes[..HEADER_LEN],
+        &bytes[HEADER_LEN..],
+    )
+    .ok_or_else(|| {
+        AppError::BadRequest(
+            "could not open the backup: wrong backup password, or the file is damaged".into(),
         )
-        .map_err(|_| {
-            AppError::BadRequest(
-                "could not open the backup: wrong backup password, or the file is damaged".into(),
-            )
-        })?;
+    })?;
     decode(&plain)
 }
 

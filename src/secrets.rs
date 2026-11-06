@@ -1,7 +1,7 @@
 //! At-rest encryption for secrets the server must be able to read back
 //! (today: per-store webhook signing secrets). Closes review finding R10.
 //!
-//! * Cipher: ChaCha20-Poly1305 (RustCrypto `chacha20poly1305`), a random
+//! * Cipher: ChaCha20-Poly1305 (via `ring`, see `crate::aead`), a random
 //!   96-bit nonce per value, the owning row id bound in as associated data
 //!   so a ciphertext cannot be moved to another store's row.
 //! * Stored form: `enc:v1:<hex nonce><hex ciphertext+tag>`.
@@ -24,8 +24,6 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use rand::RngCore;
 
 use crate::error::AppError;
@@ -36,16 +34,12 @@ pub const PREFIX: &str = "enc:v1:";
 const NONCE_LEN: usize = 12;
 
 pub struct SecretBox {
-    cipher: ChaCha20Poly1305,
     key: [u8; 32],
 }
 
 impl SecretBox {
     pub fn from_key_bytes(key: [u8; 32]) -> Self {
-        Self {
-            cipher: ChaCha20Poly1305::new(Key::from_slice(&key)),
-            key,
-        }
+        Self { key }
     }
 
     /// The key as hex. ONLY for the encrypted backup bundle (see
@@ -58,16 +52,7 @@ impl SecretBox {
     pub fn encrypt(&self, plaintext: &str, aad: &str) -> Result<String, AppError> {
         let mut nonce = [0u8; NONCE_LEN];
         rand::rngs::OsRng.fill_bytes(&mut nonce);
-        let ct = self
-            .cipher
-            .encrypt(
-                Nonce::from_slice(&nonce),
-                Payload {
-                    msg: plaintext.as_bytes(),
-                    aad: aad.as_bytes(),
-                },
-            )
-            .map_err(|_| AppError::Internal("could not encrypt a secret".into()))?;
+        let ct = crate::aead::seal(&self.key, &nonce, aad.as_bytes(), plaintext.as_bytes());
         Ok(format!("{PREFIX}{}{}", hex::encode(nonce), hex::encode(ct)))
     }
 
@@ -84,16 +69,8 @@ impl SecretBox {
             return Err(bad());
         }
         let (nonce, ct) = raw.split_at(NONCE_LEN);
-        let pt = self
-            .cipher
-            .decrypt(
-                Nonce::from_slice(nonce),
-                Payload {
-                    msg: ct,
-                    aad: aad.as_bytes(),
-                },
-            )
-            .map_err(|_| bad())?;
+        let nonce: [u8; NONCE_LEN] = nonce.try_into().map_err(|_| bad())?;
+        let pt = crate::aead::open(&self.key, &nonce, aad.as_bytes(), ct).ok_or_else(bad)?;
         String::from_utf8(pt).map_err(|_| bad())
     }
 }

@@ -116,6 +116,14 @@ def start_payer():
 def pay(dest, sats, what):
     """Send from the payer; record exactly what barkd answered."""
     code, r = payer("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": sats})
+    for _ in range(2):
+        if code == 200:
+            break
+        # The payer's own coin bookkeeping can lag right after a send; sync and retry.
+        notes.append(f"{what}: first attempt http {code} {str(r)[:160]} -> sync and retry")
+        payer("POST", "/api/v1/wallet/sync")
+        time.sleep(8)
+        code, r = payer("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": sats})
     b = balance()
     notes.append(f"{what}: send {sats} -> http {code} {str(r)[:160]} | payer now spendable={b['spendable_sat']} in_round={b['pending_in_round_sat']} arkoor_pending={b['pending_arkoor_send_sat']}")
     assert code == 200, (what, code, r)

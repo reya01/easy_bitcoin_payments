@@ -130,6 +130,19 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="pw-save" type="button">Change password</button></div>
     <p class="msg hidden" id="pw-msg"></p>
   </div>
+  <h2>Where your money goes</h2>
+  <div class="card">
+    <p class="muted">The small till wallet on this server is emptied to this address, which should belong to a wallet <strong>you</strong> control. Changing it takes effect after a safety delay and needs your admin password, so a stolen login cannot redirect your money quickly.</p>
+    <div id="po-now" class="muted">Loading…</div>
+    <div id="po-pending" class="msg hidden"></div>
+    <div class="btns hidden" id="po-cancel-box"><button id="po-cancel" type="button">Cancel the pending change</button></div>
+    <div id="po-form">
+      <label for="po-addr">New payout address</label><input type="text" id="po-addr" autocomplete="off" spellcheck="false">
+      <label for="po-pw">Admin password</label><input type="password" id="po-pw" autocomplete="current-password">
+      <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
+    </div>
+    <p class="msg hidden" id="po-msg"></p>
+  </div>
   <h2>Download a backup</h2>
   <div class="card">
     <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
@@ -186,7 +199,7 @@ function show(name) {
   if (name === "orders") loadOrders();
   if (name === "alerts") loadAlerts();
   if (name === "hooks") loadDeliveries();
-  if (name === "set") loadAudit();
+  if (name === "set") { loadAudit(); loadPayout(); }
 }
 function signedOut() { csrf = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
@@ -392,6 +405,29 @@ $("bk-go").addEventListener("click", function () {
     })
     .catch(function (e) { say("bk-msg", e.message, true); })
     .then(function () { btn.disabled = false; });
+});
+
+function loadPayout() {
+  api("GET", "/api/v1/payout").then(function (p) {
+    $("po-now").textContent = p.address ? "Current address: " + p.address : "No payout address yet — money stays in the till until you add one.";
+    var pend = p.pending_address;
+    $("po-pending").classList.toggle("hidden", !pend);
+    $("po-cancel-box").classList.toggle("hidden", !pend);
+    if (pend) { var m = $("po-pending"); m.className = "msg bad"; m.textContent = "A change to " + pend + " takes effect " + when(p.pending_effective_at * 1000) + ". Until then the current address is used."; }
+    $("po-form").classList.toggle("hidden", !!p.set_by_server_config);
+    if (p.set_by_server_config) $("po-now").textContent += " (set in the server's configuration; change it there)";
+  }).catch(function (e) { $("po-now").textContent = e.message; });
+}
+$("po-go").addEventListener("click", function () {
+  var b = $("po-go"); b.disabled = true;
+  api("POST", "/admin/payout", { address: $("po-addr").value, admin_password: $("po-pw").value }).then(function (r) {
+    $("po-addr").value = ""; $("po-pw").value = "";
+    say("po-msg", r.applied_now ? "Saved. Payouts now go to the new address." : "Saved. For safety it takes effect in about " + r.change_delay_hours + " hours; you can cancel until then.");
+    loadPayout();
+  }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
+});
+$("po-cancel").addEventListener("click", function () {
+  api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });
 
 function loadAudit() {

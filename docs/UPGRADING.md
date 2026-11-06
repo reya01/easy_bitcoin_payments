@@ -17,7 +17,7 @@ option to turn one on. You choose when to update:
   and how many orders are open. It learns this from one anonymous request to
   the public releases page, cached for hours; switch it off with
   `EBP_UPDATE_CHECK=false`. It never installs anything.
-- On Render, `render.yaml` sets `autoDeploy: false`; update with
+- On Render (paid plan required; see START_HERE), `render.yaml` sets `autoDeploy: false`; update with
   Manual Deploy -> Deploy latest commit. Leave auto-deploy off.
 - Restarting is safe at any time: pending payments and webhook notifications
   are stored and resume.
@@ -51,6 +51,12 @@ git pull
 docker compose build
 docker compose up -d
 ```
+
+These same three commands update the default (single-container) install. If
+you use the advanced two-container install, your `.env` has
+`COMPOSE_FILE=docker-compose.two-container.yml`; keep it there, and never run
+the commands with a different compose file than you installed with: that would
+start a second, empty stack.
 
 SQLite migrations run automatically on boot. Afterwards check
 `GET /api/v1/health` and the dashboard's ASP indicator before taking

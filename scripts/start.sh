@@ -10,6 +10,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Optional prebuilt image (EBP_IMAGE=ghcr.io/...@sha256:...). If the pull
+# fails we say so and fall back to building from source.
+if [ -n "${EBP_IMAGE:-}" ]; then
+  docker compose pull ebp || echo "(could not pull $EBP_IMAGE - building from source instead)"
+fi
+
 docker compose up -d "$@"
 
 echo "==> waiting for the server to start (up to 2 minutes)"
@@ -40,9 +46,11 @@ if [ -n "$code" ]; then
   echo "   changes if the server restarts before setup is done."
   echo "   Run this script again to see the new one.)"
 else
-  echo "  The server is running, but no setup code was printed."
-  echo "  That usually means setup is already finished."
-  echo "  If you expected a code, wait a minute and run this"
-  echo "  script again, or run:  docker compose logs ebp"
+  echo "  No setup code yet."
+  echo "  - If this is the FIRST start, the server may still be starting."
+  echo "    Wait a minute and run this script again."
+  echo "  - If you already finished setup, there is no code any more:"
+  echo "    sign in at ${base}/admin with your admin password."
+  echo "  - Still stuck?  docker compose logs ebp"
 fi
 echo "=================================================="

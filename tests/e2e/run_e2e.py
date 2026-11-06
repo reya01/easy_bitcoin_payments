@@ -406,6 +406,28 @@ def main():
             assert rest.returncode == 0, (rest.stdout, rest.stderr)
             assert os.path.getsize(os.path.join(out, "ebp.sqlite3")) > 0
 
+        @step("payout: add an address in Settings (first is immediate), a change waits and can be cancelled")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#po-go")
+            first = "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k"
+            second = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+            page.fill("#po-addr", first)
+            page.fill("#po-pw", ADMIN_PW)
+            page.click("#po-go")
+            wait_for(lambda: first in page.inner_text("#po-now"), "first address shown")
+            page.fill("#po-addr", second)
+            page.fill("#po-pw", ADMIN_PW)
+            page.click("#po-go")
+            wait_for(lambda: page.is_visible("#po-cancel"), "pending change shown with a cancel button")
+            assert first in page.inner_text("#po-now"), "old address stays in use while a change waits"
+            page.click("#po-cancel")
+            wait_for(lambda: not page.is_visible("#po-cancel"), "cancelled")
+            page.click('#tabs button[data-v="home"]')
+            wait_for(lambda: "Payout address is set" in page.inner_text("#health"), "home says the payout address is set")
+
         @step("every request EBP made matched the pinned barkd OpenAPI spec")
         def _():
             v = http("GET", f"{FAKE}/__ctl/violations")[1]

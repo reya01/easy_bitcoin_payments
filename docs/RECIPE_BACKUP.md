@@ -11,6 +11,9 @@ Every step has a plain-text fallback: you can follow this document with no
 AI at all. If anything you see does not match what this recipe says, that
 is a bug in the recipe — report it; every stumble becomes a fix.
 
+> Reading this yourself, without an AI assistant? Skip the section called
+> "Rules for the AI assistant"; the steps work on their own.
+
 ## Rules for the AI assistant (read before anything else)
 
 1. Your job is to read each step to the merchant, explain it in plain
@@ -35,7 +38,7 @@ is a bug in the recipe — report it; every stumble becomes a fix.
 | Your destination wallet's seed (e.g. Arké) | That is where the money actually ends up — your keys | Paper / that wallet's own guidance |
 | The deployment environment | `EBP_BARKD_TOKEN`, `EBP_SETTLEMENT_DESTINATION`, `EBP_PUBLIC_BASE_URL`, `mode` | docker-compose environment |
 | The EBP database | Invoice history and accounting records | `./data/ebp.sqlite3` |
-| The EBP encryption key | Decrypts the webhook secrets in the database. Store it SEPARATELY from the database backup (a backup that contains both defeats the encryption). Lose it and secrets must be re-issued (`PUT /api/v1/stores/webhook` with `rotate_secret`) | `EBP_KEY_ENCRYPTION_KEY` in your `.env` / secret manager, or `./data/ebp.key` if you did not set one |
+| The EBP encryption key | Decrypts the webhook secrets in the database. It is INSIDE the encrypted backup download (`ebp.key`). If you set `EBP_KEY_ENCRYPTION_KEY` yourself, also keep that in a password manager. Lose it with no backup and secrets must be re-issued (`PUT /api/v1/stores/webhook` with `rotate_secret`) | `EBP_KEY_ENCRYPTION_KEY` if set, otherwise `ebp.key` in the data folder |
 
 The recovery words outrank everything: datadir backups can be lost or
 corrupt, the database can be rebuilt from the store's own records — the
@@ -51,9 +54,9 @@ that same password — nothing new to remember or store. EBP never stores it.
   wallet itself (managed mode) it also holds the wallet folder. With a
   separate barkd container the wallet files are NOT inside and the page
   says so — back up that container's data volume instead.
-- It does NOT hold the server's encryption key (`EBP_KEY_ENCRYPTION_KEY` /
-  `ebp.key`). Keep that key somewhere else. Without it, restored webhook
-  secrets cannot be read and you re-issue them.
+- It also holds the server's encryption key (the one that protects stored
+  webhook secrets), so this one file restores everything. That is why the
+  file must be kept private and locked with a strong password.
 - The file opens with the password it was locked with — the admin password
   AT THE TIME of the download. If you later change or reset the admin
   password, older backups still need the old one, so download a fresh backup
@@ -63,14 +66,22 @@ that same password — nothing new to remember or store. EBP never stores it.
 - It is a copy at one moment. Download a fresh one after anything important,
   and always keep the recovery words on paper.
 
-To check a backup opens (no server needed, nothing is changed):
-`ebp backup verify my-backup.ebpbackup`
+To check a backup opens (nothing is changed): `ebp backup verify my-backup.ebpbackup`.
+With the single-container install the `ebp` program lives inside the
+container, so copy the file in first and run it there:
+
+```
+docker compose cp my-backup.ebpbackup ebp:/tmp/b.ebpbackup
+docker compose exec ebp ebp backup verify /tmp/b.ebpbackup
+```
 
 To restore on a new machine: stop EBP, then
 `ebp backup restore my-backup.ebpbackup ./restored` (it refuses to write into
 a folder that already has files), copy the files into the data folder, put the
 same encryption key back, and start EBP. The admin password and the shop's
-API keys are in the restored database; sign in as before.
+API keys are in the restored database; sign in as before. The restored
+`ebp.key` file goes in the data folder next to the database (it is used when
+`EBP_KEY_ENCRYPTION_KEY` is not set).
 
 ## Continuous backup (recommended)
 

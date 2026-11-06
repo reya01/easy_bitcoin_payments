@@ -196,6 +196,21 @@ pub async fn status(
         facts.exit_reserve_shortfall_sats = r["shortfall_sats"].as_i64().unwrap_or(0);
     }
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
+    {
+        let cfg = state.config.settlement_destination.clone();
+        if let Ok(s) = state
+            .db
+            .call(move |c| crate::payout::status(c, cfg.as_deref()))
+            .await
+        {
+            use crate::health_checks::Payout;
+            facts.payout = match (s.active.is_some(), s.effective_at) {
+                (_, Some(at)) if s.pending.is_some() => Payout::ChangePending(at),
+                (true, _) => Payout::Set,
+                (false, _) => Payout::NotSet,
+            };
+        }
+    }
     let checks = crate::health_checks::build(&facts);
 
     Ok(Json(json!({

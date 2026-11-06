@@ -207,8 +207,6 @@ AWS → EC2 → `payments` → **Stop** (keeps disk, pennies/day) or
 
 # TROUBLESHOOTING (every error we've hit so far)
 
-Using the older two-container install? See [ADVANCED_TWO_CONTAINER.md](ADVANCED_TWO_CONTAINER.md).
-
 | Error | Cause | Fix |
 |---|---|---|
 | `Authentication failed` on git clone | repo was private (fixed — it is now public) | just retry the clone |

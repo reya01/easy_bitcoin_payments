@@ -56,9 +56,9 @@ def step(name, critical=False):
             msg = re.sub(r"\s+", " ", repr(e))[:500]
             results.append((name, "FAIL", msg))
             print(f"FAIL  {name}: {msg}", flush=True)
+            if CONTEXT:
+                CONTEXT[0]()
             if critical:
-                if CONTEXT:
-                    CONTEXT[0]()
                 raise Abort(name)
         return fn
 
@@ -101,7 +101,7 @@ def main():
             """What the page shows when a step fails. Never includes the words
             (only error lines, visible step names and request outcomes)."""
             try:
-                vis = page.eval_on_selector_all("section[id^=step-]:not(.hidden)", "e=>e.map(x=>x.id)")
+                vis = page.eval_on_selector_all("section[id^=step-]:not(.hidden), [id^=v-]:not(.hidden), #login-form:not(.hidden)", "e=>e.map(x=>x.id)")
                 errs = page.eval_on_selector_all("[id*=error]:not(.hidden)", "e=>e.map(x=>x.id+': '+x.innerText.slice(0,200))")
                 notes.append("Failure context\nvisible steps: %s\nerror lines: %s\nrecent requests:\n%s" % (vis, errs, "\n".join(net[-14:])))
             except Exception as e:  # noqa: BLE001
@@ -196,6 +196,7 @@ def main():
             files = sorted(f for f in os.listdir(".") if f.startswith("drill-capture-"))
             assert files, "no capture file"
             state["capture"] = open(files[-1]).read()
+            notes.append("Real barkd answers (read-only capture):\n" + state["capture"][:6000])
             assert "no barkd token" not in state["capture"], "barkd token could not be read inside the container"
 
         @step("5.5 download a backup from Settings and verify it opens with the admin password")

@@ -83,7 +83,7 @@ pub async fn change(
             Ok((ch, s))
         })
         .await?;
-    let mut v = view(&s, delay);
+    let mut v = view(&s, &state.config);
     v["applied_now"] = json!(matches!(change, crate::payout::Change::Now));
     Ok(Json(v))
 }
@@ -102,5 +102,5 @@ pub async fn cancel(
             crate::payout::status(c, cfg.as_deref())
         })
         .await?;
-    Ok(Json(view(&s, delay)))
+    Ok(Json(view(&s, &state.config)))
 }

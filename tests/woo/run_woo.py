@@ -118,7 +118,7 @@ def main():
        "-e", "WORDPRESS_DB_HOST=woo-db", "-e", "WORDPRESS_DB_USER=wp", "-e", "WORDPRESS_DB_PASSWORD=wp",
        "-e", "WORDPRESS_DB_NAME=wp",
        "-v", f"{ROOT}/integrations/woocommerce/ebp-bitcoin:/var/www/html/wp-content/plugins/ebp-bitcoin:ro",
-       "wordpress:6")
+       "wordpress:latest")
 
     for name, argv in (
         ("fake", [sys.executable, os.path.join(ROOT, "tests", "e2e", "fake_barkd.py"), str(FAKE_PORT), TOKEN]),

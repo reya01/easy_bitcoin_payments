@@ -38,7 +38,7 @@ jobs:
       # coins you send are never lost with the machine. Signet coins expire
       # after about a day, so use them within a day.
       - name: Restore the saved payer wallet
-        uses: actions/cache/restore@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: payer-wallet
           key: signet-payer-none
@@ -50,6 +50,9 @@ jobs:
           if [ -d payer-wallet ] && [ -n "$(ls -A payer-wallet)" ]; then
             docker compose exec -T ebp mkdir -p /tmp/payer
             docker compose cp payer-wallet/. ebp:/tmp/payer
+            # Files copied in are owned by root; barkd runs as the container's user.
+            uid_gid="$(docker compose exec -T ebp sh -c 'echo $(id -u):$(id -g)')"
+            docker compose exec -T -u root ebp sh -c "chown -R $uid_gid /tmp/payer; rm -f /tmp/payer/LOCK /tmp/payer/barkd.lock /tmp/payer/auth_token"
             echo "restored a saved payer wallet"
           fi
       - name: Install the browser driver
@@ -68,10 +71,10 @@ jobs:
         run: |
           rm -rf payer-wallet
           docker compose cp ebp:/tmp/payer payer-wallet || true
-          rm -f payer-wallet/debug.log
+          rm -f payer-wallet/debug.log payer-wallet/auth_token payer-wallet/LOCK payer-wallet/barkd.lock
       - name: Keep the saved payer wallet
         if: always()
-        uses: actions/cache/save@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: payer-wallet
           key: signet-payer-${{ github.run_id }}-${{ github.run_attempt }}

@@ -2126,7 +2126,7 @@ mod tests {
    {
     "destination": {
      "type": "ark",
-     "value": "tark1pem36wcfzqqprsstt96uns3qeguj6prrga76saqctvqr43tew5ngutrgets0686pzqypqhh3e5z4udx7238nv4k3zmn4nxnet9kqt9l93g0x0gak8v8fztkg92xgy3"
+     "value": "tark1qfakefakefakefakefakefakefakefakefakefakefakefakefake01"
     },
     "amount_sat": 100
    }
@@ -2227,7 +2227,7 @@ mod tests {
    {
     "destination": {
      "type": "ark",
-     "value": "tark1pem36wcfzqqphhrqsra04qzz7v3ds3kn66djwkad0nw886aq729yvl0v86829g7ezqypwqjfxnscfselgr33vq6vuxqhdcufup9ue9a54qd0h7sm0we7nncsduzdxw"
+     "value": "tark1qfakefakefakefakefakefakefakefakefakefakefakefakefake02"
     },
     "amount_sat": 29987
    }

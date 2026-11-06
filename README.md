@@ -280,9 +280,12 @@ docker run --rm -v ebp-data:/data easy-bitcoin-payments store create --name "My 
 The image runs as a non-root user, stores its database on the `/data` volume,
 and exposes a healthcheck against `/api/v1/health`.
 
-### Full stack with the barkd sidecar
+### Advanced: two-container stack with the barkd sidecar
+
+Most people should use the default single-container install (`./scripts/start.sh`, see [docs/START_HERE.md](docs/START_HERE.md)). The two-container stack is selected with `export COMPOSE_FILE=docker-compose.two-container.yml`.
 
 ```bash
+export COMPOSE_FILE=docker-compose.two-container.yml
 # 1. Start barkd alone and read its token (generated on first start).
 docker compose up -d barkd
 export EBP_BARKD_TOKEN="$(docker compose exec barkd barkd --datadir /data secret show)"
@@ -293,7 +296,7 @@ EBP_SETTLEMENT_DESTINATION=ark1your-arke-wallet \
 docker compose up -d
 ```
 
-`docker-compose.yml` runs barkd from a checksum-pinned prebuilt 0.8.0 binary, keeps its datadir on
+`docker-compose.yml` is the default single-container install (EBP runs the wallet daemon itself, no tokens to copy). The advanced `docker-compose.two-container.yml` runs barkd from a checksum-pinned prebuilt 0.8.0 binary, keeps its datadir on
 the `barkd-data` volume, healthchecks it against `GET /ping`, and publishes no
 barkd ports — it is reachable only on the internal compose network, and every
 `/api/v1` call still needs the bearer token. `--expose-mnemonic` is

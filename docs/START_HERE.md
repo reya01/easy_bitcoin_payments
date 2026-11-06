@@ -56,12 +56,8 @@ us, use it and tell us where it hurts.)
 ```
 git clone https://github.com/reya01/easy_bitcoin_payments.git
 cd easy_bitcoin_payments
-echo "COMPOSE_FILE=docker-compose.managed.yml" >> .env
 ./scripts/start.sh
 ```
-
-The `echo` line writes a file called `.env` in this folder that tells Docker
-to use the single-container setup every time (including for updates).
 
 The script prints a boxed **SETUP CODE** and the address of the setup page.
 (If the first start is still compiling it will say so; run it again in a

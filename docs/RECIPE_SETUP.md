@@ -3,6 +3,8 @@
 > **Shop owner, not a developer?** Start with [START_HERE.md](START_HERE.md).
 > This recipe is the longer, AI-assisted version for the TWO-container
 > install (separate wallet container) and includes manual fallback steps.
+> It needs `COMPOSE_FILE=docker-compose.two-container.yml` in a `.env` file
+> (see ADVANCED_TWO_CONTAINER.md).
 > The one-command install in START_HERE does not need steps 1 and 2a-2d.
 
 Recipe version: v1 (matches the first `v*` release cut by

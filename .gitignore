@@ -19,3 +19,7 @@ ebp.toml
 *.swp
 # Local agent review/debug workspace
 /debug/
+
+# Python bytecode
+__pycache__/
+*.pyc

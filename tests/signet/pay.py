@@ -329,6 +329,52 @@ def main():
         cap = open(f).read()
         notes.append("Real barkd answers after payments:\n" + cap[:30000])
 
+    @step("payout: set the payout address; EBP moves the excess above the till cap there by itself")
+    def _():
+        def ebp_admin(method, path, body=None):
+            cmd = (f"curl -sS -m 60 -b jar -c jar -X {method} -H 'content-type: application/json' "
+                   f"-w '\\n%{{http_code}}' {BASE}{path}")
+            if body is not None:
+                cmd += " -d @-"
+            _, out = sh(cmd, inp=json.dumps(body) if body is not None else None, timeout=90)
+            text, _, code = out.rpartition("\n")
+            try:
+                return int(code), (json.loads(text) if text.strip() else None)
+            except Exception:  # noqa: BLE001
+                return 0, text[:200]
+
+        code, r = ebp_admin("POST", "/admin/login", {"password": ADMIN_PW})
+        assert code == 200, ("admin login", code)
+        code, a = payer("POST", "/api/v1/wallet/addresses/next")
+        assert code == 200, (code, a)
+        dest = a["address"]
+        before = balance()["spendable_sat"]
+        code, r = ebp_admin("POST", "/admin/payout", {"address": dest, "admin_password": ADMIN_PW})
+        notes.append(f"set payout address -> http {code}")
+        assert code == 200, (code, r)
+        seen = []
+
+        def swept():
+            code, st = ebp_admin("GET", "/api/v1/admin/status")
+            rows = (st or {}).get("recent_settlements") or [] if code == 200 and isinstance(st, dict) else []
+            seen[:] = rows
+            return any(x.get("kind", "").startswith("sweep") and x.get("status") not in ("pending",) for x in rows)
+
+        try:
+            wait_for(swept, "a sweep to the payout address", 300, 10)
+        finally:
+            notes.append("settlements seen: " + json.dumps(seen)[:1500])
+            _, lg = sh("docker compose logs --no-color --tail 200 ebp")
+            hits = [l[-220:] for l in lg.splitlines() if "sweep" in l.lower() or "reserve" in l.lower()][-8:]
+            notes.append("server log (sweep lines):\n" + "\n".join(hits))
+        for _ in range(12):
+            payer("POST", "/api/v1/wallet/sync"); payer("POST", "/api/v1/wallet/sync/mailbox")
+            if balance()["spendable_sat"] > before:
+                break
+            time.sleep(10)
+        notes.append(f"payer spendable before={before} after={balance()['spendable_sat']}")
+        assert balance()["spendable_sat"] > before, "payout wallet did not receive the sweep"
+
     @step("keep the coins: EBP's wallet goes back to the payer wallet (or RETURN_TO)")
     def _():
         dest = RETURN_TO

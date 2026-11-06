@@ -66,7 +66,7 @@ CMD ["serve"]
 
 # ---- managed stage (single-container install: EBP + barkd) ------------------
 # This is the DEFAULT (last) stage, so a plain `docker build .` and one-click
-# hosts get the single-container install. docker-compose.yml (two containers)
+# hosts get the single-container install. docker-compose.two-container.yml
 # builds `--target runtime` instead. EBP runs
 # barkd itself (EBP_MANAGED_BARKD=true), so no token copying, .env editing or
 # terminal commands are needed during setup. barkd is the SAME checksum-pinned

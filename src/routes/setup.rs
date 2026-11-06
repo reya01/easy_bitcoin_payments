@@ -293,7 +293,7 @@ struct BarkdMnemonic {
 
 /// The ONE local command that starts the ceremony (Docker deploy — the
 /// only supported path): barkd restarted with `--expose-mnemonic`.
-/// VERIFY: exact invocation against the pinned docker-compose.yml — it
+/// VERIFY: exact invocation against the pinned docker-compose.two-container.yml — it
 /// assumes the barkd service command is `barkd --datadir /data` and that
 /// a `docker compose run` container inherits the service's network
 /// aliases (compose >= 2.22 `--use-aliases`) so EBP still reaches it.

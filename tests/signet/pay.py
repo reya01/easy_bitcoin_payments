@@ -454,6 +454,18 @@ def main():
             except Exception:  # noqa: BLE001
                 return 0, text[:200]
 
+        # Coins mid-refresh are locked and cannot be sent. Wait for EBP's wallet
+        # to settle first, or they would be stranded on this (destroyed) machine.
+        def settled():
+            code, b = ebp_barkd("GET", "/api/v1/wallet/balance")
+            if code != 200 or not isinstance(b, dict):
+                return False
+            return b.get("pending_in_round_sat", 0) == 0 and b.get("pending_board_sat", 0) == 0
+        try:
+            wait_for(settled, "EBP's wallet to finish any refresh round", 600, 15)
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"WARNING: EBP's wallet still mid-refresh after 10 minutes: {e}")
+
         ok2 = sweep(
             lambda a: ebp_barkd("POST", "/api/v1/wallet/send", {"destination": dest, "amount_sat": a}),
             lambda: ebp_barkd("GET", "/api/v1/wallet/balance")[1]["spendable_sat"],

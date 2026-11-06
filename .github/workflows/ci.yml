@@ -19,7 +19,7 @@ jobs:
     name: build + test + clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
@@ -53,7 +53,7 @@ jobs:
     name: docker image builds (amd64 + arm64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       # Both release architectures, so a build that only works on the CI
@@ -92,7 +92,7 @@ jobs:
     name: dependency vulnerabilities (cargo audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Checks Cargo.lock against the RustSec advisory database. A known
       # vulnerability in any dependency fails the build; warnings (for
       # example an unmaintained crate) are reported but do not.
@@ -110,7 +110,7 @@ jobs:
     name: shellcheck (scripts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Shellcheck every shipped script
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
@@ -120,7 +120,7 @@ jobs:
     name: barkd openapi drift check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the barkd client's paths against the pinned OpenAPI spec
         run: bash scripts/check_barkd_drift.sh
 

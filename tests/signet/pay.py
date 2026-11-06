@@ -224,6 +224,7 @@ def main():
             print(f"restored wallet calls: balance={c1} sync={c2} {str(r2)[:120]} balance={c3} token_unchanged={same}", flush=True)
             if not same:
                 state["payer_token"] = tok2.strip().splitlines()[-1].strip()
+            print(sh("docker compose exec -T ebp sh -c 'sha256sum /tmp/payer/auth_token | cut -c1-12; tail -n 25 /tmp/payer/debug.log; cat /tmp/payer/config.toml | sed -E \"s/(token|key)[^=]*=.*/\\1=<hidden>/\"'")[1][-3000:], flush=True)
         else:
             code, out = payer("POST", "/api/v1/wallet/create", {"network": "signet"})
             assert code == 200, (code, out)

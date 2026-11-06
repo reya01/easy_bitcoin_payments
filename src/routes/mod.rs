@@ -128,6 +128,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/session", get(admin_session::session))
         .route("/admin/logout", post(admin_session::logout))
         .route("/admin/payout/cancel", post(payout::cancel))
+        .route("/admin/sweep", post(payout::sweep_now))
         .route("/admin/password", post(admin_session::change_password))
         .merge(
             Router::new()

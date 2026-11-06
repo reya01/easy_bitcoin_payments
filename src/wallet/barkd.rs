@@ -92,6 +92,8 @@ const PATH_ONCHAIN_ADDRESS_NEXT: &str = "/onchain/addresses/next";
 const PATH_BALANCE: &str = "/wallet/balance";
 /// Confirmed on-chain balance — the emergency-exit reserve. GET.
 const PATH_ONCHAIN_BALANCE: &str = "/onchain/balance";
+// Pinned OpenAPI: GET /fees/onchain -> {fast,regular,slow}_sat_per_vb.
+const PATH_FEES_ONCHAIN: &str = "/fees/onchain";
 /// VTXO list with per-VTXO expiry. GET. VERIFIED (same pass) empty
 /// shape: a bare JSON array `[]` — no wrapper object.
 const PATH_VTXOS: &str = "/wallet/vtxos";
@@ -576,6 +578,22 @@ impl BarkdClient {
             offchain_sats: spendable,
             claimable_lightning_sats: claimable,
             needs_refresh_sats: flex::i64_field(&v, &["needs_refresh_sat"]).unwrap_or(0),
+        })
+    }
+
+    /// Current network fee rates (sat/vB) at three confirmation targets.
+    pub async fn onchain_fee_rates(&self) -> Result<OnchainFeeRates, WalletError> {
+        let v: Json = self.get(PATH_FEES_ONCHAIN).await?;
+        let read = |k: &str| {
+            v.get(k)
+                .and_then(Json::as_i64)
+                .filter(|n| *n >= 0)
+                .ok_or_else(|| WalletError::Rejected(format!("fee rates: missing {k}")))
+        };
+        Ok(OnchainFeeRates {
+            fast_sat_per_vb: read("fast_sat_per_vb")?,
+            regular_sat_per_vb: read("regular_sat_per_vb")?,
+            slow_sat_per_vb: read("slow_sat_per_vb")?,
         })
     }
 
@@ -1239,6 +1257,14 @@ impl Balances {
     pub fn total_sats(&self) -> i64 {
         self.onchain_sats + self.offchain_sats
     }
+}
+
+/// Network fee rates from `GET /fees/onchain`, in sat/vB.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnchainFeeRates {
+    pub fast_sat_per_vb: i64,
+    pub regular_sat_per_vb: i64,
+    pub slow_sat_per_vb: i64,
 }
 
 /// On-chain balance from `GET /onchain/balance`.

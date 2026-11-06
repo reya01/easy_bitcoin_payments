@@ -28,6 +28,9 @@ pub struct Config {
     /// Same, when the payout address is an ON-CHAIN address. Higher, because
     /// every on-chain withdrawal pays a network fee.
     pub onchain_sweep_cap_sats: i64,
+    /// An AUTOMATIC on-chain sweep waits until the network fee rate (sat/vB,
+    /// ~3-block target) is at or below this. Manual sweeps ignore it.
+    pub onchain_sweep_max_fee_sat_vb: i64,
     pub watcher_interval_secs: u64,
     pub webhook_timeout_secs: u64,
     pub log_level: String,
@@ -130,6 +133,7 @@ impl Default for Config {
             static_rates,
             hot_wallet_cap_sats: 20_000,
             onchain_sweep_cap_sats: 1_000_000,
+            onchain_sweep_max_fee_sat_vb: 50,
             watcher_interval_secs: 10,
             webhook_timeout_secs: 10,
             log_level: "info,tower_http=info".to_string(),
@@ -226,6 +230,7 @@ struct FileConfig {
     static_rates: Option<HashMap<String, f64>>,
     hot_wallet_cap_sats: Option<i64>,
     onchain_sweep_cap_sats: Option<i64>,
+    onchain_sweep_max_fee_sat_vb: Option<i64>,
     watcher_interval_secs: Option<u64>,
     webhook_timeout_secs: Option<u64>,
     log_level: Option<String>,
@@ -344,6 +349,9 @@ impl Config {
         }
         if let Some(v) = file.static_rates {
             self.static_rates = v.into_iter().map(|(k, v)| (k.to_uppercase(), v)).collect();
+        }
+        if let Some(v) = file.onchain_sweep_max_fee_sat_vb {
+            self.onchain_sweep_max_fee_sat_vb = v;
         }
         if let Some(v) = file.onchain_sweep_cap_sats {
             self.onchain_sweep_cap_sats = v;
@@ -465,6 +473,9 @@ impl Config {
         if let Some(v) = lookup("EBP_DEFAULT_CURRENCY") {
             self.default_currency = v.to_uppercase();
         }
+        if let Some(v) = lookup("EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB") {
+            self.onchain_sweep_max_fee_sat_vb = parse_int("EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB", &v)?;
+        }
         if let Some(v) = lookup("EBP_ONCHAIN_SWEEP_CAP_SATS") {
             self.onchain_sweep_cap_sats = parse_int("EBP_ONCHAIN_SWEEP_CAP_SATS", &v)?;
         }
@@ -574,6 +585,12 @@ impl Config {
             return Err(ConfigError::Invalid {
                 key: "max_expiry_minutes".into(),
                 value: self.max_expiry_minutes.to_string(),
+            });
+        }
+        if self.onchain_sweep_max_fee_sat_vb <= 0 {
+            return Err(ConfigError::Invalid {
+                key: "onchain_sweep_max_fee_sat_vb".into(),
+                value: self.onchain_sweep_max_fee_sat_vb.to_string(),
             });
         }
         if self.onchain_sweep_cap_sats <= 0 {
@@ -724,6 +741,7 @@ mod tests {
         assert_eq!(c.default_expiry_minutes, 20);
         assert_eq!(c.hot_wallet_cap_sats, 20_000);
         assert_eq!(c.onchain_sweep_cap_sats, 1_000_000);
+        assert_eq!(c.onchain_sweep_max_fee_sat_vb, 50);
         assert!(c.static_rates.contains_key("EUR"));
         c.validate().expect("defaults validate");
     }

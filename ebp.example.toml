@@ -47,6 +47,10 @@ hot_wallet_cap_sats = 20000
 # because each on-chain withdrawal pays a network fee.
 onchain_sweep_cap_sats = 1000000
 
+# An automatic on-chain withdrawal waits until network fees are at or below
+# this many sats per vbyte. You can always withdraw by hand.
+onchain_sweep_max_fee_sat_vb = 50
+
 # How often the payment watcher polls barkd.
 watcher_interval_secs = 10
 

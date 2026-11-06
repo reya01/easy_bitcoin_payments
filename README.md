@@ -241,6 +241,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_DEFAULT_CURRENCY` | `EUR` | Fallback currency |
 | `EBP_HOT_WALLET_CAP_SATS` | `20000` | Till cap when your payout address is an Ark address (low: Ark transfers are almost free) |
 | `EBP_ONCHAIN_SWEEP_CAP_SATS` | `1000000` | Till cap when your payout address is an on-chain address (higher: each withdrawal pays a network fee) |
+| `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB` | `50` | An automatic on-chain withdrawal waits until network fees are at or below this (sat/vB). The manual "move my money now" button ignores it |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
 | `EBP_LOG_LEVEL` | `info,tower_http=info` | `tracing` filter |
 | `EBP_KEY_ENCRYPTION_KEY` | unset | 64 hex chars (32 bytes). Key that encrypts webhook secrets at rest (ChaCha20-Poly1305). Unset = a 0600 `ebp.key` file is created next to the database. Generate with `openssl rand -hex 32`; keep it OUTSIDE the data volume in production |

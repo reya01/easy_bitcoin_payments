@@ -1,0 +1,17 @@
+#cloud-config
+# Paste this whole file into your hosting provider's "user data" /
+# "initialization script" box when you create the server (Ubuntu 24.04).
+# Step-by-step: docs/VPS_DIGITALOCEAN.md
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - curl
+  - ca-certificates
+  - docker.io
+  - docker-compose-v2
+runcmd:
+  # EBP_REF is the version to install. Leave it as it is unless we tell you
+  # to use a specific release (for example v0.1.0-rc1).
+  - [ sh, -c, "git clone --depth 1 --branch main https://github.com/reya01/easy_bitcoin_payments.git /opt/ebp" ]
+  - [ sh, -c, "/opt/ebp/scripts/vps-setup.sh > /var/log/ebp-vps-setup.log 2>&1" ]

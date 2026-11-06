@@ -44,6 +44,8 @@ Two things are not finished, and you should know before you invest time:
 Step-by-step with every known error and its fix, for a cloud server and an
 iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md).
 
+**Easiest path for most people:** [put it on a DigitalOcean server](VPS_DIGITALOCEAN.md) by pasting one block of text, no terminal needed.
+
 ## The short version (single-container install)
 
 EBP can run its own wallet engine inside one container, so you never copy

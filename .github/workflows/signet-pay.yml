@@ -3,7 +3,8 @@
 # payer wallet. The job prints (and writes to the job summary) an address; send
 # signet coins there, then it pays EBP's invoices for real. Signet play money
 # only; the payer wallet's words are never printed and the machine is destroyed
-# at the end (give return_to to get leftovers sent back).
+# at the end. The payer wallet is saved between runs (leftover coins stay in
+# it); give return_to to send them somewhere else instead.
 name: signet-pay
 
 on:
@@ -33,8 +34,24 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The payer wallet (signet play money only) is kept between runs so
+      # coins you send are never lost with the machine. Signet coins expire
+      # after about a day, so use them within a day.
+      - name: Restore the saved payer wallet
+        uses: actions/cache/restore@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        with:
+          path: payer-wallet
+          key: signet-payer-none
+          restore-keys: signet-payer-
       - name: Build and start the stack
         run: docker compose up -d --build
+      - name: Put the saved payer wallet in place
+        run: |
+          if [ -d payer-wallet ] && [ -n "$(ls -A payer-wallet)" ]; then
+            docker compose exec -T ebp mkdir -p /tmp/payer
+            docker compose cp payer-wallet/. ebp:/tmp/payer
+            echo "restored a saved payer wallet"
+          fi
       - name: Install the browser driver
         run: |
           python3 -m pip install --user playwright
@@ -46,6 +63,18 @@ jobs:
           MIN_SATS: ${{ inputs.min_sats }}
           WAIT_MIN: ${{ inputs.wait_minutes }}
         run: python3 tests/signet/pay.py
+      - name: Save the payer wallet for the next run
+        if: always()
+        run: |
+          rm -rf payer-wallet
+          docker compose cp ebp:/tmp/payer payer-wallet || true
+          rm -f payer-wallet/debug.log
+      - name: Keep the saved payer wallet
+        if: always()
+        uses: actions/cache/save@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        with:
+          path: payer-wallet
+          key: signet-payer-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Server log
         if: always()
         run: |

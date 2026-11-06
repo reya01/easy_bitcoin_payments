@@ -1,0 +1,64 @@
+# Connect your WooCommerce shop
+
+Time needed: about 10 minutes. You need your payment server running with a
+padlock (https) address, and admin access to your WordPress site.
+
+**Test version:** use play-money (signet) only for now. Do not take real
+bitcoin yet.
+
+## 1. Install the plugin
+
+1. Download `ebp-bitcoin-woocommerce.zip` from the latest release.
+2. In WordPress: **Plugins → Add New → Upload Plugin**, choose the zip, then
+   **Install Now** and **Activate**.
+3. Go to **WooCommerce → Settings → Payments → Bitcoin (Easy Bitcoin
+   Payments)** and tick **Enable**.
+
+## 2. Fill in three things
+
+Open your payment server's dashboard and go to the **Connect your shop** tab.
+
+| In the plugin | Where to get it |
+| --- | --- |
+| Server address | Step 1 on the Connect tab (your padlock address) |
+| API key | Step 2: **Make a new API key** (shown once, copy it right away) |
+| Signing secret | Step 3: appears once when you save the notification address |
+
+The plugin shows **Your shop's notification address**. Copy it into step 3 of
+the Connect tab, press **Save address**, then copy the signing secret that
+appears back into the plugin. Press **Save changes** in WooCommerce. A green
+"connected to your payment server" message means it works; a red message says
+what to fix.
+
+## 3. Try it
+
+On the Connect tab press **Send a test notification** (nothing is charged),
+then place a small test order on your own shop and pay it with a signet wallet.
+The order should move from **On hold** to **Processing** by itself within a few
+seconds of the payment.
+
+## What your customers see
+
+They pick **Bitcoin** at checkout and land on your payment server's checkout
+page (Lightning, Ark or on-chain). Underpaying keeps the order on hold for a
+short top-up window; if the invoice expires unpaid, the order is cancelled and
+stock is released. If a payment arrives after the order was cancelled, the
+order notes say so, so you can decide what to do (see **Payments that need
+you** on the dashboard).
+
+## Safety notes
+
+- Orders are only marked paid after the plugin asks **your own server**
+  whether the invoice is really paid. A forged or replayed notice cannot mark
+  an order paid.
+- The plugin only talks to the server address you typed in. No third party is
+  involved.
+- Keep the API key and signing secret private. If either leaks, make a new one
+  on the Connect tab and paste it in.
+
+## Known limits
+
+- After paying, the customer is not sent back to your shop automatically; they
+  see "paid" on the checkout page. Order emails still go out as usual.
+- Refunds are done by hand from your own wallet.
+- Prices are converted at the moment the order is placed.

@@ -49,6 +49,16 @@ jobs:
       - name: Browser end-to-end test
         run: python3 tests/e2e/run_e2e.py target/release/ebp
 
+      # WooCommerce plugin: PHP syntax + logic tests, then a real WordPress +
+      # WooCommerce (docker) paying an order through this binary.
+      - name: WooCommerce plugin checks
+        run: |
+          for f in $(find integrations -name '*.php'); do php -l "$f" >/dev/null; done
+          php integrations/woocommerce/tests/core-test.php
+
+      - name: WooCommerce end-to-end test
+        run: python3 tests/woo/run_woo.py target/release/ebp
+
   docker:
     name: docker image builds (amd64 + arm64)
     runs-on: ubuntu-latest
@@ -117,6 +127,12 @@ jobs:
           shellcheck -S warning scripts/*.sh
       - name: Automatic-https helper writes the right settings
         run: bash scripts/test_start_https.sh
+      - name: VPS setup script copies the setup box to the console screen
+        run: bash scripts/test_vps_setup.sh
+      - name: cloud-init file is valid
+        run: |
+          sudo apt-get install -y -qq cloud-init >/dev/null
+          cloud-init schema --config-file deploy/cloud-init.yaml
       - name: Caddyfile is valid
         run: |
           docker run --rm -e EBP_DOMAIN=203-0-113-7.sslip.io \

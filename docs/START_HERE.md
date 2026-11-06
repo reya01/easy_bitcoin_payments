@@ -11,10 +11,9 @@ Easy Bitcoin Payments (EBP) lets your online shop take Bitcoin payments into
 (signet) payments** to see how it works. **Do not use real bitcoin yet.**
 Two things are not finished, and you should know before you invest time:
 
-- **No shop plugin yet.** There is no WooCommerce / Shopify button. Your shop
-  (or a developer) has to call EBP to create payment requests, so there are no
-  automatic orders. You can still try a payment by hand: admin page →
-  Payments → **Try a payment**.
+- **Shop plugin: WooCommerce only.** There is a WooCommerce plugin
+  ([setup guide](WOOCOMMERCE.md)); there is no Shopify app yet. You can also
+  try a payment by hand: admin page → Payments → **Try a payment**.
 - **Checkout is reachable only by you** in the safest setup (see "Taking real
   customers" below). Opening it to the public needs an HTTPS address.
 
@@ -44,6 +43,8 @@ Two things are not finished, and you should know before you invest time:
 
 Step-by-step with every known error and its fix, for a cloud server and an
 iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md).
+
+**Easiest path for most people:** [put it on a DigitalOcean server](VPS_DIGITALOCEAN.md) by pasting one block of text, no terminal needed.
 
 ## The short version (single-container install)
 

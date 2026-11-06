@@ -19,6 +19,7 @@ from playwright.sync_api import sync_playwright
 BASE = os.environ.get("EBP_PUBLIC_BASE_URL", "http://localhost:8080")
 ADMIN_PW = "signet drill smoke password"
 results, notes = [], []
+CONTEXT = []
 
 
 def sh(cmd, inp=None, timeout=120):
@@ -56,6 +57,8 @@ def step(name, critical=False):
             results.append((name, "FAIL", msg))
             print(f"FAIL  {name}: {msg}", flush=True)
             if critical:
+                if CONTEXT:
+                    CONTEXT[0]()
                 raise Abort(name)
         return fn
 
@@ -80,6 +83,31 @@ def main():
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("dialog", lambda d: d.accept())
+        net = []
+
+        def on_resp(r):
+            if "/setup" in r.url or "/admin" in r.url:
+                body = ""
+                if r.status >= 400 or "/setup/token" in r.url or "/setup/status" in r.url:
+                    try:
+                        body = re.sub(r"\s+", " ", r.text())[:300]
+                    except Exception:  # noqa: BLE001
+                        pass
+                net.append(f"{r.request.method} {r.url.replace(BASE, '')} -> {r.status} {body}")
+
+        page.on("response", on_resp)
+
+        def context():
+            """What the page shows when a step fails. Never includes the words
+            (only error lines, visible step names and request outcomes)."""
+            try:
+                vis = page.eval_on_selector_all("section[id^=step-]:not(.hidden)", "e=>e.map(x=>x.id)")
+                errs = page.eval_on_selector_all("[id*=error]:not(.hidden)", "e=>e.map(x=>x.id+': '+x.innerText.slice(0,200))")
+                notes.append("Failure context\nvisible steps: %s\nerror lines: %s\nrecent requests:\n%s" % (vis, errs, "\n".join(net[-14:])))
+            except Exception as e:  # noqa: BLE001
+                notes.append(f"(could not collect page context: {e!r})")
+
+        CONTEXT.append(context)
 
         @step("1.1-1.2 setup page loads; wrong code refused, right code accepted", critical=True)
         def _():

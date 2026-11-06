@@ -256,10 +256,11 @@ impl SettlementEngine {
         //    merchant's own wallet. Requires a configured destination; an
         //    unset/blank one means sweeping stays off (renewal above is
         //    unaffected).
+        let cfg_destination = self.config.settlement_destination.clone();
         let Some(destination) = self
-            .config
-            .settlement_destination
-            .clone()
+            .db
+            .call(move |conn| crate::payout::effective(conn, cfg_destination.as_deref()))
+            .await?
             .filter(|d| !d.trim().is_empty())
         else {
             return Ok(report);
@@ -448,6 +449,44 @@ mod tests {
         assert_eq!(sweepable_onchain_sats(50_000, 2), 20_000);
         assert_eq!(sweepable_onchain_sats(10_000, 2), 0);
         assert_eq!(sweepable_onchain_sats(30_000, 2), 0);
+    }
+
+    #[tokio::test]
+    async fn sweeps_to_the_payout_address_saved_in_settings() {
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 150000}"#.to_string()),
+            "/api/v1/wallet/send" => (200, r#"{"sent": true}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        // No address in the server configuration; one saved through the page.
+        db.call(|c| crate::payout::set_initial(c, "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k"))
+            .await
+            .unwrap();
+        let engine = SettlementEngine::new(client, db.clone(), test_config(None, 100_000));
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.swept_sats, Some(50_000));
+        let destination = {
+            let requests = recorded.lock().unwrap();
+            let send = requests
+                .iter()
+                .find(|r| r.route() == "/api/v1/wallet/send")
+                .expect("send recorded");
+            let body: serde_json::Value = serde_json::from_str(&send.body).unwrap();
+            body["destination"].clone()
+        };
+        assert_eq!(destination, "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k");
     }
 
     #[tokio::test]

@@ -103,6 +103,8 @@ pub struct Config {
     /// PBKDF2 rounds for the admin password (default 600,000; minimum 1,000).
     /// Lowering it weakens the hash — it exists for tests only.
     pub password_hash_iterations: u32,
+    /// Seconds a CHANGED payout address waits before it takes effect.
+    pub payout_change_delay_secs: i64,
 }
 
 impl Default for Config {
@@ -148,6 +150,7 @@ impl Default for Config {
             managed_barkd: false,
             update_check: true,
             password_hash_iterations: crate::admin_auth::DEFAULT_ITERATIONS,
+            payout_change_delay_secs: crate::payout::DEFAULT_DELAY_SECS,
         }
     }
 }
@@ -478,6 +481,16 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_SETTLEMENT_DESTINATION") {
             self.settlement_destination = Some(v.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        if let Some(v) = lookup("EBP_PAYOUT_CHANGE_DELAY_SECS") {
+            let n = parse_int("EBP_PAYOUT_CHANGE_DELAY_SECS", &v)?;
+            if n < 0 {
+                return Err(ConfigError::Invalid {
+                    key: "EBP_PAYOUT_CHANGE_DELAY_SECS".to_string(),
+                    value: v,
+                });
+            }
+            self.payout_change_delay_secs = n;
         }
         if let Some(v) = lookup("EBP_SETTLEMENT_INTERVAL_SECS") {
             self.settlement_interval_secs = positive_u64("EBP_SETTLEMENT_INTERVAL_SECS", &v)?;

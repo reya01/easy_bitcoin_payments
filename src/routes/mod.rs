@@ -7,6 +7,7 @@ pub mod dashboard;
 pub mod deliveries;
 pub mod health;
 pub mod invoices;
+pub mod payout;
 pub mod setup;
 pub mod stores;
 pub mod unmatched;
@@ -100,6 +101,7 @@ pub fn router(state: AppState) -> Router {
             axum::routing::put(stores::set_webhook),
         )
         .route("/api/v1/admin/version", get(stores::version))
+        .route("/api/v1/payout", get(payout::get))
         .route("/api/v1/stores/webhook/test", post(stores::test_webhook))
         .route("/api/v1/stores/rotate-key", post(stores::rotate_key))
         .route("/api/v1/webhook-deliveries", get(deliveries::list))
@@ -125,12 +127,15 @@ pub fn router(state: AppState) -> Router {
         .route("/admin", get(dashboard::dashboard))
         .route("/admin/session", get(admin_session::session))
         .route("/admin/logout", post(admin_session::logout))
+        .route("/admin/payout/cancel", post(payout::cancel))
         .route("/admin/password", post(admin_session::change_password))
         .merge(
             Router::new()
                 .route("/admin/login", post(admin_session::login))
                 // Checks the admin password again, so it shares the brake.
                 .route("/admin/backup", post(backup::download))
+                // Also checks the admin password.
+                .route("/admin/payout", post(payout::change))
                 // Password-guessing brake: 10 attempts a minute per client.
                 .layer(middleware::from_fn_with_state(
                     Arc::new(crate::ratelimit::RateLimiter::new(

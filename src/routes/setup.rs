@@ -1122,6 +1122,10 @@ pub struct CreateStoreRequest {
     /// automation; the wizard always sends it.
     #[serde(default)]
     pub admin_password: Option<String>,
+    /// Where the till empties to (an Ark or Bitcoin address). Optional: left
+    /// out, money stays in the till until one is set in Settings.
+    #[serde(default)]
+    pub payout_address: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1171,12 +1175,21 @@ pub async fn create_store(
     if let Some(pw) = req.admin_password.as_deref() {
         crate::admin_auth::validate_password(pw)?;
     }
+    // Validate the payout address BEFORE creating anything, so a typo does
+    // not leave a half-finished setup behind.
+    let payout_address = match req.payout_address.as_deref().map(str::trim) {
+        Some(a) if !a.is_empty() => Some(crate::payout::validate(a)?),
+        _ => None,
+    };
     let admin_password = req.admin_password.clone();
     let iterations = state.config.password_hash_iterations;
     let (created, setup_complete) = state
         .db
         .call(move |conn| {
             let created = insert_first_store(conn, &name)?;
+            if let Some(addr) = payout_address.as_deref() {
+                crate::payout::set_initial(conn, addr)?;
+            }
             if let Some(pw) = admin_password.as_deref() {
                 crate::admin_auth::set_password(conn, pw, iterations)?;
             }

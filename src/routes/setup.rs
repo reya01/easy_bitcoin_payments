@@ -82,8 +82,8 @@ use crate::settings;
 // verifies every PATH_* constant in src/ — both copies — against the
 // pinned OpenAPI. VERIFY markers per the honesty rule.
 // ---------------------------------------------------------------------------
-/// Create (or restore) the wallet. POST. No bearer token: wallet creation
-/// precedes token provisioning (the verified recipe call sends none).
+/// Create (or restore) the wallet. POST. Sends barkd's bearer token when the
+/// server has one (the single-container install does; see `create_till_wallet`).
 /// The pinned OpenAPI documents this endpoint (request `network`,
 /// `ark_server`, ...; response `{"fingerprint"}` only, never the words).
 /// Not yet seen live: the pass could not probe it on the main datadir (a
@@ -767,9 +767,9 @@ struct CreateWalletOutcome {
     mnemonic: Option<String>,
 }
 
-/// Create the till wallet through barkd (POST /wallet/create, no bearer
-/// token — creation precedes token provisioning; the verified recipe call
-/// sends none either).
+/// Create the till wallet through barkd (POST /wallet/create). The bearer
+/// token is sent when we have one (a barkd that already holds a token
+/// refuses unauthenticated creation; one without a token ignores it).
 ///
 /// Request body per the pinned OpenAPI (`network`, `ark_server`); the
 /// response carries only a `fingerprint`, so the mnemonic lookup below is a
@@ -785,19 +785,24 @@ async fn create_till_wallet(
         .build()
         .map_err(|err| AppError::Internal(format!("could not build the barkd client: {err}")))?;
 
-    let response = client
+    let mut request = client
         .post(format!("{base_url}{PATH_WALLET_CREATE}"))
         // Pinned OpenAPI CreateWalletRequest: the field is `ark_server`.
         // (`ark` was silently ignored by barkd, so a custom ASP never applied.)
-        .json(&serde_json::json!({ "network": network, "ark_server": asp_url }))
-        .send()
-        .await
-        .map_err(|err| {
-            // Log the detail; return a generic message (no internal URL) to
-            // the unauthenticated caller (R9).
-            tracing::warn!(error = %err, "setup: could not reach barkd");
-            AppError::Internal("could not reach the wallet service".into())
-        })?;
+        .json(&serde_json::json!({ "network": network, "ark_server": asp_url }));
+    // FOUND BY THE LIVE SIGNET CHECK: a barkd that already has a token (the
+    // single-container install reads it at boot) answers 401 to an
+    // unauthenticated create. Send the token whenever we have one; a barkd
+    // with no token yet simply ignores the header.
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await.map_err(|err| {
+        // Log the detail; return a generic message (no internal URL) to
+        // the unauthenticated caller (R9).
+        tracing::warn!(error = %err, "setup: could not reach barkd");
+        AppError::Internal("could not reach the wallet service".into())
+    })?;
 
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(|err| {

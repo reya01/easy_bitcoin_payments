@@ -378,6 +378,12 @@ def main():
             "EBP wallet",
         )
         assert ok1 and ok2, "could not return all funds"
+        # Let the payer wallet see what just arrived before the workflow saves it.
+        for _ in range(6):
+            time.sleep(10)
+            payer("POST", "/api/v1/wallet/sync")
+            payer("POST", "/api/v1/wallet/sync/mailbox")
+        notes.append(f"Payer wallet saved with spendable={balance()['spendable_sat']} sats")
 
 
 try:

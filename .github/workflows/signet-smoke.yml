@@ -28,7 +28,8 @@ jobs:
         run: python3 tests/signet/smoke.py
       - name: Server log (for failures; the log never contains the words, keys or password)
         if: always()
-        run: docker compose logs --no-color --tail 300 ebp | sed -E 's/(SETUP CODE: *)[A-Z0-9-]+/\1<hidden>/' | tee server-log.txt
+        run: |
+          docker compose logs --no-color --tail 300 ebp | sed -E 's/(SETUP CODE: *)[A-Z0-9-]+/\1<hidden>/' | tee server-log.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

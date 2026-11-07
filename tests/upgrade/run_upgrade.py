@@ -147,7 +147,15 @@ def main():
         assert c in (200, 201), (c, a)
         state.update(a=a["id"], a_addr=a["ark_address"])
         fake(action="pay_ark", address=a["ark_address"], sats=2000)
-        wait_for(lambda: inv(a["id"])["status"] == "paid", "invoice A paid on the old build")
+        try:
+            wait_for(lambda: inv(a["id"])["status"] == "paid", "invoice A paid on the old build")
+        except AssertionError:
+            st = jhttp("GET", f"http://127.0.0.1:{FAKE_PORT}/__ctl/state")[2]
+            vio = jhttp("GET", f"http://127.0.0.1:{FAKE_PORT}/__ctl/violations")[2]
+            print("      fake barkd saw (tail):", str(st.get("log", st) if isinstance(st, dict) else st)[-900:])
+            print("      spec violations:", str(vio)[:900])
+            print("      old log:", open(os.path.join(tmp, "old.log")).read()[-1500:])
+            raise
         c, _, b = jhttp("POST", f"{base}/api/v1/invoices", {"order_id": "up-b", "sats": 3000}, auth)
         assert c in (200, 201), (c, b)
         state.update(a=a["id"], b=b["id"], b_addr=b["ark_address"])

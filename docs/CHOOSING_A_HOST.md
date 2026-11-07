@@ -54,6 +54,7 @@ Neither host changes them.
 - **Update on purpose.** Deploy only releases you have read about, never
   "whatever is newest". Check the release notes first.
 - **Protect the host account.** Two-factor sign-in, a unique password.
+- **Know what to do on a bad day.** [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md) has the short list; practise it once on play money.
 - **Check your own wallet.** About once a week, compare the payments your shop
   marked as paid with what your wallet actually received. This is the one
   check that does not depend on the payment server telling the truth.

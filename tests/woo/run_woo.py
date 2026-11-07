@@ -328,6 +328,14 @@ def main():
         st = wpcli("eval", f"echo wc_get_order({order2})->get_status();")
         assert st == "on-hold", st
 
+    @step("deleting the plugin removes the API key and signing secret from the database")
+    def _():
+        has = lambda: wpcli("eval", "echo false === get_option('woocommerce_ebp_bitcoin_settings', false) ? 'gone' : 'present';")
+        assert has() == "present", "settings should exist before uninstall"
+        wpcli("plugin", "deactivate", "ebp-bitcoin")
+        wpcli("plugin", "uninstall", "ebp-bitcoin", "--skip-delete")
+        assert has() == "gone", "settings (API key, secret) must be removed on uninstall"
+
 
 try:
     main()

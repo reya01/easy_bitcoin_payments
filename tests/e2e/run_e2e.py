@@ -337,6 +337,24 @@ def main():
             ctl(action="set", key="down", value=False)
             wait_for(lambda: status_of(inv)["status"] == "paid", "payment credited after recovery")
 
+        @step("hung barkd: health and invoice status still answer fast; the payment is credited once barkd wakes")
+        def _():
+            inv = new_invoice("hang-1", 1700)
+            ctl(action="set", key="hang", value=True)
+            try:
+                ctl(action="pay_ark", address=inv["ark_address"], sats=1700)
+                t0 = time.time()
+                code, h = http("GET", f"{BASE}/api/v1/health", timeout=9)
+                took = time.time() - t0
+                assert code == 200 and took < 6, (code, took)
+                assert h["wallet"]["reachable"] is False and h["status"] == "degraded", h
+                t0 = time.time()
+                assert status_of(inv)["status"] == "pending"
+                assert time.time() - t0 < 3, "invoice status must not wait for the wallet"
+            finally:
+                ctl(action="set", key="hang", value=False)
+            wait_for(lambda: status_of(inv)["status"] == "paid", "payment credited after barkd wakes", timeout=90)
+
         @step("restart: server restarts, data and login survive")
         def _():
             inv = new_invoice("restart-1", 1200)

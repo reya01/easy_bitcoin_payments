@@ -17,6 +17,7 @@ import json
 import os
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -42,6 +43,7 @@ def reset():
         needs_refresh=0,
         onchain_confirmed=200_000,
         down=False,
+        hang=False,
         n_addr=0,
         n_move=0,
         n_vtxo=0,
@@ -324,6 +326,12 @@ class H(BaseHTTPRequestHandler):
             body = self._body()
         except Exception:
             body = {}
+        if u.path.startswith("/api/v1/"):
+            # A hung daemon: accept the request, never answer (until released).
+            waited = 0.0
+            while S.get("hang") and waited < 120:
+                time.sleep(0.1)
+                waited += 0.1
         with LOCK:
             if u.path == "/__ctl":
                 return self._send(200, control(body))

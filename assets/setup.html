@@ -54,7 +54,7 @@
   h1 { font-size: 22px; letter-spacing: -0.01em; margin: 18px 0 6px; }
   .sub { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
   .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-top: 14px; }
-  .card a { color: var(--fg); font-weight: 600; }
+  .card a { color: var(--fg); font-weight: 600; display: inline-block; padding: 12px 0; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
   input[type=text], input[type=password] {
     width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
@@ -68,6 +68,16 @@
     cursor: pointer;
   }
   button.primary:disabled { opacity: 0.5; cursor: default; }
+  /* Secondary buttons (Hide now, Show the words again): a real tap target. */
+  button.small, #btn-quiz-back {
+    min-height: 44px; padding: 0 16px; margin-top: 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  /* 16px stops iPhones zooming the page when a field is tapped. */
+  @media (max-width: 600px) {
+    input[type=text], input[type=password] { font-size: 16px; }
+  }
   .words {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 14px 0; padding: 14px;
     border: 1px dashed var(--line); border-radius: 12px;
@@ -168,7 +178,7 @@
 
   <section id="step-token" class="hidden">
     <h1>Connect to the wallet</h1>
-    <p class="sub">The payments server talks to the wallet with a token. Run this on the machine running barkd and paste the result — the AI never sees it:</p>
+    <p class="sub">The payments server talks to the wallet with a token. Run this on the machine running barkd and paste the result:</p>
     <div class="card">
       <code class="cmd">docker compose exec barkd barkd --datadir /data secret show</code>
       <label for="token">barkd token</label>
@@ -186,10 +196,10 @@
       <label for="store">Store name</label>
       <input type="text" id="store" class="name" placeholder="My store">
       <label for="admin-pw">Choose an admin password</label>
-      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 10 characters — a few random words works well">
-      <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager.</p>
+      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 10 characters">
+      <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager. A few random words works well.</p>
       <label for="payout">Where should your money go? (optional)</label>
-      <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Paste your own wallet's address (Ark or Bitcoin)">
+      <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Your wallet address (Ark or Bitcoin)">
       <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control (for example Arké). You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
       <div class="hidden" id="store-secrets">

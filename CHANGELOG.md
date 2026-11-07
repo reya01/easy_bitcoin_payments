@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- Phone: the whole browser test now also runs in an emulated iPhone (fails if a page scrolls sideways). Setup page fixes found by it: Hide/Show-again buttons are proper tap targets, fields no longer zoom the page on iPhone, shorter placeholders, and the final link is easier to tap.
 - Docs: RC_CHECKLIST.md (what CI proves, what a person must still do, release steps, draft notes); SECURITY.md; HANDOFF and KNOWN_ISSUES refreshed.
 - Health: if barkd hangs, `GET /api/v1/health` answers "wallet not answering" within 3 seconds instead of waiting 30 (the Docker healthcheck gives up after 5). New end-to-end test covers a hung wallet.
 - Docs: START_HERE now leads with the no-terminal DigitalOcean path, fixes a dangling "Taking real customers" reference and outdated https wording; DigitalOcean guide no longer claims the Console is always pre-signed-in.

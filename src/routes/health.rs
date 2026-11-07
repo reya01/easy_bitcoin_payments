@@ -5,6 +5,10 @@ use serde::Serialize;
 use crate::routes::AppState;
 use crate::wallet::AspStatus;
 
+/// How long the public health endpoint waits for the wallet before reporting
+/// it unreachable. Shorter than the Docker healthcheck timeout (5 s).
+const HEALTH_WALLET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 #[derive(Debug, Serialize)]
 pub struct WalletHealthView {
     pub reachable: bool,
@@ -33,14 +37,29 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 
     // Wallet health blocks on HTTP for barkd; keep it off the async workers.
     let wallet_adapter = state.wallet.clone();
-    let wallet = tokio::task::spawn_blocking(move || wallet_adapter.health())
-        .await
-        .unwrap_or_else(|_| crate::wallet::WalletHealth {
+    // A hung barkd must not hang this public endpoint (the Docker healthcheck
+    // and store probes give up after a few seconds): answer "not reachable"
+    // instead. The blocking call finishes on its own at the adapter timeout.
+    let wallet = match tokio::time::timeout(
+        HEALTH_WALLET_TIMEOUT,
+        tokio::task::spawn_blocking(move || wallet_adapter.health()),
+    )
+    .await
+    {
+        Ok(Ok(h)) => h,
+        Ok(Err(_)) => crate::wallet::WalletHealth {
             reachable: false,
             balance_sats: None,
             asp: AspStatus::Unknown,
             detail: "wallet health check panicked".to_string(),
-        });
+        },
+        Err(_) => crate::wallet::WalletHealth {
+            reachable: false,
+            balance_sats: None,
+            asp: AspStatus::Unknown,
+            detail: "the wallet is not answering".to_string(),
+        },
+    };
 
     let overall = if db_ok && wallet.reachable {
         "ok"

@@ -15,6 +15,9 @@ pub enum Payout {
     Unknown,
     NotSet,
     Set,
+    /// The saved address fails the address checks (typo, wrong network):
+    /// sweeps are refused until it is fixed.
+    Invalid,
     /// A change is waiting; takes effect at this unix time.
     ChangePending(i64),
 }
@@ -138,6 +141,12 @@ pub fn build(f: &Facts) -> Vec<Check> {
             Level::Ok,
             "Payout address is set",
             "Money above the safety cap is sent to your own wallet.",
+        ),
+        Payout::Invalid => push(
+            "payout",
+            Level::Bad,
+            "Your payout address is not valid",
+            "Transfers to your own wallet are stopped until this is fixed (it may have a typo or belong to the wrong network). Open Settings and enter a valid address for this server.",
         ),
         Payout::ChangePending(_) => push(
             "payout",
@@ -269,6 +278,15 @@ mod tests {
         c.iter()
             .find(|x| x.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    #[test]
+    fn an_invalid_payout_address_is_an_alarm() {
+        let mut f = healthy();
+        f.payout = Payout::Invalid;
+        let c = build(&f);
+        assert_eq!(find(&c, "payout").level, Level::Bad);
+        assert!(find(&c, "payout").title.contains("not valid"));
     }
 
     #[test]

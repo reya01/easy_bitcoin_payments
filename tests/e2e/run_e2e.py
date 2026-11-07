@@ -488,7 +488,7 @@ def main():
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
             page.wait_for_selector("#po-go")
-            first = "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k"
+            first = "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
             second = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
             page.fill("#po-addr", first)
             page.fill("#po-pw", ADMIN_PW)

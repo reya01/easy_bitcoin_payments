@@ -252,7 +252,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_CHECKOUT_ACCENT_COLOR` | `#f7931a` | Checkout branding |
 | `EBP_BARKD_URL` | `http://127.0.0.1:3000/api/v1` | barkd sidecar REST API |
 | `EBP_BARKD_TOKEN` | unset | barkd bearer token (`barkd secret show`); env-only |
-| `EBP_SETTLEMENT_DESTINATION` | unset | Merchant's Ark or on-chain sweep destination |
+| `EBP_SETTLEMENT_DESTINATION` | unset | Merchant's Ark or on-chain sweep destination. Checked at startup like any saved address: a typo or an address for the wrong network (mainnet on a test server, or the reverse) stops the server from starting |
 | `EBP_SETTLEMENT_INTERVAL_SECS` | `300` | Settlement engine cadence |
 | `EBP_CONFIG` | unset | Path to an extra TOML config file (see `ebp.example.toml`) |
 | `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | Renew/settle VTXOs this long before expiry |

@@ -281,6 +281,39 @@ impl SettlementEngine {
             return Ok(report);
         }
 
+        // Last line of defence: re-check the address at the moment of use (the
+        // same checks as when it was saved: checksum, form, network). Anything
+        // that fails is refused and shown on the dashboard, never sent.
+        if let Err(why) = crate::payout::check(&destination, &self.config.mode) {
+            let reason = format!("payout address refused: {why}");
+            tracing::error!(%reason, "sweep refused");
+            report.sweep_refused = Some(reason.clone());
+            let already = {
+                let mut last = self.last_refusal.lock().unwrap_or_else(|e| e.into_inner());
+                let same = last.as_deref() == Some(reason.as_str());
+                if !same {
+                    *last = Some(reason.clone());
+                }
+                same
+            };
+            if !already {
+                let dest = destination.clone();
+                self.db
+                    .call(move |conn| {
+                        record(
+                            conn,
+                            "sweep_refused",
+                            excess,
+                            &dest,
+                            "failed",
+                            Some(&reason),
+                        )
+                    })
+                    .await?;
+            }
+            return Ok(report);
+        }
+
         // Route Ark addresses to the Ark-send path; anything else is treated
         // as an on-chain destination.
         let ark = crate::config::is_ark_destination(&destination);
@@ -447,9 +480,15 @@ mod tests {
         .unwrap();
         let db = Db::open(":memory:").unwrap();
         // No address in the server configuration; one saved through the page.
-        db.call(|c| crate::payout::set_initial(c, "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k"))
-            .await
-            .unwrap();
+        db.call(|c| {
+            crate::payout::set_initial(
+                c,
+                "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh",
+                "test",
+            )
+        })
+        .await
+        .unwrap();
         let engine = SettlementEngine::new(client, db.clone(), test_config(None, 100_000));
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(50_000));
@@ -462,7 +501,10 @@ mod tests {
             let body: serde_json::Value = serde_json::from_str(&send.body).unwrap();
             body["destination"].clone()
         };
-        assert_eq!(destination, "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k");
+        assert_eq!(
+            destination,
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
+        );
     }
 
     #[tokio::test]
@@ -490,7 +532,10 @@ mod tests {
         let engine = SettlementEngine::new(
             client,
             db.clone(),
-            test_config(Some("ark1merchant"), 100_000),
+            test_config(
+                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+                100_000,
+            ),
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(50_000));
@@ -511,13 +556,87 @@ mod tests {
             )
         };
         assert!(send_is_post);
-        assert_eq!(destination, "ark1merchant");
+        assert_eq!(
+            destination,
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
+        );
         assert_eq!(amount_sats, 50_000);
 
         let rows: i64 = db
             .call(|conn| {
                 Ok(conn.query_row(
                     "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_ark' AND status = 'broadcast' AND amount_sats = 50000",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn an_address_for_the_wrong_network_is_refused_and_nothing_is_sent() {
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
+            "/api/v1/wallet/balance" => (
+                200,
+                r#"{"spendable_sat": 150000}"#.to_string(),
+            ),
+            "/api/v1/wallet/send" => (200, r#"{"sent": true}"#.to_string()),
+            "/api/v1/wallet/offboard/vtxos" => (200, r#"{"ok": true}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        // A real-money (mainnet) address on a test-mode server.
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), 100_000),
+        );
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.swept_sats, None);
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap_or("")
+            .contains("test mode"));
+        {
+            let requests = recorded.lock().unwrap();
+            assert!(
+                !requests
+                    .iter()
+                    .any(|r| r.route().contains("send") || r.route().contains("offboard")),
+                "nothing may be sent to a refused address"
+            );
+        }
+        let rows: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_refused' AND status = 'failed'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+        // A second tick does not pile up identical rows.
+        engine.tick().await.unwrap();
+        let rows: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_refused'",
                     [],
                     |r| r.get(0),
                 )?)
@@ -553,7 +672,7 @@ mod tests {
         let engine = SettlementEngine::new(
             client,
             db.clone(),
-            test_config(Some("bc1qmerchant"), 100_000),
+            test_config(Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"), 100_000),
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
@@ -565,7 +684,10 @@ mod tests {
             .expect("offboard recorded");
         assert_eq!(offboard.method, "POST");
         let body: serde_json::Value = serde_json::from_str(&offboard.body).unwrap();
-        assert_eq!(body["address"], "bc1qmerchant");
+        assert_eq!(
+            body["address"],
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+        );
         assert_eq!(body["vtxos"][0], "v1");
         assert!(
             !requests
@@ -638,7 +760,12 @@ mod tests {
         // one calm "waiting" row is written (not one per tick).
         let (base, recorded) = fee_mock(80, 150_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        let engine = engine_for(
+            &base,
+            &db,
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            100_000,
+        );
         for _ in 0..3 {
             let report = engine.tick().await.unwrap();
             assert!(report.swept_sats.is_none());
@@ -666,7 +793,12 @@ mod tests {
     async fn automatic_onchain_sweep_goes_when_fees_are_low_even_without_a_reserve() {
         let (base, recorded) = fee_mock(50, 150_000); // exactly at the limit
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        let engine = engine_for(
+            &base,
+            &db,
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            100_000,
+        );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
         assert!(recorded
@@ -682,7 +814,12 @@ mod tests {
         // automatic path does nothing, the button moves everything.
         let (base, recorded) = fee_mock(200, 5_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        let engine = engine_for(
+            &base,
+            &db,
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            100_000,
+        );
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
         let report = engine.sweep_now().await.unwrap();
         assert_eq!(report.swept_sats, Some(5_000));
@@ -694,7 +831,10 @@ mod tests {
                 .expect("manual sweep must offboard");
             serde_json::from_str::<serde_json::Value>(&offboard.body).unwrap()
         };
-        assert_eq!(body["address"], "bc1qmerchant");
+        assert_eq!(
+            body["address"],
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+        );
     }
 
     #[tokio::test]
@@ -710,7 +850,12 @@ mod tests {
         }
         });
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "bc1qmerchant", 100_000);
+        let engine = engine_for(
+            &base,
+            &db,
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            100_000,
+        );
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
         assert!(report.sweep_refused.unwrap().contains("fee rates"));
@@ -740,7 +885,10 @@ mod tests {
         let engine = SettlementEngine::new(
             client,
             db.clone(),
-            test_config(Some("tark1merchant"), 100_000),
+            test_config(
+                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+                100_000,
+            ),
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(100_001));
@@ -792,7 +940,10 @@ mod tests {
         let engine = SettlementEngine::new(
             client,
             db.clone(),
-            test_config(Some("ark1merchant"), 100_000),
+            test_config(
+                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+                100_000,
+            ),
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 1);

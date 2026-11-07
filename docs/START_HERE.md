@@ -9,15 +9,24 @@ Easy Bitcoin Payments (EBP) lets your online shop take Bitcoin payments into
 
 **Today it is a test version.** You can set it up and take **play-money
 (signet) payments** to see how it works. **Do not use real bitcoin yet.**
-Two things are not finished, and you should know before you invest time:
+Two things to know before you invest time:
 
 - **Shop plugin: WooCommerce only.** There is a WooCommerce plugin
-  ([setup guide](WOOCOMMERCE.md)); there is no Shopify app yet. You can also
-  try a payment by hand: admin page → Payments → **Try a payment**.
-- **Checkout is reachable only by you** in the safest setup (see "Taking real
-  customers" below). Opening it to the public needs an HTTPS address.
+  ([setup guide](WOOCOMMERCE.md)); there is no Shopify app yet
+  ([why, and what is planned](SHOPIFY.md)). You can also try a payment by
+  hand: admin page → Payments → **Try a payment**.
+- **Customers need a padlock (https) address.** The DigitalOcean path below
+  sets one up for you; on your own computer or server see
+  "Getting a padlock (https) address" further down.
 
-## What you need
+## Easiest path: DigitalOcean, no terminal
+
+[Put it on a DigitalOcean server](VPS_DIGITALOCEAN.md) by pasting one block of
+text when you create the server. The server's own screen then shows the address
+and setup code. If you use it, you can skip "What you need" and "The short
+version" below; the setup steps on the page you reach are the same ones.
+
+## What you need (any other way)
 
 - **A place to run it** — pick ONE:
   - **The computer you are sitting at** (Mac, Windows with WSL, or Linux), left
@@ -31,8 +40,8 @@ Two things are not finished, and you should know before you invest time:
   On a Linux server put `sudo` in front of the commands below if you see
   "permission denied".
 - **A terminal** (Terminal on Mac, the Ubuntu app on Windows, or your server's
-  login) and the ability to copy and paste about ten commands. EBP cannot yet
-  be set up with zero typing.
+  login) and the ability to copy and paste about ten commands. (Only the
+  DigitalOcean path above needs no terminal.)
 - About 90 minutes the first time, mostly waiting: the first start compiles
   the software and is silent for 15–30 minutes. That is normal.
 - A pen and paper (for the 12 recovery words — the most important step).
@@ -43,8 +52,6 @@ Two things are not finished, and you should know before you invest time:
 
 Step-by-step with every known error and its fix, for a cloud server and an
 iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md).
-
-**Easiest path for most people:** [put it on a DigitalOcean server](VPS_DIGITALOCEAN.md) by pasting one block of text, no terminal needed.
 
 ## The short version (single-container install)
 
@@ -80,7 +87,10 @@ minute.) Then the setup page walks you through, in this order:
 
 ## Using Render instead of your own server (experimental)
 
-Not sure which to pick? See [CHOOSING_A_HOST.md](CHOOSING_A_HOST.md). Render is planned as a second beginner option and may become the first we recommend once it has been tested the same way as DigitalOcean.
+Not sure which to pick? See [CHOOSING_A_HOST.md](CHOOSING_A_HOST.md). Render is
+planned as a second beginner option and may become the first we recommend once
+it has been tested the same way as DigitalOcean. The draft steps are in
+[RENDER.md](RENDER.md).
 
 Render (render.com) can run EBP for you with no terminal, using the
 `render.yaml` file in this repository. **This route is untested; try it with
@@ -128,7 +138,7 @@ You are done when ALL of these are true:
       the file somewhere that is not this server.
 - [ ] Your recovery words are on paper in two places.
 
-## Getting a padlock (https) address
+## Getting a padlock (https) address (own computer or server)
 
 Customers, and the setup page itself, need a padlock (`https://`) address.
 EBP can set that up for you with one extra word. You need a server on the

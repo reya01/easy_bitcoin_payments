@@ -3,6 +3,8 @@
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
 - Health: if barkd hangs, `GET /api/v1/health` answers "wallet not answering" within 3 seconds instead of waiting 30 (the Docker healthcheck gives up after 5). New end-to-end test covers a hung wallet.
+- Docs: START_HERE now leads with the no-terminal DigitalOcean path, fixes a dangling "Taking real customers" reference and outdated https wording; DigitalOcean guide no longer claims the Console is always pre-signed-in.
+- Docs: `docs/SHOPIFY.md` records the Shopify research (who may add a payment method, how EBP would map onto the offsite flow, options) — a plan only, nothing built.
 - Automatic https: `./scripts/start.sh --https` (free sslip.io name from your server's IP) or `--domain pay.myshop.com`. A bundled Caddy gets and renews the certificate; the choice is remembered in `.env`. Underpaid invoices now accept a top-up for 15 minutes after the first partial payment. The signet payment drill keeps its payer wallet between runs.
 - Sweeps: an Ark payout address no longer needs the on-chain exit reserve (it blocked every sweep for new merchants). Two till caps: `EBP_HOT_WALLET_CAP_SATS` (Ark, now 20,000) and `EBP_ONCHAIN_SWEEP_CAP_SATS` (on-chain, 1,000,000). Settings explains the payout address types.
 - Payout: on-chain Bitcoin address is the recommended default (withdraws above 1,000,000 sats). Automatic on-chain withdrawals wait for network fees of 50 sat/vB or less (`EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB`); a "Move my money now" button in Settings sweeps by hand. The on-chain safety reserve is now advice on Home, not a gate on withdrawals.

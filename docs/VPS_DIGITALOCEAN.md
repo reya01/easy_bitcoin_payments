@@ -7,6 +7,8 @@ and then the server's own screen tells you where to go next.
 
 **Test version:** use play-money (signet) only for now.
 
+Not sure it's the right host? [CHOOSING_A_HOST.md](CHOOSING_A_HOST.md) compares the options. EBP is plain Docker, so you are never locked in.
+
 Why DigitalOcean: the sign-up is quick, it takes cards and PayPal, it has a
 built-in browser "Console" (so no SSH or terminal app), and it lets you paste
 setup instructions while creating the server. Hetzner works the same way but

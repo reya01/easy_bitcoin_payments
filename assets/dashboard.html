@@ -31,6 +31,7 @@ button.small{min-height:36px;padding:0 12px;font-size:14px}
 #tp-link{display:inline-block;padding:12px 0;font-weight:600}
 button:disabled{opacity:.5}
 .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#po-kinds div{margin-top:10px}
 .secret{font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;background:var(--bg);border:1px dashed var(--line);border-radius:10px;padding:10px;margin:6px 0}
 .msg{margin:10px 0;font-size:14px}
 #po-now,#po-pending{overflow-wrap:anywhere}
@@ -285,7 +286,7 @@ function loadRecon() {
     d.appendChild(el("summary", "It doesn't match"));
     d.appendChild(el("p", "1. In your shop, turn off the Bitcoin payment method now (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
     d.appendChild(el("p", "2. Do not delete anything on the server; it may help work out what happened.", "muted"));
-    d.appendChild(el("p", "3. Move your funds and recovery words to a wallet you trust, then restore from your backup on a fresh server with a new admin password.", "muted"));
+    d.appendChild(el("p", "3. Turn the server off at your hosting company, then follow \"If something looks wrong\" in the docs (IF_SOMETHING_LOOKS_WRONG.md) before you do anything else. Never type your recovery words anywhere while fixing this.", "muted"));
     box.appendChild(d);
   }).catch(function () {});
 }

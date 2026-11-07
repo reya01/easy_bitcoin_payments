@@ -125,11 +125,13 @@ jobs:
       # The "previous release" until a real one exists: the build from before
       # the audit log, admin login and later migrations. Move this forward to
       # the last published release tag once there is one.
-      BASELINE_REF: b1b20f7
+      BASELINE_REF: 6681165
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Check out the previous version beside this one
+        run: git worktree add /tmp/ebp-old "$BASELINE_REF"
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
@@ -140,9 +142,7 @@ jobs:
       - name: Build this version
         run: cargo build --release
       - name: Build the previous version
-        run: |
-          git worktree add /tmp/ebp-old "$BASELINE_REF"
-          cd /tmp/ebp-old && cargo build --release
+        run: cd /tmp/ebp-old && cargo build --release
       - name: Upgrade and backup/restore test
         run: python3 tests/upgrade/run_upgrade.py /tmp/ebp-old/target/release/ebp target/release/ebp
 

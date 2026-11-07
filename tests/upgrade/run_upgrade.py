@@ -145,6 +145,7 @@ def main():
     def _():
         c, _, a = jhttp("POST", f"{base}/api/v1/invoices", {"order_id": "up-a", "sats": 2000}, auth)
         assert c in (200, 201), (c, a)
+        state.update(a=a["id"], a_addr=a["ark_address"])
         fake(action="pay_ark", address=a["ark_address"], sats=2000)
         wait_for(lambda: inv(a["id"])["status"] == "paid", "invoice A paid on the old build")
         c, _, b = jhttp("POST", f"{base}/api/v1/invoices", {"order_id": "up-b", "sats": 3000}, auth)
@@ -202,7 +203,8 @@ def main():
     def _():
         c, hdr, body = jhttp("POST", f"{base}/admin/login", {"password": ADMIN_PW})
         assert c == 200, (c, body)
-        cookie = hdr.get("Set-Cookie", "").split(";")[0]
+        cookie = {k.lower(): v for k, v in hdr.items()}.get("set-cookie", "").split(";")[0]
+        assert cookie.startswith("ebp_session="), hdr
         code, _, raw = http("POST", f"{base}/admin/backup", {"admin_password": ADMIN_PW},
                             {"cookie": cookie, "x-ebp-csrf": body["csrf"]})
         assert code == 200 and len(raw) > 200, (code, len(raw))

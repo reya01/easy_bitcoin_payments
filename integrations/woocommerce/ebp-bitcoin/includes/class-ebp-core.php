@@ -119,4 +119,36 @@ class EBP_Core {
 		}
 		return $body;
 	}
+
+	const WATCH_MIN_ORDERS    = 5; // Bitcoin orders in a week, none paid, before we warn.
+	const WATCH_MIN_FAILURES  = 3; // Hourly server checks in a row that must fail.
+
+	/**
+	 * Shop-side tripwire: things the shop can notice WITHOUT trusting the
+	 * payment server. Returns a list of array( code, title, detail ).
+	 *
+	 * @param array $stats created_7d, paid_7d, server_failures.
+	 */
+	public static function evaluate_watch( array $stats ) {
+		$issues  = array();
+		$created = isset( $stats['created_7d'] ) ? (int) $stats['created_7d'] : 0;
+		$paid    = isset( $stats['paid_7d'] ) ? (int) $stats['paid_7d'] : 0;
+		$fails   = isset( $stats['server_failures'] ) ? (int) $stats['server_failures'] : 0;
+
+		if ( $created >= self::WATCH_MIN_ORDERS && 0 === $paid ) {
+			$issues[] = array(
+				'no_payments',
+				'Bitcoin orders are not getting paid',
+				sprintf( '%d customers chose Bitcoin in the last 7 days and none of those orders was marked paid. Check your own wallet. If it received money, the connection is broken; if not, something may be wrong with your payment server. You can turn Bitcoin off in WooCommerce > Settings > Payments while you look.', $created ),
+			);
+		}
+		if ( $fails >= self::WATCH_MIN_FAILURES ) {
+			$issues[] = array(
+				'server_down',
+				'Your payment server is not answering',
+				sprintf( 'Your shop could not reach your payment server on the last %d hourly checks. Customers who choose Bitcoin will not be able to pay until it is back.', $fails ),
+			);
+		}
+		return $issues;
+	}
 }

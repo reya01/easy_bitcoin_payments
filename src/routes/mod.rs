@@ -9,6 +9,7 @@ pub mod deliveries;
 pub mod health;
 pub mod invoices;
 pub mod payout;
+pub mod reconcile;
 pub mod setup;
 pub mod stores;
 pub mod unmatched;
@@ -134,6 +135,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/alerts/enable", post(alerts::enable))
         .route("/admin/alerts/disable", post(alerts::disable))
         .route("/admin/alerts/test", post(alerts::test))
+        .route("/admin/reconcile/status", post(reconcile::status))
+        .route("/admin/reconcile/done", post(reconcile::done))
         .route("/admin/password", post(admin_session::change_password))
         .merge(
             Router::new()

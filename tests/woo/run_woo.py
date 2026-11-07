@@ -280,6 +280,25 @@ def main():
         after = wpcli("eval", f"echo count(wc_get_order_notes(['order_id'=>{state['order']}]));")
         assert before == after, (before, after)
 
+    @step("shop-side tripwire: a dead payment server is noticed after three checks and clears on recovery")
+    def _():
+        good = f"http://host.docker.internal:{EBP_PORT}"
+        setv = lambda url: wpcli("eval", "$s=get_option('woocommerce_ebp_bitcoin_settings'); "
+                                 f"$s['server_url']='{url}'; update_option('woocommerce_ebp_bitcoin_settings',$s);")
+        codes = lambda: wpcli("--user=admin", "eval", "echo implode(',', array_column(EBP_Watch::run(), 0));")
+        try:
+            assert codes() == "", "healthy server, nothing to report"
+            setv("http://127.0.0.1:9")
+            assert codes() == "" and codes() == "", "two failed checks are tolerated"
+            assert codes() == "server_down", "the third failed check must warn"
+            notice = wpcli("--user=admin", "eval", "ob_start(); EBP_Watch::notice(); echo strlen(ob_get_clean()) > 0 ? 'shown' : 'hidden';")
+            assert notice == "shown", notice
+        finally:
+            setv(good)
+        assert codes() == "", "recovered"
+        gone = wpcli("--user=admin", "eval", "ob_start(); EBP_Watch::notice(); echo strlen(ob_get_clean()) > 0 ? 'shown' : 'hidden';")
+        assert gone == "hidden", gone
+
 
 try:
     main()

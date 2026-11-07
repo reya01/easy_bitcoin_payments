@@ -38,6 +38,8 @@ add_action(
 		require_once __DIR__ . '/includes/class-ebp-core.php';
 		require_once __DIR__ . '/includes/class-ebp-client.php';
 		require_once __DIR__ . '/includes/class-ebp-gateway.php';
+		require_once __DIR__ . '/includes/class-ebp-watch.php';
+		EBP_Watch::init();
 
 		add_filter(
 			'woocommerce_payment_gateways',
@@ -75,5 +77,13 @@ add_action(
 				$registry->register( new EBP_Blocks() );
 			}
 		);
+	}
+);
+
+register_deactivation_hook(
+	__FILE__,
+	function () {
+		require_once __DIR__ . '/includes/class-ebp-watch.php';
+		EBP_Watch::deactivate();
 	}
 );

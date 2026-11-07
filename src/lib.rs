@@ -23,6 +23,7 @@ pub mod onchain;
 pub mod payout;
 pub mod ratelimit;
 pub mod rates;
+pub mod reconcile;
 pub mod retention;
 pub mod routes;
 pub mod secrets;

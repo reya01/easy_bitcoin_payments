@@ -290,7 +290,8 @@ def main():
             c0 = codes()
             assert c0 == "", f"healthy server, nothing to report (got {c0!r})"
             f0 = wpcli("eval", "echo (int) get_option('ebp_bitcoin_health_failures', 0);")
-            assert f0 == "0", f"a healthy check must leave the failure counter at 0 (got {f0!r})"
+            why = wpcli("eval", "$s=get_option('woocommerce_ebp_bitcoin_settings'); $h=(new EBP_Client($s['server_url'],$s['api_key']))->health(); echo is_wp_error($h) ? $s['server_url'].' '.$h->get_error_message() : 'ok';")
+            assert f0 == "0", f"a healthy check must leave the failure counter at 0 (got {f0!r}; health says: {why})"
             setv("http://127.0.0.1:9")
             c1, c2 = codes(), codes()
             assert c1 == "" and c2 == "", f"two failed checks are tolerated (got {c1!r}, {c2!r})"

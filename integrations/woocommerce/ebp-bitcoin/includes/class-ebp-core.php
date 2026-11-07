@@ -102,6 +102,32 @@ class EBP_Core {
 	}
 
 	/**
+	 * Could the payment server call this shop address? It refuses to call
+	 * addresses that only work on one computer or network. Returns '' when the
+	 * address looks public, 'refused' when the server will refuse it (localhost,
+	 * *.internal, private or loopback IP numbers), or 'probably_local' for
+	 * names that usually exist only on one computer (*.local, *.test, a name
+	 * without a dot).
+	 */
+	public static function reachability_problem( $url ) {
+		$host = strtolower( trim( (string) parse_url( (string) $url, PHP_URL_HOST ), '[]' ) );
+		$host = rtrim( $host, '.' );
+		if ( '' === $host ) {
+			return '';
+		}
+		if ( 'localhost' === $host || '.localhost' === substr( $host, -10 ) || '.internal' === substr( $host, -9 ) ) {
+			return 'refused';
+		}
+		if ( false !== filter_var( $host, FILTER_VALIDATE_IP ) ) {
+			return false === filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ? 'refused' : '';
+		}
+		if ( false === strpos( $host, '.' ) || '.local' === substr( $host, -6 ) || '.test' === substr( $host, -5 ) ) {
+			return 'probably_local';
+		}
+		return '';
+	}
+
+	/**
 	 * Does the invoice still match the order? The order total can change after
 	 * the invoice was made (an admin edits the order, a coupon is added); a payment
 	 * for the old amount must not silently complete the changed order.

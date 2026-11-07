@@ -53,7 +53,7 @@ version" below; the setup steps on the page you reach are the same ones.
 Step-by-step with every known error and its fix, for a cloud server and an
 iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md).
 
-## The short version (single-container install)
+## The short version (your own computer or server)
 
 EBP can run its own wallet engine inside one container, so you never copy
 tokens or edit files. (This path is newer and has not yet had its live
@@ -80,8 +80,10 @@ minute.) Then the setup page walks you through, in this order:
    you in to the admin page and locks your backups) **and paste the address
    of your own wallet** (where the till empties to; you can skip it and add
    it later in Settings).
-5. **Two secrets appear once** — the **API key** and the **webhook signing
-   secret**. Save both in a password manager. They cannot be shown again.
+5. **One secret appears once** — the **API key**. Save it in a password manager;
+   it cannot be shown again. (You can always make a new one later on the admin
+   page's **Connect** tab. The *signing secret* does not exist yet; it is made
+   when you connect your shop.)
 6. **Finish.** The server restarts once, so the page may not answer for about
    a minute. Then open `/admin` and sign in with your admin password.
 
@@ -116,6 +118,10 @@ by itself.
    and confirm. The checkout page flips to **Paid** within seconds.
 3. The payment now shows as paid under **Payments**.
 
+**Next: connect your shop.** For WooCommerce, follow
+[WOOCOMMERCE.md](WOOCOMMERCE.md). The admin page's **Connect** tab gives you
+what the shop plugin asks for, one numbered step at a time.
+
 ## Keep a backup
 
 Admin page → **Settings** → **Download a backup**. Your browser saves a file
@@ -137,6 +143,7 @@ You are done when ALL of these are true:
 - [ ] You downloaded a backup (**Settings → Download a backup**) and stored
       the file somewhere that is not this server.
 - [ ] Your recovery words are on paper in two places.
+- [ ] (If you use a shop) On the **Connect** tab, **Send a test notification** says "Your shop received the test."
 
 ## Getting a padlock (https) address (own computer or server)
 

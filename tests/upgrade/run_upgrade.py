@@ -116,7 +116,7 @@ def main():
     procs.append(subprocess.Popen([sys.executable, os.path.join(ROOT, "tests", "e2e", "fake_barkd.py"), str(FAKE_PORT), TOKEN],
                                   stdout=ff, stderr=subprocess.STDOUT, cwd=tmp))
     wait_for(lambda: http("GET", f"http://127.0.0.1:{FAKE_PORT}/ping")[0] == 200, "fake barkd")
-    http("POST", f"http://127.0.0.1:{FAKE_PORT}/api/v1/wallet/create", {"mnemonic": None})
+    http("POST", f"http://127.0.0.1:{FAKE_PORT}/api/v1/wallet/create", {"network": "signet"})
 
     def fake(**kw):
         return jhttp("POST", f"http://127.0.0.1:{FAKE_PORT}/__ctl", kw)[2]
@@ -125,13 +125,18 @@ def main():
     state = {}
 
     # ----------------------------------------------------------------- OLD
-    old = serve(OLD, data, PORT, "old")
+    # First start only creates the database; setup is marked complete (the
+    # wizard has its own browser test) and the old build is restarted, because
+    # older builds choose their wallet connection at startup.
+    first = serve(OLD, data, PORT, "old-first")
     import sqlite3
     db = sqlite3.connect(os.path.join(data, "ebp.sqlite3"))
     db.execute("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('setup_complete','true',strftime('%s','now'))")
     db.commit()
     state["old_version"] = db.execute("PRAGMA user_version").fetchone()[0]
     db.close()
+    stop(first)
+    old = serve(OLD, data, PORT, "old")
     out = subprocess.run([OLD, "store", "create", "--name", "Upgrade Shop"], capture_output=True, text=True,
                          env=env_for(data, PORT), cwd=tmp)
     assert out.returncode == 0, out.stderr

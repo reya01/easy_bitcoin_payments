@@ -50,3 +50,25 @@ FAKE
 run
 grep -q "ebp-info" "$T/info.txt" || fail "a failed start still leaves a helpful message"
 echo "PASS  a failed start leaves a helpful message"
+
+# Which start command is chosen: first run asks for https, later runs keep the saved address.
+mkdir -p "$T/ebp2/scripts"
+cat > "$T/ebp2/scripts/start.sh" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" > "$(dirname "$0")/../args.txt"
+echo "=================================================="
+echo "  ok"
+echo "=================================================="
+FAKE
+chmod +x "$T/ebp2/scripts/start.sh"
+run2() {
+  EBP_SKIP_SYSTEM=1 EBP_DIR="$T/ebp2" EBP_INFO_FILE="$T/info2.txt" EBP_ISSUE_FILE="$T/issue2" \
+    EBP_MOTD_FILE="$T/motd2" EBP_LOG_FILE="$T/log2.txt" ./scripts/vps-setup.sh >/dev/null
+}
+run2
+[ "$(cat "$T/ebp2/args.txt")" = "--https" ] || fail "first run asks for https"
+echo "PASS  first run asks for https"
+echo "EBP_DOMAIN=pay.myshop.com" > "$T/ebp2/.env"
+run2
+[ -z "$(cat "$T/ebp2/args.txt")" ] || fail "a saved domain must not be replaced by --https"
+echo "PASS  a saved domain is kept on later runs"

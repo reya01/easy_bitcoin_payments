@@ -114,6 +114,11 @@ jobs:
             /opt/ebp/scripts/vps-setup.sh
           sudo grep -q '^EBP_DOMAIN=localhost' .env
 
+      # Not a pass/fail check: a first number for "how much memory does the
+      # server need" (used when choosing a hosting plan).
+      - name: Idle memory of the running containers
+        run: docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'
+
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color --tail 80 || true
@@ -214,6 +219,10 @@ jobs:
           shellcheck -S warning scripts/*.sh
       - name: Automatic-https helper writes the right settings
         run: bash scripts/test_start_https.sh
+      - name: Render blueprints keep a paid plan, a disk and manual deploys
+        run: |
+          python3 -m pip install --user pyyaml
+          python3 scripts/check_render_blueprints.py
       - name: VPS setup script copies the setup box to the console screen
         run: bash scripts/test_vps_setup.sh
       - name: cloud-init file is valid

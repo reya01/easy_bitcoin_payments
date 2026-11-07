@@ -141,6 +141,9 @@ jobs:
             dist/SHA256SUMS
             dist/SHA256SUMS.sigstore.json
           generate_release_notes: true
+          # v1.2.3-rc1 style tags are pre-releases: GitHub's "latest" (and the
+          # dashboard's update notice) ignore them.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
 
   docker:

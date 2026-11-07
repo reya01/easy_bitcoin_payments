@@ -12,7 +12,7 @@ Easy Bitcoin Payments (EBP) lets your online shop take Bitcoin payments into
 Two things are not finished, and you should know before you invest time:
 
 - **Shop plugin: WooCommerce only.** There is a WooCommerce plugin
-  ([setup guide](WOOCOMMERCE.md)); there is no Shopify app yet. You can also
+  ([setup guide](WOOCOMMERCE.md)); there is no Shopify app yet ([why and what is planned](SHOPIFY.md)). You can also
   try a payment by hand: admin page → Payments → **Try a payment**.
 - **Checkout is reachable only by you** in the safest setup (see "Taking real
   customers" below). Opening it to the public needs an HTTPS address.

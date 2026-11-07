@@ -185,16 +185,25 @@ pub fn server(conn: &Connection) -> Result<String, AppError> {
     Ok(DEFAULT_SERVER.to_string())
 }
 
-/// Accept only https (plain http only for a local test server).
+/// Accept only https (plain http only for local development, when
+/// `EBP_WEBHOOK_ALLOW_PRIVATE=1`), and never loopback / private / link-local
+/// addresses: an alerts server the admin types in must not become a way to
+/// poke at services inside the host's network.
 pub fn validate_server(s: &str) -> Result<String, AppError> {
+    validate_server_with(s, crate::webhook::allow_private_from_env())
+}
+
+pub fn validate_server_with(s: &str, allow_private: bool) -> Result<String, AppError> {
     let s = s.trim().trim_end_matches('/');
-    let local = s.starts_with("http://127.0.0.1") || s.starts_with("http://localhost");
-    if !(s.starts_with("https://") || local) || s.len() < 9 || s.chars().any(|c| c.is_whitespace())
-    {
+    let scheme_ok = s.starts_with("https://") || (allow_private && s.starts_with("http://"));
+    if !scheme_ok || s.len() < 9 || s.chars().any(|c| c.is_whitespace()) {
         return Err(AppError::BadRequest(
             "the alerts server address must start with https://".into(),
         ));
     }
+    crate::webhook::validate_webhook_url(s, allow_private).map_err(|e| {
+        AppError::BadRequest(format!("that alerts server address is not allowed: {e}"))
+    })?;
     Ok(s.to_string())
 }
 
@@ -241,6 +250,8 @@ pub async fn send(
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        // Never follow a redirect: it could lead somewhere validate_server refused.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
@@ -268,7 +279,9 @@ pub async fn send(
 
 /// `POST /admin/alerts/test` helper.
 pub async fn send_test(db: &Db) -> Result<(), AppError> {
-    let (server, topic) = db.call(|c| Ok((server(c)?, topic(c)?))).await?;
+    let (server, topic) = db
+        .call(|c| Ok((validate_server(&server(c)?)?, topic(c)?)))
+        .await?;
     let topic = topic.ok_or_else(|| AppError::BadRequest("turn phone alerts on first".into()))?;
     send(
         &server,
@@ -362,10 +375,11 @@ async fn tick(
                 unresolved_payments: unresolved,
             };
             let d = evaluate(&obs, &load_announced(c)?, now);
-            Ok((d, server(c)?, topic(c)?))
+            Ok((d, validate_server(&server(c)?), topic(c)?))
         })
         .await?;
     let Some(topic) = topic else { return Ok(()) };
+    let server = server?;
 
     for d in decisions {
         match send(&server, &topic, &d.title, &d.body, d.urgent).await {
@@ -451,11 +465,25 @@ mod tests {
     }
 
     #[test]
-    fn server_must_be_https() {
-        assert!(validate_server("https://ntfy.example.com/").is_ok());
-        assert!(validate_server("http://example.com").is_err());
-        assert!(validate_server("https://exa mple.com").is_err());
-        assert!(validate_server("http://127.0.0.1:9999").is_ok());
+    fn server_must_be_https_and_public() {
+        assert!(validate_server_with("https://ntfy.example.com/", false).is_ok());
+        assert!(validate_server_with("http://example.com", false).is_err());
+        assert!(validate_server_with("https://exa mple.com", false).is_err());
+        for bad in [
+            "https://127.0.0.1",
+            "https://localhost",
+            "https://169.254.169.254/latest",
+            "https://10.0.0.5:8080",
+            "https://[::1]",
+            "https://user:pw@ntfy.example.com",
+        ] {
+            assert!(
+                validate_server_with(bad, false).is_err(),
+                "{bad} must be refused"
+            );
+        }
+        // Local development only (EBP_WEBHOOK_ALLOW_PRIVATE=1).
+        assert!(validate_server_with("http://127.0.0.1:9999", true).is_ok());
     }
 
     #[tokio::test]

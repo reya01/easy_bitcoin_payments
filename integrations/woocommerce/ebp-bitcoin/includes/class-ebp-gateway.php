@@ -221,7 +221,19 @@ class EBP_Gateway extends WC_Payment_Gateway {
 
 		switch ( EBP_Core::action_for_status( $status ) ) {
 			case 'paid':
-				if ( ! $order->is_paid() ) {
+				if ( ! $order->is_paid() && ! EBP_Core::amounts_match(
+					isset( $invoice['fiat_currency'] ) ? $invoice['fiat_currency'] : '',
+					isset( $invoice['fiat_amount'] ) ? $invoice['fiat_amount'] : '',
+					$order->get_currency(),
+					$order->get_total(),
+					wc_get_price_decimals()
+				) ) {
+					if ( (string) $order->get_meta( '_ebp_mismatch_invoice' ) !== $invoice_id ) {
+						$order->update_meta_data( '_ebp_mismatch_invoice', $invoice_id );
+						$order->save();
+						$order->add_order_note( 'A Bitcoin payment arrived, but the order total no longer matches the invoice it was made for. The order was NOT marked paid. Check the amount in your wallet and complete or refund it by hand.' );
+					}
+				} elseif ( ! $order->is_paid() ) {
 					if ( $order->has_status( array( 'cancelled', 'failed', 'refunded' ) ) ) {
 						$order->add_order_note( 'Bitcoin payment arrived after this order was cancelled. Check stock before shipping.' );
 					}

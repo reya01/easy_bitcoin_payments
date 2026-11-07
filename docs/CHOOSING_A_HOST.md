@@ -29,7 +29,7 @@ the rest of your money sits in a wallet whose keys only you hold.
 | --- | --- | --- |
 | Status | Guide written; first real run still to do | Blueprint drafted; not tested live yet |
 | Trust model | Host + code you choose to run | The same |
-| Who patches the operating system | You (Ubuntu applies security updates itself; reboots are yours) | Render |
+| Who patches the operating system | You (keep the server and Docker updated) | Render |
 | Padlock (https) | Automatic, free `sslip.io` address or your domain | Built in, `onrender.com` address or your domain |
 | Updating EBP | Run one command | Press **Manual Deploy** |
 | Where you find the setup code | On the server's console screen | In the service's **Logs** tab |

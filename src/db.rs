@@ -16,6 +16,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_audit_log.sql"),
     include_str!("../migrations/0008_onchain_seen.sql"),
     include_str!("../migrations/0009_admin_login.sql"),
+    include_str!("../migrations/0010_ln_bolt11_index.sql"),
 ];
 
 /// A tiny SQLite handle.

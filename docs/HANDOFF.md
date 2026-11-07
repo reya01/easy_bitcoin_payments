@@ -17,7 +17,7 @@ The checklist for getting from here to a release candidate is
 of truth, not the number below.
 
 **Status:** Phase 1 code-complete (2026-11-01), **EXPERIMENTAL — not for real funds**.
-`cargo test`: see CI (was 134 on 2026-11-01). All client-facing barkd response shapes are
+Tests: see CI. All client-facing barkd response shapes are
 live-verified against **barkd 0.8.0 on signet** (Lightning side; the on-chain
 receive history entry shape is still unpinned — crediting is fail-closed) and
 pinned in
@@ -40,6 +40,9 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 6. [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) — beginner AWS + iPhone walkthrough.
 7. [CONTRIBUTING.md](../CONTRIBUTING.md) — build, test, contribution rules.
 8. [ebp.example.toml](../ebp.example.toml) — every config key.
+9. [RC_CHECKLIST.md](RC_CHECKLIST.md) — what CI proves, what a person must still do, how to cut a release candidate.
+10. [BETA_PLAN.md](BETA_PLAN.md) — history of the first hardening pass (not a to-do list).
+11. [SECURITY.md](../SECURITY.md) and [SILENT_PAYMENTS.md](SILENT_PAYMENTS.md) — reporting, and why payout cannot use silent payment addresses.
 
 ## Architecture decisions and WHY
 
@@ -139,24 +142,27 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## What remains
 
-1. **Release cut.** A human chooses and confirms the `v*` tag. Pushing it makes
-   `.github/workflows/release.yml` build x86_64 + aarch64 musl binaries,
-   `SHA256SUMS`, and the multi-arch ghcr.io image (the compose deploy
-   builds locally instead of pulling it; install.sh and release.sh use the
-   release tarballs, not ghcr; the ghcr package may need a manual visibility
-   flip in the GitHub UI before anyone can pull it).
-2. **UX gate.** A non-technical tester must go zero → live signet invoice using
-   only [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) (the
-   single-source-of-truth tester guide) and an iPhone.
-3. **VPS sign-off.** Preferred host: DigitalOcean via `deploy/cloud-init.yaml` ([guide](VPS_DIGITALOCEAN.md)); the first real-droplet run is still to be done. Older notes follow. The restart-loop is resolved (stub-binary root cause,
-   fixed + confirmed). What remains on the VPS is the tester finishing the
-   first-run wizard (wallet + recovery-words ceremony) and the walkthrough's
-   Part 7 test payment — the formal UX gate (also listed as #2).
-4. **Open drills** (from docs/PHASE1_PLAN.md close-out): pin the on-chain
-   receive history entry shape (LN receive is pinned; crediting is
-   fail-closed — watch for the "no receive evidence" warn line during the
-   gate if the tester pays on-chain), and run the round-flip/sweep drill
-   (needs EBP_SETTLEMENT_DESTINATION, unset by default).
+The authoritative list is [RC_CHECKLIST.md](RC_CHECKLIST.md) (sections 2 and 3).
+In short:
+
+1. **Things only a person can do**: the live signet drill
+   ([SIGNET_DRILL.md](SIGNET_DRILL.md)), a real DigitalOcean run
+   ([VPS_DIGITALOCEAN.md](VPS_DIGITALOCEAN.md)), WooCommerce on a real shop host,
+   phone alerts on a real phone, a backup restore on a second machine, and a
+   newcomer following [START_HERE.md](START_HERE.md) without help.
+2. **Decisions**: the public GitHub name (it appears in several files; change it
+   before the first tag), turning on private vulnerability reporting, protecting
+   `v*` tags, and deleting stale branches (never merge `mut-test`).
+3. **The release cut.** A human chooses and confirms the tag. Start with
+   `v0.1.0-rc1` (a pre-release; play money only). Pushing a `v*` tag makes
+   `.github/workflows/release.yml` build the binaries, `SHA256SUMS`, the plugin
+   zip and the multi-arch image. Signing has not been exercised yet. A manual
+   run of the workflow is a dry run that publishes nothing.
+4. **Still unpinned**: the on-chain receive history entry shape. Crediting is
+   fail-closed, and the on-chain rail is off by default until the signet drill
+   has been run.
+5. **Not built**: Shopify ([SHOPIFY.md](SHOPIFY.md) is a plan), Lightning
+   payouts, silent payment payouts, refunds, automatic updates.
 
 ## Cold-start commands
 

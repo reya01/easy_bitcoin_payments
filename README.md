@@ -270,7 +270,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 | `EBP_ALLOW_INSECURE_SETUP` | `false` | The setup wizard refuses to run over plain `http://` on a non-local address (your recovery words and keys would cross the network unprotected). Set `true` only on a trusted LAN or for throwaway testing |
 | `EBP_SETUP_TOKEN` | unset | Optional fixed setup code for automation. Normally leave it unset: until setup is finished the server makes a one-time **SETUP CODE** on every start, prints it where the server runs (`docker compose logs ebp`), and the setup page asks for it |
 | `EBP_ONCHAIN_MIN_CONFIRMATIONS` | `1` | Block confirmations before an on-chain payment counts as paid (minimum 1; zero-confirmation payments can be replaced by the sender and are never credited) |
-| `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/BETA_PLAN.md) |
+| `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/SIGNET_DRILL.md) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
 ---

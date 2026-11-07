@@ -1,16 +1,15 @@
-# Beta hardening pass — status ledger
+# Beta hardening pass — history
 
-Branch: `beta-hardening` (draft PR #1). Written by Claude in a sandbox with
-**no crates.io access**, so it cannot compile locally (`cargo fmt` does work
-offline). **CI is the compiler**: push the branch and watch the `build + test +
-clippy` job (fmt -> clippy -D warnings -> test -> release build). As of the
-last push that job is GREEN for every row marked "CI-green" below. CI only
-triggers on pull requests and pushes to `main`, so keep PR #1 open.
+**Historical record, not a to-do list.** This is the ledger of the first
+hardening pass (the `beta-hardening` branch, PR #1, which is merged). It is kept
+so people can see what each fix was for. For what is open now, read
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md) and [RC_CHECKLIST.md](RC_CHECKLIST.md). For
+how the project is put together, read [HANDOFF.md](HANDOFF.md).
 
-Workflow tips for other agents: run `cargo fmt` before every push (CI fails
-on formatting first and skips the rest); fetch CI results with
-`gh api repos/reya01/easy_bitcoin_payments/actions/runs/<id>/jobs` (GraphQL
-and `gh pr create` are unavailable in Claude Code sessions; use REST).
+The pass was written in a sandbox with no crates.io access, so CI was the
+compiler. Table rows below describe the code as it was when each row was
+written; later changes (for example the payout address checks and the dashboard)
+are in `CHANGELOG.md`.
 
 ## Done (CI-green: fmt, clippy -D warnings, tests, release build)
 
@@ -32,22 +31,15 @@ and `gh pr create` are unavailable in Claude Code sessions; use REST).
 | 8 | **Bridge errors, not panics.** `BarkdWallet::block_on` returns `WalletError::Unavailable` for a dead/poisoned bridge and catches panics inside bridged futures. | `src/wallet/barkd.rs` |
 | 9 | **Watcher heartbeat.** `/api/v1/health` now includes `watcher_last_tick_age_secs` (null until first successful tick). Alert if it grows well beyond `watcher_interval_secs`. | `src/watcher.rs::LAST_TICK_UNIX`, `src/routes/health.rs` |
 
-## CI status note
+## What happened to the original "not done" list
 
-Build + test + clippy: green on the latest push (all rows above). The
-`docker image builds (amd64 + arm64)` job was still `in_progress` for a very
-long time on the last runs (arm64 under emulation) and has NOT been seen to
-complete from this sandbox; re-check it on the PR before relying on it. The
-Dockerfile already copies `migrations/` and `assets/`, so new migrations and
-the `setup.html` change are included.
-
-## Not done — pick up here (priority order)
-
-1. Webhook delivery log API / dashboard + manual re-send (the outbox table already has the data).
-2. Dashboard UI for `unmatched_payments` (API + integration tests exist in `tests/api_flows.rs`).
-3. Run the live signet on-chain receive drill (pay an invoice's on-chain address with the rail enabled, capture the real `/wallet/history` entry, pin its shape in `barkd.rs`, add a fixture test), THEN consider flipping the default to on. The rail is gated off by default (row 15).
-4. Make the setup token mandatory in `mode = "live"` (decision for the maintainer), and browser-test the `setup.html` prompt.
-5. Surface `/api/v1/admin/status` in the dashboard UI (currently API only) and add webhook re-send.
-6. ~~Webhook secrets are stored in plaintext~~ — DONE: encrypted at rest (src/secrets.rs, ChaCha20-Poly1305).
-7. Compose publishes `8080:8080` on all interfaces; no automated TLS.
-8. Human gates: UX review, release tag, CHANGELOG sign-off, WooCommerce plugin scope.
+| Item | Where it stands now |
+|---|---|
+| Webhook delivery log and manual re-send | Done: `GET /api/v1/webhook-deliveries`, `POST /api/v1/webhook-deliveries/{id}/resend`, and the Connect tab in the admin page. |
+| Admin page for unmatched (late) payments | Done: shown on the admin page; the API from row 10 is unchanged. |
+| Admin page for `/api/v1/admin/status` | Done: the admin Home tab is built on it. |
+| Webhook secrets stored in plaintext | Done: encrypted at rest (`src/secrets.rs`). |
+| Setup token mandatory | Until setup is finished, the server generates a setup code at each start when none is configured (`src/main.rs`), and the wizard asks for it. |
+| Compose published port 8080 on all interfaces; no automatic TLS | Compose now binds to loopback by default; `./scripts/start.sh --https` (or `--domain`) adds an automatic padlock address. |
+| Live signet on-chain receive drill, then consider turning the rail on | **Still open.** The rail stays off by default. See [SIGNET_DRILL.md](SIGNET_DRILL.md). |
+| Human gates: UX review, release tag, CHANGELOG sign-off, WooCommerce scope | **Still open.** See [RC_CHECKLIST.md](RC_CHECKLIST.md). |

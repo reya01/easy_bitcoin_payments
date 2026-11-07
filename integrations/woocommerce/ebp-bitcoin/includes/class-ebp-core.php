@@ -101,6 +101,22 @@ class EBP_Core {
 		return in_array( $host, array( 'localhost', '127.0.0.1', '::1', '[::1]' ), true );
 	}
 
+	/**
+	 * Does the invoice still match the order? The order total can change after
+	 * the invoice was made (an admin edits the order, a coupon is added); a payment
+	 * for the old amount must not silently complete the changed order.
+	 */
+	public static function amounts_match( $inv_currency, $inv_amount, $currency, $total, $decimals ) {
+		if ( ! is_string( $inv_currency ) || '' === $inv_currency || ! is_numeric( $inv_amount ) ) {
+			return false;
+		}
+		if ( strtoupper( $inv_currency ) !== strtoupper( (string) $currency ) ) {
+			return false;
+		}
+		$half_unit = 0.5 / pow( 10, max( 0, (int) $decimals ) );
+		return abs( (float) $inv_amount - (float) $total ) < $half_unit;
+	}
+
 	/** Body for POST /api/v1/invoices. */
 	public static function invoice_request( $order_id, $currency, $total, $decimals, $expiry_minutes = null, $return_url = '' ) {
 		$body = array(

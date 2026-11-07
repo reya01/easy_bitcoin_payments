@@ -66,6 +66,12 @@ check( 'one paid order is enough to stay quiet', array() === $codes( array( 'cre
 check( 'two failed server checks are tolerated', array() === $codes( array( 'created_7d' => 0, 'paid_7d' => 0, 'server_failures' => 2 ) ) );
 check( 'three failed server checks warn', array( 'server_down' ) === $codes( array( 'created_7d' => 0, 'paid_7d' => 0, 'server_failures' => 3 ) ) );
 check( 'both problems can be reported together', array( 'no_payments', 'server_down' ) === $codes( array( 'created_7d' => 6, 'paid_7d' => 0, 'server_failures' => 5 ) ) );
+check( 'matching amount and currency', EBP_Core::amounts_match( 'USD', '10.00', 'USD', 10, 2 ) );
+check( 'currency case does not matter', EBP_Core::amounts_match( 'usd', '10', 'USD', '10.00', 2 ) );
+check( 'a changed total does not match', ! EBP_Core::amounts_match( 'USD', '10.00', 'USD', 12.5, 2 ) );
+check( 'a one-cent difference does not match', ! EBP_Core::amounts_match( 'USD', '10.00', 'USD', 10.01, 2 ) );
+check( 'a different currency does not match', ! EBP_Core::amounts_match( 'EUR', '10.00', 'USD', 10, 2 ) );
+check( 'missing invoice amount does not match', ! EBP_Core::amounts_match( '', '', 'USD', 10, 2 ) && ! EBP_Core::amounts_match( 'USD', null, 'USD', 10, 2 ) );
 
 echo $fail ? "\n$fail failed\n" : "\nall passed\n";
 exit( $fail ? 1 : 0 );

@@ -58,6 +58,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 
 <section id="v-home" class="hidden">
   <div class="card hidden" id="phone-home"></div>
+  <div class="card hidden" id="recon"></div>
   <div class="card hidden" id="update"></div>
   <h2>Is everything OK?</h2>
   <div class="card" id="health"></div>
@@ -212,6 +213,7 @@ function show(name) {
   if (name === "hooks") loadDeliveries();
   if (name === "set") { loadAudit(); loadPayout(); }
   if (name === "home" || name === "set") loadPhone();
+  if (name === "home") loadRecon();
 }
 function signedOut() { csrf = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
@@ -258,6 +260,31 @@ function loadVersion() {
       var a = el("a", "What changed in this version"); a.href = v.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer";
       u.appendChild(a);
     }
+  }).catch(function () {});
+}
+
+// ---- Weekly check against your own wallet ----
+function sats(n) { return Number(n).toLocaleString("en-US") + " sats"; }
+function loadRecon() {
+  api("POST", "/admin/reconcile/status", {}).then(function (r) {
+    var box = $("recon"); clear(box);
+    if (!r.paid_orders && !r.swept_sats) { box.classList.add("hidden"); return; }
+    box.classList.remove("hidden");
+    box.appendChild(el("strong", r.due ? "Time for your weekly wallet check" : "Weekly wallet check", r.due ? "bad" : ""));
+    box.appendChild(el("p", "In the last " + r.days + " days this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + sats(r.paid_sats) + ") and says it sent " + sats(r.swept_sats) + " on to your payout address.", "muted"));
+    box.appendChild(el("p", "Open your own wallet and check that the payments you received match. This is the one check that does not depend on this server telling the truth.", "muted"));
+    if (r.last_checked_at) box.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
+    var btns = el("div", "", "btns");
+    var ok = el("button", "I checked: it matches"); ok.type = "button"; ok.className = r.due ? "primary" : "";
+    ok.addEventListener("click", function () { ok.disabled = true; api("POST", "/admin/reconcile/done", {}).then(loadRecon).catch(function () { ok.disabled = false; }); });
+    btns.appendChild(ok);
+    box.appendChild(btns);
+    var d = document.createElement("details");
+    d.appendChild(el("summary", "It doesn't match"));
+    d.appendChild(el("p", "1. In your shop, turn off the Bitcoin payment method now (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
+    d.appendChild(el("p", "2. Do not delete anything on the server; it may help work out what happened.", "muted"));
+    d.appendChild(el("p", "3. Move your funds and recovery words to a wallet you trust, then restore from your backup on a fresh server with a new admin password.", "muted"));
+    box.appendChild(d);
   }).catch(function () {});
 }
 

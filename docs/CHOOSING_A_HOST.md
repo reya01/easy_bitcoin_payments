@@ -70,7 +70,10 @@ small payout limit would not stop them from:
 
 Both look like "money stopped arriving", and only a check outside the server
 catches them: your own wallet. So the weekly check above matters more than any
-setting. Planned improvements (not built yet): a reminder on the dashboard to
-do that check, and shop-side warnings from the WooCommerce plugin when paid
-orders suddenly stop. If you ever suspect a problem, disable the Bitcoin payment
+setting. The dashboard now shows a weekly "does your own wallet agree?" card
+with what the server claims, and the WooCommerce plugin warns (in the
+WordPress admin and by email) when Bitcoin orders stop getting paid or the
+server stops answering. These are tripwires, not proof: a fully compromised
+server could fake some of what it reports, which is why the check against your
+own wallet matters most. If you ever suspect a problem, disable the Bitcoin payment
 method in WooCommerce first, then investigate.

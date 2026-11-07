@@ -91,7 +91,7 @@ def step(name):
 
 
 def wpcli(*args):
-    return sh("docker", "run", "--rm", "--network", NET, "--volumes-from", "woo-wp", "--user", "33:33",
+    return sh("docker", "run", "--rm", "--network", NET, "--add-host=host.docker.internal:host-gateway", "--volumes-from", "woo-wp", "--user", "33:33",
               "-e", "WORDPRESS_DB_HOST=woo-db", "-e", "WORDPRESS_DB_USER=wp", "-e", "WORDPRESS_DB_PASSWORD=wp",
               "-e", "WORDPRESS_DB_NAME=wp", "wordpress:cli", "wp", *args)
 
@@ -279,6 +279,31 @@ def main():
         assert code == 200
         after = wpcli("eval", f"echo count(wc_get_order_notes(['order_id'=>{state['order']}]));")
         assert before == after, (before, after)
+
+    @step("shop-side tripwire: a dead payment server is noticed after three checks and clears on recovery")
+    def _():
+        good = f"http://host.docker.internal:{EBP_PORT}"
+        setv = lambda url: wpcli("eval", "$s=get_option('woocommerce_ebp_bitcoin_settings'); "
+                                 f"$s['server_url']='{url}'; update_option('woocommerce_ebp_bitcoin_settings',$s);")
+        codes = lambda: wpcli("--user=admin", "eval", "echo implode(',', array_column(EBP_Watch::run(), 0));")
+        try:
+            c0 = codes()
+            assert c0 == "", f"healthy server, nothing to report (got {c0!r})"
+            f0 = wpcli("eval", "echo (int) get_option('ebp_bitcoin_health_failures', 0);")
+            why = wpcli("eval", "$s=get_option('woocommerce_ebp_bitcoin_settings'); $h=(new EBP_Client($s['server_url'],$s['api_key']))->health(); echo is_wp_error($h) ? $s['server_url'].' '.$h->get_error_message() : 'ok';")
+            assert f0 == "0", f"a healthy check must leave the failure counter at 0 (got {f0!r}; health says: {why})"
+            setv("http://127.0.0.1:9")
+            c1, c2 = codes(), codes()
+            assert c1 == "" and c2 == "", f"two failed checks are tolerated (got {c1!r}, {c2!r})"
+            c3 = codes()
+            assert c3 == "server_down", f"the third failed check must warn (got {c3!r})"
+            notice = wpcli("--user=admin", "eval", "ob_start(); EBP_Watch::notice(); echo strlen(ob_get_clean()) > 0 ? 'shown' : 'hidden';")
+            assert notice == "shown", notice
+        finally:
+            setv(good)
+        assert codes() == "", "recovered"
+        gone = wpcli("--user=admin", "eval", "ob_start(); EBP_Watch::notice(); echo strlen(ob_get_clean()) > 0 ? 'shown' : 'hidden';")
+        assert gone == "hidden", gone
 
 
 try:

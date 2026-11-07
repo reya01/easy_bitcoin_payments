@@ -56,5 +56,16 @@ check( 'return link is passed along', 'https://shop.example.com/order-received/7
 $req = EBP_Core::invoice_request( 7, 'USD', 5, 2, null, 'javascript:alert(1)' );
 check( 'a non-http return link is dropped', ! isset( $req['return_url'] ) );
 
+$codes = function ( $stats ) {
+	return array_map( function ( $i ) { return $i[0]; }, EBP_Core::evaluate_watch( $stats ) );
+};
+check( 'a quiet shop raises nothing', array() === $codes( array( 'created_7d' => 0, 'paid_7d' => 0, 'server_failures' => 0 ) ) );
+check( 'a few unpaid orders are not alarming', array() === $codes( array( 'created_7d' => 4, 'paid_7d' => 0, 'server_failures' => 0 ) ) );
+check( 'five Bitcoin orders and none paid warns', array( 'no_payments' ) === $codes( array( 'created_7d' => 5, 'paid_7d' => 0, 'server_failures' => 0 ) ) );
+check( 'one paid order is enough to stay quiet', array() === $codes( array( 'created_7d' => 9, 'paid_7d' => 1, 'server_failures' => 0 ) ) );
+check( 'two failed server checks are tolerated', array() === $codes( array( 'created_7d' => 0, 'paid_7d' => 0, 'server_failures' => 2 ) ) );
+check( 'three failed server checks warn', array( 'server_down' ) === $codes( array( 'created_7d' => 0, 'paid_7d' => 0, 'server_failures' => 3 ) ) );
+check( 'both problems can be reported together', array( 'no_payments', 'server_down' ) === $codes( array( 'created_7d' => 6, 'paid_7d' => 0, 'server_failures' => 5 ) ) );
+
 echo $fail ? "\n$fail failed\n" : "\nall passed\n";
 exit( $fail ? 1 : 0 );

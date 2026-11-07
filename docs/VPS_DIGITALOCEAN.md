@@ -1,9 +1,10 @@
 # Put your payment server on a DigitalOcean server
 
-This is our recommended, tested way to run Easy Bitcoin Payments for real: a
-small always-on server you rent for about $6–12 a month. You do **not** need
-to use a terminal. You paste one block of text when you create the server, wait,
-and then the server's own screen tells you where to go next.
+This is our recommended way to run Easy Bitcoin Payments (tested by an automated
+rehearsal, not yet on a real DigitalOcean server): a small always-on server you
+rent for about $6–12 a month. You do **not** need to use a terminal. You paste
+one block of text when you create the server, wait, and then the server's own
+screen tells you where to go next.
 
 **Test version:** use play-money (signet) only for now.
 

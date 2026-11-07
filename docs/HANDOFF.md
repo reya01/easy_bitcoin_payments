@@ -1,7 +1,23 @@
 # Handoff — Easy Bitcoin Payments (EBP)
 
+## Update 2026-11-06 (read this first)
+
+Since the notes below were written, these were added and are on `main` with CI
+green: phone alerts (ntfy), a working WooCommerce plugin (real WordPress +
+WooCommerce end-to-end test in CI), a return-to-shop link, the DigitalOcean
+no-terminal install (rehearsed on clean Ubuntu in CI), hosting docs
+(`CHOOSING_A_HOST.md`, `RENDER.md`), a weekly own-wallet check and a shop-side
+tripwire, a security pass (alerts address guard, order-total mismatch guard),
+an upgrade and backup-restore test in CI, a hung-barkd fix for the health
+endpoint, and a release dry run that packages everything without publishing.
+Still **not** done: the live signet drill, a real DigitalOcean run, Render on
+real Render, Shopify (`SHOPIFY.md` is a plan only), the first release tag.
+The checklist for getting from here to a release candidate is
+[RC_CHECKLIST.md](RC_CHECKLIST.md). Test counts change often; CI is the source
+of truth, not the number below.
+
 **Status:** Phase 1 code-complete (2026-11-01), **EXPERIMENTAL — not for real funds**.
-`cargo test`: **134 passed, 0 failed**. All client-facing barkd response shapes are
+`cargo test`: see CI (was 134 on 2026-11-01). All client-facing barkd response shapes are
 live-verified against **barkd 0.8.0 on signet** (Lightning side; the on-chain
 receive history entry shape is still unpinned — crediting is fail-closed) and
 pinned in

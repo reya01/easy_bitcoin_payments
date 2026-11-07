@@ -8,6 +8,8 @@
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
+> 🌊 **Recommended install:** a small DigitalOcean server, no terminal needed: [docs/VPS_DIGITALOCEAN.md](docs/VPS_DIGITALOCEAN.md). Shop plugin: [WooCommerce](docs/WOOCOMMERCE.md).
+>
 > ☁ **Using Render?** It needs a **paid plan** or your data (including wallet files) is erased on every restart; see [docs/START_HERE.md](docs/START_HERE.md#using-render-instead-of-your-own-server-experimental).
 
 > 🛍 **Shop owner?** Start with [docs/START_HERE.md](docs/START_HERE.md) — what this is, what you need, and how to tell it worked, in plain words.
@@ -174,7 +176,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/v1/invoices` | Create an invoice (fiat-priced or sats-priced) |
+| `POST` | `/api/v1/invoices` | Create an invoice (fiat-priced or sats-priced); optional `return_url` (http/https) adds a "Back to the shop" link on the checkout page |
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
@@ -275,7 +277,7 @@ variables. See [`ebp.example.toml`](ebp.example.toml) for every key.
 
 ## Docker (VPS-first)
 
-The supported deployment is a Docker Compose stack on a VPS with a public IP; TLS terminates at your own reverse proxy (automated one-click TLS is a v1.0 gate); home/Tor-only hosting is out of scope.
+The supported deployment is a Docker Compose stack on a VPS with a public IP. The recommended, beginner-tested path is [DigitalOcean with a pasted setup block](docs/VPS_DIGITALOCEAN.md); `./scripts/start.sh --https` adds the free padlock address automatically (bundled Caddy); home/Tor-only hosting is out of scope.
 
 ```bash
 docker build -t easy-bitcoin-payments .

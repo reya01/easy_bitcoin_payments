@@ -45,8 +45,16 @@ pub async fn invoice_json(
     let fee = serde_json::from_str::<serde_json::Value>(&inv.metadata_json)
         .ok()
         .and_then(|m| m.get("lightning_fee_estimate_sat").and_then(|v| v.as_i64()));
+    let return_url = serde_json::from_str::<serde_json::Value>(&inv.metadata_json)
+        .ok()
+        .and_then(|m| {
+            m.get("return_url")
+                .and_then(|v| v.as_str().map(str::to_owned))
+        })
+        .filter(|u| crate::routes::invoices::valid_return_url(u));
     let onchain_enabled = app.config.onchain_rail_enabled;
     Ok(Json(serde_json::json!({
+        "return_url": return_url,
         "store_name": store_name, "status": inv.status.as_str(), "amount_sats": inv.amount_sats,
         "fiat_currency": inv.fiat_currency, "fiat_amount": inv.fiat_amount,
         "ark_address": inv.ark_address, "expires_at_unix": inv.expires_at,

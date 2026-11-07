@@ -58,7 +58,8 @@ you** on the dashboard).
 
 ## Known limits
 
-- After paying, the customer is not sent back to your shop automatically; they
-  see "paid" on the checkout page. Order emails still go out as usual.
+- After paying, the customer is not redirected automatically; the checkout
+  page shows **Done — return to <your shop>**, which opens their WooCommerce
+  order page. Order emails still go out as usual.
 - Refunds are done by hand from your own wallet.
 - Prices are converted at the moment the order is placed.

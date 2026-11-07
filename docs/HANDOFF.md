@@ -132,7 +132,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 2. **UX gate.** A non-technical tester must go zero → live signet invoice using
    only [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) (the
    single-source-of-truth tester guide) and an iPhone.
-3. **VPS sign-off.** The restart-loop is resolved (stub-binary root cause,
+3. **VPS sign-off.** Preferred host: DigitalOcean via `deploy/cloud-init.yaml` ([guide](VPS_DIGITALOCEAN.md)); the first real-droplet run is still to be done. Older notes follow. The restart-loop is resolved (stub-binary root cause,
    fixed + confirmed). What remains on the VPS is the tester finishing the
    first-run wizard (wallet + recovery-words ceremony) and the walkthrough's
    Part 7 test payment — the formal UX gate (also listed as #2).

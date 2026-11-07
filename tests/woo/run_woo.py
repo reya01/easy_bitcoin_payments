@@ -287,10 +287,13 @@ def main():
                                  f"$s['server_url']='{url}'; update_option('woocommerce_ebp_bitcoin_settings',$s);")
         codes = lambda: wpcli("--user=admin", "eval", "echo implode(',', array_column(EBP_Watch::run(), 0));")
         try:
-            assert codes() == "", "healthy server, nothing to report"
+            c0 = codes()
+            assert c0 == "", f"healthy server, nothing to report (got {c0!r})"
             setv("http://127.0.0.1:9")
-            assert codes() == "" and codes() == "", "two failed checks are tolerated"
-            assert codes() == "server_down", "the third failed check must warn"
+            c1, c2 = codes(), codes()
+            assert c1 == "" and c2 == "", f"two failed checks are tolerated (got {c1!r}, {c2!r})"
+            c3 = codes()
+            assert c3 == "server_down", f"the third failed check must warn (got {c3!r})"
             notice = wpcli("--user=admin", "eval", "ob_start(); EBP_Watch::notice(); echo strlen(ob_get_clean()) > 0 ? 'shown' : 'hidden';")
             assert notice == "shown", notice
         finally:

@@ -3,12 +3,22 @@
 Time needed: about 10 minutes. You need your payment server running with a
 padlock (https) address, and admin access to your WordPress site.
 
+**Your shop must be reachable from the internet.** The payment server tells your
+shop about payments by calling its web address, and it refuses to call addresses
+that only work on your own network (`localhost`, `127.0.0.1`, `192.168.…`,
+`10.…`). A WordPress running only on your computer (for example "Local") will not
+get payment notices; use a shop with a public address.
+
 **Test version:** use play-money (signet) only for now. Do not take real
 bitcoin yet.
 
 ## 1. Install the plugin
 
-1. Download `ebp-bitcoin-woocommerce.zip` from the latest release.
+1. Download `ebp-bitcoin-woocommerce.zip` from the project's **Releases** page.
+   Open the release you are testing (for example `v0.1.0-rc1`) and look under
+   **Assets**. Do not use the "latest release" shortcut: GitHub skips
+   pre-releases such as `rc1` there. Before the first release exists there is no
+   zip to download; ask the project owner for one.
 2. In WordPress: **Plugins → Add New → Upload Plugin**, choose the zip, then
    **Install Now** and **Activate**.
 3. Go to **WooCommerce → Settings → Payments → Bitcoin (Easy Bitcoin

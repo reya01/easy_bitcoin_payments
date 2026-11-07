@@ -80,6 +80,8 @@ minute.) Then the setup page walks you through, in this order:
 
 ## Using Render instead of your own server (experimental)
 
+Not sure which to pick? See [CHOOSING_A_HOST.md](CHOOSING_A_HOST.md). Render is planned as a second beginner option and may become the first we recommend once it has been tested the same way as DigitalOcean.
+
 Render (render.com) can run EBP for you with no terminal, using the
 `render.yaml` file in this repository. **This route is untested; try it with
 play money only.**

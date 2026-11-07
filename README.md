@@ -8,7 +8,7 @@
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
-> 🌊 **Recommended install:** a small DigitalOcean server, no terminal needed: [docs/VPS_DIGITALOCEAN.md](docs/VPS_DIGITALOCEAN.md). Shop plugin: [WooCommerce](docs/WOOCOMMERCE.md).
+> 🌊 **Recommended install (for now):** a small DigitalOcean server, no terminal needed: [docs/VPS_DIGITALOCEAN.md](docs/VPS_DIGITALOCEAN.md). Not tied to one host: see [docs/CHOOSING_A_HOST.md](docs/CHOOSING_A_HOST.md). Shop plugin: [WooCommerce](docs/WOOCOMMERCE.md).
 >
 > ☁ **Using Render?** It needs a **paid plan** or your data (including wallet files) is erased on every restart; see [docs/START_HERE.md](docs/START_HERE.md#using-render-instead-of-your-own-server-experimental).
 

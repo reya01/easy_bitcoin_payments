@@ -27,7 +27,7 @@ the rest of your money sits in a wallet whose keys only you hold.
 
 | | DigitalOcean server | Render |
 | --- | --- | --- |
-| Status | Guide written; first real run still to do | Blueprint drafted; not tested live yet |
+| Status | Guide written; setup rehearsed in CI; first real run still to do | Blueprint and guide drafted ([RENDER.md](RENDER.md)); not tested live yet |
 | Trust model | Host + code you choose to run | The same |
 | Who patches the operating system | You (keep the server and Docker updated) | Render |
 | Padlock (https) | Automatic, free `sslip.io` address or your domain | Built in, `onrender.com` address or your domain |

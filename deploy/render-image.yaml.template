@@ -1,0 +1,32 @@
+# Render blueprint that runs a PINNED, SIGNED release image instead of
+# building from the repository. Nothing here changes unless you change it.
+#
+# How to use it (once a release exists; see docs/RENDER.md):
+#   1. Copy this file to render.yaml in YOUR OWN copy (fork) of the repository.
+#   2. Replace IMAGE_DIGEST_FROM_RELEASE_NOTES with the line from the release
+#      notes, for example:
+#        ghcr.io/<owner>/easy_bitcoin_payments@sha256:0123...abcd
+#      (always an @sha256 digest: never a tag like "latest").
+#   3. In Render choose New > Blueprint and select your copy.
+#
+# NEEDS A PAID PLAN: the wallet and database live on a persistent disk and
+# Render only offers disks on paid services. On a free plan ALL DATA,
+# INCLUDING THE WALLET FILES, IS ERASED on every restart.
+services:
+  - type: web
+    name: easy-bitcoin-payments
+    runtime: image
+    image:
+      url: IMAGE_DIGEST_FROM_RELEASE_NOTES
+    plan: starter
+    healthCheckPath: /api/v1/health
+    # A payments server must not change under you: update by pasting a new
+    # digest and pressing Manual Deploy, never automatically.
+    autoDeploy: false
+    disk:
+      name: ebp-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: EBP_ONCHAIN_MIN_CONFIRMATIONS
+        value: "1"

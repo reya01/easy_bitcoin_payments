@@ -184,6 +184,8 @@ before every upgrade.
 ## If something goes wrong
 
 - The admin Home page lists problems in plain words, worst first.
+- Think money is going to the wrong place, or a password or key leaked:
+  [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md).
 - Known problems and fixes: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 - Backup and restore: [RECIPE_BACKUP.md](RECIPE_BACKUP.md).
 

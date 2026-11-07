@@ -289,6 +289,8 @@ def main():
         try:
             c0 = codes()
             assert c0 == "", f"healthy server, nothing to report (got {c0!r})"
+            f0 = wpcli("eval", "echo (int) get_option('ebp_bitcoin_health_failures', 0);")
+            assert f0 == "0", f"a healthy check must leave the failure counter at 0 (got {f0!r})"
             setv("http://127.0.0.1:9")
             c1, c2 = codes(), codes()
             assert c1 == "" and c2 == "", f"two failed checks are tolerated (got {c1!r}, {c2!r})"

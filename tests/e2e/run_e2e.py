@@ -182,6 +182,7 @@ def step(name, critical=False):
 
 # ------------------------------------------------------------ webhook sink --
 received = []
+HOOK = {"fail": False, "failed_bodies": []}
 
 
 class Hook(BaseHTTPRequestHandler):
@@ -191,6 +192,12 @@ class Hook(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("content-length") or 0)
         body = self.rfile.read(n)
+        if HOOK["fail"]:
+            # The shop is "down": refuse, and remember we were asked.
+            HOOK["failed_bodies"].append(body)
+            self.send_response(503)
+            self.end_headers()
+            return
         received.append(
             {
                 "body": body,
@@ -358,6 +365,40 @@ def main():
             assert ids.count(inv["id"]) == 1, ids
             page.goto(f"{BASE}/i/{inv['id']}")
             wait_for(lambda: "paid" in page.inner_text("body").lower(), "checkout page shows paid")
+
+        @step("webhook retry: shop down when the payment lands, back later: delivered once, valid signature")
+        def _():
+            inv = new_invoice("hook-retry-1", 1800)
+            HOOK["fail"] = True
+            try:
+                ctl(action="pay_ark", address=inv["ark_address"], sats=1800)
+                wait_for(lambda: status_of(inv)["status"] == "paid", "invoice paid while the shop is down")
+                wait_for(
+                    lambda: any(json.loads(b).get("invoice_id") == inv["id"] for b in HOOK["failed_bodies"]),
+                    "a first (refused) delivery attempt",
+                )
+                code, rows = http("GET", f"{BASE}/api/v1/webhook-deliveries?limit=50", headers=auth())
+                mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
+                assert len(mine) == 1, mine
+                assert mine[0]["status"] == "pending" and mine[0]["attempts"] >= 1, mine[0]
+                assert not any(json.loads(r["body"]).get("invoice_id") == inv["id"] for r in received), "nothing delivered yet"
+            finally:
+                HOOK["fail"] = False
+            # The first retry is scheduled ~30 s after the refused attempt.
+            wait_for(
+                lambda: any(
+                    r["event"] == "invoice.paid" and json.loads(r["body"]).get("invoice_id") == inv["id"] for r in received
+                ),
+                "the retry to arrive once the shop is back",
+                timeout=90,
+            )
+            time.sleep(3)
+            got = [r for r in received if r["event"] == "invoice.paid" and json.loads(r["body"]).get("invoice_id") == inv["id"]]
+            assert len(got) == 1, f"delivered {len(got)} times"
+            assert verify_sig(state["hook_secret"], got[0]), "retried delivery must carry a valid signature"
+            code, rows = http("GET", f"{BASE}/api/v1/webhook-deliveries?limit=50", headers=auth())
+            mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
+            assert mine[0]["status"] == "delivered", mine[0]
 
         @step("on-chain: mempool is not credited, one confirmation credits exactly once")
         def _():

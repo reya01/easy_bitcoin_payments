@@ -50,7 +50,7 @@ Play money only: signet coins. Do not send real bitcoin.
 1. Stop and write down exactly what you saw (a screenshot is best).
 2. Look in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and the "If something goes wrong"
    part of [VPS_DIGITALOCEAN.md](VPS_DIGITALOCEAN.md).
-3. To report it, collect: the text of the Console box, the **Home** tab text, and
+3. To report it (the "Something went wrong" form on GitHub Issues lists what to include), collect: the text of the Console box, the **Home** tab text, and
    the last lines of the install log (in the Console:
    `tail -n 50 /var/log/ebp-vps-setup.log`).
 

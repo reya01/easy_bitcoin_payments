@@ -13,16 +13,16 @@ class EBP_Gateway extends WC_Payment_Gateway {
 
 	public function __construct() {
 		$this->id                 = 'ebp_bitcoin';
-		$this->method_title       = 'Bitcoin (Easy Bitcoin Payments)';
-		$this->method_description = 'Accept Bitcoin through your own Easy Bitcoin Payments server. Customers pay on a hosted checkout page; the order is marked paid automatically.';
+		$this->method_title       = __( 'Bitcoin (Easy Bitcoin Payments)', 'ebp-bitcoin' );
+		$this->method_description = __( 'Accept Bitcoin through your own Easy Bitcoin Payments server. Customers pay on a hosted checkout page; the order is marked paid automatically.', 'ebp-bitcoin' );
 		$this->has_fields         = false;
 		$this->supports           = array( 'products' );
 
 		$this->init_form_fields();
 		$this->init_settings();
 
-		$this->title       = $this->get_option( 'title', 'Bitcoin' );
-		$this->description = $this->get_option( 'description', 'Pay with Bitcoin (Lightning, Ark or on-chain).' );
+		$this->title       = $this->get_option( 'title', __( 'Bitcoin', 'ebp-bitcoin' ) );
+		$this->description = $this->get_option( 'description', __( 'Pay with Bitcoin (Lightning, Ark or on-chain).', 'ebp-bitcoin' ) );
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
 		add_action( 'woocommerce_api_' . $this->id, array( $this, 'handle_webhook' ) );
@@ -35,45 +35,45 @@ class EBP_Gateway extends WC_Payment_Gateway {
 	public function init_form_fields() {
 		$this->form_fields = array(
 			'enabled'        => array(
-				'title'   => 'Enable',
+				'title'   => __( 'Enable', 'ebp-bitcoin' ),
 				'type'    => 'checkbox',
-				'label'   => 'Accept Bitcoin',
+				'label'   => __( 'Accept Bitcoin', 'ebp-bitcoin' ),
 				'default' => 'no',
 			),
 			'server_url'     => array(
-				'title'       => 'Server address',
+				'title'       => __( 'Server address', 'ebp-bitcoin' ),
 				'type'        => 'text',
-				'description' => 'Your payment server, from the "Connect your shop" tab of its dashboard. Example: https://pay.myshop.com',
+				'description' => __( 'Your payment server, from the "Connect your shop" tab of its dashboard. Example: https://pay.myshop.com', 'ebp-bitcoin' ),
 				'desc_tip'    => false,
 				'default'     => '',
 				'placeholder' => 'https://',
 			),
 			'api_key'        => array(
-				'title'       => 'API key',
+				'title'       => __( 'API key', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => 'Make one in the dashboard: Connect your shop, step 2.',
+				'description' => __( 'Make one in the dashboard: Connect your shop, step 2.', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_secret' => array(
-				'title'       => 'Signing secret',
+				'title'       => __( 'Signing secret', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => 'From the dashboard: Connect your shop, step 3 (shown once when you save the address).',
+				'description' => __( 'From the dashboard: Connect your shop, step 3 (shown once when you save the address).', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_info'   => array(
-				'title'       => 'Your shop\'s notification address',
+				'title'       => __( 'Your shop\'s notification address', 'ebp-bitcoin' ),
 				'type'        => 'title',
-				'description' => 'Paste this into the dashboard (Connect your shop, step 3):<br><code>' . esc_html( $this->webhook_url() ) . '</code>',
+				'description' => __( 'Paste this into the dashboard (Connect your shop, step 3):', 'ebp-bitcoin' ) . '<br><code>' . esc_html( $this->webhook_url() ) . '</code>',
 			),
 			'title'          => array(
-				'title'   => 'Name shown to customers',
+				'title'   => __( 'Name shown to customers', 'ebp-bitcoin' ),
 				'type'    => 'text',
-				'default' => 'Bitcoin',
+				'default' => __( 'Bitcoin', 'ebp-bitcoin' ),
 			),
 			'description'    => array(
-				'title'   => 'Message shown to customers',
+				'title'   => __( 'Message shown to customers', 'ebp-bitcoin' ),
 				'type'    => 'textarea',
-				'default' => 'Pay with Bitcoin (Lightning, Ark or on-chain).',
+				'default' => __( 'Pay with Bitcoin (Lightning, Ark or on-chain).', 'ebp-bitcoin' ),
 			),
 		);
 	}
@@ -96,28 +96,32 @@ class EBP_Gateway extends WC_Payment_Gateway {
 
 		$url = EBP_Core::normalize_server_url( $this->get_option( 'server_url' ) );
 		if ( '' === $url ) {
-			WC_Admin_Settings::add_error( 'Bitcoin: the server address is missing or does not start with https://' );
+			WC_Admin_Settings::add_error( __( 'Bitcoin: the server address is missing or does not start with https://', 'ebp-bitcoin' ) );
 			return $saved;
 		}
 		if ( ! EBP_Core::is_secure_enough( $url ) ) {
-			WC_Admin_Settings::add_error( 'Bitcoin: the server address should start with https:// so your API key is not sent in the clear.' );
+			WC_Admin_Settings::add_error( __( 'Bitcoin: the server address should start with https:// so your API key is not sent in the clear.', 'ebp-bitcoin' ) );
 		}
 		$client = new EBP_Client( $url, $this->get_option( 'api_key' ) );
 		$health = $client->health();
 		if ( is_wp_error( $health ) ) {
-			WC_Admin_Settings::add_error( 'Bitcoin: could not reach your payment server (' . $health->get_error_message() . ').' );
+			WC_Admin_Settings::add_error( sprintf(
+					/* translators: %s: the error message */
+					__( 'Bitcoin: could not reach your payment server (%s).', 'ebp-bitcoin' ),
+					$health->get_error_message()
+				) );
 			return $saved;
 		}
 		$key = $client->check_key();
 		if ( is_wp_error( $key ) ) {
-			WC_Admin_Settings::add_error( 'Bitcoin: the server answered, but the API key was not accepted. Make a new one in the dashboard and paste it here.' );
+			WC_Admin_Settings::add_error( __( 'Bitcoin: the server answered, but the API key was not accepted. Make a new one in the dashboard and paste it here.', 'ebp-bitcoin' ) );
 			return $saved;
 		}
 		if ( '' === $this->get_option( 'webhook_secret' ) ) {
-			WC_Admin_Settings::add_error( 'Bitcoin: connected, but the signing secret is empty, so paid orders cannot be marked paid automatically.' );
+			WC_Admin_Settings::add_error( __( 'Bitcoin: connected, but the signing secret is empty, so paid orders cannot be marked paid automatically.', 'ebp-bitcoin' ) );
 			return $saved;
 		}
-		WC_Admin_Settings::add_message( 'Bitcoin: connected to your payment server.' );
+		WC_Admin_Settings::add_message( __( 'Bitcoin: connected to your payment server.', 'ebp-bitcoin' ) );
 		return $saved;
 	}
 
@@ -141,13 +145,13 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		if ( is_wp_error( $invoice ) || empty( $invoice['checkout_url'] ) || empty( $invoice['id'] ) ) {
 			$detail = is_wp_error( $invoice ) ? $invoice->get_error_message() : 'unexpected answer';
 			wc_get_logger()->error( 'Could not create a Bitcoin invoice for order ' . $order->get_id() . ': ' . $detail, array( 'source' => 'ebp-bitcoin' ) );
-			wc_add_notice( 'Bitcoin payment is not available right now. Please choose another method or try again shortly.', 'error' );
+			wc_add_notice( __( 'Bitcoin payment is not available right now. Please choose another method or try again shortly.', 'ebp-bitcoin' ), 'error' );
 			return array( 'result' => 'failure' );
 		}
 
 		$order->update_meta_data( '_ebp_invoice_id', (string) $invoice['id'] );
 		$order->update_meta_data( '_ebp_checkout_url', (string) $invoice['checkout_url'] );
-		$order->update_status( 'on-hold', 'Waiting for the Bitcoin payment.' );
+		$order->update_status( 'on-hold', __( 'Waiting for the Bitcoin payment.', 'ebp-bitcoin' ) );
 		if ( ! $existing ) {
 			wc_reduce_stock_levels( $order->get_id() );
 		}
@@ -168,7 +172,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		}
 		$url = $order->get_meta( '_ebp_checkout_url' );
 		if ( $url && $order->has_status( 'on-hold' ) ) {
-			echo '<p><a class="button" href="' . esc_url( $url ) . '">Pay with Bitcoin</a></p>';
+			echo '<p><a class="button" href="' . esc_url( $url ) . '">' . esc_html__( 'Pay with Bitcoin', 'ebp-bitcoin' ) . '</a></p>';
 		}
 	}
 
@@ -231,13 +235,18 @@ class EBP_Gateway extends WC_Payment_Gateway {
 					if ( (string) $order->get_meta( '_ebp_mismatch_invoice' ) !== $invoice_id ) {
 						$order->update_meta_data( '_ebp_mismatch_invoice', $invoice_id );
 						$order->save();
-						$order->add_order_note( 'A Bitcoin payment arrived, but the order total no longer matches the invoice it was made for. The order was NOT marked paid. Check the amount in your wallet and complete or refund it by hand.' );
+						$order->add_order_note( __( 'A Bitcoin payment arrived, but the order total no longer matches the invoice it was made for. The order was NOT marked paid. Check the amount in your wallet and complete or refund it by hand.', 'ebp-bitcoin' ) );
 					}
 				} elseif ( ! $order->is_paid() ) {
 					if ( $order->has_status( array( 'cancelled', 'failed', 'refunded' ) ) ) {
-						$order->add_order_note( 'Bitcoin payment arrived after this order was cancelled. Check stock before shipping.' );
+						$order->add_order_note( __( 'Bitcoin payment arrived after this order was cancelled. Check stock before shipping.', 'ebp-bitcoin' ) );
 					}
-					$order->add_order_note( sprintf( 'Bitcoin payment received (%d of %d sats).', $sats, $total ) );
+					$order->add_order_note( sprintf(
+						/* translators: 1: sats received, 2: sats expected */
+						__( 'Bitcoin payment received (%1$d of %2$d sats).', 'ebp-bitcoin' ),
+						$sats,
+						$total
+					) );
 					$order->payment_complete( $invoice_id );
 				}
 				break;
@@ -245,12 +254,17 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				if ( (string) $sats !== (string) $order->get_meta( '_ebp_underpaid_sats' ) ) {
 					$order->update_meta_data( '_ebp_underpaid_sats', (string) $sats );
 					$order->save();
-					$order->add_order_note( sprintf( 'Partial Bitcoin payment received (%d of %d sats). Waiting for the rest.', $sats, $total ) );
+					$order->add_order_note( sprintf(
+						/* translators: 1: sats received so far, 2: sats expected */
+						__( 'Partial Bitcoin payment received (%1$d of %2$d sats). Waiting for the rest.', 'ebp-bitcoin' ),
+						$sats,
+						$total
+					) );
 				}
 				break;
 			case 'expired':
 				if ( $order->has_status( 'on-hold' ) ) {
-					$order->update_status( 'cancelled', 'The Bitcoin payment window ended without a full payment.' );
+					$order->update_status( 'cancelled', __( 'The Bitcoin payment window ended without a full payment.', 'ebp-bitcoin' ) );
 				}
 				break;
 		}

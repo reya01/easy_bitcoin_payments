@@ -7,6 +7,7 @@
  * Requires PHP:      7.4
  * License:           MIT
  * Text Domain:       ebp-bitcoin
+ * Domain Path:       /languages
  * WC requires at least: 8.0
  *
  * @package EBP_Bitcoin
@@ -18,6 +19,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 define( 'EBP_BITCOIN_VERSION', '0.1.0' );
 define( 'EBP_BITCOIN_FILE', __FILE__ );
+
+add_action(
+	'plugins_loaded',
+	function () {
+		load_plugin_textdomain( 'ebp-bitcoin', false, dirname( plugin_basename( EBP_BITCOIN_FILE ) ) . '/languages' );
+	},
+	5
+);
 
 add_action(
 	'before_woocommerce_init',

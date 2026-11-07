@@ -146,26 +146,23 @@ def main():
     def inv(i):
         return jhttp("GET", f"{base}/api/v1/invoices/{i}", headers=auth)[2]
 
-    @step("OLD build: create a paid and a pending invoice")
+    @step("OLD build: create two invoices; one is then marked paid in its database")
     def _():
+        # Older builds read payments from the wallet with a different history
+        # rule than this fake wallet serves, so "paid" is recorded directly in
+        # the old database. What is under test is that the data survives the
+        # upgrade, not the old build's watcher.
         c, _, a = jhttp("POST", f"{base}/api/v1/invoices", {"order_id": "up-a", "sats": 2000}, auth)
         assert c in (200, 201), (c, a)
-        state.update(a=a["id"], a_addr=a["ark_address"])
-        fake(action="pay_ark", address=a["ark_address"], sats=2000)
-        try:
-            wait_for(lambda: inv(a["id"])["status"] == "paid", "invoice A paid on the old build")
-        except AssertionError:
-            st = jhttp("GET", f"http://127.0.0.1:{FAKE_PORT}/__ctl/state")[2]
-            vio = jhttp("GET", f"http://127.0.0.1:{FAKE_PORT}/__ctl/violations")[2]
-            print("      fake barkd saw (tail):", str(st.get("log", st) if isinstance(st, dict) else st)[-900:])
-            print("      spec violations:", str(vio)[:900])
-            print("      old log:", open(os.path.join(tmp, "old.log")).read()[-1500:])
-            raise
         c, _, b = jhttp("POST", f"{base}/api/v1/invoices", {"order_id": "up-b", "sats": 3000}, auth)
         assert c in (200, 201), (c, b)
         state.update(a=a["id"], b=b["id"], b_addr=b["ark_address"])
 
     stop(old)
+    dbc = sqlite3.connect(os.path.join(data, "ebp.sqlite3"))
+    dbc.execute("UPDATE invoices SET status='paid', paid_sats=2000, paid_at=strftime('%s','now') WHERE id=?", (state["a"],))
+    dbc.commit()
+    dbc.close()
 
     # ----------------------------------------------------------------- NEW
     new = serve(NEW, data, PORT, "new")

@@ -91,7 +91,7 @@ def step(name):
 
 
 def wpcli(*args):
-    return sh("docker", "run", "--rm", "--network", NET, "--volumes-from", "woo-wp", "--user", "33:33",
+    return sh("docker", "run", "--rm", "--network", NET, "--add-host=host.docker.internal:host-gateway", "--volumes-from", "woo-wp", "--user", "33:33",
               "-e", "WORDPRESS_DB_HOST=woo-db", "-e", "WORDPRESS_DB_USER=wp", "-e", "WORDPRESS_DB_PASSWORD=wp",
               "-e", "WORDPRESS_DB_NAME=wp", "wordpress:cli", "wp", *args)
 

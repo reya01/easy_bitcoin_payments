@@ -49,6 +49,24 @@ jobs:
       - name: Browser end-to-end test
         run: python3 tests/e2e/run_e2e.py target/release/ebp
 
+      # The same flow in an emulated iPhone: the whole point is that a shop
+      # owner can set this up and run it from a phone. Fails if a page scrolls
+      # sideways; prints small tap targets and zoom-on-focus inputs as notes.
+      - name: Browser end-to-end test (phone)
+        env:
+          EBP_E2E_DEVICE: iPhone 13
+          EBP_E2E_SHOTS: ${{ runner.temp }}/phone-shots
+        run: python3 tests/e2e/run_e2e.py target/release/ebp
+
+      - name: Keep the phone screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: phone-screenshots
+          path: ${{ runner.temp }}/phone-shots
+          if-no-files-found: ignore
+          retention-days: 7
+
       # WooCommerce plugin: PHP syntax + logic tests, then a real WordPress +
       # WooCommerce (docker) paying an order through this binary.
       - name: WooCommerce plugin checks

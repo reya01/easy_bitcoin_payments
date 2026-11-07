@@ -102,6 +102,59 @@ def start_ebp():
 
 PAGE = {"page": None, "net": []}
 
+# Phone mode: EBP_E2E_DEVICE="iPhone 13" runs the whole flow in an emulated
+# phone browser (touch, small screen) and, after every step, checks that the
+# page does not scroll sideways. Tap-target and text-size findings are printed
+# as PHONE NOTE lines; screenshots go to $EBP_E2E_SHOTS when set.
+DEVICE = os.environ.get("EBP_E2E_DEVICE", "")
+SHOTS = os.environ.get("EBP_E2E_SHOTS", "")
+LAYOUT_JS = r"""() => {
+  const vw = window.innerWidth;
+  const over = document.documentElement.scrollWidth - vw;
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const cs = getComputedStyle(el);
+    return cs.visibility !== 'hidden' && cs.display !== 'none' && el.type !== 'hidden';
+  };
+  const label = (el) => ((el.id ? '#' + el.id : '') + ' ' + (el.textContent || el.value || el.tagName)).trim().replace(/\s+/g, ' ').slice(0, 32);
+  const small = [], zoom = [], wide = [];
+  for (const el of document.querySelectorAll('button, a[href], input:not([type=checkbox]):not([type=radio]), select, textarea, summary')) {
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.height < 36) small.push(label(el) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) && parseFloat(getComputedStyle(el).fontSize) < 16) zoom.push(label(el));
+  }
+  for (const el of document.querySelectorAll('body *')) {
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.right > vw + 1) wide.push(label(el) + ' right=' + Math.round(r.right));
+  }
+  return {over: Math.round(over), vw, small: small.slice(0, 8), zoom: zoom.slice(0, 8), wide: wide.slice(0, 6)};
+}"""
+
+
+def phone_audit(label):
+    """Returns an error string for hard problems, else ''. Notes are printed."""
+    page = PAGE["page"]
+    if not DEVICE or page is None:
+        return ""
+    try:
+        m = page.evaluate(LAYOUT_JS)
+        if SHOTS:
+            os.makedirs(SHOTS, exist_ok=True)
+            safe = "".join(c if c.isalnum() else "-" for c in label.lower())[:60].strip("-")
+            page.screenshot(path=os.path.join(SHOTS, f"{len(os.listdir(SHOTS)):02d}-{safe}.png"), full_page=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"PHONE NOTE  {label}: audit skipped ({e!r})"[:300], flush=True)
+        return ""
+    for key in ("small", "zoom"):
+        if m[key]:
+            print(f"PHONE NOTE  {label}: {key}: {m[key]}", flush=True)
+    if m["over"] > 1:
+        return f"page scrolls sideways by {m['over']}px on a {m['vw']}px screen: {m['wide']}"
+    return ""
+
 
 class Abort(Exception):
     pass
@@ -112,6 +165,8 @@ def step(name, critical=False):
         t0 = time.time()
         try:
             fn()
+            bad = phone_audit(name)
+            assert not bad, bad
             results.append((name, True, ""))
             print(f"PASS  {name}  ({time.time() - t0:.1f}s)", flush=True)
         except Exception as e:  # noqa: BLE001
@@ -185,7 +240,10 @@ def main():
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        page = browser.new_page(viewport={"width": 1100, "height": 900})
+        if DEVICE:
+            page = browser.new_context(**pw.devices[DEVICE]).new_page()
+        else:
+            page = browser.new_page(viewport={"width": 1100, "height": 900})
         errors = []
         PAGE["page"] = page
         page.on("pageerror", lambda e: errors.append(str(e)))
@@ -445,6 +503,31 @@ def main():
             wait_for(lambda: not page.is_visible("#po-cancel"), "cancelled")
             page.click('#tabs button[data-v="home"]')
             wait_for(lambda: "Payout address is set" in page.inner_text("#health"), "home says the payout address is set")
+
+        if DEVICE:
+
+            @step("phone: every admin tab and the checkout page fit the screen")
+            def _():
+                problems = []
+                inv = new_invoice("phone-1", 2100)
+                page.goto(f"{BASE}/admin")
+                if page.is_visible("#login-form"):
+                    page.fill("#pw", ADMIN_PW)
+                    page.click("#login-btn")
+                page.wait_for_selector("#v-home:not(.hidden)")
+                for tab in ("home", "orders", "alerts", "hooks", "set"):
+                    page.click(f'#tabs button[data-v="{tab}"]')
+                    time.sleep(0.8)
+                    problems.append(phone_audit(f"admin tab {tab}"))
+                page.goto(f"{BASE}/i/{inv['id']}")
+                time.sleep(1.0)
+                problems.append(phone_audit("checkout pending"))
+                ctl(action="pay_ark", address=inv["ark_address"], sats=2100)
+                wait_for(lambda: status_of(inv)["status"] == "paid", "paid")
+                time.sleep(3)
+                problems.append(phone_audit("checkout paid"))
+                problems = [p for p in problems if p]
+                assert not problems, problems
 
         @step("every request EBP made matched the pinned barkd OpenAPI spec")
         def _():

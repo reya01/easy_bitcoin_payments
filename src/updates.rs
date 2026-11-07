@@ -42,9 +42,16 @@ pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     parts.next().is_none().then_some(v)
 }
 
+/// Is `latest` newer than `current`? A pre-release build (`0.1.0-rc1`) is
+/// older than the final release with the same numbers (`0.1.0`), so people
+/// running a release candidate are told when the real release exists.
 pub fn is_newer(latest: &str, current: &str) -> bool {
     match (parse_version(latest), parse_version(current)) {
-        (Some(l), Some(c)) => l > c,
+        (Some(l), Some(c)) if l != c => l > c,
+        (Some(_), Some(_)) => {
+            let pre = |v: &str| v.trim().trim_start_matches('v').contains('-');
+            pre(current) && !pre(latest)
+        }
         _ => false,
     }
 }
@@ -130,6 +137,12 @@ mod tests {
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("0.1.0", "0.2.0"));
         assert!(!is_newer("garbage", "0.1.0"));
+        // A release candidate is older than its final release, never newer.
+        assert!(is_newer("0.1.0", "0.1.0-rc1"));
+        assert!(is_newer("v0.1.0", "v0.1.0-rc2"));
+        assert!(!is_newer("0.1.0-rc2", "0.1.0"));
+        assert!(!is_newer("0.1.0-rc2", "0.1.0-rc1"));
+        assert!(!is_newer("0.1.0", "0.1.0+build5"));
         assert_eq!(parse_version("v1.2.3-rc1"), Some((1, 2, 3)));
         assert_eq!(parse_version("1.2"), None);
         assert_eq!(parse_version("1.2.3.4"), None);

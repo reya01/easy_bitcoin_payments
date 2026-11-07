@@ -62,6 +62,8 @@
     font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   input.name { font-family: inherit; }
+  .pwrow { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .pwrow button { background: none; border: 0; color: inherit; text-decoration: underline; font: inherit; padding: 0 4px; min-height: 44px; cursor: pointer; }
   button.primary {
     display: block; width: 100%; margin-top: 18px; padding: 14px; border-radius: 10px;
     border: none; background: var(--accent); color: #14161a; font: inherit; font-weight: 600;
@@ -196,10 +198,11 @@
       <label for="store">Store name</label>
       <input type="text" id="store" class="name" placeholder="My store">
       <label for="admin-pw">Choose an admin password</label>
-      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 16 characters">
+      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 16 characters" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <div class="pwrow"><span id="admin-pw-count"></span><button type="button" id="admin-pw-show">Show</button></div>
       <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager. A few random words works well.</p>
       <label for="payout">Where should your money go? (optional)</label>
-      <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Your wallet address (Ark or Bitcoin)">
+      <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Ark or Bitcoin address">
       <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control (for example Arké). You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
       <div class="hidden" id="store-secrets">
@@ -225,6 +228,21 @@
 </main>
 
 <script>
+function pwHelper(inputId, btnId, countId) {
+  var pw = document.getElementById(inputId), b = document.getElementById(btnId), c = document.getElementById(countId);
+  function upd() {
+    var n = pw.value.length;
+    c.textContent = n >= 16 ? n + " characters. Long enough." : n + " of 16 characters";
+  }
+  pw.addEventListener("input", upd);
+  b.addEventListener("click", function () {
+    var show = pw.type === "password";
+    pw.type = show ? "text" : "password";
+    b.textContent = show ? "Hide" : "Show";
+  });
+  upd();
+}
+pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
 (function () {
   "use strict";
 
@@ -597,6 +615,8 @@
     api("POST", "/setup/store", { name: name, admin_password: pw, payout_address: document.getElementById("payout").value.trim() || null })
       .then(function (result) {
         document.getElementById("admin-pw").value = "";
+        document.getElementById("admin-pw").type = "password";
+        document.getElementById("admin-pw-show").textContent = "Show";
         if (result.api_key) {
           els.apiKey.textContent = result.api_key;
           els.webhookSecret.textContent = result.webhook_secret || "";

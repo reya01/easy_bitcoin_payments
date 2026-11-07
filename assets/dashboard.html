@@ -215,11 +215,12 @@ function api(method, path, body) {
   if (body !== undefined) h["content-type"] = "application/json";
   if (method !== "GET") h["x-ebp-csrf"] = csrf;
   return fetch(path, { method: method, headers: h, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) })
+    .catch(function () { throw new Error("Can't reach your server right now. Check your internet connection and that the server is running, then try again."); })
     .then(function (r) {
       return r.text().then(function (t) {
         var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
         if (r.status === 401 && path !== "/admin/login") { signedOut(); throw new Error("Please sign in again."); }
-        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || ("Request failed (" + r.status + ")"));
+        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many tries. Wait a minute, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
         return j;
       });
     });

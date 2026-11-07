@@ -324,7 +324,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       method: method,
       headers: headers,
       body: body ? JSON.stringify(body) : undefined
-    }).then(function (res) {
+    }).catch(function () { throw new Error("Can't reach your server right now. Check your internet connection and that the server is running, then try again."); }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (res.status === 401 && data.error === "setup_token_required") {
           // Wrong or missing code: go back to the code screen.
@@ -332,7 +332,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
           if (lastStatus) { show("code"); }
         }
         if (!res.ok) {
-          throw new Error(data.message || data.error || "The server answered HTTP " + res.status + ".");
+          throw new Error(data.message || data.error || (res.status === 429 ? "Too many tries. Wait a minute, then try again." : res.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + res.status + ")."));
         }
         return data;
       });

@@ -97,8 +97,13 @@ address.
 - **The address doesn't open:** wait a few minutes; the padlock certificate is
   requested on first start. If you turned on a DigitalOcean **Firewall**, it
   must allow ports 80 and 443.
-- **The box never appears:** log in to the Console as `root`, type `ebp-info`.
-  The full log is in `/var/log/ebp-vps-setup.log`.
+- **The box never appears:** first make sure at least 30 minutes have passed
+  since you created the Droplet. Then log in to the Console as `root` and type
+  `ebp-info`. If it says "command not found", the install did not finish: type
+  `cloud-init status` (it says "running" while still working) and
+  `tail -n 40 /var/log/ebp-vps-setup.log`, and send us those lines (they
+  contain no passwords or recovery words, but they do show your one-time SETUP
+  CODE, so leave that line out).
 - **Start over:** destroy the Droplet and make a new one (nothing important is
   on it before setup is finished).
 

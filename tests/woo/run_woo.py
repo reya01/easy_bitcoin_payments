@@ -305,6 +305,29 @@ def main():
         gone = wpcli("--user=admin", "eval", "ob_start(); EBP_Watch::notice(); echo strlen(ob_get_clean()) > 0 ? 'shown' : 'hidden';")
         assert gone == "hidden", gone
 
+    @step("an order whose total changed after checkout is NOT marked paid when the old invoice is paid")
+    def _():
+        code, hdr, _c = jhttp("GET", f"{wp}/?rest_route=/wc/store/v1/cart")
+        h = {"Nonce": hdr.get("Nonce") or hdr.get("nonce"), "Cart-Token": hdr.get("Cart-Token") or hdr.get("cart-token")}
+        code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/cart/add-item", {"id": int(pid), "quantity": 1}, h)
+        assert code in (200, 201), (code, str(r)[:300])
+        addr = {"first_name": "Grace", "last_name": "Hopper", "address_1": "2 Main St", "city": "Austin",
+                "state": "TX", "postcode": "78701", "country": "US", "email": "grace@example.com", "phone": ""}
+        code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/checkout", {
+            "billing_address": addr, "shipping_address": addr, "payment_method": "ebp_bitcoin", "payment_data": []}, h)
+        assert code == 200, (code, str(r)[:600])
+        order2 = r["order_id"]
+        inv_id = r["payment_result"]["redirect_url"].rsplit("/", 1)[1]
+        assert order2 != state["order"], "second checkout must create a new order"
+        wpcli("eval", f"$o=wc_get_order({order2}); $o->set_total(25); $o->save();")
+        code, _, inv = jhttp("GET", f"{base}/api/v1/invoices/{inv_id}", headers=inv_auth)
+        assert code == 200, (code, inv)
+        fake(action="pay_ark", address=inv["ark_address"], sats=inv["amount_sats"])
+        notes = lambda: wpcli("eval", f"foreach (wc_get_order_notes(['order_id'=>{order2}]) as $n) echo $n->content.'|';")
+        wait_for(lambda: "NOT marked paid" in notes(), "mismatch note", timeout=90)
+        st = wpcli("eval", f"echo wc_get_order({order2})->get_status();")
+        assert st == "on-hold", st
+
 
 try:
     main()

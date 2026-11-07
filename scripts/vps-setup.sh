@@ -13,7 +13,7 @@
 set -euo pipefail
 
 EBP_DIR="${EBP_DIR:-/opt/ebp}"
-START_CMD="${EBP_START_CMD:-./scripts/start.sh --https}"
+START_CMD="${EBP_START_CMD:-}"
 INFO_FILE="${EBP_INFO_FILE:-/root/EBP-START-HERE.txt}"
 ISSUE_FILE="${EBP_ISSUE_FILE:-/etc/issue}"
 MOTD_FILE="${EBP_MOTD_FILE:-/etc/motd}"
@@ -33,6 +33,16 @@ if [ -z "$SKIP_SYSTEM" ]; then
 fi
 
 cd "$EBP_DIR"
+if [ -z "$START_CMD" ]; then
+  if grep -q '^EBP_DOMAIN=' .env 2>/dev/null; then
+    # A web address is already saved (your own domain, or the free one made
+    # on the first run): keep it. Running with --https again could replace a
+    # custom domain with the free name.
+    START_CMD="./scripts/start.sh"
+  else
+    START_CMD="./scripts/start.sh --https"
+  fi
+fi
 # shellcheck disable=SC2086 # START_CMD is a command line on purpose
 $START_CMD 2>&1 | tee "$LOG_FILE" || true
 

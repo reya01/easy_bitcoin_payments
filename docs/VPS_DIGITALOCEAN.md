@@ -51,6 +51,46 @@ Open the web address from the box (it looks like
 follow the steps. [START_HERE.md](START_HERE.md) explains each one, including
 writing down your 12 recovery words.
 
+## Optional: keep the same address, or use your own
+
+The free `sslip.io` address is made from your server's IP address. That is fine
+for testing, but two things are worth knowing before you connect a real shop:
+the address looks unfamiliar to customers, and if you ever rebuild the server it
+gets a new IP and therefore a new address.
+
+Do either of these **before** you connect your shop (it is easiest before the
+setup page too). You type one line in the Console.
+
+**Keep the same address (Reserved IP).** DigitalOcean gives a fixed IP address
+that stays yours even if you replace the server (free while it is attached to a
+server).
+
+1. In DigitalOcean: **Networking → Reserved IPs**, reserve one and assign it to
+   your Droplet.
+2. In the Console, run the line below, replacing the numbers with your
+   reserved IP and writing dashes instead of dots (203.0.113.7 becomes
+   203-0-113-7):
+
+   ```
+   cd /opt/ebp && ./scripts/start.sh --domain 203-0-113-7.sslip.io
+   ```
+
+**Use your own domain** (best for a real shop, for example `pay.myshop.com`).
+
+1. At the company that holds your domain (or in DigitalOcean **Networking →
+   Domains**), add an **A record**: name `pay`, pointing at your server's IP
+   (the reserved IP if you made one).
+2. Wait a few minutes, then in the Console run:
+
+   ```
+   cd /opt/ebp && ./scripts/start.sh --domain pay.myshop.com
+   ```
+
+The command prints your new address. It is remembered, so a later `ebp-info`
+or restart keeps it. If you had already connected your shop, update the server
+address in the WooCommerce plugin and sign in to the dashboard again at the new
+address.
+
 ## If something goes wrong
 
 - **The address doesn't open:** wait a few minutes; the padlock certificate is
@@ -68,5 +108,5 @@ writing down your 12 recovery words.
 - Download a backup from **Settings** regularly; keep your 12 recovery words on
   paper.
 - Cost is the Droplet price only. The padlock address (`sslip.io`) and the
-  certificate are free. You can use your own domain later:
-  `./scripts/start.sh --domain pay.myshop.com`.
+  certificate are free, and a Reserved IP costs nothing while it is attached.
+  A domain name of your own costs whatever your registrar charges (see above).

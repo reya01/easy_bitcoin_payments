@@ -1187,13 +1187,14 @@ pub async fn create_store(
         _ => None,
     };
     let admin_password = req.admin_password.clone();
+    let mode = state.config.mode.clone();
     let iterations = state.config.password_hash_iterations;
     let (created, setup_complete) = state
         .db
         .call(move |conn| {
             let created = insert_first_store(conn, &name)?;
             if let Some(addr) = payout_address.as_deref() {
-                crate::payout::set_initial(conn, addr)?;
+                crate::payout::set_initial(conn, addr, &mode)?;
             }
             if let Some(pw) = admin_password.as_deref() {
                 crate::admin_auth::set_password(conn, pw, iterations)?;

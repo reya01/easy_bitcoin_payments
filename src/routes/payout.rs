@@ -78,10 +78,11 @@ pub async fn change(
 
     let delay = state.config.payout_change_delay_secs;
     let cfg = state.config.settlement_destination.clone();
+    let mode = state.config.mode.clone();
     let (change, s) = state
         .db
         .call(move |c| {
-            let ch = crate::payout::request_change(c, &address, delay, cfg.as_deref())?;
+            let ch = crate::payout::request_change(c, &address, delay, cfg.as_deref(), &mode)?;
             let s = crate::payout::status(c, cfg.as_deref())?;
             Ok((ch, s))
         })

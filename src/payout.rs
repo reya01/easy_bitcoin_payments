@@ -289,8 +289,8 @@ pub fn effective(
 }
 
 /// Wizard: set the first address immediately.
-pub fn set_initial(conn: &Connection, address: &str) -> Result<(), AppError> {
-    let a = validate(address)?;
+pub fn set_initial(conn: &Connection, address: &str, mode: &str) -> Result<(), AppError> {
+    let a = validate(address, mode)?;
     crate::settings::set(conn, KEY_ACTIVE, &a)?;
     clear_pending(conn)?;
     audit(
@@ -308,13 +308,14 @@ pub fn request_change(
     address: &str,
     delay_secs: i64,
     server_config: Option<&str>,
+    mode: &str,
 ) -> Result<Change, AppError> {
     if server_config.is_some_and(|d| !d.trim().is_empty()) {
         return Err(AppError::BadRequest(
             "the payout address is set in the server's configuration; change it there".into(),
         ));
     }
-    let a = validate(address)?;
+    let a = validate(address, mode)?;
     promote_if_due(conn)?;
     let current = crate::settings::get(conn, KEY_ACTIVE)?;
     if current.as_deref() == Some(a.as_str()) {
@@ -471,12 +472,15 @@ mod tests {
     #[test]
     fn first_address_is_immediate_later_changes_wait_and_can_be_cancelled() {
         let c = conn();
-        let a = "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k";
-        let b = "tark1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
-        assert_eq!(request_change(&c, a, 3600, None).unwrap(), Change::Now);
+        let a = TARK_A;
+        let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        assert_eq!(
+            request_change(&c, a, 3600, None, "test").unwrap(),
+            Change::Now
+        );
         assert_eq!(effective(&c, None).unwrap().as_deref(), Some(a));
 
-        let Change::Pending(at) = request_change(&c, b, 3600, None).unwrap() else {
+        let Change::Pending(at) = request_change(&c, b, 3600, None, "test").unwrap() else {
             panic!("second change must wait")
         };
         assert!(at > now_unix());
@@ -493,10 +497,10 @@ mod tests {
     #[test]
     fn a_due_change_takes_effect() {
         let c = conn();
-        let a = "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k";
-        let b = "tark1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
-        request_change(&c, a, 3600, None).unwrap();
-        request_change(&c, b, 3600, None).unwrap();
+        let a = TARK_A;
+        let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        request_change(&c, a, 3600, None, "test").unwrap();
+        request_change(&c, b, 3600, None, "test").unwrap();
         // Pretend the delay has passed.
         crate::settings::set(&c, KEY_EFFECTIVE_AT, &(now_unix() - 1).to_string()).unwrap();
         assert_eq!(effective(&c, None).unwrap().as_deref(), Some(b));
@@ -509,6 +513,6 @@ mod tests {
         let cfg = Some("tark1fromconfigfromconfigfromconfig");
         assert_eq!(effective(&c, cfg).unwrap().as_deref(), cfg);
         assert!(status(&c, cfg).unwrap().from_server_config);
-        assert!(request_change(&c, "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k", 0, cfg).is_err());
+        assert!(request_change(&c, TARK_A, 0, cfg, "test").is_err());
     }
 }

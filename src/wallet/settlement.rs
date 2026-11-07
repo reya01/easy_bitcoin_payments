@@ -484,6 +484,7 @@ mod tests {
             crate::payout::set_initial(
                 c,
                 "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh",
+                "test",
             )
         })
         .await

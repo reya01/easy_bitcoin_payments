@@ -59,6 +59,65 @@ jobs:
       - name: WooCommerce end-to-end test
         run: python3 tests/woo/run_woo.py target/release/ebp
 
+  vps-rehearsal:
+    name: DigitalOcean install rehearsal (clean Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The packages named in deploy/cloud-init.yaml must exist on the image a
+      # beginner picks (Ubuntu 24.04). A typo here would break every install.
+      - name: cloud-init packages exist on Ubuntu 24.04
+        run: |
+          pkgs="$(python3 - <<'PY'
+          import re
+          t = open("deploy/cloud-init.yaml").read()
+          block = t.split("packages:")[1].split("runcmd:")[0]
+          print(" ".join(re.findall(r"^\s*-\s*(\S+)", block, re.M)))
+          PY
+          )"
+          echo "packages: $pkgs"
+          docker run --rm ubuntu:24.04 bash -c "apt-get update -qq && apt-get install -s $pkgs | tail -3"
+
+      # The real script, real compose stack, real Caddy: only the public
+      # certificate is replaced by Caddy's local one (domain `localhost`).
+      - name: Run vps-setup.sh against the real stack
+        run: |
+          sudo mkdir -p /opt
+          sudo ln -sfn "$PWD" /opt/ebp
+          sudo EBP_SKIP_SYSTEM=1 EBP_CURL_OPTS=-k \
+            EBP_START_CMD="./scripts/start.sh --domain localhost" \
+            EBP_INFO_FILE=/tmp/ebp-info.txt EBP_ISSUE_FILE=/tmp/issue EBP_MOTD_FILE=/tmp/motd \
+            EBP_LOG_FILE=/tmp/ebp-start.log /opt/ebp/scripts/vps-setup.sh
+          echo "----- info file"; cat /tmp/ebp-info.txt
+
+      - name: The banner has the address and a setup code
+        run: |
+          grep -q "https://localhost/setup" /tmp/ebp-info.txt
+          grep -Eq "[A-Z0-9]{4}(-[A-Z0-9]{4})+" /tmp/ebp-info.txt
+          grep -q "https://localhost/setup" /tmp/issue
+          grep -q "https://localhost/setup" /tmp/motd
+
+      - name: Padlock side works end to end (Caddy to EBP)
+        run: |
+          curl -fsSk https://localhost/api/v1/health | tee /dev/stderr | grep -q .
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -k https://localhost/setup)"
+          test "$code" = 200
+          loc="$(curl -sS -o /dev/null -w '%{redirect_url}' http://localhost/)"
+          echo "http redirects to: $loc"
+          case "$loc" in https://localhost*) ;; *) echo "plain http must redirect to https"; exit 1;; esac
+
+      - name: Re-running keeps the saved address
+        run: |
+          sudo EBP_SKIP_SYSTEM=1 EBP_CURL_OPTS=-k EBP_INFO_FILE=/tmp/ebp-info2.txt \
+            EBP_ISSUE_FILE=/tmp/issue2 EBP_MOTD_FILE=/tmp/motd2 EBP_LOG_FILE=/tmp/ebp-start2.log \
+            /opt/ebp/scripts/vps-setup.sh
+          grep -q '^EBP_DOMAIN=localhost' .env
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 80 || true
+
   docker:
     name: docker image builds (amd64 + arm64)
     runs-on: ubuntu-latest

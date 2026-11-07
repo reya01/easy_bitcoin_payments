@@ -19,6 +19,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Test hook only: extra curl flags for the https wait (CI uses -k because a
+# local test certificate is not publicly trusted). Empty for everyone else.
+read -r -a curl_extra <<< "${EBP_CURL_OPTS:-}"
+
 want_https=""
 domain=""
 passthru=()
@@ -93,7 +97,7 @@ if [ "${COMPOSE_PROFILES:-}" = "https" ] || grep -q '^COMPOSE_PROFILES=https' .e
   echo "==> waiting for the https padlock (the first time can take a minute)"
   https_ok=""
   for _ in $(seq 1 45); do
-    if curl -fsS -m 5 -o /dev/null "$base/health" 2>/dev/null || curl -fsS -m 5 -o /dev/null "$base/api/v1/health" 2>/dev/null; then
+    if curl -fsS ${curl_extra[@]+"${curl_extra[@]}"} -m 5 -o /dev/null "$base/api/v1/health" 2>/dev/null; then
       https_ok=1
       break
     fi

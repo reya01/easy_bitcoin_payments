@@ -89,12 +89,12 @@ jobs:
             EBP_START_CMD="./scripts/start.sh --domain localhost" \
             EBP_INFO_FILE=/tmp/ebp-info.txt EBP_ISSUE_FILE=/tmp/issue EBP_MOTD_FILE=/tmp/motd \
             EBP_LOG_FILE=/tmp/ebp-start.log /opt/ebp/scripts/vps-setup.sh
-          echo "----- info file"; cat /tmp/ebp-info.txt
+          echo "----- info file"; sudo cat /tmp/ebp-info.txt
 
       - name: The banner has the address and a setup code
         run: |
-          grep -q "https://localhost/setup" /tmp/ebp-info.txt
-          grep -Eq "[A-Z0-9]{4}(-[A-Z0-9]{4})+" /tmp/ebp-info.txt
+          sudo grep -q "https://localhost/setup" /tmp/ebp-info.txt
+          sudo grep -Eq "[A-Z0-9]{4}(-[A-Z0-9]{4})+" /tmp/ebp-info.txt
           grep -q "https://localhost/setup" /tmp/issue
           grep -q "https://localhost/setup" /tmp/motd
 
@@ -112,7 +112,7 @@ jobs:
           sudo EBP_SKIP_SYSTEM=1 EBP_CURL_OPTS=-k EBP_INFO_FILE=/tmp/ebp-info2.txt \
             EBP_ISSUE_FILE=/tmp/issue2 EBP_MOTD_FILE=/tmp/motd2 EBP_LOG_FILE=/tmp/ebp-start2.log \
             /opt/ebp/scripts/vps-setup.sh
-          grep -q '^EBP_DOMAIN=localhost' .env
+          sudo grep -q '^EBP_DOMAIN=localhost' .env
 
       - name: Logs on failure
         if: failure()

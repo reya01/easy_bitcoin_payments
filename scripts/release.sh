@@ -50,4 +50,5 @@ echo
 echo "CI publishes these on a v* tag push (nothing here publishes):"
 echo "  git tag v0.1.0 && git push origin v0.1.0"
 echo "The workflow then creates the GitHub release (tarballs + SHA256SUMS)"
-echo "and pushes ghcr.io/<owner>/<repo>:{v0.1.0,latest} for amd64+arm64."
+echo "and pushes ghcr.io/<owner>/<repo>:v0.1.0 (no moving 'latest' tag, on purpose)"
+echo "for amd64+arm64, signed by digest."

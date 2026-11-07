@@ -74,8 +74,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: publish the GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: publish the GitHub release (a dry run only packages and checks)
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release
@@ -99,13 +98,39 @@ jobs:
           sha256sum ebp-*.tar.gz ebp-bitcoin-woocommerce.zip > SHA256SUMS
           cat SHA256SUMS
 
+      # Checks that run on a dry run too, so a broken package is caught before
+      # a real tag, not after it.
+      - name: Check the packages
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          unzip -l ebp-bitcoin-woocommerce.zip | grep -q 'ebp-bitcoin/ebp-bitcoin.php'
+          ! unzip -l ebp-bitcoin-woocommerce.zip | grep -Eq '(tests|\.git|\.env)'
+          mkdir x && tar -xzf ebp-x86_64-unknown-linux-musl.tar.gz -C x
+          ./x/ebp --help | head -1
+          test "$(ls ebp-*.tar.gz | wc -l)" = 2
+
+      - name: Keep the dry-run files for inspection
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dry-run-release-files
+          path: |
+            dist/ebp-*.tar.gz
+            dist/ebp-bitcoin-woocommerce.zip
+            dist/SHA256SUMS
+          retention-days: 3
+
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        if: startsWith(github.ref, 'refs/tags/v')
 
       # Signing the checksum file covers every tarball listed in it.
       - name: Sign SHA256SUMS (keyless)
+        if: startsWith(github.ref, 'refs/tags/v')
         run: cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
 
       - name: Create the release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -116,6 +141,9 @@ jobs:
             dist/SHA256SUMS
             dist/SHA256SUMS.sigstore.json
           generate_release_notes: true
+          # v1.2.3-rc1 style tags are pre-releases: GitHub's "latest" (and the
+          # dashboard's update notice) ignore them.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
 
   docker:

@@ -36,7 +36,7 @@ is a bug in the recipe — report it; every stumble becomes a fix.
 | The till's recovery words (mnemonic) | The root backup: with them, the wallet — and every sat it ever received — can be rebuilt on any machine | Paper, two copies, two separate safe places |
 | The barkd datadir | Speed: restores VTXO state and history without a full rescan | The server (barkd's data volume) |
 | Your destination wallet's seed (e.g. Arké) | That is where the money actually ends up — your keys | Paper / that wallet's own guidance |
-| The deployment environment | `EBP_BARKD_TOKEN`, `EBP_SETTLEMENT_DESTINATION`, `EBP_PUBLIC_BASE_URL`, `mode` | docker-compose environment |
+| The deployment environment | `EBP_PUBLIC_BASE_URL`, `mode`, and (only with a separate wallet container) `EBP_BARKD_TOKEN`. Your payout address is saved in the EBP database, so the backup holds it, unless you set `EBP_SETTLEMENT_DESTINATION` yourself | docker-compose environment |
 | The EBP database | Invoice history and accounting records | `./data/ebp.sqlite3` |
 | The EBP encryption key | Decrypts the webhook secrets in the database. It is INSIDE the encrypted backup download (`ebp.key`). If you set `EBP_KEY_ENCRYPTION_KEY` yourself, also keep that in a password manager. Lose it with no backup and secrets must be re-issued (`PUT /api/v1/stores/webhook` with `rotate_secret`) | `EBP_KEY_ENCRYPTION_KEY` if set, otherwise `ebp.key` in the data folder |
 
@@ -56,7 +56,10 @@ that same password — nothing new to remember or store. EBP never stores it.
   says so — back up that container's data volume instead.
 - It also holds the server's encryption key (the one that protects stored
   webhook secrets), so this one file restores everything. That is why the
-  file must be kept private and locked with a strong password.
+  file must be kept private and locked with a strong password. Because it can
+  contain the wallet, use a long admin password (12 or more characters; a few
+  random words is ideal). Anyone who gets the file can try guessing the
+  password offline, with no limit on attempts.
 - The file opens with the password it was locked with — the admin password
   AT THE TIME of the download. If you later change or reset the admin
   password, older backups still need the old one, so download a fresh backup
@@ -129,20 +132,23 @@ Losing the iPhone must never mean losing the business. The phone is a
 window; the money is on the server and in the destination wallet.
 
 1. **Breathe.** Nothing about the payments server changed. Invoices keep
-   working; sweeps keep landing wherever `EBP_SETTLEMENT_DESTINATION`
-   points.
+   working; transfers keep going to your saved payout address (admin page,
+   Settings).
 2. **Restore the destination wallet** (if the phone held it): reinstall
    Arké (or your wallet of choice) on the new phone and restore it from
    ITS OWN seed — the one you backed up when you set that wallet up. The
    till's recovery words do not restore your personal wallet.
-3. **Re-install the dashboard PWA**: open the server URL on the new
-   phone, log in as before, add to home screen.
-4. **If you suspect the phone was compromised** (not just lost): rotate
-   the barkd token (`barkd secret refresh` on the server, update
-   `EBP_BARKD_TOKEN`, restart) and rotate the store API key from the
-   dashboard.
+3. **Open the admin page again**: on the new phone, open your server's
+   address followed by `/admin` and sign in with your admin password. (You can
+   use "Add to Home Screen" for a shortcut; it is just a bookmark.)
+4. **If you suspect the phone was compromised** (not just lost): change the
+   admin password (Settings; this signs every device out), make a new API key
+   on the **Connect** tab and paste it into your shop plugin, and, if you run
+   a separate wallet container, rotate the wallet token too (`barkd secret
+   refresh` on the server, update `EBP_BARKD_TOKEN`, restart). Also download
+   a fresh backup, because older ones still need the old password.
 
-**Expected:** the dashboard opens on the new phone and shows the same
+**Expected:** the admin page opens on the new phone and shows the same
 balances. The server needed no changes.
 
 ## Clean-machine restore drill (run once, before real money)

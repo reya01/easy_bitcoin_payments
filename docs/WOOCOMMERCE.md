@@ -40,11 +40,27 @@ seconds of the payment.
 ## What your customers see
 
 They pick **Bitcoin** at checkout and land on your payment server's checkout
-page (Lightning, Ark or on-chain). Underpaying keeps the order on hold for a
+page (Ark; Lightning when your Ark server offers it; on-chain only if you
+turned it on). Underpaying keeps the order on hold for a
 short top-up window; if the invoice expires unpaid, the order is cancelled and
 stock is released. If a payment arrives after the order was cancelled, the
 order notes say so, so you can decide what to do (see **Payments that need
 you** on the dashboard).
+
+## Warnings the plugin gives you
+
+The plugin checks on its own, from your shop, every hour, even if your payment
+server is down or wrong. It never changes orders; it only warns you with a red
+notice in the WordPress admin and one email a day per problem:
+
+- **The payment server has not answered for three checks in a row.**
+- **Five or more Bitcoin orders in the last 7 days and none paid.** Check that
+  the server is up and your notification address is right.
+
+If a customer pays but the order total changed after checkout (for example you
+edited the order), the order is **not** marked paid. It gets a note saying a
+payment arrived for a different amount; check your wallet and complete or
+refund it by hand.
 
 ## Safety notes
 

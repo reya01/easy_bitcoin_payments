@@ -57,7 +57,7 @@ that same password — nothing new to remember or store. EBP never stores it.
 - It also holds the server's encryption key (the one that protects stored
   webhook secrets), so this one file restores everything. That is why the
   file must be kept private and locked with a strong password. Because it can
-  contain the wallet, use a long admin password (12 or more characters; a few
+  contain the wallet, use a long admin password (16 or more characters is required; a few
   random words is ideal). Anyone who gets the file can try guessing the
   password offline, with no limit on attempts.
 - The file opens with the password it was locked with — the admin password

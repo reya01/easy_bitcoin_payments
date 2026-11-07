@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- Docs: RC_CHECKLIST.md (what CI proves, what a person must still do, release steps, draft notes); SECURITY.md; HANDOFF and KNOWN_ISSUES refreshed.
 - Health: if barkd hangs, `GET /api/v1/health` answers "wallet not answering" within 3 seconds instead of waiting 30 (the Docker healthcheck gives up after 5). New end-to-end test covers a hung wallet.
 - Docs: START_HERE now leads with the no-terminal DigitalOcean path, fixes a dangling "Taking real customers" reference and outdated https wording; DigitalOcean guide no longer claims the Console is always pre-signed-in.
 - Docs: `docs/SHOPIFY.md` records the Shopify research (who may add a payment method, how EBP would map onto the offsite flow, options) — a plan only, nothing built.

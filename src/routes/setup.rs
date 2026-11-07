@@ -1183,7 +1183,7 @@ pub async fn create_store(
     // Validate the payout address BEFORE creating anything, so a typo does
     // not leave a half-finished setup behind.
     let payout_address = match req.payout_address.as_deref().map(str::trim) {
-        Some(a) if !a.is_empty() => Some(crate::payout::validate(a)?),
+        Some(a) if !a.is_empty() => Some(crate::payout::validate(a, &state.config.mode)?),
         _ => None,
     };
     let admin_password = req.admin_password.clone();

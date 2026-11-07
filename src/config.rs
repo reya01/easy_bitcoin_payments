@@ -575,6 +575,18 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        // The payout address from the server's own configuration gets the same
+        // checks as one typed into the admin page: a typo here would send every
+        // sweep to a wrong or unspendable address, and a mainnet address on a
+        // test server (or the reverse) must never start up.
+        if let Some(dest) = self.settlement_destination.as_deref() {
+            if let Err(why) = crate::payout::check(dest, &self.mode) {
+                return Err(ConfigError::Invalid {
+                    key: "settlement_destination".into(),
+                    value: format!("{dest} ({why})"),
+                });
+            }
+        }
         if self.default_expiry_minutes < 1 {
             return Err(ConfigError::Invalid {
                 key: "default_expiry_minutes".into(),

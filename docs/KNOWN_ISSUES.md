@@ -2,6 +2,8 @@
 
 ## OPEN — beta-hardening follow-ups (2026-11-05)
 
+- **No silent payment (BIP-352) payouts.** Payout addresses must be regular Bitcoin (`bc1…`) or Ark addresses; `sp1…` addresses are recognised and refused with an explanation. See [SILENT_PAYMENTS.md](SILENT_PAYMENTS.md).
+
 See `docs/BETA_PLAN.md` for the full ledger. Highlights an operator should know:
 - **DigitalOcean install (`deploy/cloud-init.yaml`, `scripts/vps-setup.sh`) is unverified on a real server.** CI tests the banner script and validates the file; the full flow (Docker install, Let's Encrypt via sslip.io, console banner) needs a human run on a real droplet. Until a release exists the server builds from source (15–30 min, 2 GB).
 - **Tampered-server detection is manual.** A malicious change to the server could redirect payouts or show customers the attacker's address; the payout limit does not cover that. The only defence today is checking your own wallet against shop orders (see docs/CHOOSING_A_HOST.md). The dashboard now shows a weekly wallet-check card and the WooCommerce plugin warns when Bitcoin orders stop being paid or the server stops answering; both are tripwires, not proof.

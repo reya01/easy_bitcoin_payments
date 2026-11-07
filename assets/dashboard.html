@@ -367,7 +367,7 @@ function loadPhone() {
   }).catch(function () {});
 }
 
-var KIND = { sweep: "Transfer to your wallet", renew: "Coin renewal", consolidate: "Tidy-up", offboard: "Withdrawal" };
+var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wallet (Ark)", sweep_onchain: "Transfer to your wallet (on-chain)", sweep_refused: "Transfer blocked: payout address problem", renew: "Coin renewal", consolidate: "Tidy-up", offboard: "Withdrawal" };
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
@@ -540,7 +540,8 @@ function loadPayout() {
     var kinds = $("po-kinds"); clear(kinds);
     [["On-chain Bitcoin address (recommended)", "starts with bc1… — the most widely understood option. Money is withdrawn once the till holds more than " + Number(p.onchain_cap_sats).toLocaleString() + " sats, and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."],
      ["Ark address", "starts with ark1… — instant and almost free. The till is emptied above " + Number(p.ark_cap_sats).toLocaleString() + " sats."],
-     ["Lightning address", "not available yet."]].forEach(function (k) {
+     ["Lightning address", "not available yet."],
+     ["Silent payment address (sp1\u2026)", "not available yet: see docs/SILENT_PAYMENTS.md for why."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);

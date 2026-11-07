@@ -21,6 +21,9 @@ const KEY_EFFECTIVE_AT: &str = "payout_destination_effective_at";
 pub const DEFAULT_DELAY_SECS: i64 = 86_400;
 
 const CHARSET: &str = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+/// Checksum constants: bech32 (BIP173) and bech32m (BIP350).
+const BECH32: u32 = 1;
+const BECH32M: u32 = 0x2bc8_30a3;
 
 fn polymod(values: &[u8]) -> u32 {
     const GEN: [u32; 5] = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
@@ -37,58 +40,166 @@ fn polymod(values: &[u8]) -> u32 {
     chk
 }
 
-/// Bech32 or bech32m checksum of a lowercase address (BIP173 / BIP350).
-fn bech32_checksum_ok(s: &str) -> bool {
-    let Some(pos) = s.rfind('1') else {
-        return false;
-    };
-    let (hrp, data) = (&s[..pos], &s[pos + 1..]);
-    if hrp.is_empty() || data.len() < 6 {
-        return false;
+/// A bech32 / bech32m string with a good checksum.
+struct Decoded {
+    hrp: String,
+    /// 5-bit values, checksum removed.
+    data: Vec<u8>,
+    bech32m: bool,
+}
+
+/// Decode a lowercase ASCII bech32 string; `None` if the characters or the
+/// checksum are wrong.
+fn decode_bech32(s: &str) -> Option<Decoded> {
+    if !s.is_ascii() {
+        return None;
+    }
+    let pos = s.rfind('1')?;
+    let (hrp, rest) = (&s[..pos], &s[pos + 1..]);
+    if hrp.is_empty() || rest.len() < 6 {
+        return None;
     }
     let mut values: Vec<u8> = hrp.bytes().map(|c| c >> 5).collect();
     values.push(0);
     values.extend(hrp.bytes().map(|c| c & 31));
-    for c in data.chars() {
-        match CHARSET.find(c) {
-            Some(i) => values.push(i as u8),
-            None => return false,
+    let mut data = Vec::with_capacity(rest.len());
+    for c in rest.chars() {
+        data.push(CHARSET.find(c)? as u8);
+    }
+    values.extend(&data);
+    let bech32m = match polymod(&values) {
+        BECH32 => false,
+        BECH32M => true,
+        _ => return None,
+    };
+    data.truncate(data.len() - 6);
+    Some(Decoded {
+        hrp: hrp.to_string(),
+        data,
+        bech32m,
+    })
+}
+
+/// Regroup 5-bit values into bytes. Padding must be fewer than 5 bits and
+/// all zero (BIP173), otherwise the address is malformed.
+fn five_to_eight(data: &[u8]) -> Option<Vec<u8>> {
+    let (mut acc, mut bits) = (0u32, 0u32);
+    let mut out = Vec::with_capacity(data.len() * 5 / 8);
+    for &v in data {
+        acc = ((acc << 5) | u32::from(v)) & 0xfff;
+        bits += 5;
+        while bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
         }
     }
-    let c = polymod(&values);
-    c == 1 || c == 0x2bc8_30a3
+    if bits >= 5 || ((acc << (8 - bits)) & 0xff) != 0 {
+        return None;
+    }
+    Some(out)
 }
 
-fn bech32_charset_only(rest: &str) -> bool {
-    !rest.is_empty() && rest.chars().all(|c| CHARSET.contains(c))
-}
-
-/// Check a payout address and return it normalised (trimmed, lowercase).
-/// On-chain addresses get a full checksum check (a typo would lose money).
-/// Ark addresses are checked for shape only.
-pub fn validate(input: &str) -> Result<String, AppError> {
-    let bad = || {
-        AppError::BadRequest(
-            "that doesn't look like an Ark or Bitcoin address; copy it again from your wallet"
-                .into(),
-        )
+/// A native segwit address must carry a sensible witness program: version
+/// 0..=16, 2..=40 bytes, version 0 only 20 or 32 bytes, and bech32 for
+/// version 0 but bech32m for every later version (BIP173 / BIP350).
+fn segwit_program_ok(d: &Decoded) -> bool {
+    let Some((&version, rest)) = d.data.split_first() else {
+        return false;
     };
-    let a = input.trim().to_ascii_lowercase();
-    if a.len() < 14 || a.len() > 200 || !a.is_ascii() || a.chars().any(char::is_whitespace) {
-        return Err(bad());
+    if version > 16 {
+        return false;
     }
-    if let Some(rest) = a.strip_prefix("tark1").or_else(|| a.strip_prefix("ark1")) {
-        return bech32_charset_only(rest).then_some(a).ok_or_else(bad);
+    let Some(program) = five_to_eight(rest) else {
+        return false;
+    };
+    if !(2..=40).contains(&program.len()) {
+        return false;
     }
-    if ["bc1", "tb1", "bcrt1"].iter().any(|p| a.starts_with(p)) {
-        return bech32_checksum_ok(&a).then_some(a).ok_or_else(|| {
-            AppError::BadRequest(
-                "that address has a typo in it (its check characters don't match); copy it again"
-                    .into(),
-            )
-        });
+    if version == 0 {
+        (program.len() == 20 || program.len() == 32) && !d.bech32m
+    } else {
+        d.bech32m
     }
-    Err(bad())
+}
+
+const NOT_AN_ADDRESS: &str =
+    "that doesn't look like an Ark or Bitcoin address; copy it again from your wallet";
+const BROKEN_ADDRESS: &str =
+    "that address is not valid (a typo, or part of it is missing); copy it again from your wallet";
+const SILENT_PAYMENT: &str = "that is a silent payment (BIP-352) address, which this server cannot pay yet: \
+    the payment has to be built with the keys of the coins being spent, and the server's wallet does \
+    not expose them. Use a regular Bitcoin (bc1\u{2026}) or Ark address from your wallet instead";
+const REAL_ADDRESS_ON_TEST_SERVER: &str =
+    "this server is in test mode and only works with play-money (signet) coins, \
+    but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1)";
+const TEST_ADDRESS_ON_LIVE_SERVER: &str =
+    "that is a test-network address, but this server works with real Bitcoin. \
+    Use an address that starts with bc1 or ark1";
+
+/// Check a payout address for this server's network (`mode` is `"live"` for
+/// real Bitcoin, anything else is the signet/regtest test mode). On success
+/// returns the address normalised (trimmed, lowercase); on failure a message
+/// the merchant can act on.
+///
+/// What is checked: the bech32/bech32m checksum (a typo would lose money),
+/// for on-chain addresses the witness version and program length, for Ark
+/// addresses the bech32m form with the `ark`/`tark` prefix, and that the
+/// address belongs to this server's network. Silent payment (BIP-352)
+/// addresses are recognised and refused with an explanation.
+pub fn check(input: &str, mode: &str) -> Result<String, String> {
+    let live = mode == "live";
+    let trimmed = input.trim();
+    if trimmed.len() < 14
+        || trimmed.len() > 200
+        || !trimmed.is_ascii()
+        || trimmed.chars().any(char::is_whitespace)
+    {
+        return Err(NOT_AN_ADDRESS.into());
+    }
+    // BIP173: all lower case or all upper case, never mixed.
+    if trimmed.chars().any(|c| c.is_ascii_lowercase())
+        && trimmed.chars().any(|c| c.is_ascii_uppercase())
+    {
+        return Err(NOT_AN_ADDRESS.into());
+    }
+    let a = trimmed.to_ascii_lowercase();
+
+    if a.starts_with("sp1") || a.starts_with("tsp1") {
+        return Err(SILENT_PAYMENT.into());
+    }
+
+    let is_ark = a.starts_with("ark1") || a.starts_with("tark1");
+    let is_chain = ["bc1", "tb1", "bcrt1"].iter().any(|p| a.starts_with(p));
+    if !is_ark && !is_chain {
+        return Err(NOT_AN_ADDRESS.into());
+    }
+    let test_network = a.starts_with("tark1") || a.starts_with("tb1") || a.starts_with("bcrt1");
+    if live && test_network {
+        return Err(TEST_ADDRESS_ON_LIVE_SERVER.into());
+    }
+    if !live && !test_network {
+        return Err(REAL_ADDRESS_ON_TEST_SERVER.into());
+    }
+
+    let Some(decoded) = decode_bech32(&a) else {
+        return Err(BROKEN_ADDRESS.into());
+    };
+    let good = if is_ark {
+        // Ark addresses are bech32m with the `ark` / `tark` prefix.
+        decoded.bech32m && (decoded.hrp == "ark" || decoded.hrp == "tark")
+    } else {
+        matches!(decoded.hrp.as_str(), "bc" | "tb" | "bcrt") && segwit_program_ok(&decoded)
+    };
+    if good {
+        Ok(a)
+    } else {
+        Err(BROKEN_ADDRESS.into())
+    }
+}
+
+/// [`check`] as a request error, for the setup wizard and the admin page.
+pub fn validate(input: &str, mode: &str) -> Result<String, AppError> {
+    check(input, mode).map_err(AppError::BadRequest)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,34 +371,101 @@ mod tests {
         c
     }
 
+    // Real Ark-style addresses (bech32m, prefixes `ark` / `tark`), made for
+    // these tests; the payload is not meaningful, the checksum is.
+    pub(crate) const TARK_A: &str =
+        "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+    pub(crate) const ARK_A: &str =
+        "ark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqqnaa07n";
+
     #[test]
-    fn onchain_addresses_need_a_valid_checksum() {
-        // BIP173 / BIP350 test vectors.
+    fn onchain_addresses_follow_bip173_and_bip350() {
+        // Test mode (signet / regtest): testnet-family addresses.
+        for ok in [
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7",
+            "tb1pqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesf3hn0c",
+            "  TB1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KXPJZSX ",
+        ] {
+            assert!(check(ok, "test").is_ok(), "{ok}");
+        }
+        // Live mode: mainnet addresses, including v0 20/32 bytes and v1+.
         for ok in [
             "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
-            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4",
+            "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
             "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0",
-            "  BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4 ",
+            "bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y",
+            "bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs",
         ] {
-            assert!(validate(ok).is_ok(), "{ok}");
+            assert!(check(ok, "live").is_ok(), "{ok}");
         }
+        // Official BIP350 invalid vectors and common mistakes (all refused
+        // on both networks).
         for bad in [
-            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5", // typo
-            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3",   // truncated
-            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",         // legacy: not supported
+            "tc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq5zuyut", // wrong prefix
+            "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqh2y7hd", // v1 with bech32
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kemeawh",                     // v0 with bech32m
+            "tb1z0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqglt7rf", // v2 with bech32
+            "bc1p38j9r5y49hruaue7wxjce0updqjuyyx0kh56v8s25huc6995vvpql3jow4", // invalid character
+            "bc1pw5dgrnzv",                                                   // program too short
+            "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7v07qwwzcrf", // program too long
+            "BC1QR508D6QEJXTDG4Y5R3ZARVARYV98GJ9P",                           // v0 with 16 bytes
+            "tb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq47Zagq", // mixed case
+            "tb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vpggkg4j", // padding > 4 bits
+            "bc1gmk9yu",                                                      // empty data
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsy",                     // typo
+            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3",                       // truncated
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", // legacy: not supported
             "hello world, not an address",
             "",
         ] {
-            assert!(validate(bad).is_err(), "{bad}");
+            assert!(check(bad, "test").is_err(), "test: {bad}");
+            assert!(check(bad, "live").is_err(), "live: {bad}");
         }
     }
 
     #[test]
-    fn ark_addresses_are_checked_for_shape() {
-        assert!(validate("tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k").is_ok());
-        assert!(validate("ark1qw508d6qejxtdg4y5r3zarvary0c5xw7k").is_ok());
-        assert!(validate("tark1BIO!!!!!!!!!!!!!").is_err());
-        assert!(validate("tark1").is_err());
+    fn addresses_must_belong_to_this_servers_network() {
+        // A real-money address on a test server: the dangerous direction.
+        let e = check("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "test").unwrap_err();
+        assert!(e.contains("test mode"), "{e}");
+        assert!(check(ARK_A, "test").is_err());
+        // A test address on a live server.
+        let e = check("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", "live").unwrap_err();
+        assert!(e.contains("test-network"), "{e}");
+        assert!(check(TARK_A, "live").is_err());
+        // Regtest is a test network.
+        assert!(
+            check("bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080", "test").is_ok(),
+            "regtest address in test mode"
+        );
+    }
+
+    #[test]
+    fn ark_addresses_need_bech32m_with_the_right_prefix() {
+        assert_eq!(check(TARK_A, "test").unwrap(), TARK_A);
+        assert_eq!(check(ARK_A, "live").unwrap(), ARK_A);
+        // One changed character breaks the checksum.
+        let typo = TARK_A.replacen("pe2t", "pe2u", 1);
+        assert!(check(&typo, "test").is_err());
+        assert!(check("tark1BIO!!!!!!!!!!!!!", "test").is_err());
+        assert!(check("tark1", "test").is_err());
+        // A plain bech32 (not bech32m) string with an ark prefix is refused.
+        assert!(check("tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k", "test").is_err());
+    }
+
+    #[test]
+    fn silent_payment_addresses_get_a_clear_explanation() {
+        for sp in [
+            "sp1qhcvtshmhlspymvme4nceazsuuc3s02mmkx7289fcnm8u9kh67aqmux9ctamlcqjdkdu6euv73gwwvgc84damr09rj5ufan7zmta0wsgpuu3a7e",
+            "tsp1qwwa0swy9t629kgs4zu3jvmvwyg8j93mvgvc573yf6esd9wrqt2th8whc8zz4a9zmyg23wgexdk8zyrezcakyxv20gjyavcxjhps949cpshyxtg",
+        ] {
+            for mode in ["test", "live"] {
+                let e = check(sp, mode).unwrap_err();
+                assert!(e.contains("silent payment"), "{e}");
+            }
+        }
     }
 
     #[test]

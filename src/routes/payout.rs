@@ -63,7 +63,7 @@ pub async fn change(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     // Validate first so a typo never costs a slow password check.
-    let address = crate::payout::validate(&req.address)?;
+    let address = crate::payout::validate(&req.address, &state.config.mode)?;
 
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
     let pw = req.admin_password;

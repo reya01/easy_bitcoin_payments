@@ -207,8 +207,13 @@ pub async fn status(
             if let Some(active) = s.active.as_deref() {
                 facts.hot_wallet_cap_sats = state.config.sweep_cap_for(active);
             }
+            let invalid = s
+                .active
+                .as_deref()
+                .is_some_and(|a| crate::payout::check(a, &state.config.mode).is_err());
             facts.payout = match (s.active.is_some(), s.effective_at) {
                 (_, Some(at)) if s.pending.is_some() => Payout::ChangePending(at),
+                (true, _) if invalid => Payout::Invalid,
                 (true, _) => Payout::Set,
                 (false, _) => Payout::NotSet,
             };

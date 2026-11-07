@@ -1133,7 +1133,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
             .await
             .unwrap()
     };
-    let a = "tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k";
+    let a = "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
     let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
 
     assert!(get().await["address"].is_null());

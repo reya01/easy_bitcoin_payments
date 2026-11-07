@@ -122,22 +122,26 @@ fn ip_is_private(ip: std::net::IpAddr) -> bool {
 /// that resolves to a private IP (DNS rebinding) is NOT caught; pair with
 /// network egress rules in production. See docs/KNOWN_ISSUES.md.
 pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String> {
-    let url = reqwest::Url::parse(raw).map_err(|e| format!("not a valid URL: {e}"))?;
+    let url = reqwest::Url::parse(raw).map_err(|e| {
+        format!(
+            "that is not a web address we can use ({e}). It should look like https://myshop.com/…"
+        )
+    })?;
     match url.scheme() {
         "http" | "https" => {}
         other => {
             return Err(format!(
-                "scheme '{other}' is not allowed (use http or https)"
+                "the address must start with https:// (it starts with {other}://)"
             ))
         }
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("URLs with embedded credentials are not allowed".to_string());
+        return Err("the address must not contain a username or password".to_string());
     }
     // A trailing dot is the same host ("localhost." == "localhost").
     let host = url
         .host_str()
-        .ok_or("URL has no host")?
+        .ok_or("the address has no website name in it")?
         .to_lowercase()
         .trim_end_matches('.')
         .to_string();
@@ -145,12 +149,12 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
         return Ok(());
     }
     if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".internal") {
-        return Err("localhost/internal hosts are not allowed".to_string());
+        return Err("that address only works on your own computer or network, so this server cannot reach it. Use your shop's public https:// address.".to_string());
     }
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
         if ip_is_private(ip) {
-            return Err("private/loopback/link-local addresses are not allowed".to_string());
+            return Err("that address only works on your own computer or network, so this server cannot reach it. Use your shop's public https:// address.".to_string());
         }
     }
     Ok(())
@@ -347,6 +351,12 @@ mod tests {
             );
         }
         assert!(validate_webhook_url("http://127.0.0.1:9/x", true).is_ok());
+        // The message a shop owner sees is plain, not jargon.
+        for bad in ["http://localhost/x", "http://192.168.1.1/x"] {
+            let msg = validate_webhook_url(bad, false).unwrap_err();
+            assert!(msg.contains("your own computer or network"), "{msg}");
+            assert!(msg.contains("public https:// address"), "{msg}");
+        }
     }
 
     #[test]

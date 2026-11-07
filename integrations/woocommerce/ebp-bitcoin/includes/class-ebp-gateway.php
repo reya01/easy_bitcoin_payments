@@ -102,6 +102,12 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		if ( ! EBP_Core::is_secure_enough( $url ) ) {
 			WC_Admin_Settings::add_error( __( 'Bitcoin: the server address should start with https:// so your API key is not sent in the clear.', 'ebp-bitcoin' ) );
 		}
+		$reach = EBP_Core::reachability_problem( $this->webhook_url() );
+		if ( 'refused' === $reach ) {
+			WC_Admin_Settings::add_error( __( 'Bitcoin: your shop\'s own address only works on this computer or network, so the payment server will refuse to send payment notices to it. Orders would never be marked paid. Use a shop with a public https:// address.', 'ebp-bitcoin' ) );
+		} elseif ( 'probably_local' === $reach ) {
+			WC_Admin_Settings::add_error( __( 'Bitcoin: your shop\'s address looks like one that only works on your own computer. If the payment server is on the internet it will not be able to send payment notices to it.', 'ebp-bitcoin' ) );
+		}
 		$client = new EBP_Client( $url, $this->get_option( 'api_key' ) );
 		$health = $client->health();
 		if ( is_wp_error( $health ) ) {

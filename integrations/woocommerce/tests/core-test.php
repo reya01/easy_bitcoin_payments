@@ -35,6 +35,17 @@ check( 'expired and cancelled both close the order', 'expired' === EBP_Core::act
 check( 'pending is ignored', 'ignore' === EBP_Core::action_for_status( 'pending' ) );
 check( 'unknown is ignored', 'ignore' === EBP_Core::action_for_status( 'whatever' ) );
 
+foreach ( array( 'https://myshop.com/?wc-api=ebp_bitcoin', 'https://shop.example.co.uk:8443/?wc-api=x', 'https://203.0.113.9/', 'https://[2606:4700::1111]/' ) as $u ) {
+	check( "public shop address is fine: $u", '' === EBP_Core::reachability_problem( $u ) );
+}
+foreach ( array( 'http://localhost:8080/', 'http://127.0.0.1/', 'http://192.168.1.20/', 'http://10.0.0.5/', 'http://172.16.0.9/', 'http://169.254.169.254/', 'http://[::1]/', 'http://shop.localhost/', 'http://db.internal/', 'http://host.docker.internal/' ) as $u ) {
+	check( "private shop address is refused: $u", 'refused' === EBP_Core::reachability_problem( $u ) );
+}
+foreach ( array( 'http://mysite.local/', 'http://shop.test/', 'http://mysite/' ) as $u ) {
+	check( "local-looking name is flagged: $u", 'probably_local' === EBP_Core::reachability_problem( $u ) );
+}
+check( 'empty address is not flagged', '' === EBP_Core::reachability_problem( '' ) );
+
 check( 'order ref round trip', 42 === EBP_Core::order_id_from_ref( EBP_Core::order_ref( 42 ) ) );
 check( 'foreign order ref is rejected', 0 === EBP_Core::order_id_from_ref( 'shopify-9' ) && 0 === EBP_Core::order_id_from_ref( 'wc-9x' ) && 0 === EBP_Core::order_id_from_ref( null ) );
 

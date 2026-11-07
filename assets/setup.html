@@ -135,9 +135,9 @@
 
   <section id="step-wallet">
     <h1>Create your wallet</h1>
-    <p class="sub">This server holds a small "till" wallet — like cash in a register — that receives payments and empties into your own wallet automatically. It lives in the barkd sidecar next to this server.</p>
+    <p class="sub">This server holds a small "till" wallet — like cash in a register — that receives payments and empties into your own wallet automatically. It runs as its own small program (called barkd) next to this server.</p>
     <div class="card">
-      <label for="asp">Ark server (ASP)</label>
+      <label for="asp">Ark server (the service that coordinates payments)</label>
       <input type="text" id="asp" value="https://ark.signet.2nd.dev" autocomplete="off">
       <label for="network">Network</label>
       <input type="text" id="network" value="signet" autocomplete="off">
@@ -205,8 +205,11 @@
       <div class="hidden" id="store-secrets">
         <p class="note">API key — shown once, save it in a password manager:</p>
         <div class="secret" id="api-key"></div>
-        <p class="note">Webhook signing secret — shown once:</p>
-        <div class="secret" id="webhook-secret"></div>
+        <div class="hidden" id="webhook-secret-box">
+          <p class="note">Webhook signing secret — shown once:</p>
+          <div class="secret" id="webhook-secret"></div>
+        </div>
+        <p class="note hidden" id="webhook-secret-later">There is no signing secret yet. It is made later, when you connect your shop: in the admin page, open the <strong>Connect</strong> tab and follow the numbered steps.</p>
       </div>
       <button class="primary hidden" id="btn-done" type="button">Continue</button>
     </div>
@@ -596,7 +599,8 @@
         document.getElementById("admin-pw").value = "";
         if (result.api_key) {
           els.apiKey.textContent = result.api_key;
-          els.webhookSecret.textContent = result.webhook_secret || "—";
+          els.webhookSecret.textContent = result.webhook_secret || "";
+          document.getElementById(result.webhook_secret ? "webhook-secret-box" : "webhook-secret-later").classList.remove("hidden");
           els.storeSecrets.classList.remove("hidden");
           els.btnStore.classList.add("hidden");
           els.btnDone.classList.remove("hidden");

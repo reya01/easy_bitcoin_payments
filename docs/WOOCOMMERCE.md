@@ -79,3 +79,12 @@ refund it by hand.
   order page. Order emails still go out as usual.
 - Refunds are done by hand from your own wallet.
 - Prices are converted at the moment the order is placed.
+
+## Translations
+
+The plugin's settings page, checkout messages and order notes use WordPress's
+normal translation system (text domain `ebp-bitcoin`). To translate, put the
+`.po` / `.mo` files in the plugin's `languages` folder; `wp i18n make-pot . languages/ebp-bitcoin.pot`
+makes a template. The two shop-warning texts (server not answering, orders not
+being paid) are English only for now. Nothing is translated yet; there are no
+language files in this version.

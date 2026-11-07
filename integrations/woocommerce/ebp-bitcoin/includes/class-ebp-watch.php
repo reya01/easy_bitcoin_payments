@@ -113,10 +113,11 @@ class EBP_Watch {
 		$url = admin_url( 'admin.php?page=wc-settings&tab=checkout&section=ebp_bitcoin' );
 		foreach ( $issues as $issue ) {
 			printf(
-				'<div class="notice notice-error"><p><strong>%s.</strong> %s <a href="%s">Bitcoin settings</a></p></div>',
+				'<div class="notice notice-error"><p><strong>%s.</strong> %s <a href="%s">%s</a></p></div>',
 				esc_html( $issue[0] ),
 				esc_html( $issue[1] ),
-				esc_url( $url )
+				esc_url( $url ),
+				esc_html__( 'Bitcoin settings', 'ebp-bitcoin' )
 			);
 		}
 	}

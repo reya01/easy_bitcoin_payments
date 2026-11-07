@@ -73,6 +73,13 @@ jobs:
         run: |
           for f in $(find integrations -name '*.php'); do php -l "$f" >/dev/null; done
           php integrations/woocommerce/tests/core-test.php
+          # The plugin's version must agree in all three places it is written.
+          d=integrations/woocommerce/ebp-bitcoin
+          v1=$(sed -n 's/^ \* Version: *//p' "$d/ebp-bitcoin.php")
+          v2=$(sed -n "s/^define( 'EBP_BITCOIN_VERSION', '\(.*\)' );/\1/p" "$d/ebp-bitcoin.php")
+          v3=$(sed -n 's/^Stable tag: *//p' "$d/readme.txt")
+          echo "plugin versions: header=$v1 constant=$v2 readme=$v3"
+          test -n "$v1" && test "$v1" = "$v2" && test "$v1" = "$v3"
 
       - name: WooCommerce end-to-end test
         run: python3 tests/woo/run_woo.py target/release/ebp

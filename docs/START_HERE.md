@@ -76,7 +76,7 @@ minute.) Then the setup page walks you through, in this order:
    on paper, twice, keep the copies in different places. Never photograph,
    never type them anywhere else. You will be asked to type three of them
    back to prove you wrote them down correctly.
-4. **Name your store, choose an admin password** (10+ characters; it signs
+4. **Name your store, choose an admin password** (16+ characters, for example four random words; it signs
    you in to the admin page and locks your backups) **and paste the address
    of your own wallet** (where the till empties to; you can skip it and add
    it later in Settings).

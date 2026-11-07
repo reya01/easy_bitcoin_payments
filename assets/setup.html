@@ -196,7 +196,7 @@
       <label for="store">Store name</label>
       <input type="text" id="store" class="name" placeholder="My store">
       <label for="admin-pw">Choose an admin password</label>
-      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 10 characters">
+      <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 16 characters">
       <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager. A few random words works well.</p>
       <label for="payout">Where should your money go? (optional)</label>
       <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Your wallet address (Ark or Bitcoin)">
@@ -589,8 +589,8 @@
       return;
     }
     var pw = document.getElementById("admin-pw").value;
-    if (pw.length < 10) {
-      fail(els.storeError, "Choose an admin password of at least 10 characters.");
+    if (pw.length < 16) {
+      fail(els.storeError, "Choose an admin password of at least 16 characters (a few random words works well).");
       return;
     }
     els.btnStore.disabled = true;

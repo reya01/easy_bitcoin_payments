@@ -166,7 +166,7 @@ Safari → `http://localhost:8080/setup` (through your tunnel from Part 5)
    after 60 seconds; you can show them again. Tick **"I have written down my
    recovery words"**, then type the three words the wizard asks for.
 4. **Store name** → e.g. `Test Shop`, and **choose an admin password**
-   (10+ characters; a few random words works well). This password signs you
+   (16+ characters; a few random words works well). This password signs you
    in to the admin page later (`/admin`) and locks your backups — put it in
    your password manager. → Create
 5. **Two secrets appear ONCE**: the **API key** and the **webhook signing

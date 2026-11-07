@@ -1123,7 +1123,7 @@ async fn verify_barkd_token(base_url: &str, token: &str) -> Result<Option<bool>,
 #[derive(Debug, Deserialize)]
 pub struct CreateStoreRequest {
     pub name: String,
-    /// Password for the admin page (min 10 characters). Optional for API
+    /// Password for the admin page (min 16 characters). Optional for API
     /// automation; the wizard always sends it.
     #[serde(default)]
     pub admin_password: Option<String>,

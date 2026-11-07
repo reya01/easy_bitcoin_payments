@@ -45,7 +45,7 @@ pub fn is_secure(public_base_url: &str) -> bool {
 pub const CSRF_HEADER: &str = "x-ebp-csrf";
 pub const DEFAULT_ITERATIONS: u32 = 600_000;
 pub const MIN_ITERATIONS: u32 = 1_000;
-pub const MIN_PASSWORD_LEN: usize = 10;
+pub const MIN_PASSWORD_LEN: usize = 16;
 pub const MAX_PASSWORD_LEN: usize = 200;
 const SESSION_ABSOLUTE_SECS: i64 = 7 * 86_400;
 const SESSION_IDLE_SECS: i64 = 12 * 3_600;
@@ -280,6 +280,9 @@ mod tests {
     #[test]
     fn password_rules() {
         assert!(validate_password("short").is_err());
+        // 15 is too short, 16 is enough (a few random words easily clears it).
+        assert!(validate_password("fifteen chars!!").is_err());
+        assert!(validate_password("sixteen chars!!!").is_ok());
         assert!(validate_password("long enough password").is_ok());
         assert!(validate_password(&"a".repeat(201)).is_err());
     }

@@ -415,7 +415,7 @@ async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
         &config.database_path,
     )?;
     let db = Db::open(&config.database_path)?;
-    eprintln!("New admin password (at least 10 characters; it will be visible as you type):");
+    eprintln!("New admin password (at least 16 characters; it will be visible as you type):");
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     let password = line.trim_end_matches(['\r', '\n']).to_string();

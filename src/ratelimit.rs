@@ -121,6 +121,32 @@ pub fn client_ip(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// A per-key fixed-window limit that needs no setup: `limit` uses per minute for
+/// each `key` (0 = no limit). Shared by the whole process, so it can be called
+/// from any handler. Used to cap how fast one shop key may create payment
+/// requests (a stolen key cannot flood the server). Like the other limiters it
+/// is per process and resets on restart.
+pub fn allow_keyed(limit: u32, key: &str, now: i64) -> bool {
+    use std::sync::OnceLock;
+    static HITS: OnceLock<Mutex<HashMap<String, (i64, u32)>>> = OnceLock::new();
+    if limit == 0 {
+        return true;
+    }
+    let mut hits = HITS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if hits.len() > PRUNE_ABOVE {
+        hits.retain(|_, (start, _)| now - *start < WINDOW_SECS);
+    }
+    let entry = hits.entry(key.to_string()).or_insert((now, 0));
+    if now - entry.0 >= WINDOW_SECS {
+        *entry = (now, 0);
+    }
+    entry.1 += 1;
+    entry.1 <= limit
+}
+
 /// axum middleware: 429 + `Retry-After` when the client is over the limit.
 pub async fn limit(State(limiter): State<Arc<RateLimiter>>, req: Request, next: Next) -> Response {
     let key = limiter.client_key(&req);
@@ -196,6 +222,17 @@ mod tests {
         assert!(l.allow(&k, 1000));
         assert!(l.allow(&k, 1001));
         assert!(!l.allow(&k, 1002));
+    }
+
+    #[test]
+    fn keyed_limit_counts_each_key_separately_and_rolls_over() {
+        let (a, b) = ("test-key-a", "test-key-b");
+        assert!(allow_keyed(2, a, 5000));
+        assert!(allow_keyed(2, a, 5001));
+        assert!(!allow_keyed(2, a, 5002), "third in the minute is refused");
+        assert!(allow_keyed(2, b, 5002), "another key is unaffected");
+        assert!(allow_keyed(2, a, 5060), "a new minute starts fresh");
+        assert!(allow_keyed(0, a, 5061), "0 means no limit");
     }
 
     #[test]

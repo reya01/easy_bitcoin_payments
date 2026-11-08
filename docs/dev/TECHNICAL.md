@@ -172,11 +172,11 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
-| `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Late payments that arrived after an invoice expired/closed (needs merchant action) |
+| `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Late payments that arrived after an invoice expired/closed (needs merchant action) (**admin session only**) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled (**admin session only**; the shop's API key is refused) |
-| `GET` | `/api/v1/webhook-deliveries?status=&limit=&offset=` | Webhook delivery log (this store) |
+| `GET` | `/api/v1/webhook-deliveries?status=&limit=&offset=` | Webhook delivery log (this store) (**admin session only**) |
 | `POST` | `/api/v1/webhook-deliveries/{id}/resend` | Queue a delivery again (**admin session only**) |
-| `GET` | `/api/v1/audit-log?limit=&offset=` | Security trail: key/webhook changes, resends, resolved late payments |
+| `GET` | `/api/v1/audit-log?limit=&offset=` | Security trail: key/webhook changes, resends, resolved late payments (**admin session only**) |
 | `PUT` | `/api/v1/stores/webhook` | (**admin session only**) Set/clear the store's webhook URL; issues the signing secret once (`rotate_secret` to replace) |
 | `GET` | `/api/v1/admin/version` | Current version, whether a newer release exists, open-order count |
 | `POST` | `/api/v1/stores/webhook/test` | (**admin session only**) Send a harmless `webhook.test` notification to the store's webhook |
@@ -255,6 +255,8 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
 | `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
+| `EBP_MAX_INVOICE_SATS` | `100000000` | Largest single payment request the server accepts (1 up to 21 million BTC in sats; the shop's key cannot raise it) |
+| `EBP_INVOICE_RATE_LIMIT_PER_MIN` | `60` | New payment requests one shop key may make per minute; over it the server answers 429 `rate_limited` (`0` disables) |
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
 | `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
 | `EBP_UPDATE_CHECK` | `true` | Let the admin page check the public releases page for a newer version (one anonymous cached request). EBP never updates itself |

@@ -22,7 +22,8 @@ in `src/shopkey.rs` and `src/auth.rs` point back here.
 | Reach the EBP server, wallet or recovery words | **No**, if EBP runs on its own server (the recommended setup). Never put WordPress or any PHP on the EBP server. |
 | Steal the shop's API key and signing secret | Yes (they are in the shop). |
 | Use the API key to change where shop notifications go, replace the key, or mark late payments handled | **No longer.** These now need the owner's admin session. |
-| Use the API key to create, read or cancel payment requests, read status lists | Yes (that is the shop's job). Owner-only reads (payout address, audit log, status) are still readable with the key; planned to be narrowed. |
+| Use the API key to create, read or cancel payment requests | Yes (that is the shop's job), but only up to the server's size limit per request (default 1 BTC) and 60 new requests a minute. |
+| Use the API key to read the payout address, security activity, notification log or late-payment list | **No longer.** These need the owner's admin session. |
 | Show customers a fake payment page or address (money goes to the attacker, never touching EBP) | **Yes.** The most dangerous case. Detected by the owner's wallet check and, if turned on, the daily payment summary. |
 | Mark orders paid without payment (free goods) | Yes. EBP funds are not lost; the loss is stock. |
 
@@ -32,7 +33,12 @@ in `src/shopkey.rs` and `src/auth.rs` point back here.
   ones already started still finish. The shop's key cannot undo it.
 - **Owner-only actions:** changing the shop notification address, new signing secret,
   replacing the API key, resending notifications and marking payments handled need
-  the admin session, not the shop's key.
+  the admin session, not the shop's key. So does reading the payout address, the
+  security activity, the notification log and the late-payment list.
+- **Limits on the key:** one payment request can be at most `EBP_MAX_INVOICE_SATS`
+  (default 100,000,000 sats = 1 BTC) and one key can make at most
+  `EBP_INVOICE_RATE_LIMIT_PER_MIN` (default 60) new requests a minute; over that the
+  server answers 429 "Too many payment requests".
 - **Optional shop-address lock** (Connect tab): the key only works from the address
   you list, so a leaked key is useless elsewhere. Off by default. Shared hosting can
   change its outgoing address, so it is optional and easy to remove.
@@ -44,10 +50,8 @@ in `src/shopkey.rs` and `src/auth.rs` point back here.
 
 ## Planned, in rough order
 
-1. **Narrow the key further:** owner-only reads for the payout address, audit log
-   and status; separate keys for "create payments" and "read status".
-2. **Limits on the key:** a cap on invoice size and on how many payment requests per
-   hour/day, so a stolen key cannot flood or probe the server.
+1. **Narrow the key further:** separate keys for "create payments" and "read status".
+2. **Hourly/daily totals** on the key (the per-minute and per-request limits exist now).
 3. **Daily wallet check** on the dashboard (the weekly card stays until there is real
    volume).
 4. **Plugin hardening:** keep it small; no file writes; secrets in `wp-config.php`

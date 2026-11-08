@@ -8,7 +8,7 @@ use axum::Json;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{OwnerAuth, StoreAuth};
+use crate::auth::OwnerAuth;
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::util::{now_unix, to_rfc3339};
@@ -37,7 +37,7 @@ pub struct DeliveryView {
 /// `GET /api/v1/webhook-deliveries?status=&limit=&offset=`
 pub async fn list(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Vec<DeliveryView>>, AppError> {
     let store_id = auth.store.id.clone();
@@ -136,7 +136,7 @@ pub struct AuditView {
 /// `GET /api/v1/audit-log?limit=&offset=` — this store's security trail.
 pub async fn audit(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Vec<AuditView>>, AppError> {
     let store_id = auth.store.id.clone();

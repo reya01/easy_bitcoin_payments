@@ -135,6 +135,7 @@ async fn invoice_creation_is_idempotent_per_order_and_amount() {
 async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
     let (base, state, store_id, key) = serve().await;
     let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
 
     // An expired invoice that then received a late payment.
     state
@@ -185,11 +186,20 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
         .await
         .unwrap();
     assert_eq!(anon.status(), 401);
+    // The shop's key cannot read it either: only the owner (admin page) can.
+    let by_shop_key = client
+        .get(format!("{base}/api/v1/unmatched-payments"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(by_shop_key.status(), 401);
 
     let rows: Vec<serde_json::Value> = client
         .get(format!("{base}/api/v1/unmatched-payments"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap()
@@ -211,7 +221,6 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
         .await
         .unwrap();
     assert_eq!(by_key.status(), 401);
-    let (cookie, csrf) = owner_session(&base, &state).await;
     let resolved = client
         .post(format!("{base}/api/v1/unmatched-payments/{id}/resolve"))
         .header("host", "localhost")
@@ -225,7 +234,7 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
     let rows: Vec<serde_json::Value> = client
         .get(format!("{base}/api/v1/unmatched-payments"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap()
@@ -234,23 +243,20 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
         .unwrap();
     assert!(!rows[0]["resolved_at"].is_null(), "row is marked resolved");
 
-    // A second store sees nothing and cannot resolve the first store's row.
+    // A second store's key cannot read or resolve the first store's rows.
     let (_, other_key, _) = state
         .db
         .call(|conn| store::create(conn, "Other Shop", None))
         .await
         .unwrap();
-    let theirs: Vec<serde_json::Value> = client
+    let theirs = client
         .get(format!("{base}/api/v1/unmatched-payments"))
         .header("host", "localhost")
         .bearer_auth(&other_key)
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
-    assert!(theirs.is_empty());
+    assert_eq!(theirs.status(), 401);
     let cross = client
         .post(format!("{base}/api/v1/unmatched-payments/{id}/resolve"))
         .header("host", "localhost")
@@ -576,8 +582,9 @@ async fn webhook_config_and_key_rotation() {
 
 #[tokio::test]
 async fn invoice_inputs_are_bounded_and_unmatched_list_paginates() {
-    let (base, _state, _store_id, key) = serve().await;
+    let (base, state, _store_id, key) = serve().await;
     let client = reqwest::Client::new();
+    let (cookie, _csrf) = owner_session(&base, &state).await;
     let long = "x".repeat(129);
     let (status, _) = create(&client, &base, &key, &long, 1000).await;
     assert_eq!(status, 400, "order_id over 128 bytes is rejected");
@@ -596,11 +603,75 @@ async fn invoice_inputs_are_bounded_and_unmatched_list_paginates() {
     let page = client
         .get(format!("{base}/api/v1/unmatched-payments?limit=1&offset=0"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap();
     assert_eq!(page.status(), 200);
+}
+
+#[tokio::test]
+async fn one_payment_request_cannot_exceed_the_servers_size_limit() {
+    let (base, _state, _store_id, key) = serve_with(Config {
+        max_invoice_sats: 50_000,
+        ..Config::default()
+    })
+    .await;
+    let client = reqwest::Client::new();
+    let (status, ok) = create(&client, &base, &key, "at-limit", 50_000).await;
+    assert_eq!(status, 201, "exactly the limit is fine: {ok}");
+    let (status, body) = create(&client, &base, &key, "over-limit", 50_001).await;
+    assert_eq!(status, 400, "{body}");
+    let msg = body.to_string();
+    assert!(
+        msg.contains("larger than this server accepts") && msg.contains("EBP_MAX_INVOICE_SATS"),
+        "plain words plus the knob: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn one_shop_key_cannot_flood_the_server_with_payment_requests() {
+    let (base, _state, _store_id, key) = serve_with(Config {
+        invoice_rate_limit_per_min: 3,
+        ..Config::default()
+    })
+    .await;
+    let client = reqwest::Client::new();
+    for i in 0..3 {
+        let (status, body) = create(&client, &base, &key, &format!("burst-{i}"), 1000).await;
+        assert_eq!(status, 201, "request {i}: {body}");
+    }
+    let resp = client
+        .post(format!("{base}/api/v1/invoices"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .json(&serde_json::json!({ "order_id": "burst-3", "sats": 1000 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 429);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "rate_limited", "{body}");
+
+    // Another shop is not slowed down by this one.
+    let (other_base, _s, _id, other_key) = serve_with(Config {
+        invoice_rate_limit_per_min: 3,
+        ..Config::default()
+    })
+    .await;
+    let (status, _) = create(&client, &other_base, &other_key, "fine", 1000).await;
+    assert_eq!(status, 201);
+
+    // 0 turns the limit off.
+    let (base0, _s0, _id0, key0) = serve_with(Config {
+        invoice_rate_limit_per_min: 0,
+        ..Config::default()
+    })
+    .await;
+    for i in 0..8 {
+        let (status, _) = create(&client, &base0, &key0, &format!("free-{i}"), 1000).await;
+        assert_eq!(status, 201);
+    }
 }
 
 #[tokio::test]
@@ -625,6 +696,7 @@ async fn qr_script_is_served_same_origin_and_checkout_uses_it() {
 async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     let (base, state, store_id, key) = serve().await;
     let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
     // A failed delivery for this store and one for another store.
     state
         .db
@@ -647,7 +719,7 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     let list: serde_json::Value = client
         .get(format!("{base}/api/v1/webhook-deliveries?status=failed"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap()
@@ -655,9 +727,23 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
         .await
         .unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1, "only this store's rows");
+    for path in [
+        "webhook-deliveries",
+        "audit-log",
+        "unmatched-payments",
+        "payout",
+    ] {
+        let by_key = client
+            .get(format!("{base}/api/v1/{path}"))
+            .header("host", "localhost")
+            .bearer_auth(&key)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(by_key.status(), 401, "the shop key cannot read {path}");
+    }
     assert_eq!(list[0]["id"], "whd_mine");
 
-    let (cookie, csrf) = owner_session(&base, &state).await;
     let other = client
         .post(format!("{base}/api/v1/webhook-deliveries/whd_other/resend"))
         .header("host", "localhost")
@@ -680,7 +766,7 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     let pending: serde_json::Value = client
         .get(format!("{base}/api/v1/webhook-deliveries?status=pending"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap()
@@ -692,7 +778,7 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     let audit: serde_json::Value = client
         .get(format!("{base}/api/v1/audit-log"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap()
@@ -975,7 +1061,7 @@ async fn backup_cannot_be_confirmed_without_verifying_the_words() {
 
 #[tokio::test]
 async fn webhook_test_needs_a_url_and_queues_a_test_event() {
-    let (base, state, _store_id, key) = serve_with(Config::default()).await;
+    let (base, state, _store_id, _key) = serve_with(Config::default()).await;
     let client = reqwest::Client::new();
     let (cookie, csrf) = owner_session(&base, &state).await;
     let test = || {
@@ -1004,7 +1090,7 @@ async fn webhook_test_needs_a_url_and_queues_a_test_event() {
     let list: serde_json::Value = client
         .get(format!("{base}/api/v1/webhook-deliveries"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
         .send()
         .await
         .unwrap()

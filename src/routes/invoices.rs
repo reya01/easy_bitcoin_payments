@@ -337,6 +337,18 @@ pub async fn create(
             "Bitcoin payments are paused by the shop owner. Please try another way to pay.".into(),
         ));
     }
+    // How fast one shop key may ask for new payment requests. A stolen key
+    // then cannot flood the server (each request also asks the wallet for
+    // fresh addresses).
+    if !crate::ratelimit::allow_keyed(
+        state.config.invoice_rate_limit_per_min,
+        &auth.store.id,
+        crate::util::now_unix(),
+    ) {
+        return Err(AppError::TooManyRequests(
+            "Too many payment requests in a minute. Please try again shortly.".into(),
+        ));
+    }
     if req.fiat.is_some() && req.sats.is_some() {
         return Err(AppError::BadRequest(
             "provide either `fiat` or `sats`, not both".into(),
@@ -393,6 +405,14 @@ pub async fn create(
             }
             (Some(_), Some(_)) => unreachable!("guarded above"),
         };
+
+    // The server's own largest payment request (EBP_MAX_INVOICE_SATS).
+    if amount_sats > state.config.max_invoice_sats {
+        return Err(AppError::BadRequest(format!(
+            "This payment is larger than this server accepts ({} sats). The server owner can raise the limit (EBP_MAX_INVOICE_SATS).",
+            state.config.max_invoice_sats
+        )));
+    }
 
     // R11: bound free-form inputs (the 64 KB body cap is the only other limit).
     if req

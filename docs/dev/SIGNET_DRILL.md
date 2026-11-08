@@ -3,7 +3,7 @@
 Everything here uses **signet** (test coins with no value). Do it on a throwaway
 deployment, never on a wallet that holds real money. About 60-90 minutes, mostly
 waiting for blocks. Print or keep this open next to the setup guide
-(`docs/MASTER_TEST_WALKTHROUGH.md` covers creating the server).
+(`docs/START_HERE.md` covers creating the server).
 
 CI already proves the logic against a *mock* barkd. This drill proves the parts
 a mock cannot: that the real barkd 0.8.0 answers with the shapes we parse, and
@@ -22,7 +22,7 @@ Tick every box before you start the clock. Anything unticked wastes the drill.
       holds real money or other services). Time: block out 90 minutes.
 - [ ] A way to open the setup page securely. Pick ONE: run on the computer you
       are sitting at and use `http://localhost:8080` (simplest), OR a server +
-      the SSH tunnel in `MASTER_TEST_WALKTHROUGH.md` Part 5, OR a real
+      the SSH tunnel in `START_HERE.md` Part 5, OR a real
       `https://` address. Setup refuses plain http anywhere else. If you can,
       also try the real-https route once: it switches the session cookie to
       the `__Host-` form (step 1.7), which localhost cannot test.
@@ -150,6 +150,6 @@ bug to fix before enabling the rail.
 
 - Fix every FAIL before turning on the on-chain rail by default.
 - Trim the defensive parsing in `src/wallet/barkd.rs` for shapes the drill
-  proved are not real (listed in `docs/REVIEW_2026-11-05.md`).
-- Delete the throwaway server so billing stops (`MASTER_TEST_WALKTHROUGH.md`
+  proved are not real (listed in `docs/dev/REVIEW_2026-11-05.md`).
+- Delete the throwaway server so billing stops (`START_HERE.md`
   Part 8).

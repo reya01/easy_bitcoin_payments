@@ -3,7 +3,7 @@
 **Historical record, not a to-do list.** This is the ledger of the first
 hardening pass (the `beta-hardening` branch, PR #1, which is merged). It is kept
 so people can see what each fix was for. For what is open now, read
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md) and [RC_CHECKLIST.md](RC_CHECKLIST.md). For
+[KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and [RC_CHECKLIST.md](RC_CHECKLIST.md). For
 how the project is put together, read [HANDOFF.md](HANDOFF.md).
 
 The pass was written in a sandbox with no crates.io access, so CI was the

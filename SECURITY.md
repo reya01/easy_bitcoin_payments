@@ -25,7 +25,7 @@ without pasting it.
 - Weaknesses in install, update, backup or release signing.
 
 Known limits we already document are in `docs/KNOWN_ISSUES.md` and
-`docs/SECURITY_REVIEW_2026-11-05.md`.
+`docs/dev/SECURITY_REVIEW_2026-11-05.md`.
 
 ## What to expect
 

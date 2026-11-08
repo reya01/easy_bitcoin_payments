@@ -10,7 +10,7 @@ A silent payment address lets many people (or many payments) pay one static
 address while every payment lands on a fresh, unlinkable on-chain address. For a
 shop that sweeps to a single fixed address, it would remove the main privacy
 cost of the payout design ("every withdrawal goes to the same address",
-see [CHOOSING_A_HOST.md](CHOOSING_A_HOST.md)).
+see [CHOOSING_A_HOST.md](OTHER_HOSTS.md)).
 
 ## Why EBP cannot send to one
 

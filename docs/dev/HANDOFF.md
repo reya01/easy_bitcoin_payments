@@ -6,7 +6,7 @@ Since the notes below were written, these were added and are on `main` with CI
 green: phone alerts (ntfy), a working WooCommerce plugin (real WordPress +
 WooCommerce end-to-end test in CI), a return-to-shop link, the DigitalOcean
 no-terminal install (rehearsed on clean Ubuntu in CI), hosting docs
-(`CHOOSING_A_HOST.md`, `RENDER.md`), a weekly own-wallet check and a shop-side
+(`OTHER_HOSTS.md`, `OTHER_HOSTS.md`), a weekly own-wallet check and a shop-side
 tripwire, a security pass (alerts address guard, order-total mismatch guard),
 an upgrade and backup-restore test in CI, a hung-barkd fix for the health
 endpoint, and a release dry run that packages everything without publishing.
@@ -21,28 +21,28 @@ Tests: see CI. All client-facing barkd response shapes are
 live-verified against **barkd 0.8.0 on signet** (Lightning side; the on-chain
 receive history entry shape is still unpinned — crediting is fail-closed) and
 pinned in
-[`src/wallet/barkd/live_shapes.rs`](../src/wallet/barkd/live_shapes.rs) with shape tests.
+[`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs) with shape tests.
 Remaining `VERIFY` markers are limited to request/edge shapes the pinned OpenAPI
 does not schema.
 
 **Resolved 2026-11-03:** the tester's AWS t4g (aarch64) VPS restart-loop was
 the Dockerfile's dependency-cache placeholder binary shipping instead of the
 server (cargo mtime-skip trap; fix + build smoke test in place; rebuilt and
-serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
 
 ## Read first
 
-1. [README.md](../README.md) — what this is, quickstart, API, config.
-2. [docs/PHASE1_PLAN.md](PHASE1_PLAN.md) — Phase 1 tasks and close-out status.
-3. [docs/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions/log.
-4. [docs/START_HERE.md](START_HERE.md) — the beginner install.
-5. [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) — open issues and debug procedures.
-6. [docs/MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md) — beginner AWS + iPhone walkthrough.
-7. [CONTRIBUTING.md](../CONTRIBUTING.md) — build, test, contribution rules.
-8. [ebp.example.toml](../ebp.example.toml) — every config key.
+1. [README.md](../../README.md) — what this is, quickstart, API, config.
+2. [docs/dev/PHASE1_PLAN.md](PHASE1_PLAN.md) — Phase 1 tasks and close-out status.
+3. [docs/dev/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions/log.
+4. [docs/START_HERE.md](../START_HERE.md) — the beginner install.
+5. [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md) — open issues and debug procedures.
+6. [docs/START_HERE.md](../START_HERE.md) — beginner AWS + iPhone walkthrough.
+7. [CONTRIBUTING.md](../../CONTRIBUTING.md) — build, test, contribution rules.
+8. [ebp.example.toml](../../ebp.example.toml) — every config key.
 9. [RC_CHECKLIST.md](RC_CHECKLIST.md) — what CI proves, what a person must still do, how to cut a release candidate.
 10. [BETA_PLAN.md](BETA_PLAN.md) — history of the first hardening pass (not a to-do list).
-11. [SECURITY.md](../SECURITY.md) and [SILENT_PAYMENTS.md](SILENT_PAYMENTS.md) — reporting, and why payout cannot use silent payment addresses.
+11. [SECURITY.md](../../SECURITY.md) and [SILENT_PAYMENTS.md](../SILENT_PAYMENTS.md) — reporting, and why payout cannot use silent payment addresses.
 
 ## Architecture decisions and WHY
 
@@ -73,7 +73,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Verified live shapes
 
-- Pointer: [`src/wallet/barkd/live_shapes.rs`](../src/wallet/barkd/live_shapes.rs).
+- Pointer: [`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs).
 - Pinned against: **barkd 0.8.0, signet** (responses 2026-11-01; the full
   `/wallet/history` page 2026-11-03).
 - Covered: wallet mnemonic (`{"mnemonic": "…"}` under `--expose-mnemonic`),
@@ -91,9 +91,9 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   signal-less entries NEVER credit; a refused payment-looking entry logs a
   loud pin-me warning. STILL UNPINNED: the on-chain receive entry's exact
   shape — watch for that warning in any on-chain drill.
-- Drift check: [`scripts/check_barkd_drift.sh`](../scripts/check_barkd_drift.sh)
+- Drift check: [`scripts/check_barkd_drift.sh`](../../scripts/check_barkd_drift.sh)
   verifies every `PATH_*` constant against
-  [`docs/barkd-openapi.json`](barkd-openapi.json) in CI (and fails loudly if
+  [`docs/barkd-openapi.json`](../barkd-openapi.json) in CI (and fails loudly if
   the scanner itself matches nothing).
 
 ## Hardening + ops (added 2026-11-03)
@@ -102,7 +102,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
   stub binary) deletes the stub after warming, refreshes source mtimes before
   the real build, and runs a usage smoke test — the stub-ship failure class
   that caused the 22h restart-loop cannot ship again
-  ([docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md) has the full forensic record).
+  ([docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md) has the full forensic record).
 - **CI**: builds BOTH release architectures (amd64 + arm64 via QEMU),
   shellchecks every shipped script, clippy `-D warnings`, drift check,
   tests. Verify CI is GREEN after every push — it once went red for a day
@@ -135,9 +135,9 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Phase plan
 
-- **Phase 0:** [docs/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Bark/barkd
+- **Phase 0:** [docs/dev/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Bark/barkd
   spike questions, commands, and observed outputs.
-- **Phase 1:** [docs/PHASE1_PLAN.md](PHASE1_PLAN.md) — barkd integration,
+- **Phase 1:** [docs/dev/PHASE1_PLAN.md](PHASE1_PLAN.md) — barkd integration,
   watcher, expiry queue, settlement engine, setup wizard, live shape pinning.
 
 ## What remains
@@ -147,9 +147,9 @@ In short:
 
 1. **Things only a person can do**: the live signet drill
    ([SIGNET_DRILL.md](SIGNET_DRILL.md)), a real DigitalOcean run
-   ([VPS_DIGITALOCEAN.md](VPS_DIGITALOCEAN.md)), WooCommerce on a real shop host,
+   ([VPS_DIGITALOCEAN.md](../START_HERE.md)), WooCommerce on a real shop host,
    phone alerts on a real phone, a backup restore on a second machine, and a
-   newcomer following [START_HERE.md](START_HERE.md) without help.
+   newcomer following [START_HERE.md](../START_HERE.md) without help.
 2. **Decisions**: the public GitHub name (it appears in several files; change it
    before the first tag), turning on private vulnerability reporting, protecting
    `v*` tags, and deleting stale branches (never merge `mut-test`).

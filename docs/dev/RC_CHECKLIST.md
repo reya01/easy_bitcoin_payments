@@ -101,5 +101,5 @@ open box.
 >
 > Not included: Shopify, Lightning payouts, refunds, automatic updates.
 >
-> Install: `docs/VPS_DIGITALOCEAN.md` (no terminal) or `docs/START_HERE.md`.
+> Install: `docs/START_HERE.md` (no terminal) or `docs/START_HERE.md`.
 > Verify the download with the checksums and signature in this release.

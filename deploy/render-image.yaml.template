@@ -1,7 +1,7 @@
 # Render blueprint that runs a PINNED, SIGNED release image instead of
 # building from the repository. Nothing here changes unless you change it.
 #
-# How to use it (once a release exists; see docs/RENDER.md):
+# How to use it (once a release exists; see docs/OTHER_HOSTS.md):
 #   1. Copy this file to render.yaml in YOUR OWN copy (fork) of the repository.
 #   2. Replace IMAGE_DIGEST_FROM_RELEASE_NOTES with the line from the release
 #      notes, for example:

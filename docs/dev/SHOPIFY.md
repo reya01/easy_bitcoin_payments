@@ -2,13 +2,74 @@
 
 **Status: research and a written plan only. There is no Shopify code in this
 project and the first release does not support Shopify.** WooCommerce is the
-supported shop (`WOOCOMMERCE.md`). This page records what we learned so the next
+supported shop ([WOOCOMMERCE.md](../WOOCOMMERCE.md)). This page records what we learned so the next
 step is a decision, not another round of research.
 
 Things marked **[checked]** were read on Shopify's developer documentation
 (shopify.dev) when this was written. Things marked **[unverified]** are
 assumptions that must be tested on a Shopify development store before anyone
 relies on them. Shopify changes these rules; re-check before building.
+
+## How BTCPay Server does it (researched 2026-11-08)
+
+BTCPay does not use an approved Shopify payments app. Its current "Shopify v2"
+integration (read on docs.btcpayserver.org) works like this **[checked]**:
+
+1. The merchant adds a **manual payment method** in Shopify named with
+   "bitcoin", "btc" or "btcpay server".
+2. The merchant creates **their own Shopify app** in the Shopify Dev Dashboard
+   (a free Partner account is enough) and installs it on **their one store** using
+   "custom distribution": an install link, no public listing, and no Shopify
+   review. A Basic plan or higher is required.
+3. That app ships a **Thank-you page extension**. After checkout the buyer lands on
+   Shopify's thank-you page, which shows a **"Complete payment"** button that opens
+   the BTCPay invoice page. Afterwards they return to the Shopify order page.
+4. The app's code runs on the **merchant's own server**, next to BTCPay (as an extra
+   Docker container), and updates the order through Shopify's Admin API:
+   **paid** marks the order paid, **expired** voids it and returns stock, an
+   invalid or partial payment leaves it "payment pending". The invoice link is
+   saved on the order so it can be resent.
+5. Refunds are partly manual: an email rule gives the buyer a "Claim refund" button.
+
+The older v1 integration (a private app, a checkout script and a manual payment
+method) is closed to new users, and Shopify removes checkout scripts for non-Plus
+stores on 26 August 2026, which is why BTCPay moved to an app extension.
+
+**Why this matters for EBP:** it answers the sovereignty problem below. No
+central service and no Shopify partner approval are needed, because every
+merchant runs their own copy of the app. It also corrects two assumptions earlier
+in this file: option B below needs a thank-you-page extension, and that works on
+Basic plans according to BTCPay's documentation (we have not tested it ourselves).
+
+### Can we mirror it, and is it a good idea?
+
+**Possible: yes, in principle.** The approach is proven in production by BTCPay
+and fits what EBP already does (an invoice, a hosted checkout page, a paid
+notice). The Shopify-specific work would be: a small Shopify app (the
+extension must be built and deployed with Shopify's Node-based CLI), an Admin API
+client in EBP (mark paid, void, save the link), handling Shopify's webhooks, and a
+guard against an order total changing after the invoice was made.
+
+**Worth it: not for the first release, probably later.** In favour: it is the only
+route that keeps our promise (merchant-run, no vendor in the middle), and Shopify
+has far more merchants than WooCommerce has appetite for self-hosting. Against:
+
+- **Setup is much harder than WooCommerce.** BTCPay's own guide has about seven
+  merchant steps in two dashboards (create an app, copy a client ID, secret and CLI
+  token, grant network access, add a payment method, add the thank-you extension).
+  That conflicts with "a beginner can do it from a phone".
+- **The CLI deploy step** needs a computer or an extra Node tool on the server,
+  which is heavy for a single Rust binary.
+- **Shopify moves the goalposts** (checkout scripts removed, app rules changed
+  repeatedly), so this is an ongoing maintenance cost.
+- **A two-step buyer experience:** order first, pay afterwards on the thank-you
+  page, with the order "payment pending" in between.
+
+**Suggested next step (cheap, no commitment):** on a free Partner development
+store, follow BTCPay's v2 guide by hand once, to learn what a merchant really goes
+through and whether the thank-you extension works as described. Then decide.
+Also check whether BTCPay's Shopify app code is published under a licence that
+allows reuse; we have not checked.
 
 ## The hard part: Shopify controls who may add a payment method
 
@@ -123,4 +184,7 @@ total that changed after the invoice was made must not be auto-paid).
 
 - Shopify, "Extensions for payments": https://shopify.dev/docs/apps/build/payments
 - Shopify, "Build an offsite payments extension": https://shopify.dev/docs/apps/build/payments/offsite/use-the-cli
+- BTCPay Server, Shopify v2 guide: https://docs.btcpayserver.org/ShopifyV2/
+- BTCPay Server, Shopify v1 (closed to new users): https://docs.btcpayserver.org/Shopify
+- Shopify, "Select a distribution method" (custom distribution): https://shopify.dev/docs/apps/distribution/select-distribution-method
 - Shopify Community, custom app redirect question: https://community.shopify.com/t/use-custom-app-to-redirect-payment-requests-to-my-payment-gateway-api/399474

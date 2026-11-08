@@ -66,9 +66,12 @@ The server installs everything by itself. Building the first time takes
 
 ### How to tell it is ready
 
-**It is ready when the Console shows a box that starts with "Easy Bitcoin
-Payments", with a web address and a SETUP CODE inside it.** That box is the
-signal. Nothing else on the DigitalOcean website tells you.
+**The install has finished when the Console shows a box that starts with "Easy
+Bitcoin Payments", with a web address and a SETUP CODE inside it.** Nothing else
+on the DigitalOcean website tells you that. **It is truly ready when that web
+address opens in your browser (with a padlock) and asks for the code.** The box
+can appear a little before the address works, so if the address does not open,
+wait 5 minutes and try again before worrying.
 
 Be careful with these, because they look like "done" but are not:
 
@@ -84,8 +87,10 @@ How to check, step by step:
 1. Open your Droplet in DigitalOcean and click **Console** (top right).
 2. The Console opens in a new window. Click inside it and press **Enter** (this
    redraws the screen, so you see the newest message).
-3. **Box with "Easy Bitcoin Payments", an address and a SETUP CODE:** it is
-   ready. Go to step 3 below. (If it asks you to log in, sign in as `root`
+3. **Box with "Easy Bitcoin Payments", an address and a SETUP CODE:** the
+   install has finished. Go to step 3 below and open the address.
+   **A box that says "No setup code yet"** is not ready: wait two minutes, log in
+   as `root`, type `ebp-info` and press Enter. (If it asks you to log in, sign in as `root`
    with the password you chose; the same box is shown after you log in.)
 4. **No box yet:** it is still installing. Close the Console, wait 5 minutes,
    try again. Nothing is wrong until about 30 minutes have passed.

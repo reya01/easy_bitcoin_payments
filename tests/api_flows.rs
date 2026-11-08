@@ -1956,3 +1956,233 @@ async fn password_change_checks_the_current_password_and_the_code_and_signs_ever
     }
     assert_eq!(last, 429);
 }
+
+/// Garbage in must never produce a server error (5xx), a hang or a crash, on any
+/// endpoint, with or without a signed-in admin. A 4xx (or 429) is the right answer.
+#[tokio::test]
+async fn malformed_requests_never_cause_server_errors() {
+    let config = Config {
+        password_hash_iterations: 1_000,
+        // A fresh pretend address per request, so the sign-in brake does not
+        // turn the answers into 429s and hide what the handlers do.
+        trust_proxy_headers: true,
+        ..Config::default()
+    };
+    let (base, state, _store_id, key) = serve_with(config).await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .unwrap();
+
+    let big = format!("{{\"order_id\":\"{}\",\"sats\":1}}", "a".repeat(2_000_000));
+    let wrong_types = r#"{"admin_password":123,"password":[],"current":{},"new":5,"code":[],"address":{},"addresses":5,"paused":"yes","order_id":null,"sats":"x","fiat":5,"metadata":"x","url":7,"mode":9,"answers":"x","name":[],"token":{},"confirmed":"x","rotate_secret":"x","resolution":3,"note":[]}"#;
+    let bodies: Vec<(&str, Vec<u8>)> = vec![
+        ("empty", vec![]),
+        ("broken json", b"{".to_vec()),
+        ("null", b"null".to_vec()),
+        ("array", b"[]".to_vec()),
+        ("string", b"\"str\"".to_vec()),
+        ("unknown field", br#"{"a":1}"#.to_vec()),
+        ("wrong types", wrong_types.as_bytes().to_vec()),
+        ("not utf-8", vec![0xff, 0xfe, 0x00, 0x80]),
+        (
+            "nul bytes",
+            b"{\"order_id\":\"a\\u0000b\",\"sats\":1}".to_vec(),
+        ),
+        ("2 MB value", big.into_bytes()),
+        (
+            "deep nesting",
+            format!("{}1{}", "[".repeat(5000), "]".repeat(5000)).into_bytes(),
+        ),
+    ];
+    let posts = [
+        "/admin/payout/cancel",
+        "/admin/sweep",
+        "/admin/alerts/status",
+        "/admin/alerts/enable",
+        "/admin/alerts/disable",
+        "/admin/alerts/activity",
+        "/admin/reconcile/status",
+        "/admin/reconcile/done",
+        "/admin/2fa/status",
+        "/admin/2fa/skip",
+        "/admin/pause",
+        "/admin/keylock/status",
+        "/admin/keylock/save",
+        "/setup/wallet",
+        "/setup/wallet/confirm-backup",
+        "/setup/wallet/mnemonic",
+        "/setup/wallet/verify-backup",
+        "/setup/verify-code",
+        "/setup/token",
+        "/setup/store",
+        "/api/v1/invoices",
+        "/api/v1/invoices/inv_x/cancel",
+        "/api/v1/stores/webhook/test",
+        "/api/v1/unmatched-payments/unm_x/resolve",
+        "/api/v1/webhook-deliveries/whd_x/resend",
+    ];
+
+    // These share the sign-in brake, which has an overall cap of 120 a minute
+    // that no pretend address gets around; keep their share of requests under it.
+    let braked = [
+        "/admin/login",
+        "/admin/payout",
+        "/admin/password",
+        "/admin/backup",
+        "/admin/2fa/start",
+        "/admin/2fa/confirm",
+        "/admin/2fa/disable",
+    ];
+    let mut n: u32 = 0;
+    let mut problems: Vec<String> = Vec::new();
+    for path in braked {
+        for (what, body) in &bodies {
+            // (sign-in is the only one of these that makes sense without a session)
+            for signed_in in [false, true] {
+                if !signed_in && path != "/admin/login" {
+                    continue;
+                }
+                n += 1;
+                let mut r = client
+                    .post(format!("{base}{path}"))
+                    .header("host", "localhost")
+                    .header("content-type", "application/json")
+                    .header(
+                        "x-forwarded-for",
+                        format!("10.100.{}.{}", (n >> 8) & 255, n & 255),
+                    )
+                    .body(body.clone());
+                if signed_in {
+                    r = r.header("cookie", &cookie).header("x-ebp-csrf", &csrf);
+                }
+                match r.send().await {
+                    Ok(resp) if resp.status().as_u16() >= 500 => problems.push(format!(
+                        "POST {path} ({what}, signed_in={signed_in}) -> {}",
+                        resp.status()
+                    )),
+                    Ok(_) => {}
+                    Err(e) => problems.push(format!("POST {path} ({what}) -> no answer: {e}")),
+                }
+            }
+        }
+    }
+    for signed_in in [false, true] {
+        for path in posts {
+            for (what, body) in &bodies {
+                for ctype in [Some("application/json"), None] {
+                    n += 1;
+                    let mut r = client
+                        .post(format!("{base}{path}"))
+                        .header("host", "localhost")
+                        .header(
+                            "x-forwarded-for",
+                            format!("10.{}.{}.{}", (n >> 16) & 255, (n >> 8) & 255, n & 255),
+                        )
+                        .body(body.clone());
+                    if let Some(c) = ctype {
+                        r = r.header("content-type", c);
+                    }
+                    r = if signed_in {
+                        r.header("cookie", &cookie).header("x-ebp-csrf", &csrf)
+                    } else {
+                        r.bearer_auth(&key)
+                    };
+                    match r.send().await {
+                        Ok(resp) if resp.status().as_u16() >= 500 => problems.push(format!(
+                            "POST {path} ({what}, signed_in={signed_in}, {ctype:?}) -> {}",
+                            resp.status()
+                        )),
+                        Ok(_) => {}
+                        Err(e) => problems.push(format!("POST {path} ({what}) -> no answer: {e}")),
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "{} server errors, first ones:\n{}",
+        problems.len(),
+        problems
+            .iter()
+            .take(15)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // Odd paths and query strings on the read side.
+    let long = "x".repeat(5000);
+    let gets = [
+        "/api/v1/invoices?limit=abc".to_string(),
+        "/api/v1/invoices?limit=-1&offset=-5".to_string(),
+        "/api/v1/invoices?offset=99999999999999999999".to_string(),
+        "/api/v1/invoices?status=%00%ff".to_string(),
+        "/api/v1/invoices/%00".to_string(),
+        format!("/api/v1/invoices/{long}"),
+        "/api/v1/unmatched-payments?limit=0&offset=zzz".to_string(),
+        "/api/v1/webhook-deliveries?status=%27%3B--&limit=1000000".to_string(),
+        "/api/v1/audit-log?limit=-3".to_string(),
+        "/i/%00".to_string(),
+        format!("/i/{long}"),
+        format!("/i/{long}/json"),
+        format!("/i/{long}/status"),
+        format!("/i/{long}/rails"),
+        "/i/..%2f..%2fetc%2fpasswd".to_string(),
+        "/assets/../Cargo.toml".to_string(),
+        "/setup/status".to_string(),
+        "/admin/session".to_string(),
+    ];
+    for signed_in in [false, true] {
+        for path in &gets {
+            n += 1;
+            let mut r = client
+                .get(format!("{base}{path}"))
+                .header("host", "localhost")
+                .header(
+                    "x-forwarded-for",
+                    format!("10.200.{}.{}", (n >> 8) & 255, n & 255),
+                );
+            r = if signed_in {
+                r.header("cookie", &cookie)
+            } else {
+                r.bearer_auth(&key)
+            };
+            match r.send().await {
+                Ok(resp) if resp.status().as_u16() >= 500 => problems.push(format!(
+                    "GET {path} (signed_in={signed_in}) -> {}",
+                    resp.status()
+                )),
+                Ok(_) => {}
+                Err(e) => problems.push(format!("GET {path} -> no answer: {e}")),
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "{} server errors, first ones:\n{}",
+        problems.len(),
+        problems
+            .iter()
+            .take(15)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+
+    // Still healthy, and the shop key still works for a normal invoice.
+    let health = client
+        .get(format!("{base}/api/v1/health"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(health.status().as_u16(), 200);
+    let (code, _) = create(&client, &base, &key, "after-garbage", 1500).await;
+    assert!(
+        code == 200 || code == 201,
+        "normal invoice after garbage: {code}"
+    );
+}

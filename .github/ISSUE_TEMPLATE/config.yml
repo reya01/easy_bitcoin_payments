@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem (do not post it publicly)
+    url: https://github.com/reya01/easy_bitcoin_payments/security/advisories/new
+    about: Report vulnerabilities privately. Never post keys or recovery words in an issue.

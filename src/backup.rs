@@ -35,7 +35,7 @@ const HEADER_LEN: usize = 8 + 4 + 16 + 12;
 pub const DEFAULT_ITERATIONS: u32 = 600_000;
 const MIN_ITERATIONS: u32 = 1_000;
 const MAX_ITERATIONS: u32 = 5_000_000;
-pub const MIN_PASSWORD_LEN: usize = 12;
+pub const MIN_PASSWORD_LEN: usize = 16;
 pub const MAX_PASSWORD_LEN: usize = 200;
 /// Refuse to build or open anything bigger than this (the bundle is held in
 /// memory; a wallet database is megabytes at most).

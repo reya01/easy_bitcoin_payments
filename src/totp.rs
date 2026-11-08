@@ -134,20 +134,28 @@ pub enum Second {
     Locked,
 }
 
-fn row(conn: &Connection) -> Result<Option<(String, bool, i64, i64, i64)>, AppError> {
+struct Row {
+    secret_enc: String,
+    enabled: bool,
+    last_step: i64,
+    fail_count: i64,
+    locked_until: i64,
+}
+
+fn row(conn: &Connection) -> Result<Option<Row>, AppError> {
     Ok(conn
         .query_row(
             "SELECT secret_enc, enabled, last_step, fail_count, locked_until
              FROM admin_totp WHERE id = 1",
             [],
             |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)? != 0,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                ))
+                Ok(Row {
+                    secret_enc: r.get(0)?,
+                    enabled: r.get::<_, i64>(1)? != 0,
+                    last_step: r.get(2)?,
+                    fail_count: r.get(3)?,
+                    locked_until: r.get(4)?,
+                })
             },
         )
         .optional()?)
@@ -155,7 +163,7 @@ fn row(conn: &Connection) -> Result<Option<(String, bool, i64, i64, i64)>, AppEr
 
 /// Is two-step sign-in turned on (confirmed)?
 pub fn is_enabled(conn: &Connection) -> Result<bool, AppError> {
-    Ok(row(conn)?.map(|r| r.1).unwrap_or(false))
+    Ok(row(conn)?.map(|r| r.enabled).unwrap_or(false))
 }
 
 /// Did the owner choose "password only"?
@@ -252,7 +260,14 @@ pub fn verify(
     now: i64,
     allow_same_step: bool,
 ) -> Result<Second, AppError> {
-    let Some((enc, enabled, last_step, fails, locked_until)) = row(conn)? else {
+    let Some(Row {
+        secret_enc: enc,
+        enabled,
+        last_step,
+        fail_count: fails,
+        locked_until,
+    }) = row(conn)?
+    else {
         return Ok(Second::Wrong);
     };
     if !enabled {
@@ -296,7 +311,14 @@ pub fn verify(
 /// Finish turning it on: the owner typed a code from their app. Returns the
 /// recovery codes (shown once).
 pub fn confirm(conn: &Connection, typed: &str, now: i64) -> Result<Vec<String>, AppError> {
-    let Some((enc, enabled, _, fails, locked_until)) = row(conn)? else {
+    let Some(Row {
+        secret_enc: enc,
+        enabled,
+        fail_count: fails,
+        locked_until,
+        ..
+    }) = row(conn)?
+    else {
         return Err(AppError::BadRequest(
             "Start again: press \"Turn on\" to get a new code to scan.".into(),
         ));

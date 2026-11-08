@@ -4,6 +4,20 @@ EBP is free, open-source software (MIT — see `LICENSE`). Contributions are
 welcome: code, docs, testing, and especially feedback from non-technical
 merchants.
 
+## Design principle: say what and why, keep how in the background
+
+Everything a shop owner or customer sees (screens, messages, docs) should be
+direct and simple, and explain **what this does and why**, not **how** it works.
+Technical detail is welcome, but it is never the default:
+
+- Put it behind a hover hint, a "Help" or "Details" section, or a later page, so
+  people who want it can find it and everyone else is not slowed down.
+- Be exact where it helps: name the specific standard (for example BIP 321,
+  BOLT 11, BIP 352) in that background detail, so an expert can verify it.
+- Use plain words in the default text ("Bitcoin wallet app", not "URI"; "regular
+  Bitcoin", not "on-chain"), with opinionated defaults, without ever weakening
+  security or sovereignty (the merchant still holds the keys).
+
 ## Ground rules
 
 - **Doc precedence.** For current status and operations, `README.md`,

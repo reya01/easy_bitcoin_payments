@@ -48,10 +48,10 @@ details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px
 <details id="other">
 <summary>Other ways to pay</summary>
 <div class="tabs" role="tablist" aria-label="Way to pay">
-<button class="tab" role="tab" id="tab-bip321" aria-selected="true" aria-controls="panel" title="One code that works with most wallets. Recommended.">Any wallet</button>
-<button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden title="Lightning: a fast way to send small Bitcoin payments, usually with a tiny fee.">Lightning (fast)</button>
-<button class="tab" role="tab" id="tab-ark" aria-selected="false" aria-controls="panel" title="Ark: a newer, fast way to send Bitcoin. Your wallet must support it.">Ark (fast)</button>
-<button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel" title="On-chain: the regular Bitcoin network. Works with every wallet but is slower.">Regular Bitcoin (slower)</button>
+<button class="tab" role="tab" id="tab-bip321" aria-selected="true" aria-controls="panel" title="One code that works with most wallets. Recommended. (Technical: a BIP 321 payment link.)">Any wallet</button>
+<button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden title="Lightning: a fast way to send small Bitcoin payments, usually with a tiny fee. (Technical: a BOLT 11 invoice.)">Lightning (fast)</button>
+<button class="tab" role="tab" id="tab-ark" aria-selected="false" aria-controls="panel" title="Ark: a newer, fast way to send Bitcoin. Your wallet must support it. (Technical: an Ark address.)">Ark (fast)</button>
+<button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel" title="On-chain: the regular Bitcoin network. Works with every wallet but is slower. (Technical: a BIP 21 payment link.)">Regular Bitcoin (slower)</button>
 </div>
 <p class="tab-help" id="tab-help"></p>
 <p class="ln-fee hidden" id="ln-fee"></p>
@@ -69,6 +69,7 @@ details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px
 <p><b>What is a sat?</b> A tiny piece of a bitcoin. 100 million sats make one bitcoin.</p>
 <p><b>Which way should I choose?</b> Leave it on "Any wallet". The other choices are for wallets that support them: Lightning and Ark are fast, regular Bitcoin works everywhere but can take 10 to 60 minutes to confirm.</p>
 <p><b>Why is there a timer?</b> The price of bitcoin moves, so the store holds today's price for a short time. If it runs out, go back to the shop and start again.</p>
+<p><b>Technical details.</b> "Any wallet" is a BIP 321 payment link: one code carrying a regular Bitcoin address (BIP 21), plus a Lightning invoice (BOLT 11) and an Ark address when available, so your wallet can use the method it supports best. "Regular Bitcoin" is an on-chain payment (BIP 21 link), settled when it has the confirmations the store requires.</p>
 <p><b>I paid but it still says waiting.</b> Give it a minute. If nothing changes, contact the store and tell them the time you paid.</p>
 </details>
 <footer><p>Bitcoin payments cannot be reversed, so refunds are up to the store. We do not ask for an account or email, and we do not track you.</p></footer>

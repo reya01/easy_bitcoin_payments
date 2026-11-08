@@ -11,11 +11,16 @@ do not need a terminal.
 
 - A DigitalOcean account with a payment method (the server costs about $12 a month).
 - A WooCommerce shop with a **public** web address, where you are an admin.
+  Make sure your host runs a current PHP version (WordPress: **Tools → Site
+  Health → Info → Server**); see [Keep your shop patched](WOOCOMMERCE.md#keep-your-shop-patched).
+- The plugin file `ebp-bitcoin-woocommerce.zip`, saved where your browser can reach
+  it (from the project's **Releases** page; [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin)
+  says which one).
 - A wallet for the payout address. The tested ones: **Arké** or **Noah** (Ark),
   **Sparrow**, **Nunchuk** or **Liana** (on-chain). Use a signet wallet for play money.
 - Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
   5 to 10 minutes to arrive).
-- Pen and paper (for 12 recovery words) and a password manager.
+- Pen and paper (for 12 recovery words) and a password manager, open and ready.
 - About an hour, mostly waiting.
 
 ## 1. Copy the setup text

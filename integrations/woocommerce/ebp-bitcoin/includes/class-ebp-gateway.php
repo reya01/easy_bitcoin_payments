@@ -22,7 +22,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		$this->init_settings();
 
 		$this->title       = $this->get_option( 'title', __( 'Bitcoin', 'ebp-bitcoin' ) );
-		$this->description = $this->get_option( 'description', __( 'Pay with Bitcoin (Lightning, Ark or on-chain).', 'ebp-bitcoin' ) );
+		$this->description = $this->get_option( 'description', __( 'Pay with Bitcoin from any Bitcoin wallet app. You will finish on a secure payment page.', 'ebp-bitcoin' ) );
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
 		add_action( 'woocommerce_api_' . $this->id, array( $this, 'handle_webhook' ) );
@@ -83,7 +83,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'description'    => array(
 				'title'   => __( 'Message shown to customers', 'ebp-bitcoin' ),
 				'type'    => 'textarea',
-				'default' => __( 'Pay with Bitcoin (Lightning, Ark or on-chain).', 'ebp-bitcoin' ),
+				'default' => __( 'Pay with Bitcoin from any Bitcoin wallet app. You will finish on a secure payment page.', 'ebp-bitcoin' ),
 			),
 		);
 	}

@@ -53,6 +53,7 @@ CI already covers these on a fake wallet and a local shop. These need the real t
 - [ ] **Phone alerts and the daily summary.** Turn on phone alerts, send a test alert, and look at the "Tell me about payments" choice (it should say "Once a day"). Pay one more test order and check whether the daily message arrives the next day, with a count and no amounts.
 - [ ] **A real phone scan.** Scan the checkout QR with your signet wallet and with the camera. Also tap **Open in my wallet app** on the phone.
 - [ ] **Restore turns two-step off.** (Optional, only if you have a spare server.) After restoring a backup, sign in with the password only; Home should offer two-step sign-in again.
+- [ ] **Owner-only pages still load.** Signed in at `/admin`, check that the payout address (Settings), security activity, notification log and (after the expiry test below) the late-payment list all show up. Those pages now need your admin sign-in, not the shop's key; WooCommerce checkout must keep working throughout.
 - [ ] **A cancelled or expired payment page.** Let a test payment expire and open its page: it should say it expired, hide the QR, and offer a way back to the shop.
 
 ## Quick checks at the end

@@ -17,6 +17,11 @@ pub struct Config {
     pub public_base_url: String,
     pub default_expiry_minutes: i64,
     pub max_expiry_minutes: i64,
+    /// Largest single payment request this server will create (sats). A
+    /// sanity limit: a typo or a stolen shop key cannot ask for an absurd sum.
+    pub max_invoice_sats: i64,
+    /// How many payment requests one shop key may create per minute (0 = no limit).
+    pub invoice_rate_limit_per_min: u32,
     pub default_currency: String,
     /// Static fiat-per-BTC rates used when `rates_provider = "static"`
     /// (the default); `rates_provider = "live"` uses the median of public
@@ -129,6 +134,8 @@ impl Default for Config {
             public_base_url: "http://localhost:8080".to_string(),
             default_expiry_minutes: 20,
             max_expiry_minutes: 1440,
+            max_invoice_sats: 100_000_000,
+            invoice_rate_limit_per_min: 60,
             default_currency: "EUR".to_string(),
             static_rates,
             hot_wallet_cap_sats: 20_000,
@@ -549,6 +556,17 @@ impl Config {
                     value: v.clone(),
                 })?;
         }
+        if let Some(v) = lookup("EBP_MAX_INVOICE_SATS") {
+            self.max_invoice_sats = parse_int("EBP_MAX_INVOICE_SATS", &v)?;
+        }
+        if let Some(v) = lookup("EBP_INVOICE_RATE_LIMIT_PER_MIN") {
+            let parsed = parse_int("EBP_INVOICE_RATE_LIMIT_PER_MIN", &v)?;
+            self.invoice_rate_limit_per_min =
+                u32::try_from(parsed).map_err(|_| ConfigError::Invalid {
+                    key: "EBP_INVOICE_RATE_LIMIT_PER_MIN".to_string(),
+                    value: v.clone(),
+                })?;
+        }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
         }
@@ -586,6 +604,12 @@ impl Config {
                     value: format!("{dest} ({why})"),
                 });
             }
+        }
+        if self.max_invoice_sats < 1 || self.max_invoice_sats > crate::invoice::MAX_INVOICE_SATS {
+            return Err(ConfigError::Invalid {
+                key: "max_invoice_sats (EBP_MAX_INVOICE_SATS)".into(),
+                value: self.max_invoice_sats.to_string(),
+            });
         }
         if self.default_expiry_minutes < 1 {
             return Err(ConfigError::Invalid {
@@ -797,6 +821,30 @@ mod tests {
         assert_eq!(c.settlement_interval_secs, 60);
         assert_eq!(c.renewal_lead_time_secs, 86_400);
         assert!(!c.lightning_receive_enabled);
+    }
+
+    #[test]
+    fn invoice_limits_have_safe_defaults_and_can_be_set() {
+        let mut c = Config::default();
+        assert_eq!(c.max_invoice_sats, 100_000_000);
+        assert_eq!(c.invoice_rate_limit_per_min, 60);
+        let env: HashMap<&str, &str> = HashMap::from([
+            ("EBP_MAX_INVOICE_SATS", "5000000"),
+            ("EBP_INVOICE_RATE_LIMIT_PER_MIN", "0"),
+        ]);
+        c.apply_env(|k| env.get(k).map(|v| v.to_string())).unwrap();
+        assert_eq!(c.max_invoice_sats, 5_000_000);
+        assert_eq!(c.invoice_rate_limit_per_min, 0);
+        assert!(c.validate().is_ok());
+        c.max_invoice_sats = 0;
+        assert!(
+            c.validate().is_err(),
+            "a cap of zero would refuse everything"
+        );
+        let mut bad = Config::default();
+        assert!(bad
+            .apply_env(|k| (k == "EBP_INVOICE_RATE_LIMIT_PER_MIN").then(|| "-1".to_string()))
+            .is_err());
     }
 
     #[test]

@@ -21,6 +21,9 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(String),
 
+    #[error("{0}")]
+    TooManyRequests(String),
+
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),
 
@@ -35,6 +38,7 @@ impl AppError {
             AppError::Unauthorized => "unauthorized",
             AppError::BadRequest(_) => "bad_request",
             AppError::Conflict(_) => "conflict",
+            AppError::TooManyRequests(_) => "rate_limited",
             AppError::Db(_) | AppError::Internal(_) => "internal_error",
         }
     }
@@ -45,6 +49,7 @@ impl AppError {
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             AppError::Db(_) | AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -88,6 +93,10 @@ mod tests {
         assert_eq!(
             AppError::Conflict("x".into()).status(),
             StatusCode::CONFLICT
+        );
+        assert_eq!(
+            AppError::TooManyRequests("x".into()).status(),
+            StatusCode::TOO_MANY_REQUESTS
         );
         assert_eq!(
             AppError::Internal("x".into()).status(),

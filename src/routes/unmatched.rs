@@ -15,7 +15,7 @@ use axum::Json;
 use rusqlite::params;
 use serde::Serialize;
 
-use crate::auth::{OwnerAuth, StoreAuth};
+use crate::auth::OwnerAuth;
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::util::{now_unix, to_rfc3339};
@@ -45,7 +45,7 @@ pub struct UnmatchedPaymentView {
 /// open ones first, newest first.
 pub async fn list(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
     Query(page): Query<ListQuery>,
 ) -> Result<Json<Vec<UnmatchedPaymentView>>, AppError> {
     let store_id = auth.store.id.clone();

@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::admin_auth as aa;
-use crate::auth::StoreAuth;
+use crate::auth::OwnerAuth;
 use crate::error::AppError;
 use crate::routes::admin_session::require_session;
 use crate::routes::AppState;
@@ -41,7 +41,7 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
     })
 }
 
-pub async fn get(State(state): State<AppState>, _auth: StoreAuth) -> Result<Json<Value>, AppError> {
+pub async fn get(State(state): State<AppState>, _auth: OwnerAuth) -> Result<Json<Value>, AppError> {
     let cfg = state.config.settlement_destination.clone();
     let s = state
         .db

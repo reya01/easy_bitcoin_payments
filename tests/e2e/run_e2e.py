@@ -55,6 +55,19 @@ def http(method, url, body=None, headers=None, timeout=10):
             return e.code, raw.decode(errors="replace")
 
 
+def owner_get(path):
+    """GET a page the shop key may not read (payout, logs, late payments): sign in as the owner."""
+    req = urllib.request.Request(
+        f"{BASE}/admin/login",
+        data=json.dumps({"password": ADMIN_PW}).encode(),
+        method="POST",
+        headers={"content-type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        cookie = r.headers.get("set-cookie", "").split(";")[0]
+    return http("GET", f"{BASE}{path}", headers={"cookie": cookie})
+
+
 def ctl(**kw):
     return http("POST", f"{FAKE}/__ctl", kw)[1]
 
@@ -486,7 +499,7 @@ def main():
                     lambda: any(json.loads(b).get("invoice_id") == inv["id"] for b in HOOK["failed_bodies"]),
                     "a first (refused) delivery attempt",
                 )
-                code, rows = http("GET", f"{BASE}/api/v1/webhook-deliveries?limit=50", headers=auth())
+                code, rows = owner_get("/api/v1/webhook-deliveries?limit=50")
                 mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
                 assert len(mine) == 1, mine
                 assert mine[0]["status"] == "pending" and mine[0]["attempts"] >= 1, mine[0]
@@ -505,7 +518,7 @@ def main():
             got = [r for r in received if r["event"] == "invoice.paid" and json.loads(r["body"]).get("invoice_id") == inv["id"]]
             assert len(got) == 1, f"delivered {len(got)} times"
             assert verify_sig(state["hook_secret"], got[0]), "retried delivery must carry a valid signature"
-            code, rows = http("GET", f"{BASE}/api/v1/webhook-deliveries?limit=50", headers=auth())
+            code, rows = owner_get("/api/v1/webhook-deliveries?limit=50")
             mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
             assert mine[0]["status"] == "delivered", mine[0]
 
@@ -622,7 +635,7 @@ def main():
             import random
             import sqlite3
             rng = random.Random(20261108)
-            _, before = http("GET", f"{BASE}/api/v1/unmatched-payments", headers=auth())
+            _, before = owner_get("/api/v1/unmatched-payments")
             invoices = []
             for i in range(8):
                 sats = 1000 + i * 7
@@ -637,11 +650,11 @@ def main():
                 got = wait_for(lambda: status_of(inv)["status"] == "paid" and status_of(inv), f"{inv['id']} credited after the crashes", timeout=60)
                 assert got["paid_sats"] == sats, ("credited once, for the exact amount", got)
             # Nobody was credited twice or left over as an unmatched payment.
-            _, after = http("GET", f"{BASE}/api/v1/unmatched-payments", headers=auth())
+            _, after = owner_get("/api/v1/unmatched-payments")
             assert len(after) == len(before), ("no new unmatched payments", before, after)
             # One notification record per paid invoice (a delivery may be repeated
             # after a crash, but there is never more than one record).
-            _, rows = http("GET", f"{BASE}/api/v1/webhook-deliveries?limit=200", headers=auth())
+            _, rows = owner_get("/api/v1/webhook-deliveries?limit=200")
             for inv, _s in invoices:
                 mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
                 assert len(mine) == 1, (inv["id"], mine)

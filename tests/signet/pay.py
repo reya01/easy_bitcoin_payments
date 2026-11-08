@@ -354,8 +354,12 @@ def main():
         inv = invoice("pay-late", 1200, expiry_minutes=1)
         time.sleep(75)
         pay(inv["ark_address"], 1200, "late payment")
+        if not state.get("csrf"):  # the late-payment list is owner-only: sign in first
+            code, r = ebp_admin("POST", "/admin/login", {"password": ADMIN_PW})
+            assert code == 200, ("admin login", code)
+            state["csrf"] = (r or {}).get("csrf", "")
         def unmatched():
-            code, u = ebp("GET", "/api/v1/unmatched-payments")
+            code, u = ebp_admin("GET", "/api/v1/unmatched-payments")
             return code == 200 and any(1200 == x.get("amount_sats") for x in (u if isinstance(u, list) else u.get("items", u.get("payments", []))))
         wait_for(unmatched, "unmatched payment listed", 180, 3)
         assert inv_state(inv)["status"] != "paid"

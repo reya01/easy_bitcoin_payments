@@ -207,11 +207,13 @@ pub fn set_activity(conn: &Connection, mode: &str) -> Result<(), AppError> {
     settings::set(conn, "alerts_activity_digest_at", &now)
 }
 
-/// Orders this server marked paid since `since` (test payments excluded).
+/// Orders this server marked paid at or after `since` (test payments
+/// excluded). "At or after" so a payment landing in the very second a summary
+/// was cut is never lost; the worst case is one rare repeat count.
 pub fn paid_since(conn: &Connection, since: i64) -> Result<i64, AppError> {
     let mut stmt = conn.prepare(
         "SELECT metadata_json FROM invoices
-         WHERE status IN ('paid','overpaid') AND paid_at IS NOT NULL AND paid_at > ?1",
+         WHERE status IN ('paid','overpaid') AND paid_at IS NOT NULL AND paid_at >= ?1",
     )?;
     let metas = stmt
         .query_map([since], |r| r.get::<_, String>(0))?
@@ -311,6 +313,13 @@ pub fn enable(conn: &Connection, own_server: Option<&str>) -> Result<(), AppErro
     match own_server.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => settings::set(conn, "alerts_server", &validate_server(s)?)?,
         None => settings::set(conn, "alerts_server", "")?,
+    }
+    // Turning alerts back on after a pause starts counting from now, so the
+    // first summary never reports payments from the time they were off.
+    if settings::get(conn, "alerts_state")?.as_deref() != Some("on") {
+        let now = now_unix().to_string();
+        settings::set(conn, "alerts_activity_cursor", &now)?;
+        settings::set(conn, "alerts_activity_digest_at", &now)?;
     }
     settings::set(conn, "alerts_state", "on")
 }
@@ -488,8 +497,11 @@ async fn tick(
 
     // Payment activity (daily summary by default; the owner can pick each
     // payment, or none).
-    let (mode, cursor, digest_at, new_since_cursor, new_since_digest) = db
+    let (now, mode, digest_at, new_since_cursor, new_since_digest) = db
         .call(move |c| {
+            // Sampled in the same step as the counts, so the cursor we save
+            // afterwards matches exactly what was counted.
+            let now = now_unix();
             let mode = activity(c)?;
             let get = |k: &str, c: &Connection| -> Result<i64, AppError> {
                 Ok(settings::get(c, k)?
@@ -508,15 +520,14 @@ async fn tick(
                 settings::set(c, "alerts_activity_digest_at", &now.to_string())?;
             }
             Ok((
+                now,
                 mode,
-                cursor,
                 digest_at,
                 paid_since(c, cursor)?,
                 paid_since(c, digest_at)?,
             ))
         })
         .await?;
-    let _ = cursor;
     if let Some((title, body)) =
         activity_message(mode, now, digest_at, new_since_cursor, new_since_digest)
     {

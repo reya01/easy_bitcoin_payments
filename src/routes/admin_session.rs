@@ -238,12 +238,21 @@ pub async fn change_password(
     aa::validate_password(&req.new)?;
     let iters = state.config.password_hash_iterations;
     let (current, new) = (req.current, req.new);
-    let pw_ok = state
-        .db
-        .call(move |c| aa::check_password(c, &current))
-        .await?;
+    if current.len() > 1024 {
+        return Err(AppError::BadRequest(
+            "That is not your current password.".into(),
+        ));
+    }
+    // The slow hash check runs outside the database lock, like sign-in does.
+    let stored = state.db.call(|c| aa::stored_hash(c)).await?;
+    let pw_ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &current))
+        .await
+        .map_err(|e| AppError::Internal(format!("password check failed: {e}")))?;
     if !pw_ok {
-        return Err(AppError::Unauthorized);
+        // 400, not 401: a mistyped password must not look like "signed out".
+        return Err(AppError::BadRequest(
+            "That is not your current password.".into(),
+        ));
     }
     check_second_step(&state, req.code).await?;
     state

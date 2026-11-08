@@ -101,8 +101,12 @@ pub fn client_ip(
     trust_proxy_headers: bool,
 ) -> String {
     if trust_proxy_headers {
+        // Last header LINE, then last entry in it: some proxies add their own
+        // line instead of merging into the client's.
         if let Some(last) = headers
-            .get("x-forwarded-for")
+            .get_all("x-forwarded-for")
+            .iter()
+            .next_back()
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.rsplit(',').next())
             .map(str::trim)
@@ -168,6 +172,18 @@ mod tests {
             l.client_key(&req),
             "same real client, same bucket"
         );
+    }
+
+    #[test]
+    fn proxy_mode_uses_the_last_forwarded_header_line() {
+        // A proxy that adds its own line instead of merging into the client's.
+        let l = RateLimiter::new(3, true);
+        let req = axum::http::Request::builder()
+            .header("x-forwarded-for", "6.6.6.6")
+            .header("x-forwarded-for", "203.0.113.9")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(l.client_key(&req), "203.0.113.9");
     }
 
     #[test]

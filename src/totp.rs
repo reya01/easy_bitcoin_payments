@@ -334,13 +334,17 @@ pub fn confirm(conn: &Connection, typed: &str, now: i64) -> Result<Vec<String>, 
     let key = key_of(&enc)?;
     match matching_step(&key, typed, now, 0) {
         Some(step) => {
-            conn.execute(
+            // All or nothing: never "on" without the recovery codes made.
+            let tx = conn.unchecked_transaction()?;
+            tx.execute(
                 "UPDATE admin_totp SET enabled = 1, last_step = ?1, fail_count = 0, locked_until = 0
                  WHERE id = 1",
                 params![step],
             )?;
-            set_declined(conn, false)?;
-            generate_recovery_codes(conn)
+            set_declined(&tx, false)?;
+            let codes = generate_recovery_codes(&tx)?;
+            tx.commit()?;
+            Ok(codes)
         }
         None => {
             let _ = note_failure(conn, fails, now)?;

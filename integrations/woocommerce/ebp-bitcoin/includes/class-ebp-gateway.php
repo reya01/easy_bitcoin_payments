@@ -34,6 +34,16 @@ class EBP_Gateway extends WC_Payment_Gateway {
 
 	public function init_form_fields() {
 		$this->form_fields = array(
+			'connect_steps'  => array(
+				'title'       => __( 'Connect your shop in 3 steps', 'ebp-bitcoin' ),
+				'type'        => 'title',
+				'description' => '<ol style="list-style:decimal;margin-left:1.5em">'
+					. '<li>' . esc_html__( 'Open your payment server\'s admin page and go to the Connect tab ("Connect your shop"). Copy its step 1 address and its step 2 API key into the boxes below.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'Copy "Your shop\'s notification address" shown further down this page into step 3 on the Connect tab and press Save address. A signing secret appears there once. Copy it into the Signing secret box below.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'Tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
+					. '</ol>'
+					. '<p><strong>' . esc_html__( 'Test version: use play-money (signet) coins only.', 'ebp-bitcoin' ) . '</strong></p>',
+			),
 			'enabled'        => array(
 				'title'   => __( 'Enable', 'ebp-bitcoin' ),
 				'type'    => 'checkbox',
@@ -43,7 +53,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'server_url'     => array(
 				'title'       => __( 'Server address', 'ebp-bitcoin' ),
 				'type'        => 'text',
-				'description' => __( 'Your payment server, from the "Connect your shop" tab of its dashboard. Example: https://pay.myshop.com', 'ebp-bitcoin' ),
+				'description' => __( 'Your payment server, from step 1 on the Connect tab of its admin page. Example: https://pay.myshop.com', 'ebp-bitcoin' ),
 				'desc_tip'    => false,
 				'default'     => '',
 				'placeholder' => 'https://',

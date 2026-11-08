@@ -26,7 +26,7 @@ bitcoin yet.
 
 ## 2. Fill in three things
 
-Open your payment server's dashboard and go to the **Connect your shop** tab.
+Open your payment server's admin page and go to the **Connect** tab (its heading says "Connect your shop"). The same three steps are shown at the top of the plugin's settings page.
 
 | In the plugin | Where to get it |
 | --- | --- |

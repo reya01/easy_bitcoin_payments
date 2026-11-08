@@ -2,10 +2,8 @@
 
 Easy Bitcoin Payments (EBP) lets your WooCommerce shop take Bitcoin into a
 wallet **you** control, with no company in the middle. This page takes you from
-nothing to a first paid test order. It uses a small DigitalOcean server, and you
+nothing to your first paid order. It uses a small DigitalOcean server, and you
 do not need a terminal.
-
-**This is a test version: play money (signet) only.** Do not use real bitcoin.
 
 **You need**
 
@@ -17,9 +15,7 @@ do not need a terminal.
   it (from the project's **Releases** page; [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin)
   says which one).
 - A wallet for the payout address. The tested ones: **Arké** or **Noah** (Ark),
-  **Sparrow**, **Nunchuk** or **Liana** (on-chain). Use a signet wallet for play money.
-- Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
-  5 to 10 minutes to arrive).
+  **Sparrow**, **Nunchuk** or **Liana** (on-chain).
 - Pen and paper (for 12 recovery words) and a password manager, open and ready.
 - About an hour, mostly waiting.
 
@@ -98,8 +94,8 @@ Open the web address from the box (it ends in `/setup`) and follow the page:
    characters (four random words works well). It signs you in to the admin page
    and locks your backups.
 5. **Where your money goes.** Choose **Ark wallet** or **On-chain Bitcoin
-   wallet**, open Receive in that wallet, copy an address and paste it. For play
-   money it starts with `tark1` (Ark) or `tb1` (on-chain). This is required. You
+   wallet**, open Receive in that wallet, copy an address and paste it. It starts
+   with `ark1` (Ark) or `bc1` (on-chain). This is required. You
    can change it later in Settings (a change waits a day for safety).
 6. **API key.** Shown once. Save it in your password manager.
 7. **Finish.** The server restarts once, so the page may not answer for about a
@@ -116,11 +112,11 @@ goes. Tap **Turn on**, scan the picture with the app, type the code, and save th
 and use a password only, which is less secure, and turn it on later in
 **Settings**.
 
-## 5. Make a test payment
+## 5. Make a first payment
 
 1. Admin page → **Payments** → **Try a payment** → **Create a test payment
    request** → **Open the checkout page**. It shows a QR code.
-2. In your signet wallet choose Send, scan the QR and confirm. The page flips to
+2. In a wallet that holds a little bitcoin, choose Send, scan the QR and confirm. The page flips to
    **Paid** within seconds.
 
 ## 6. Connect your shop
@@ -170,7 +166,6 @@ changing the password. Details and how to restore:
 
 ## Glossary
 
-- **Signet:** a practice Bitcoin network with worthless coins.
 - **Till:** the small wallet on your server that receives payments. EBP moves its
   contents to your own wallet automatically.
 - **Two-step sign-in:** a second lock on the admin page: your password plus a

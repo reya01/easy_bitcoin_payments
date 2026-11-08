@@ -6,6 +6,11 @@ notes are the result of the test. Times are guesses; write the real ones.
 
 Play money only: signet coins. Do not send real bitcoin.
 
+The public walkthrough ([START_HERE.md](../START_HERE.md)) is written for real use, so
+it talks about `bc1` / `ark1` addresses and a wallet holding bitcoin. **For this test
+substitute signet:** use a signet wallet, and payout addresses that start with `tb1`
+(on-chain) or `tark1` (Ark); a real-money address is refused by a test server.
+
 ## Before you start (about 30 minutes, can be done a day earlier)
 
 - [ ] A signet wallet that can receive coins (the tested one is **Arké**,

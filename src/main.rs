@@ -10,7 +10,16 @@ use easy_bitcoin_payments::watcher::PollingWatcher;
 use easy_bitcoin_payments::webhook::WebhookEmitter;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
+    // Print a problem in plain words (not Rust's "Error: Invalid { key: ... }"
+    // debug form) and exit with a failure code.
+    if let Err(e) = run().await {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str).unwrap_or("serve");
 

@@ -18,6 +18,7 @@ Play money only: signet coins. Do not send real bitcoin.
 - [ ] The plugin zip `ebp-bitcoin-woocommerce.zip` saved where your browser
       can reach it.
 - [ ] Your DigitalOcean account with a payment method added.
+- [ ] The setup text copied (see VPS_DIGITALOCEAN.md step 1a).
 
 ## The steps
 

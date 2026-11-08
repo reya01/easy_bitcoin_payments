@@ -17,30 +17,42 @@ is not covered here yet.
 
 ## 1. Create the server ("Droplet")
 
-1. Create an account at digitalocean.com and add a payment method.
-2. Click **Create → Droplets**.
+### Step 1a. Copy the setup text first (30 seconds)
+
+DigitalOcean will ask you to paste a block of setup text, so copy it **before**
+you start. It is a ready-made list of instructions that installs and starts
+everything for you.
+
+1. Open this page: <https://github.com/reya01/easy_bitcoin_payments/blob/main/deploy/cloud-init.yaml>
+2. Tap the **copy icon** at the top right of the grey file area (two small
+   squares). On a computer you can also click inside the text, press Ctrl+A
+   (Cmd+A on Mac), then Ctrl+C (Cmd+C).
+3. Leave it copied. The first line of what you copied must be `#cloud-config`.
+
+### Step 1b. Fill in DigitalOcean's "Create Droplet" page
+
+1. Sign in at digitalocean.com (create an account and add a payment method if
+   you have not).
+2. Click the green **Create** button at the top, then **Droplets**.
 3. **Region:** the one nearest you.
-4. **Image:** Ubuntu **24.04 (LTS) x64**.
-5. **Size:** Basic → Regular → **2 GB / 1 CPU (about $12/month)** or bigger.
+4. **Image / operating system:** Ubuntu, version **24.04 (LTS) x64**.
+5. **Size:** Basic, Regular, **2 GB / 1 CPU (about $12/month)** or bigger.
    (Until the first official release exists, the server builds the software
-   itself, which needs the memory. After a release, 1 GB is enough.)
-6. **Authentication:** pick **Password** and choose a strong one, or an SSH key
-   if you know what that is. You will mostly not need it.
-7. Scroll down to **Advanced Options** and open it. Tick **Add Initialization
-   scripts (free)**: a text box appears. Paste the setup text into that box
-   (see "Where to get the setup text" just below).
-8. Click **Create Droplet**.
+   itself, which needs the memory.)
+6. **Authentication:** choose **Password** and make a strong one (save it in
+   your password manager). You will rarely need it.
+7. **The setup text.** Scroll down the page until you see **Advanced Options**
+   (it may be a collapsed heading; click it to open it). Inside, tick
+   **Add Initialization scripts (free)**. A large empty text box appears. Click
+   in it and **paste** (Ctrl+V or Cmd+V, or long-press then Paste on a phone).
+   You should now see the text starting with `#cloud-config`.
+8. Click **Create Droplet** at the bottom. That is all. Do not open anything on
+   the server yet; go to step 2.
 
-### Where to get the setup text
-
-It is a short file called `deploy/cloud-init.yaml`. Open it here, tap the copy
-icon at the top right of the file, and paste into the box (paste everything,
-unchanged, including the first line `#cloud-config`):
-
-<https://github.com/reya01/easy_bitcoin_payments/blob/main/deploy/cloud-init.yaml>
-
-It is about 15 lines. It tells the new server to install Docker, download Easy
-Bitcoin Payments and start it, which is why you do not need a terminal.
+If you cannot find the box, DigitalOcean may have renamed it. Look for
+"user data", "startup script" or "cloud-init" near the bottom of the page.
+(This guide has not yet been checked against DigitalOcean's current screens, so
+please write down any label that differs. That is useful.)
 
 ## 2. Wait, then read the server's screen
 

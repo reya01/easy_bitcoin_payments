@@ -34,9 +34,14 @@ everything for you.
 1. Sign in at digitalocean.com (create an account and add a payment method if
    you have not).
 2. Click the green **Create** button at the top, then **Droplets**.
-3. **Region:** the one nearest you.
+3. **Region:** the one nearest you. (Not every region offers every server
+   size. If you cannot find the **Basic** plan in step 5, or the 2 GB size is
+   greyed out, go back and pick a different region, for example New York,
+   San Francisco or Amsterdam. Any region works.)
 4. **Image / operating system:** Ubuntu, version **24.04 (LTS) x64**.
-5. **Size:** Basic, Regular, **2 GB / 1 CPU (about $12/month)** or bigger.
+5. **Size:** choose the **Basic** plan, then **Regular**, then **2 GB / 1 CPU
+   (about $12/month)** or bigger. If there is no Basic plan, change the region
+   (step 3).
    (Until the first official release exists, the server builds the software
    itself, which needs the memory.)
 6. **Authentication:** choose **Password** and make a strong one (save it in

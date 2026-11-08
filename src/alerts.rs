@@ -12,7 +12,8 @@
 //! * `alerts_server` — optional own ntfy server (https), default ntfy.sh
 //! * `alert.active.<key>` — unix time the problem was last announced
 //!   (`0` = not active), used to alert once and repeat at most daily.
-//! * `alerts_activity` — how to hear about payments: `daily` (the default; one
+//! * `alerts_activity` — (added with the PHP2Shell hardening, so a redirected or
+//!   skimmed shop shows up quickly) how to hear about payments: `daily` (the default; one
 //!   short message a day, only on days with payments), `each` (one message per
 //!   payment) or `off`. Messages carry counts only, never amounts or addresses.
 //! * `alerts_activity_cursor` / `alerts_activity_digest_at` — where the last

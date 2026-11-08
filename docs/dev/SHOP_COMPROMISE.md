@@ -9,6 +9,11 @@ released on 21 October 2026. EBP is not written in PHP and runs on a separate se
 but the shop is part of the system. We cannot fix PHP. We can make a hacked shop
 matter less.
 
+**Recorded decision (8 Nov 2026):** the pause switch, owner-only key limits, optional
+address lock and payment summary were added specifically in response to PHP2Shell,
+so that a future PHP/WordPress takeover has a small, bounded effect. Code comments
+in `src/shopkey.rs` and `src/auth.rs` point back here.
+
 ## What a hacked shop can and cannot do
 
 | An attacker who controls the shop can... | Today |

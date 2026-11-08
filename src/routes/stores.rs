@@ -3,7 +3,8 @@
 //! Closes review finding R4: a store created by the setup wizard had no way
 //! to receive webhooks, and keys could not be rotated. Both endpoints need the
 //! signed-in admin session (NOT the shop's API key, which a hacked shop would
-//! hold); secrets are returned once.
+//! hold; changed because of the PHP2Shell bugs, see docs/dev/SHOP_COMPROMISE.md);
+//! secrets are returned once.
 
 use axum::extract::State;
 use axum::Json;

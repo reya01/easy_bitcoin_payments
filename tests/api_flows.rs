@@ -699,7 +699,12 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
         .json()
         .await
         .unwrap();
-    assert_eq!(audit[0]["action"], "webhook.resend");
+    // (Newest first, but the owner's sign-in can share the same second.)
+    assert!(audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|a| a["action"] == "webhook.resend"));
 }
 
 #[tokio::test]

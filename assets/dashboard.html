@@ -639,7 +639,7 @@ $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });
 
-// ---- Pause new payments ----
+// ---- Pause new payments (added because of the PHP2Shell bugs that can take over a PHP shop; see docs/dev/SHOP_COMPROMISE.md) ----
 function setPaused(p, btn) {
   if (btn) btn.disabled = true;
   api("POST", "/admin/pause", { paused: p }).then(function () { paused = p; renderPause(); })

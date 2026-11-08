@@ -96,7 +96,8 @@ impl FromRequestParts<AppState> for StoreAuth {
             .ok_or(AppError::Unauthorized)?;
 
         // Optional lock: shop keys only work from the addresses the owner
-        // listed. A stolen key is then useless anywhere else.
+        // listed. A stolen key is then useless anywhere else (a hardening step
+        // taken because of PHP2Shell; see shopkey.rs).
         let ip = crate::ratelimit::client_ip(
             &parts.headers,
             &parts.extensions,
@@ -130,7 +131,9 @@ impl FromRequestParts<AppState> for StoreAuth {
 
 /// Owner-only actions (change where shop notifications go, replace the key,
 /// mark payments handled, ...). Needs a signed-in admin session; an API key,
-/// the thing a hacked shop would hold, is never enough.
+/// the thing a hacked shop would hold, is never enough. (Added after the
+/// PHP2Shell bugs, which can take over a PHP shop without any fault of its
+/// owner: https://www.wiz.io/blog/php2shell-php-rce.)
 pub struct OwnerAuth {
     pub store: Store,
 }

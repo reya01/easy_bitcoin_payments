@@ -1,5 +1,10 @@
 //! Limits on what a shop's API key can do, and the "pause new payments" switch.
 //!
+//! Added in response to PHP2Shell (November 2026): bugs in PHP itself that let a
+//! stranger take over websites on almost any PHP version, WooCommerce shops included,
+//! without any mistake by its owner (https://www.wiz.io/blog/php2shell-php-rce).
+//! We cannot fix PHP, so we limit what a taken-over shop can do with EBP.
+//!
 //! Why: the shop's key lives inside the shop's website. If that website is
 //! ever taken over (for example through a bug in PHP or WordPress), the key is
 //! what an attacker gets. So (1) the key can only do what a shop needs, (2) the

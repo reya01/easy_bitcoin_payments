@@ -1,4 +1,5 @@
-//! Pause switch and shop-key address lock (see `crate::shopkey`). All need a
+//! Pause switch and shop-key address lock (see `crate::shopkey`; added because
+//! of the PHP2Shell bugs that can take over a PHP shop). All need a
 //! signed-in admin session plus the CSRF header.
 //!
 //! * `POST /admin/pause`        — `{paused: true|false}` stop or resume NEW payment requests

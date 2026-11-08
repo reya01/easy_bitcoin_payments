@@ -329,8 +329,9 @@ pub async fn create(
     auth: StoreAuth,
     Json(req): Json<CreateInvoiceRequest>,
 ) -> Result<(StatusCode, Json<InvoiceResponse>), AppError> {
-    // The owner's "pause new payments" switch. Payment requests already made
-    // keep working; only new ones are refused.
+    // The owner's "pause new payments" switch (added because of PHP2Shell, which
+    // can take over a PHP shop). Payment requests already made keep working;
+    // only new ones are refused.
     if state.db.call(|c| crate::shopkey::is_paused(c)).await? {
         return Err(AppError::Conflict(
             "Bitcoin payments are paused by the shop owner. Please try another way to pay.".into(),

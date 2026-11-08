@@ -202,9 +202,9 @@
       <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 16 characters" autocapitalize="none" autocorrect="off" spellcheck="false">
       <div class="pwrow"><span id="admin-pw-count"></span><button type="button" id="admin-pw-show">Show</button></div>
       <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager. A few random words works well.</p>
-      <label for="payout-kind">Where should your money go? (optional)</label>
+      <label for="payout-kind">Where should your money go?</label>
       <select id="payout-kind">
-        <option value="">Decide later (skip for now)</option>
+        <option value="">Choose your wallet type…</option>
         <option value="ark">Ark wallet</option>
         <option value="onchain">On-chain Bitcoin wallet</option>
       </select>
@@ -326,7 +326,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   function looksArk(a) { return /^t?ark1/i.test(a); }
   function payoutValue() {
     var kind = payoutKind(), a = document.getElementById("payout").value.trim();
-    return kind && a ? a : null;
+    return kind && a ? a : "";
   }
   document.getElementById("payout-kind").addEventListener("change", function () {
     var kind = payoutKind(), box = document.getElementById("payout-box");
@@ -648,8 +648,12 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       return;
     }
     var kind = payoutKind(), addr = document.getElementById("payout").value.trim();
-    if (kind && !addr) {
-      fail(els.storeError, "Paste your wallet's address, or choose \"Decide later\" to skip this for now.");
+    if (!kind) {
+      fail(els.storeError, "Choose where your money should go: an Ark wallet or an on-chain Bitcoin wallet.");
+      return;
+    }
+    if (!addr) {
+      fail(els.storeError, "Paste your wallet's address to continue. It is where your earnings are sent.");
       return;
     }
     if (kind === "ark" && addr && !looksArk(addr)) {

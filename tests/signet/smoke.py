@@ -152,6 +152,8 @@ def main():
             page.wait_for_selector("#step-store:not(.hidden)", timeout=60000)
             page.fill("#store", "Signet Smoke Shop")
             page.fill("#admin-pw", ADMIN_PW)
+            page.select_option("#payout-kind", "onchain")
+            page.fill("#payout", "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")  # signet placeholder; changed later in the drill
             page.click("#btn-store")
             page.wait_for_selector("#store-secrets:not(.hidden)")
             state["api_key"] = page.inner_text("#api-key").strip()

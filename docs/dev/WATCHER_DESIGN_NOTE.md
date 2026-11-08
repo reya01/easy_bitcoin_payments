@@ -32,7 +32,15 @@ removes the worst of the per-entry cost. This note is about the rest.
    entries must keep being re-read until they settle. Read `record_payment` in
    `src/invoice.rs` and the barkd entry shape to answer this.
 
-Do not start until 1 to 3 are answered.
+**Update 2026-11-08.** Question 2 is answered from the code and the pinned
+OpenAPI spec: barkd 0.8.0's history call has no `since`, page or limit option
+(`payments_since` in `src/wallet/barkd.rs` and its test say so), so option C is not
+available. Questions 1 and 3 are still open (they need the signet drill and a read of
+`record_payment`), so **nothing was built**: this is the money-crediting path, and
+the change was judged too risky to rush before the first droplet test. At test scale
+(a handful of payments) the current behaviour costs nothing.
+
+Do not start until 1 and 3 are answered.
 
 ## Options
 

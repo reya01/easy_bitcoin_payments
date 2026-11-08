@@ -62,16 +62,39 @@ please write down any label that differs. That is useful.)
 ## 2. Wait, then read the server's screen
 
 The server installs everything by itself. Building the first time takes
-**15–30 minutes** (a few minutes once an official release exists).
+**15-30 minutes** (a few minutes once an official release exists).
 
-When it's ready:
+### How to tell it is ready
+
+**It is ready when the Console shows a box that starts with "Easy Bitcoin
+Payments", with a web address and a SETUP CODE inside it.** That box is the
+signal. Nothing else on the DigitalOcean website tells you.
+
+Be careful with these, because they look like "done" but are not:
+
+- **The green dot / "Active" next to your Droplet** only means the empty server
+  is switched on. It turns green within a minute or two, long before our
+  software is installed.
+- **A plain login prompt in the Console** (just `login:` or a line ending in
+  `login:`, with no box) means it is **still installing**. Wait and check again.
+- **The web address does not open yet** while it is installing. That is normal.
+
+How to check, step by step:
 
 1. Open your Droplet in DigitalOcean and click **Console** (top right).
-2. The Console opens in a new window. It shows a box with **a web address**
-   and a **SETUP CODE**. If it asks you to log in, sign in as `root` with the
-   password you chose; the same box is also shown on the login screen.
-3. If the box says the server is still starting, wait two minutes, then type
-   `ebp-info` and press Enter.
+2. The Console opens in a new window. Click inside it and press **Enter** (this
+   redraws the screen, so you see the newest message).
+3. **Box with "Easy Bitcoin Payments", an address and a SETUP CODE:** it is
+   ready. Go to step 3 below. (If it asks you to log in, sign in as `root`
+   with the password you chose; the same box is shown after you log in.)
+4. **No box yet:** it is still installing. Close the Console, wait 5 minutes,
+   try again. Nothing is wrong until about 30 minutes have passed.
+5. **Box that says "The server is still starting":** wait two minutes, then log
+   in as `root`, type `ebp-info` and press Enter.
+
+Want a more exact check? Log in as `root` and type `cloud-init status`. It
+says `status: running` while installing and `status: done` when finished. (If it
+says `done` but there is still no box, type `ebp-info`.)
 
 ## 3. Finish setup in your browser
 

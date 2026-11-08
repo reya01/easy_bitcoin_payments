@@ -248,6 +248,13 @@ pub fn database_entry(conn: &rusqlite::Connection) -> Result<Entry, AppError> {
             let copy = rusqlite::Connection::open(&tmp)?;
             // A restored copy must not carry live logins.
             copy.execute("DELETE FROM admin_sessions", [])?;
+            // Two-step sign-in stays out of backups: the file also holds the
+            // key that unlocks its secret, and the password alone opens the
+            // file, so keeping it would let the password undo the second step.
+            // A restored server starts with two-step sign-in off and offers
+            // to turn it on again.
+            copy.execute("DELETE FROM admin_totp", [])?;
+            copy.execute("DELETE FROM admin_recovery_codes", [])?;
         }
         std::fs::read(&tmp).map_err(|e| AppError::Internal(format!("backup read failed: {e}")))
     })();
@@ -531,12 +538,16 @@ mod tests {
     }
 
     #[test]
-    fn database_entry_drops_sessions() {
+    fn database_entry_drops_sessions_and_two_step_secrets() {
         let db_conn = rusqlite::Connection::open_in_memory().unwrap();
         db_conn
             .execute_batch(
                 "CREATE TABLE admin_sessions(token_hash TEXT); \
                  INSERT INTO admin_sessions VALUES ('secret-session'); \
+                 CREATE TABLE admin_totp(secret_enc TEXT); \
+                 INSERT INTO admin_totp VALUES ('secret'); \
+                 CREATE TABLE admin_recovery_codes(code_hash TEXT); \
+                 INSERT INTO admin_recovery_codes VALUES ('hash'); \
                  CREATE TABLE keep(x); INSERT INTO keep VALUES (7);",
             )
             .unwrap();
@@ -550,6 +561,12 @@ mod tests {
             .query_row("SELECT count(*) FROM admin_sessions", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+        for table in ["admin_totp", "admin_recovery_codes"] {
+            let n: i64 = c
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} must not travel in a backup");
+        }
         let k: i64 = c.query_row("SELECT x FROM keep", [], |r| r.get(0)).unwrap();
         assert_eq!(k, 7);
         let _ = std::fs::remove_dir_all(base);

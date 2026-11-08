@@ -1713,6 +1713,16 @@ async fn shop_key_can_be_locked_to_the_shops_address() {
     // Now only the shop's address works; the refused one is reported to the owner.
     assert_eq!(from("203.0.113.7").await.unwrap().status().as_u16(), 200);
     assert_eq!(from("198.51.100.9").await.unwrap().status().as_u16(), 401);
+    // A stranger with a made-up key must not leave a hint for the owner.
+    let stranger = client
+        .get(format!("{base}/api/v1/invoices?limit=1"))
+        .header("host", "localhost")
+        .header("x-forwarded-for", "192.0.2.55")
+        .bearer_auth("ebp_not_a_real_key")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stranger.status().as_u16(), 401);
     let status: serde_json::Value = admin("/admin/keylock/status", serde_json::json!({}))
         .await
         .unwrap()

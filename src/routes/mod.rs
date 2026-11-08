@@ -140,7 +140,6 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/alerts/activity", post(alerts::activity))
         .route("/admin/reconcile/status", post(reconcile::status))
         .route("/admin/reconcile/done", post(reconcile::done))
-        .route("/admin/password", post(admin_session::change_password))
         .route("/admin/2fa/status", post(twofa::status))
         .route("/admin/2fa/skip", post(twofa::skip))
         .route("/admin/pause", post(shopkey::pause))
@@ -157,18 +156,22 @@ pub fn router(state: AppState) -> Router {
                 .route("/admin/2fa/start", post(twofa::start))
                 .route("/admin/2fa/confirm", post(twofa::confirm))
                 .route("/admin/2fa/disable", post(twofa::disable))
-                // Password-guessing brake: 10 attempts a minute per client.
+                // Checks the current password, so it shares the brake too.
+                .route("/admin/password", post(admin_session::change_password))
+                // An overall cap that does not depend on trusting any client
+                // address (covers a misconfigured proxy setup). Added first so
+                // it runs AFTER the per-client brake: one noisy client is
+                // refused before it can use up everyone else's share.
+                .layer(middleware::from_fn_with_state(
+                    Arc::new(crate::ratelimit::RateLimiter::new_global(120)),
+                    crate::ratelimit::limit,
+                ))
+                // Password-guessing brake (runs first): 10 attempts a minute per client.
                 .layer(middleware::from_fn_with_state(
                     Arc::new(crate::ratelimit::RateLimiter::new(
                         10,
                         state.config.trust_proxy_headers,
                     )),
-                    crate::ratelimit::limit,
-                ))
-                // ...and an overall cap that does not depend on trusting any
-                // client address (covers a misconfigured proxy setup).
-                .layer(middleware::from_fn_with_state(
-                    Arc::new(crate::ratelimit::RateLimiter::new_global(120)),
                     crate::ratelimit::limit,
                 ))
                 .with_state(state.clone()),

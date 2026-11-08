@@ -103,24 +103,22 @@ impl FromRequestParts<AppState> for StoreAuth {
             &parts.extensions,
             state.config.trust_proxy_headers,
         );
-        let allowed = state
-            .db
-            .call(move |conn| {
-                let ok = crate::shopkey::ip_allowed(conn, &ip)?;
-                if !ok {
-                    crate::shopkey::note_blocked(conn, &ip)?;
-                }
-                Ok(ok)
-            })
-            .await?;
-        if !allowed {
-            return Err(AppError::Unauthorized);
-        }
-
+        // The key is checked first, so only a request that really carried a
+        // valid key can leave a "refused address" hint behind (anyone on the
+        // internet can send a made-up key).
         let key_hash = hash_secret(token);
         let store = state
             .db
-            .call(move |conn| store::find_by_api_key_hash(conn, &key_hash))
+            .call(move |conn| {
+                let Some(store) = store::find_by_api_key_hash(conn, &key_hash)? else {
+                    return Ok(None);
+                };
+                if !crate::shopkey::ip_allowed(conn, &ip)? {
+                    crate::shopkey::note_blocked(conn, &ip)?;
+                    return Ok(None);
+                }
+                Ok(Some(store))
+            })
             .await?;
 
         store

@@ -58,10 +58,12 @@ pub fn ip_allowed(conn: &Connection, ip: &str) -> Result<bool, AppError> {
     let Ok(ip) = ip.parse::<IpAddr>() else {
         return Ok(false);
     };
+    // "::ffff:1.2.3.4" and "1.2.3.4" are the same machine.
+    let ip = ip.to_canonical();
     Ok(list
         .iter()
         .filter_map(|a| a.parse::<IpAddr>().ok())
-        .any(|a| a == ip))
+        .any(|a| a.to_canonical() == ip))
 }
 
 /// Save the limit. Accepts addresses separated by commas, spaces or new lines;
@@ -128,6 +130,14 @@ mod tests {
         let c = conn();
         assert!(ip_allowed(&c, "198.51.100.9").unwrap());
         assert!(ip_allowed(&c, "unknown").unwrap());
+    }
+
+    #[test]
+    fn an_ipv4_address_seen_as_ipv6_still_matches() {
+        let c = conn();
+        set_allowed(&c, "203.0.113.7").unwrap();
+        assert!(ip_allowed(&c, "::ffff:203.0.113.7").unwrap());
+        assert!(!ip_allowed(&c, "::ffff:203.0.113.8").unwrap());
     }
 
     #[test]

@@ -668,7 +668,7 @@ function loadKeylock() {
 function showKeylock(r) {
   if (document.activeElement !== $("kl-addr")) $("kl-addr").value = (r.addresses || []).join(", ");
   var b = $("kl-blocked");
-  if (r.last_blocked_address) { b.textContent = "A request from " + r.last_blocked_address + " (" + when(r.last_blocked_at * 1000) + ") was refused. If that is your shop, add this address."; b.classList.remove("hidden"); }
+  if (r.last_blocked_address) { b.textContent = "A request with your shop key from " + r.last_blocked_address + " (" + when(r.last_blocked_at * 1000) + ") was refused. If that is your shop, add this address."; b.classList.remove("hidden"); }
   else b.classList.add("hidden");
 }
 $("kl-save").addEventListener("click", function () {

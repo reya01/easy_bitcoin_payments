@@ -414,10 +414,14 @@ async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
         std::process::exit(2);
     }
     let config = Config::load()?;
-    easy_bitcoin_payments::secrets::init(
-        config.key_encryption_key.as_deref(),
-        &config.database_path,
-    )?;
+    // Turning 2FA off does not need the encryption key, so a lost or broken key
+    // can never block the lost-phone recovery.
+    if sub != Some("reset-2fa") {
+        easy_bitcoin_payments::secrets::init(
+            config.key_encryption_key.as_deref(),
+            &config.database_path,
+        )?;
+    }
     let db = Db::open(&config.database_path)?;
     if sub == Some("reset-2fa") {
         db.call(|conn| {

@@ -14,8 +14,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,B
 main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;align-items:center;gap:10px;padding-bottom:16px;border-bottom:1px solid var(--line)}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--accent)}.store{font-weight:600;font-size:15px}
 .amount{margin:22px 0 4px;font-size:34px;font-weight:700}.sats{color:var(--muted);font-size:15px}.countdown{margin-top:10px;font-size:14px;color:var(--muted)}
-.card{margin-top:20px;border:1px solid var(--line);border-radius:var(--radius);padding:16px}.tabs{display:flex;gap:8px;margin-bottom:14px}
-.tab{flex:1;padding:10px 6px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
+.card{margin-top:20px;border:1px solid var(--line);border-radius:var(--radius);padding:16px}.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.tab{flex:1 1 40%;min-height:44px;padding:10px 8px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
 .tab[aria-selected="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);font-weight:600}
 .qr.on{border:0;padding:0;background:#fff}.qr img{width:100%;height:auto;display:block;border-radius:8px}
 .qr{display:grid;place-items:center;aspect-ratio:1/1;max-width:260px;margin:0 auto 14px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:13px;text-align:center;padding:16px}
@@ -24,30 +24,54 @@ main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;al
 .status{margin-top:20px;padding:14px 16px;border-radius:var(--radius);border:1px solid var(--line);font-size:15px}
 .back{margin:16px 0 0;text-align:center}.back a{display:inline-block;padding:12px 18px;border-radius:var(--radius);border:1px solid var(--line);color:inherit;text-decoration:none}.back a.done{border-color:var(--ok);color:var(--ok);font-weight:600}
 .status.ok{border-color:var(--ok);color:var(--ok)}.status.warn{border-color:var(--warn);color:var(--warn)}.status.err{border-color:var(--err);color:var(--err)}
-.test-banner{margin:14px 0 0;padding:10px 14px;border:1px solid var(--warn);border-radius:10px;color:var(--warn);font-size:13px;font-weight:600;text-align:center}.hidden{display:none!important}
+.tip{border-bottom:1px dotted var(--muted);cursor:help}
+.lead{margin:0 0 12px;font-size:15px}.lead b{font-weight:650}
+.btn{display:block;width:100%;padding:14px 16px;border-radius:var(--radius);border:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:16px;text-align:center;text-decoration:none;cursor:pointer;margin-top:10px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#111;font-weight:650}
+details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px;padding:6px 0}
+.tab-help{margin:0 0 12px;font-size:14px;color:var(--muted)}.help p{margin:6px 0 12px;font-size:14px;color:var(--muted)}.help b{color:var(--fg)}
+.test-banner{margin:14px 0 14px;padding:10px 14px;border:1px solid var(--warn);border-radius:10px;color:var(--warn);font-size:13px;font-weight:600;text-align:center}.hidden{display:none!important}
 </style>
 </head>
 <body>
 <main>
-<div class="test-banner hidden" id="test-banner" role="note">TEST MODE — signet. Play money; nothing here moves real value.</div>
+<div class="test-banner hidden" id="test-banner" role="note" title="Signet is a practice version of Bitcoin whose coins have no value.">TEST MODE: practice money only. Nothing here is real.</div>
 <header><span class="dot" aria-hidden="true"></span><span class="store" id="store-name">Loading…</span></header>
 <div class="amount" id="amount">—</div>
 <div class="sats" id="sats"></div>
-<div class="countdown" id="countdown"></div>
+<div class="countdown" id="countdown" title="Bitcoin's price moves, so the store holds today's price for a short time."></div>
 <section class="card">
-<div class="tabs" role="tablist" aria-label="Payment method">
-<button class="tab" role="tab" id="tab-bip321" aria-selected="true" aria-controls="panel">Bitcoin URI</button>
-<button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden>Lightning</button>
-<button class="tab" role="tab" id="tab-ark" aria-selected="false" aria-controls="panel">Ark</button>
-<button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel">On-chain</button>
+<p class="lead"><b>Pay from your Bitcoin wallet app.</b> Scan this code with it, or tap the button below if you are on your phone.</p>
+<div class="qr" id="qr">Use the button below to pay.</div>
+<a class="btn primary hidden" id="open-wallet" href="#">Open in my wallet app</a>
+<button class="btn" id="copy-btn" type="button">Copy payment details</button>
+<details id="other">
+<summary>Other ways to pay</summary>
+<div class="tabs" role="tablist" aria-label="Way to pay">
+<button class="tab" role="tab" id="tab-bip321" aria-selected="true" aria-controls="panel" title="One code that works with most wallets. Recommended.">Any wallet</button>
+<button class="tab" role="tab" id="tab-ln" aria-selected="false" aria-controls="panel" hidden title="Lightning: a fast way to send small Bitcoin payments, usually with a tiny fee.">Lightning (fast)</button>
+<button class="tab" role="tab" id="tab-ark" aria-selected="false" aria-controls="panel" title="Ark: a newer, fast way to send Bitcoin. Your wallet must support it.">Ark (fast)</button>
+<button class="tab" role="tab" id="tab-chain" aria-selected="false" aria-controls="panel" title="On-chain: the regular Bitcoin network. Works with every wallet but is slower.">Regular Bitcoin (slower)</button>
 </div>
-<div class="qr" id="qr">Copy the string below into your wallet.</div>
-<button class="address" id="address" type="button" title="Tap to copy">—</button>
+<p class="tab-help" id="tab-help"></p>
 <p class="ln-fee hidden" id="ln-fee"></p>
+</details>
+<details>
+<summary>Show payment details</summary>
+<button class="address" id="address" type="button" title="Tap to copy">—</button>
+</details>
 </section>
-<div class="status" id="status" role="status" aria-live="polite">Waiting for payment…</div>
+<div class="status" id="status" role="status" aria-live="polite">Waiting for your payment. This page updates by itself.</div>
 <p class="back hidden" id="back"><a id="back-link" href="#"></a></p>
-<footer><p>Bitcoin payments are final; refunds follow this store's policy. No account, no email, no tracking.</p></footer>
+<details class="help">
+<summary>Help</summary>
+<p><b>I need a Bitcoin wallet.</b> You pay from a Bitcoin wallet app on your phone that already holds some bitcoin. If you do not have one, go back to the shop and choose another way to pay.</p>
+<p><b>What is a sat?</b> A tiny piece of a bitcoin. 100 million sats make one bitcoin.</p>
+<p><b>Which way should I choose?</b> Leave it on "Any wallet". The other choices are for wallets that support them: Lightning and Ark are fast, regular Bitcoin works everywhere but can take 10 to 60 minutes to confirm.</p>
+<p><b>Why is there a timer?</b> The price of bitcoin moves, so the store holds today's price for a short time. If it runs out, go back to the shop and start again.</p>
+<p><b>I paid but it still says waiting.</b> Give it a minute. If nothing changes, contact the store and tell them the time you paid.</p>
+</details>
+<footer><p>Bitcoin payments cannot be reversed, so refunds are up to the store. We do not ask for an account or email, and we do not track you.</p></footer>
 </main>
 <script src="/assets/qr.js"></script>
 <script>
@@ -55,16 +79,20 @@ main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;al
 "use strict";
 var id = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
 function $(x) { return document.getElementById(x); }
-var els = { store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner"), back: $("back"), backLink: $("back-link") };
+var els = { store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner"), back: $("back"), backLink: $("back-link"), open: $("open-wallet"), copy: $("copy-btn"), help: $("tab-help") };
 var tabs = { bip321: $("tab-bip321"), ln: $("tab-ln"), ark: $("tab-ark"), chain: $("tab-chain") };
-// Byte Store drill 2026-11-02 (order 56): default = the combined BIP321
-// URI (one QR, one param per enabled rail); tabs are per-rail copies and
-// the old rail selector is the degraded mode (disabled rail: no param, no tab).
+// Default = the combined payment link (one QR that most wallets understand).
+// The per-method tabs are a second choice under "Other ways to pay".
 var s = { tab: "bip321", data: null, ln: null, uri: "", deadline: 0, poll: null, delay: 1000, t0: Date.now() };
+var helpText = {
+  bip321: "",
+  ln: "Lightning is fast and usually costs a tiny fee. Your wallet must support Lightning.",
+  ark: "Ark is fast and adds no extra fee. Your wallet must support Ark.",
+  chain: "Regular Bitcoin works with every wallet, but it can take 10 to 60 minutes to confirm."
+};
 function setStatus(t, k) { els.st.textContent = t; els.st.className = "status" + (k ? " " + k : ""); }
 // QR from the vendored generator (assets/qr.js, same-origin so the CSP holds).
-// Rendered as an <img> data URI: no innerHTML. On failure (string too long,
-// generator missing) fall back to the copy-the-string text.
+// Rendered as an <img> data URI: no innerHTML. On failure fall back to text.
 function drawQr(text) {
   var box = $("qr");
   try {
@@ -74,16 +102,28 @@ function drawQr(text) {
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg(text));
     box.replaceChildren(img); box.classList.add("on");
   } catch (e) {
-    box.textContent = "Copy the string below into your wallet."; box.classList.remove("on");
+    box.textContent = "Use the button below to pay."; box.classList.remove("on");
   }
+}
+// A link that opens the customer's wallet app, for the chosen way to pay.
+function walletLink(shown) {
+  if (!shown) return "";
+  if (s.tab === "bip321") return /^bitcoin:/i.test(shown) ? shown : "";
+  if (s.tab === "ln") return "lightning:" + shown;
+  if (s.tab === "chain" && s.data && s.data.amount_sats) return "bitcoin:" + shown + "?amount=" + (Number(s.data.amount_sats) / 1e8).toFixed(8);
+  return "";
 }
 function render() {
   var m = { bip321: s.uri, ln: s.ln && s.ln.bolt11, ark: s.data && s.data.ark_address, chain: s.data && s.data.onchain_address };
   var shown = (s.data ? m[s.tab] : "") || "";
   els.addr.textContent = shown || "—";
   drawQr(shown);
+  var link = walletLink(shown);
+  if (link) { els.open.href = link; els.open.classList.remove("hidden"); } else { els.open.classList.add("hidden"); }
+  els.help.textContent = helpText[s.tab] || "";
+  els.help.classList.toggle("hidden", !helpText[s.tab]);
   if (s.tab === "ln" && s.ln && typeof s.ln.fee_estimate_sat === "number") {
-    els.fee.textContent = "Lightning gateway fee: about " + s.ln.fee_estimate_sat.toLocaleString("en-US") + " sats, charged by the network — not by this store.";
+    els.fee.textContent = "A small network fee of about " + s.ln.fee_estimate_sat.toLocaleString("en-US") + " sats applies. It goes to the network, not to this store.";
     els.fee.classList.remove("hidden");
   } else { els.fee.classList.add("hidden"); }
 }
@@ -93,11 +133,21 @@ function select(k) {
   render();
 }
 Object.keys(tabs).forEach(function (k) { tabs[k].addEventListener("click", function () { select(k); }); });
-els.addr.addEventListener("click", function () { if (els.addr.textContent !== "—") navigator.clipboard.writeText(els.addr.textContent); });
+function copyNow() {
+  var t = els.addr.textContent;
+  if (t === "—") return;
+  var done = function () { var o = els.copy.textContent; els.copy.textContent = "Copied!"; setTimeout(function () { els.copy.textContent = "Copy payment details"; }, 1500); };
+  try { navigator.clipboard.writeText(t).then(done, function () {}); } catch (e) {}
+}
+els.addr.addEventListener("click", copyNow);
+els.copy.addEventListener("click", copyNow);
+function goBackLabel(text) {
+  if (s.back) { els.backLink.textContent = text; els.back.classList.remove("hidden"); }
+}
 fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "application/json" } })
   .then(function (r) { return r.ok ? r.json() : null; })
   .then(function (d) {
-    if (!d) { setStatus("Invoice not found.", "err"); return; }
+    if (!d) { setStatus("We could not find this payment. Please go back to the shop and try again.", "err"); return; }
     s.data = d; s.uri = d.bip321 || ""; s.deadline = d.expires_at_unix || 0;
     if (d.lightning && d.lightning.bolt11) { s.ln = d.lightning; tabs.ln.hidden = false; }
     // On-chain is off by default (server config onchain_rail_enabled): hide its tab.
@@ -108,22 +158,23 @@ fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "applicat
     if (d.return_url && /^https?:\/\//i.test(d.return_url)) {
       s.back = d.return_url;
       els.backLink.href = d.return_url;
-      els.backLink.textContent = "Back to " + (d.store_name || "the shop");
-      els.back.classList.remove("hidden");
+      goBackLabel("Back to " + (d.store_name || "the shop"));
     }
     var sats = Number(d.amount_sats).toLocaleString("en-US");
+    var satTip = "sats are tiny pieces of a bitcoin: 100 million sats make one bitcoin.";
     els.amount.textContent = d.fiat_amount ? d.fiat_currency + " " + d.fiat_amount : sats + " sats";
-    els.sats.textContent = sats + " sats";
+    els.sats.textContent = (d.fiat_amount ? "about " : "") + sats + " sats";
+    els.sats.title = satTip;
     render();
   })
-  .catch(function () { setStatus("Could not load this invoice.", "err"); });
+  .catch(function () { setStatus("We could not load this payment. Please check your connection, or go back to the shop and try again.", "err"); });
 setInterval(function () {
   if (!s.deadline) return;
   var left = Math.max(0, s.deadline - Math.floor(Date.now() / 1000));
-  els.cd.textContent = "Rate locked for " + Math.floor(left / 60) + ":" + ("0" + (left % 60)).slice(-2);
+  els.cd.textContent = left > 0 ? "Price held for " + Math.floor(left / 60) + ":" + ("0" + (left % 60)).slice(-2) : "";
 }, 1000);
-// Byte Store practice: poll /status ~1/s while pending, stop on paid/expired,
-// back off (x2, cap 30s) after 5 minutes.
+// Poll /status ~1/s while pending, stop on paid/expired, back off (x2, cap
+// 30s) after 5 minutes.
 function stop() { if (s.poll) { clearTimeout(s.poll); s.poll = null; } }
 function again() {
   if (Date.now() - s.t0 > 300000) s.delay = Math.min(s.delay * 2, 30000);
@@ -134,12 +185,24 @@ function poll() {
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (b) {
       if (!b) throw 0;
-      if (b.status === "paid" || b.status === "overpaid") { setStatus("Paid — thank you! Bitcoin payments are final; refunds follow this store's policy.", "ok"); els.backLink.classList.add("done"); if (s.back) els.backLink.textContent = "Done — return to " + (s.data && s.data.store_name ? s.data.store_name : "the shop"); return stop(); }
-      if (b.status === "pending" && b.onchain_confirmations !== null && b.onchain_confirmations !== undefined) {
-        setStatus("Bitcoin payment detected — waiting for " + b.onchain_confirmations_required + " block confirmation" + (b.onchain_confirmations_required > 1 ? "s" : "") + " (" + b.onchain_confirmations + " so far). This can take about 10–60 minutes. You can keep this page open.", "");
+      if (b.status === "paid" || b.status === "overpaid") {
+        setStatus("Paid. Thank you! " + (b.status === "overpaid" ? "You sent a little extra, so please contact the store about the difference. " : "") + "Bitcoin payments cannot be reversed, so any refund is up to the store.", "ok");
+        els.backLink.classList.add("done"); goBackLabel("Done: return to " + (s.data && s.data.store_name ? s.data.store_name : "the shop"));
+        return stop();
+      }
+      if (b.status === "underpaid") {
+        setStatus("We received part of your payment, but not all of it. Please contact the store so they can help.", "warn");
         return again();
       }
-      if (b.status === "expired") { setStatus("Expired — start a new invoice at the current rate.", "err"); return stop(); }
+      if (b.status === "pending" && b.onchain_confirmations !== null && b.onchain_confirmations !== undefined) {
+        setStatus("We can see your payment. Now waiting for the Bitcoin network to confirm it (" + b.onchain_confirmations + " of " + b.onchain_confirmations_required + " confirmations). This usually takes 10 to 60 minutes. You can keep this page open.", "");
+        return again();
+      }
+      if (b.status === "expired") {
+        setStatus("This payment request has expired, so the price is no longer held. Please go back to the shop and start a new payment. If you already paid, contact the store.", "err");
+        goBackLabel("Back to " + (s.data && s.data.store_name ? s.data.store_name : "the shop") + " to try again");
+        return stop();
+      }
       again();
     })
     .catch(again);

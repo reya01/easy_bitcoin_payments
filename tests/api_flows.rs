@@ -1221,7 +1221,7 @@ fn app_code(secret_b32: &str, step: i64) -> String {
 async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     use std::sync::atomic::{AtomicU32, Ordering};
     // Fixed once, so a 30-second boundary passing mid-test cannot change the codes used.
-    let base = now_unix() / 30;
+    let step0 = now_unix() / 30;
     let config = Config {
         password_hash_iterations: 1_000,
         // Each request below pretends to come from its own address so the
@@ -1311,7 +1311,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     let done: serde_json::Value = send(
         "/admin/2fa/confirm",
         sess,
-        serde_json::json!({"code": app_code(&secret, base)}),
+        serde_json::json!({"code": app_code(&secret, step0)}),
     )
     .await
     .unwrap()
@@ -1362,7 +1362,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     let r = send(
         "/admin/login",
         None,
-        serde_json::json!({"password": "nope nope nope nope", "code": app_code(&secret, base + 1)}),
+        serde_json::json!({"password": "nope nope nope nope", "code": app_code(&secret, step0 + 1)}),
     )
     .await
     .unwrap();
@@ -1371,7 +1371,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     let r = send(
         "/admin/login",
         None,
-        serde_json::json!({"password": pw, "code": app_code(&secret, base)}),
+        serde_json::json!({"password": pw, "code": app_code(&secret, step0)}),
     )
     .await
     .unwrap();
@@ -1380,7 +1380,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     let login = send(
         "/admin/login",
         None,
-        serde_json::json!({"password": pw, "code": app_code(&secret, base + 1)}),
+        serde_json::json!({"password": pw, "code": app_code(&secret, step0 + 1)}),
     )
     .await
     .unwrap();
@@ -1429,7 +1429,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     .await
     .unwrap();
     assert_eq!(r.status().as_u16(), 400);
-    let r = send("/admin/payout", sess2, serde_json::json!({"address": a, "admin_password": pw, "code": app_code(&secret, base + 1)}))
+    let r = send("/admin/payout", sess2, serde_json::json!({"address": a, "admin_password": pw, "code": app_code(&secret, step0 + 1)}))
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 200);
@@ -1454,7 +1454,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     let r = send(
         "/admin/2fa/disable",
         sess2,
-        serde_json::json!({"admin_password": pw, "code": app_code(&secret, base + 1)}),
+        serde_json::json!({"admin_password": pw, "code": app_code(&secret, step0 + 1)}),
     )
     .await
     .unwrap();

@@ -41,11 +41,15 @@ plugin. Do not reuse the old server.
 ## 2. You think someone saw your recovery words, or your admin password
 
 - **Admin password only:** sign in and change it (Settings). If you cannot sign
-  in, it is reset on the server with `ebp admin set-password`. Then download a
-  fresh backup, because older backups still need the old password.
+  in, open the Console of your server (DigitalOcean: your Droplet, then
+  **Console**), log in as `root`, and run
+  `cd /opt/ebp && docker compose exec ebp ebp admin set-password`. Type the new
+  password (16+ characters) and press Enter. Then download a fresh backup,
+  because older backups still need the old password.
 - **Lost your phone (two-step sign-in):** type one of your 10 backup codes
-  instead of the 6-digit code. With none left, run `ebp admin reset-2fa` on the
-  server (Console on DigitalOcean), sign in with your password, and turn it on
+  instead of the 6-digit code. With none left, run
+  `cd /opt/ebp && docker compose exec ebp ebp admin reset-2fa` in the server's
+  Console, sign in with your password, and turn it on
   again in Settings.
 - **Recovery words seen by someone else:** treat the small "till" wallet on that
   server as no longer private. Stop using that server, set up a new one with a

@@ -23,6 +23,22 @@ Every click is spelled out in **[docs/START_HERE.md](docs/START_HERE.md)**.
 Another hosting company, Render, or your own computer: [docs/OTHER_HOSTS.md](docs/OTHER_HOSTS.md).
 Shopify is not supported yet ([notes](docs/dev/SHOPIFY.md)).
 
+## How it compares to BTCPay Server
+
+We do **not** claim EBP is more secure than BTCPay Server. BTCPay is far more
+mature and, on Lightning, needs less trust. EBP is **lower risk, on purpose**:
+the server only ever holds a small amount of money, so a smaller amount is in
+harm's way if it is ever compromised. A smaller prize is not a stronger vault; it
+is a different bet.
+
+For example, set your payout address to an Ark wallet on your phone. Every
+payment is swept off the server within minutes, so even at the default limit of
+20,000 sats, that is the most the server holds at any moment. Then, if your wallet
+supports it, have the phone wallet move funds to regular on-chain Bitcoin once they
+pass a threshold you choose. You hold the keys the whole way, and as your balance
+grows, more of it sits in colder storage. Details and the full comparison:
+[docs/dev/TECHNICAL.md](docs/dev/TECHNICAL.md#ebp-vs-btcpay-server-an-honest-comparison).
+
 ## More
 
 - [docs/WOOCOMMERCE.md](docs/WOOCOMMERCE.md): connect a WooCommerce shop

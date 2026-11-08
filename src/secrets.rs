@@ -92,7 +92,12 @@ pub fn load_or_create_key_file(path: &Path) -> Result<([u8; 32], bool), String> 
             let mut key = [0u8; 32];
             rand::rngs::OsRng.fill_bytes(&mut key);
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| format!("cannot create key dir: {e}"))?;
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    format!(
+                        "cannot create the data folder {} ({e}). Check EBP_DATABASE_PATH and that this folder can be written to",
+                        dir.display()
+                    )
+                })?;
             }
             let mut opts = std::fs::OpenOptions::new();
             opts.write(true).create_new(true);

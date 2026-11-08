@@ -26,7 +26,7 @@ CASES = [
     ("config file that is missing", {"EBP_CONFIG": os.path.join(tmp, "nope.toml")}, ["serve"], "", True, ["config file"]),
     ("config file that is not valid", {"EBP_CONFIG": bad_toml}, ["serve"], "", True, ["config file"]),
     ("encryption key that is garbage", {"EBP_KEY_ENCRYPTION_KEY": "zz"}, ["serve"], "", True, []),
-    ("database in a place that cannot exist", {"EBP_DATABASE_PATH": "/proc/nope/ebp.sqlite3"}, ["serve"], "", True, ["database"]),
+    ("database in a place that cannot exist", {"EBP_DATABASE_PATH": "/proc/nope/ebp.sqlite3"}, ["serve"], "", True, ["data folder", "database"]),
     ("backup verify on a missing file", {}, ["backup", "verify", os.path.join(tmp, "missing.ebpbackup")], "pw\n", True, []),
     ("backup verify on a file that is not a backup", {}, ["backup", "verify", bad_toml], "pw\n", True, []),
     ("backup restore into a folder that exists", {}, ["backup", "restore", bad_toml, tmp], "pw\n", True, []),

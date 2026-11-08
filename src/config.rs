@@ -685,7 +685,7 @@ fn read_file(path: &str) -> Result<FileConfig, ConfigError> {
 
 fn parse_addr(value: &str) -> Result<SocketAddr, ConfigError> {
     value.parse().map_err(|_| ConfigError::Invalid {
-        key: "bind_addr".into(),
+        key: "bind_addr (EBP_BIND_ADDR), which should look like 127.0.0.1:8080".into(),
         value: value.to_string(),
     })
 }

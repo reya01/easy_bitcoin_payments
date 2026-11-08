@@ -54,6 +54,9 @@ pub async fn get(State(state): State<AppState>, _auth: StoreAuth) -> Result<Json
 pub struct ChangeRequest {
     pub address: String,
     pub admin_password: String,
+    /// Authenticator code, needed only when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 pub async fn change(
@@ -75,6 +78,7 @@ pub async fn change(
             "that admin password isn't right".into(),
         ));
     }
+    crate::routes::admin_session::check_second_step(&state, req.code).await?;
 
     let delay = state.config.payout_change_delay_secs;
     let cfg = state.config.settlement_destination.clone();

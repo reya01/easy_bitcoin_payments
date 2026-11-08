@@ -44,6 +44,7 @@ fn print_help() {
          \x20     Revoke every API key of a store and print a new one once\n\
          \x20     (lost-key recovery; --store is optional with one store)\n\
          \x20 ebp admin set-password          Set/reset the admin-page password\n\
+         \x20 ebp admin reset-2fa             Turn off two-step sign-in (lost phone)\n\
          \x20 ebp backup verify <FILE>       Check a downloaded backup opens (asks for its password)\n\
          \x20 ebp backup restore <FILE> <NEW-FOLDER>\n\
          \x20     Unpack a backup into a new, empty folder (never overwrites)\n\
@@ -405,8 +406,11 @@ async fn store_rotate_key(args: &[String]) -> Result<(), Box<dyn std::error::Err
 /// server itself (the recovery path; there is deliberately no way to do this
 /// remotely). Reads the password from one line of standard input.
 async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    if args.first().map(String::as_str) != Some("set-password") {
-        eprintln!("usage: ebp admin set-password   (type the new password, then press Enter)");
+    let sub = args.first().map(String::as_str);
+    if sub != Some("set-password") && sub != Some("reset-2fa") {
+        eprintln!(
+            "usage: ebp admin set-password   (type the new password, then press Enter)\n       ebp admin reset-2fa      (turn off two-step sign-in, e.g. after losing your phone)"
+        );
         std::process::exit(2);
     }
     let config = Config::load()?;
@@ -415,6 +419,25 @@ async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
         &config.database_path,
     )?;
     let db = Db::open(&config.database_path)?;
+    if sub == Some("reset-2fa") {
+        db.call(|conn| {
+            easy_bitcoin_payments::totp::disable(conn)?;
+            // Not "declined": the admin page will offer to turn it on again.
+            easy_bitcoin_payments::totp::set_declined(conn, false)?;
+            if let Some(store) = easy_bitcoin_payments::store::first(conn)? {
+                easy_bitcoin_payments::audit::record(
+                    conn,
+                    &store.id,
+                    "admin.2fa_disabled",
+                    Some("via CLI"),
+                )?;
+            }
+            Ok(())
+        })
+        .await?;
+        println!("Two-step sign-in is off. Sign in with your password, then turn it on again in Settings.");
+        return Ok(());
+    }
     eprintln!("New admin password (at least 16 characters; it will be visible as you type):");
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;

@@ -1210,3 +1210,296 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .unwrap();
     assert_eq!(r.status().as_u16(), 401);
 }
+
+/// The code an authenticator app would show for a stored secret at a 30-second step.
+fn app_code(secret_b32: &str, step: i64) -> String {
+    let key = easy_bitcoin_payments::totp::base32_decode(secret_b32).unwrap();
+    easy_bitcoin_payments::totp::code_for_step(&key, step)
+}
+
+#[tokio::test]
+async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    // Fixed once, so a 30-second boundary passing mid-test cannot change the codes used.
+    let step0 = now_unix() / 30;
+    let config = Config {
+        password_hash_iterations: 1_000,
+        // Each request below pretends to come from its own address so the
+        // password-guessing brake (10 a minute per client) does not interfere.
+        trust_proxy_headers: true,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let pw = "a good long password";
+    state
+        .db
+        .call(move |c| easy_bitcoin_payments::admin_auth::set_password(c, pw, 1_000))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let n = AtomicU32::new(1);
+    let send = |path: &str, session: Option<(&str, &str)>, body: serde_json::Value| {
+        let mut r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!("10.1.0.{}", n.fetch_add(1, Ordering::SeqCst)),
+            )
+            .json(&body);
+        if let Some((cookie, csrf)) = session {
+            r = r.header("cookie", cookie).header("x-ebp-csrf", csrf);
+        }
+        r.send()
+    };
+    let cookie_of = |r: &reqwest::Response| {
+        r.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+
+    // Sign in with the password only (two-step is off).
+    let login = send("/admin/login", None, serde_json::json!({"password": pw}))
+        .await
+        .unwrap();
+    assert_eq!(login.status().as_u16(), 200);
+    let cookie = cookie_of(&login);
+    let csrf = login.json::<serde_json::Value>().await.unwrap()["csrf"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sess = Some((cookie.as_str(), csrf.as_str()));
+
+    // Turning it on needs the password; a wrong one is refused.
+    let r = send(
+        "/admin/2fa/start",
+        sess,
+        serde_json::json!({"admin_password": "nope nope nope nope"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let started: serde_json::Value = send(
+        "/admin/2fa/start",
+        sess,
+        serde_json::json!({"admin_password": pw}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let secret = started["secret"].as_str().unwrap().to_string();
+    assert!(started["uri"]
+        .as_str()
+        .unwrap()
+        .starts_with("otpauth://totp/"));
+
+    // Not on yet: sign-in still works without a code. A wrong code does not turn it on.
+    let r = send(
+        "/admin/2fa/confirm",
+        sess,
+        serde_json::json!({"code": "000000"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let done: serde_json::Value = send(
+        "/admin/2fa/confirm",
+        sess,
+        serde_json::json!({"code": app_code(&secret, step0)}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(done["enabled"], true);
+    let codes: Vec<String> = done["recovery_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(codes.len(), 10);
+
+    // The session now reports it.
+    let s: serde_json::Value = client
+        .get(format!("{base}/admin/session"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s["twofa"], true);
+
+    // Signing in: the password alone no longer gets a session.
+    let r = send("/admin/login", None, serde_json::json!({"password": pw}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert!(r.headers().get("set-cookie").is_none());
+    assert_eq!(
+        r.json::<serde_json::Value>().await.unwrap()["code_required"],
+        true
+    );
+    // A wrong code, and a wrong password with a right code, are refused.
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": pw, "code": "000000"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": "nope nope nope nope", "code": app_code(&secret, step0 + 1)}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
+    // The code used to turn it on cannot be used again to sign in.
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": pw, "code": app_code(&secret, step0)}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    // The next code works.
+    let login = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": pw, "code": app_code(&secret, step0 + 1)}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(login.status().as_u16(), 200);
+    let cookie2 = cookie_of(&login);
+    let csrf2 = login.json::<serde_json::Value>().await.unwrap()["csrf"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sess2 = Some((cookie2.as_str(), csrf2.as_str()));
+
+    // A recovery code works once.
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": pw, "code": codes[0]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert!(r.headers().get("set-cookie").is_some());
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": pw, "code": codes[0]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    // Protected actions ask for the code too (the sign-in code can be reused right after).
+    let a = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    let r = send(
+        "/admin/payout",
+        sess2,
+        serde_json::json!({"address": a, "admin_password": pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = send(
+        "/admin/payout",
+        sess2,
+        serde_json::json!({"address": a, "admin_password": pw, "code": "000000"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = send("/admin/payout", sess2, serde_json::json!({"address": a, "admin_password": pw, "code": app_code(&secret, step0 + 1)}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let r = send(
+        "/admin/backup",
+        sess2,
+        serde_json::json!({"admin_password": pw}),
+    )
+    .await
+    .unwrap();
+    // Refused without a code (400). Another backup test running at the same
+    // moment can make it a 409 "one at a time" instead; either way no file.
+    assert!(
+        [400, 409].contains(&r.status().as_u16()),
+        "backup without a code must be refused, got {}",
+        r.status()
+    );
+
+    // Turning it off needs the password and a code, then sign-in is password-only again.
+    let r = send(
+        "/admin/2fa/disable",
+        sess2,
+        serde_json::json!({"admin_password": pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = send(
+        "/admin/2fa/disable",
+        sess2,
+        serde_json::json!({"admin_password": pw, "code": app_code(&secret, step0 + 1)}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let r = send("/admin/login", None, serde_json::json!({"password": pw}))
+        .await
+        .unwrap();
+    assert!(r.headers().get("set-cookie").is_some());
+}
+
+#[tokio::test]
+async fn five_wrong_codes_lock_two_step_for_ten_minutes_even_for_the_right_code() {
+    use easy_bitcoin_payments::totp::{self, Second};
+    let (_base, state, _id, _key) = serve().await;
+    state
+        .db
+        .call(|c| {
+            let secret = totp::begin_setup(c)?;
+            let key = totp::base32_decode(&secret).unwrap();
+            let now = now_unix();
+            totp::confirm(c, &totp::code_for_step(&key, now / 30), now)?;
+            // Five wrong tries (a different step than the one just used).
+            for i in 0..5 {
+                let r = totp::verify(c, "000000", now, false)?;
+                assert_eq!(
+                    r,
+                    if i < 4 { Second::Wrong } else { Second::Locked },
+                    "try {i}"
+                );
+            }
+            // Locked: even the right code is refused...
+            let good = totp::code_for_step(&key, now / 30 + 1);
+            assert_eq!(totp::verify(c, &good, now, false)?, Second::Locked);
+            // ...until ten minutes pass.
+            let later = now + 601;
+            let good_later = totp::code_for_step(&key, later / 30);
+            assert_eq!(totp::verify(c, &good_later, later, false)?, Second::Ok);
+            Ok(())
+        })
+        .await
+        .unwrap();
+}

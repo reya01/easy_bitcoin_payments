@@ -26,7 +26,7 @@ h2{font-size:15px;margin:22px 0 8px;font-weight:600}
 .muted{color:var(--muted);font-size:14px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.check{padding:8px 0;border-bottom:1px solid var(--line)}.check:last-child{border-bottom:0}
 label{display:block;font-size:14px;color:var(--muted);margin:12px 0 4px}
-input[type=text],input[type=password],input[type=url]{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+input[type=text],input[type=password],input[type=url],input[type=tel]{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 button{font:inherit;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 button.primary{background:var(--accent);border-color:var(--accent);color:#1a1100;font-weight:600}
 button.plain{background:transparent}
@@ -42,6 +42,9 @@ nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--bg);bor
 nav button{flex:1;min-width:0;border:0;border-radius:0;min-height:56px;padding:0 2px;background:none;font-size:12px;color:var(--muted)}
 nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--accent)}
 .pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.codes{white-space:pre-line;font-size:16px}
+.qrbox img{width:200px;height:200px;max-width:100%;background:#fff;border-radius:10px;border:1px solid var(--line)}
+.warnbox{border:1px solid var(--warn);border-radius:10px;padding:10px;margin-top:10px}
 .badge{background:var(--bad);color:#fff;border-radius:999px;font-size:11px;padding:1px 6px;margin-left:4px}
 </style>
 </head>
@@ -56,6 +59,11 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <form id="login-form">
       <label for="pw">Admin password</label>
       <input type="password" id="pw" autocomplete="current-password">
+      <div class="hidden" id="code-box">
+        <label for="code">Code from your authenticator app</label>
+        <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" placeholder="6 digits">
+        <p class="muted">Lost your phone? Type one of your backup codes here instead.</p>
+      </div>
       <div class="btns"><button class="primary" type="submit" id="login-btn">Sign in</button></div>
     </form>
     <p class="msg bad hidden" id="login-err"></p>
@@ -63,6 +71,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-home" class="hidden">
+  <div class="card hidden" id="twofa-prompt"></div>
   <div class="card hidden" id="phone-home"></div>
   <div class="card hidden" id="recon"></div>
   <div class="card hidden" id="update"></div>
@@ -134,11 +143,14 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 <section id="v-set" class="hidden">
   <h2>Phone alerts</h2>
   <div class="card" id="phone-set"></div>
+  <h2>Two-step sign-in</h2>
+  <div class="card" id="twofa-card"></div>
   <h2>Change admin password</h2>
   <div class="card">
     <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
     <label for="pw-new">New password (16+ characters)</label><input type="password" id="pw-new" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
     <div class="pwrow"><span id="pw-new-count"></span><button type="button" id="pw-new-show">Show</button></div>
+    <div class="needcode hidden"><label for="pw-code">Code from your authenticator app</label><input type="text" id="pw-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
     <div class="btns"><button id="pw-save" type="button">Change password</button></div>
     <p class="msg hidden" id="pw-msg"></p>
   </div>
@@ -152,6 +164,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <div class="muted" id="po-kinds"></div>
       <label for="po-addr">New payout address</label><input type="text" id="po-addr" autocomplete="off" spellcheck="false">
       <label for="po-pw">Admin password</label><input type="password" id="po-pw" autocomplete="current-password">
+      <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
     </div>
     <div id="sweep-box" class="hidden">
@@ -165,6 +178,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <div class="card">
     <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
     <label for="bk-admin">Admin password</label><input type="password" id="bk-admin" autocomplete="current-password">
+    <div class="needcode hidden"><label for="bk-code">Code from your authenticator app</label><input type="text" id="bk-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
     <div class="btns"><button id="bk-go" type="button">Download encrypted backup</button></div>
     <p class="msg hidden" id="bk-msg"></p>
   </div>
@@ -201,6 +215,7 @@ pwHelper("pw-new", "pw-new-show", "pw-new-count");
 (function () {
 "use strict";
 var csrf = "";
+var twofaOn = false, twofaDeclined = false;
 var $ = function (id) { return document.getElementById(id); };
 var views = ["login", "home", "orders", "alerts", "hooks", "set"];
 
@@ -235,15 +250,15 @@ function show(name) {
   if (name === "alerts") loadAlerts();
   if (name === "hooks") loadDeliveries();
   if (name === "set") { loadAudit(); loadPayout(); }
-  if (name === "home" || name === "set") loadPhone();
+  if (name === "home" || name === "set") { loadPhone(); loadTwofa(); }
   if (name === "home") loadRecon();
 }
-function signedOut() { csrf = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
+function signedOut() { csrf = ""; twofaOn = false; twofaDeclined = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
 
 function boot() {
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
-    if (s.authenticated) return signedIn(s.csrf);
+    if (s.authenticated) { twofaOn = !!s.twofa; twofaDeclined = !!s.twofa_declined; return signedIn(s.csrf); }
     $("nopw").classList.toggle("hidden", !!s.password_set);
     show("login");
   }).catch(function () { show("login"); });
@@ -253,8 +268,17 @@ $("login-form").addEventListener("submit", function (e) {
   e.preventDefault();
   $("login-err").classList.add("hidden");
   $("login-btn").disabled = true;
-  api("POST", "/admin/login", { password: $("pw").value }).then(function (r) { $("pw").value = ""; signedIn(r.csrf); })
-    .catch(function () { var m = $("login-err"); m.textContent = "That password didn't work."; m.classList.remove("hidden"); })
+  var body = { password: $("pw").value };
+  if (!$("code-box").classList.contains("hidden")) body.code = $("code").value;
+  api("POST", "/admin/login", body).then(function (r) {
+    if (r.code_required) { $("code-box").classList.remove("hidden"); $("code").focus(); return; }
+    $("pw").value = ""; $("code").value = ""; $("code-box").classList.add("hidden"); signedIn(r.csrf);
+  })
+    .catch(function (e) {
+      var m = $("login-err");
+      m.textContent = /code/i.test(e.message) ? e.message : "That password didn't work.";
+      m.classList.remove("hidden");
+    })
     .then(function () { $("login-btn").disabled = false; });
 });
 $("logout").addEventListener("click", function () { api("POST", "/admin/logout", {}).then(signedOut).catch(signedOut); });
@@ -513,7 +537,7 @@ $("rotate").addEventListener("click", function () {
 });
 
 $("pw-save").addEventListener("click", function () {
-  api("POST", "/admin/password", { current: $("pw-cur").value, "new": $("pw-new").value }).then(function () {
+  api("POST", "/admin/password", { current: $("pw-cur").value, "new": $("pw-new").value, code: $("pw-code").value }).then(function () {
     $("pw-cur").value = ""; $("pw-new").value = ""; signedOut();
   }).catch(function (e) { say("pw-msg", e.message, true); });
 });
@@ -523,7 +547,7 @@ $("bk-go").addEventListener("click", function () {
   var included = false;
   fetch("/admin/backup", { method: "POST", credentials: "same-origin",
     headers: { "content-type": "application/json", "x-ebp-csrf": csrf },
-    body: JSON.stringify({ admin_password: $("bk-admin").value }) })
+    body: JSON.stringify({ admin_password: $("bk-admin").value, code: $("bk-code").value }) })
     .then(function (r) {
       if (!r.ok) return r.text().then(function (t) {
         var j = null; try { j = JSON.parse(t); } catch (e) {}
@@ -540,7 +564,7 @@ $("bk-go").addEventListener("click", function () {
       a.href = URL.createObjectURL(f.blob); a.download = f.name;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
-      $("bk-admin").value = "";
+      $("bk-admin").value = ""; $("bk-code").value = "";
       say("bk-msg", "Saved as " + f.name + ". " + (included ? "It includes your wallet files." : "Your wallet runs outside this app, so its files are NOT inside; your recovery words are its backup.") + " Keep it somewhere safe, away from this server.");
     })
     .catch(function (e) { say("bk-msg", e.message, true); })
@@ -577,8 +601,8 @@ function loadPayout() {
 }
 $("po-go").addEventListener("click", function () {
   var b = $("po-go"); b.disabled = true;
-  api("POST", "/admin/payout", { address: $("po-addr").value, admin_password: $("po-pw").value }).then(function (r) {
-    $("po-addr").value = ""; $("po-pw").value = "";
+  api("POST", "/admin/payout", { address: $("po-addr").value, admin_password: $("po-pw").value, code: $("po-code").value }).then(function (r) {
+    $("po-addr").value = ""; $("po-pw").value = ""; $("po-code").value = "";
     say("po-msg", r.applied_now ? "Saved. Payouts now go to the new address." : "Saved. For safety it takes effect in about " + r.change_delay_hours + " hours; you can cancel until then.");
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
@@ -586,6 +610,138 @@ $("po-go").addEventListener("click", function () {
 $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });
+
+// ---- Two-step sign-in ----
+function applyTwofa(on, declined) {
+  twofaOn = on; twofaDeclined = declined;
+  var f = document.querySelectorAll(".needcode");
+  for (var i = 0; i < f.length; i++) f[i].classList.toggle("hidden", !on);
+}
+function loadTwofa() {
+  fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
+    applyTwofa(!!s.twofa, !!s.twofa_declined);
+    renderPrompt();
+    if (!twofaBusy) renderTwofaCard();
+  }).catch(function () {});
+}
+var twofaBusy = false;
+function field(id, label, type, ph) {
+  var w = el("div");
+  var l = el("label", label); l.setAttribute("for", id); w.appendChild(l);
+  var i = document.createElement("input"); i.id = id; i.type = type || "text"; i.autocomplete = "off"; i.spellcheck = false;
+  if (type === "tel") { i.inputMode = "numeric"; i.autocomplete = "one-time-code"; }
+  if (ph) i.placeholder = ph;
+  w.appendChild(i); return w;
+}
+function button(text, fn, cls) { var b = el("button", text); b.type = "button"; if (cls) b.className = cls; b.addEventListener("click", function () { fn(b); }); return b; }
+var LESS_SECURE = "Password only is less secure: anyone who learns your password can sign in and change where your money goes. You can turn on two-step sign-in any time in Settings.";
+
+function renderPrompt() {
+  var box = $("twofa-prompt"); clear(box);
+  if (twofaOn || twofaDeclined || !csrf) { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  box.appendChild(el("strong", "Add a second lock to your account"));
+  box.appendChild(el("p", "Right now only your password protects this page. With two-step sign-in you also type a 6-digit code from an app on your phone, so someone who finds out your password still can't get in or change where your money goes. It takes about two minutes.", "muted"));
+  var btns = el("div", "", "btns");
+  btns.appendChild(button("Turn on (recommended)", function () { show("set"); startTwofaForm(); $("twofa-card").scrollIntoView(); }, "primary"));
+  btns.appendChild(button("Skip, use password only", function () {
+    clear(box);
+    box.appendChild(el("strong", "Use password only?"));
+    var w = el("p", LESS_SECURE, "muted warnbox"); box.appendChild(w);
+    var b2 = el("div", "", "btns");
+    b2.appendChild(button("Turn on instead (recommended)", function () { show("set"); startTwofaForm(); $("twofa-card").scrollIntoView(); }, "primary"));
+    b2.appendChild(button("Skip anyway", function (b) {
+      b.disabled = true;
+      api("POST", "/admin/2fa/skip", {}).then(function () { applyTwofa(false, true); renderPrompt(); renderTwofaCard(); }).catch(function (e) { b.disabled = false; w.textContent = e.message; });
+    }));
+    box.appendChild(b2);
+  }));
+  box.appendChild(btns);
+}
+
+function renderTwofaCard() {
+  var box = $("twofa-card"); clear(box);
+  if (twofaOn) {
+    box.appendChild(el("p", "On. Signing in needs your password and a 6-digit code from your authenticator app. Changing your payout address, password or downloading a backup asks for a code too.", "muted"));
+    var left = el("p", "", "muted"); box.appendChild(left);
+    api("POST", "/admin/2fa/status", {}).then(function (s) { left.textContent = "Backup codes left: " + s.recovery_left + " of 10."; }).catch(function () {});
+    var out = el("div"); box.appendChild(out);
+    box.appendChild(el("div", "", "btns")).appendChild(button("Turn off", function () {
+      clear(out);
+      out.appendChild(el("p", LESS_SECURE, "muted warnbox"));
+      out.appendChild(field("tf-off-pw", "Admin password", "password"));
+      out.appendChild(field("tf-off-code", "Code from your authenticator app (or a backup code)", "tel", "6 digits"));
+      var b = el("div", "", "btns");
+      b.appendChild(button("Turn off two-step sign-in", function (btn) {
+        btn.disabled = true;
+        api("POST", "/admin/2fa/disable", { admin_password: $("tf-off-pw").value, code: $("tf-off-code").value })
+          .then(function () { applyTwofa(false, true); renderPrompt(); renderTwofaCard(); })
+          .catch(function (e) { say("tf-msg", e.message, true); btn.disabled = false; });
+      }));
+      out.appendChild(b);
+      var m = el("p", "", "msg hidden"); m.id = "tf-msg"; out.appendChild(m);
+    }));
+    return;
+  }
+  box.appendChild(el("p", twofaDeclined ? "Off (password only). Anyone who learns your password can sign in. Turn it on to also require a 6-digit code from an app on your phone." : "Off. Turn it on to also require a 6-digit code from an app on your phone when you sign in.", "muted"));
+  box.appendChild(el("div", "", "btns")).appendChild(button("Turn on", startTwofaForm, "primary"));
+}
+
+function startTwofaForm() {
+  twofaBusy = true;
+  var box = $("twofa-card"); clear(box);
+  box.appendChild(el("p", "First, confirm it's you.", "muted"));
+  box.appendChild(field("tf-pw", "Admin password", "password"));
+  var b = el("div", "", "btns");
+  b.appendChild(button("Continue", function (btn) {
+    btn.disabled = true;
+    api("POST", "/admin/2fa/start", { admin_password: $("tf-pw").value }).then(function (r) { showTwofaSetup(r); })
+      .catch(function (e) { say("tf-msg", e.message, true); btn.disabled = false; });
+  }, "primary"));
+  b.appendChild(button("Cancel", function () { twofaBusy = false; renderTwofaCard(); }));
+  box.appendChild(b);
+  var m = el("p", "", "msg hidden"); m.id = "tf-msg"; box.appendChild(m);
+}
+
+function showTwofaSetup(r) {
+  var box = $("twofa-card"); clear(box);
+  box.appendChild(el("p", "1. Install an authenticator app on your phone if you don't have one (for example Google Authenticator, Microsoft Authenticator, Authy or 1Password).", "muted"));
+  box.appendChild(el("p", "2. In the app, add a new account. Scan this picture, or type the key under it.", "muted"));
+  var qr = el("div", "", "qrbox");
+  try {
+    var img = document.createElement("img"); img.alt = "QR code to add this account to your authenticator app";
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg(r.uri));
+    qr.appendChild(img);
+  } catch (e) {}
+  box.appendChild(qr);
+  var key = el("div", r.secret.replace(/(.{4})/g, "$1 ").trim(), "secret"); key.id = "tf-key"; box.appendChild(key);
+  var row2 = el("div", "", "btns");
+  var copy = el("button", "Copy key", "small"); copy.type = "button"; copy.setAttribute("data-copy", "tf-key"); row2.appendChild(copy);
+  var open = el("a", "Open in my authenticator app"); open.href = r.uri; row2.appendChild(open);
+  box.appendChild(row2);
+  box.appendChild(el("p", "3. Type the 6-digit code the app now shows (it changes every 30 seconds).", "muted"));
+  box.appendChild(field("tf-code", "6-digit code", "tel", "6 digits"));
+  var b = el("div", "", "btns");
+  b.appendChild(button("Turn on two-step sign-in", function (btn) {
+    btn.disabled = true;
+    api("POST", "/admin/2fa/confirm", { code: $("tf-code").value }).then(function (res) { applyTwofa(true, false); showRecovery(res.recovery_codes); renderPrompt(); })
+      .catch(function (e) { say("tf-msg", e.message, true); btn.disabled = false; });
+  }, "primary"));
+  b.appendChild(button("Cancel", function () { twofaBusy = false; renderTwofaCard(); }));
+  box.appendChild(b);
+  var m = el("p", "", "msg hidden"); m.id = "tf-msg"; box.appendChild(m);
+}
+
+function showRecovery(codes) {
+  var box = $("twofa-card"); clear(box);
+  box.appendChild(el("strong", "Two-step sign-in is on."));
+  box.appendChild(el("p", "Save these 10 backup codes somewhere safe, like your password manager. If you lose your phone, each one lets you sign in once. They are shown only now.", "muted"));
+  var c = el("div", codes.join("\n"), "secret codes"); c.id = "tf-codes"; box.appendChild(c);
+  var b = el("div", "", "btns");
+  var copy = el("button", "Copy codes", "small"); copy.type = "button"; copy.setAttribute("data-copy", "tf-codes"); b.appendChild(copy);
+  b.appendChild(button("I saved them", function () { twofaBusy = false; renderTwofaCard(); }, "primary"));
+  box.appendChild(b);
+}
 
 function loadAudit() {
   api("GET", "/api/v1/audit-log?limit=15").then(function (list) {

@@ -29,6 +29,9 @@ impl Drop for Busy {
 #[derive(Deserialize)]
 pub struct BackupRequest {
     pub admin_password: String,
+    /// Authenticator code, needed only when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 pub async fn download(
@@ -55,6 +58,7 @@ pub async fn download(
             "that admin password isn't right".into(),
         ));
     }
+    crate::routes::admin_session::check_second_step(&state, req.code.clone()).await?;
 
     // Consistent database snapshot, plus the wallet folder in managed mode.
     let db_entry = state.db.call(|c| crate::backup::database_entry(c)).await?;

@@ -100,6 +100,17 @@ Open the web address from the box (it ends in `/setup`) and follow the page:
 7. **Finish.** The server restarts once, so the page may not answer for about a
    minute. Then open `/admin` on the same address and sign in with your password.
 
+### Turn on two-step sign-in (recommended)
+
+The first time you sign in, the Home page offers a second lock: besides your
+password, you type a 6-digit code from an app on your phone (Google
+Authenticator, Microsoft Authenticator, Authy or 1Password all work). That way
+someone who learns your password still cannot sign in or change where your money
+goes. Tap **Turn on**, scan the picture with the app, type the code, and save the
+10 backup codes it shows (each works once if you lose your phone). You can skip it
+and use a password only, which is less secure, and turn it on later in
+**Settings**.
+
 ## 5. Make a test payment
 
 1. Admin page → **Payments** → **Try a payment** → **Create a test payment
@@ -123,6 +134,7 @@ changing the password. Details and how to restore:
 ## You are done when
 
 - [ ] `/admin` opens after you sign in, and **Home** says everything is OK.
+- [ ] Two-step sign-in is on (Settings), with your backup codes saved, or you chose password only.
 - [ ] A test payment shows **Paid** and appears under **Payments**.
 - [ ] On the **Connect** tab, **Send a test notification** says "Your shop received the test."
 - [ ] A small test order in your shop moved to Processing by itself.
@@ -155,6 +167,8 @@ changing the password. Details and how to restore:
 - **Signet:** a practice Bitcoin network with worthless coins.
 - **Till:** the small wallet on your server that receives payments. EBP moves its
   contents to your own wallet automatically.
+- **Two-step sign-in:** a second lock on the admin page: your password plus a
+  6-digit code from an app on your phone.
 - **Recovery words:** 12 words that can rebuild the till wallet.
 - **Ark:** the payment technology EBP uses. Leave its server at the default.
 - **API key:** the password your shop uses to ask EBP for payments.

@@ -602,10 +602,9 @@ def main():
                     # The checkout page the customer has open still answers.
                     code, _ = http("GET", f"{BASE}/i/{inv['id']}/status", timeout=15)
                     assert code == 200, (kind, "checkout status", code)
-                    # The admin checklist answers (and does not claim the wallet is fine).
-                    code, st = http("GET", f"{BASE}/api/v1/admin/status", headers=auth(), timeout=20)
-                    assert code == 200 and isinstance(st, dict), (kind, "admin status", code)
-                    assert not any(c.get("id") == "wallet" and c.get("level") == "ok" for c in st.get("checks", [])), (kind, "wallet shown as fine", st.get("checks"))
+                    # The health check does not claim the wallet is fine.
+                    code, h = http("GET", f"{BASE}/api/v1/health", timeout=15)
+                    assert code == 200 and h.get("status") != "ok", (kind, "health claims all is well", h)
             finally:
                 ctl(action="set", key="garbage", value="")
             # Recovered: the payment that arrived meanwhile is credited exactly once.

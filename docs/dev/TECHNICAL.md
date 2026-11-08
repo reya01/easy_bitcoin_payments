@@ -41,7 +41,7 @@ For developers (this folder):
   [BETA_PLAN.md](BETA_PLAN.md), [BEGINNER_ROADMAP.md](BEGINNER_ROADMAP.md): plans and history.
 - [REVIEW_2026-11-05.md](REVIEW_2026-11-05.md), [SECURITY_REVIEW_2026-11-05.md](SECURITY_REVIEW_2026-11-05.md),
   [BARK_AUDIT.md](BARK_AUDIT.md): reviews and audits.
-- [WATCHER_DESIGN_NOTE.md](WATCHER_DESIGN_NOTE.md), [SHOPIFY.md](SHOPIFY.md), [spec.md](spec.md):
+- [WATCHER_DESIGN_NOTE.md](WATCHER_DESIGN_NOTE.md), [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md):
   design notes and the original spec.
 - [CONTRIBUTING.md](../../CONTRIBUTING.md), [ebp.example.toml](../../ebp.example.toml) (every config key), [LICENSE](../../LICENSE).
 

@@ -10,9 +10,28 @@
 
 *Free, open-source, self-hosted Bitcoin payments for online stores — built on Ark and Bark.*
 
-> 🌊 **Recommended install (for now):** a small DigitalOcean server, no terminal needed: [docs/VPS_DIGITALOCEAN.md](docs/VPS_DIGITALOCEAN.md). Not tied to one host: see [docs/CHOOSING_A_HOST.md](docs/CHOOSING_A_HOST.md). Shop plugin: [WooCommerce](docs/WOOCOMMERCE.md).
->
-> ☁ **Using Render?** It needs a **paid plan** or your data (including wallet files) is erased on every restart; see [docs/START_HERE.md](docs/START_HERE.md#using-render-instead-of-your-own-server-experimental).
+## Beginner path: start here
+
+The simplest way to try it: a small DigitalOcean server and a WooCommerce shop.
+No terminal needed, and **play money only** for now.
+
+1. **Create the server.** On DigitalOcean, create a Droplet and paste in our
+   ready-made setup text. Exact clicks: [docs/VPS_DIGITALOCEAN.md](docs/VPS_DIGITALOCEAN.md).
+2. **Wait 15 to 30 minutes**, then open the Droplet's Console. It shows a web
+   address and a one-time setup code.
+3. **Open that address** in your browser and follow the setup page: choose an
+   admin password (16+ characters), write down your 12 recovery words, and paste
+   the address of your own wallet. Plain-words guide: [docs/START_HERE.md](docs/START_HERE.md).
+4. **Connect your shop.** Install the WooCommerce plugin and paste in three
+   things from the dashboard: [docs/WOOCOMMERCE.md](docs/WOOCOMMERCE.md).
+
+## Other ways to run it
+
+- **A different hosting company, or your own computer:** [docs/CHOOSING_A_HOST.md](docs/CHOOSING_A_HOST.md)
+  compares them. It is plain Docker, so you are never locked in.
+- **Render:** experimental, and it needs a **paid plan**, or your data
+  (including wallet files) is erased on every restart. See
+  [docs/START_HERE.md](docs/START_HERE.md#using-render-instead-of-your-own-server-experimental).
 
 > 🛍 **Shop owner?** Start with [docs/START_HERE.md](docs/START_HERE.md) — what this is, what you need, and how to tell it worked, in plain words.
 

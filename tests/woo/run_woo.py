@@ -26,6 +26,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+PLUGIN_DIR = os.environ.get("EBP_PLUGIN_DIR") or os.path.join(ROOT, "integrations", "woocommerce", "ebp-bitcoin")
 sys.path.insert(0, os.path.join(ROOT, "tests", "e2e"))
 EBP_BIN = os.path.abspath(sys.argv[1])
 FAKE_PORT, EBP_PORT, WP_PORT = 18891, 18880, 18885
@@ -117,7 +118,7 @@ def main():
        "-p", f"127.0.0.1:{WP_PORT}:80",
        "-e", "WORDPRESS_DB_HOST=woo-db", "-e", "WORDPRESS_DB_USER=wp", "-e", "WORDPRESS_DB_PASSWORD=wp",
        "-e", "WORDPRESS_DB_NAME=wp",
-       "-v", f"{ROOT}/integrations/woocommerce/ebp-bitcoin:/var/www/html/wp-content/plugins/ebp-bitcoin:ro",
+       "-v", f"{PLUGIN_DIR}:/var/www/html/wp-content/plugins/ebp-bitcoin:ro",
        "wordpress:latest")
 
     for name, argv in (

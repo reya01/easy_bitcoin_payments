@@ -24,6 +24,11 @@ check( 'wrong secret is rejected', ! EBP_Core::verify_signature( 'other', $sig, 
 check( 'empty secret is rejected', ! EBP_Core::verify_signature( '', $sig, $body, $now ) );
 check( 'stale timestamp is rejected', ! EBP_Core::verify_signature( $secret, $sig, $body, $now + 301 ) );
 check( 'timestamp inside the window is accepted', EBP_Core::verify_signature( $secret, $sig, $body, $now + 300 ) );
+check( 'a signature made for another timestamp is rejected', ! EBP_Core::verify_signature( $secret, 't=' . ( $now + 1 ) . ',v1=' . substr( $sig, strpos( $sig, 'v1=' ) + 3 ), $body, $now ) );
+check( 'empty timestamp is rejected', ! EBP_Core::verify_signature( $secret, 't=,v1=' . substr( $sig, strpos( $sig, 'v1=' ) + 3 ), $body, $now ) );
+check( 'a timestamp from the future beyond the window is rejected', ! EBP_Core::verify_signature( $secret, $sig, $body, $now - 301 ) );
+check( 'a truncated signature is rejected', ! EBP_Core::verify_signature( $secret, substr( $sig, 0, -2 ), $body, $now ) );
+check( 'empty body with a signature for another body is rejected', ! EBP_Core::verify_signature( $secret, $sig, '', $now ) );
 check( 'garbage header is rejected', ! EBP_Core::verify_signature( $secret, 'nonsense', $body, $now ) );
 check( 'missing v1 is rejected', ! EBP_Core::verify_signature( $secret, 't=' . $now, $body, $now ) );
 check( 'non-numeric timestamp is rejected', ! EBP_Core::verify_signature( $secret, 't=abc,v1=00', $body, $now ) );

@@ -577,6 +577,44 @@ def main():
             # The session is stored server-side, so it should survive a restart.
             assert page.is_visible("#v-home"), "signed-in session should survive a server restart"
 
+        @step("garbage from the wallet: every kind of broken answer gives a clean error, nothing is credited or lost, and it recovers")
+        def _():
+            kinds = ["html", "truncated", "empty", "null", "array", "string", "wrong_types", "huge", "binary", "error_html", "slow_error"]
+            inv = new_invoice("garbage-1", 1700)  # made while the wallet is healthy
+            ctl(action="pay_ark", address=inv["ark_address"], sats=1700)
+            ctl(action="set", key="garbage", value="html")  # the payment sits in the wallet, unseen
+            try:
+                for kind in kinds:
+                    ctl(action="set", key="garbage", value=kind)
+                    # The server itself stays up and answers quickly.
+                    t0 = time.time()
+                    code, _ = http("GET", f"{BASE}/api/v1/health", timeout=15)
+                    assert code == 200 and time.time() - t0 < 10, (kind, "health", code)
+                    # A new payment request is refused cleanly (not a crash, not a hang, not an empty answer).
+                    t0 = time.time()
+                    code, body = http("POST", f"{BASE}/api/v1/invoices", {"order_id": f"garbage-new-{kind}", "sats": 900}, auth(), timeout=30)
+                    assert code in (500, 502, 503, 409) or code in (200, 201), (kind, "new invoice", code, body)
+                    assert isinstance(body, dict), (kind, "new invoice answer is not JSON", body)
+                    assert time.time() - t0 < 25, (kind, "new invoice was slow")
+                    # Existing invoices still answer and are not marked paid by garbage.
+                    code, cur = http("GET", f"{BASE}/api/v1/invoices/{inv['id']}", headers=auth(), timeout=15)
+                    assert code == 200 and cur["status"] == "pending", (kind, "existing invoice", code, cur)
+                    # The checkout page the customer has open still answers.
+                    code, _ = http("GET", f"{BASE}/i/{inv['id']}/status", timeout=15)
+                    assert code == 200, (kind, "checkout status", code)
+                    # The admin checklist answers (and does not claim the wallet is fine).
+                    code, st = http("GET", f"{BASE}/api/v1/admin/status", headers=auth(), timeout=20)
+                    assert code == 200 and isinstance(st, dict), (kind, "admin status", code)
+                    assert not any(c.get("id") == "wallet" and c.get("level") == "ok" for c in st.get("checks", [])), (kind, "wallet shown as fine", st.get("checks"))
+            finally:
+                ctl(action="set", key="garbage", value="")
+            # Recovered: the payment that arrived meanwhile is credited exactly once.
+            got = wait_for(lambda: status_of(inv)["status"] == "paid" and status_of(inv), "payment credited after the wallet recovers", timeout=60)
+            assert got["paid_sats"] == 1700, got
+            fresh = new_invoice("garbage-after", 1100)
+            ctl(action="pay_ark", address=fresh["ark_address"], sats=1100)
+            wait_for(lambda: status_of(fresh)["status"] == "paid", "new payments work again")
+
         @step("underpayment is not marked paid")
         def _():
             inv = new_invoice("under-1", 5000)

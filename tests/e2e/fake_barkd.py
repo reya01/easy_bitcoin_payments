@@ -44,6 +44,7 @@ def reset():
         onchain_confirmed=200_000,
         down=False,
         hang=False,
+        garbage="",  # "": normal. Otherwise what a broken daemon answers with (see GARBAGE)
         n_addr=0,
         n_move=0,
         n_vtxo=0,
@@ -300,6 +301,23 @@ def control(body):
     return {"ok": True, "tip": S["tip"]}
 
 
+# What a broken or misconfigured daemon (or a proxy in front of it) might send
+# back instead of the real answer: (status, content type, body).
+GARBAGE = {
+    "html": (200, "text/html", b"<html><body><h1>502 Bad Gateway</h1></body></html>"),
+    "truncated": (200, "application/json", b'{"balance": {"spendable_sat": 12'),
+    "empty": (200, "application/json", b""),
+    "null": (200, "application/json", b"null"),
+    "array": (200, "application/json", b"[1,2,3]"),
+    "string": (200, "application/json", b'"hello"'),
+    "wrong_types": (200, "application/json", b'{"spendable_sat":"lots","address":42,"history":{},"moves":"x"}'),
+    "huge": (200, "application/json", b'{"x":"' + b"a" * 3_000_000 + b'"}'),
+    "binary": (200, "application/octet-stream", bytes(range(256)) * 40),
+    "error_html": (500, "text/html", b"<html>Internal Server Error</html>"),
+    "slow_error": (503, "application/json", b'{"message":"try later"}'),
+}
+
+
 class H(BaseHTTPRequestHandler):
     token = ""
 
@@ -310,6 +328,14 @@ class H(BaseHTTPRequestHandler):
         raw = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _send_garbage(self, kind):
+        code, ctype, raw = GARBAGE[kind]
+        self.send_response(code)
+        self.send_header("content-type", ctype)
         self.send_header("content-length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -347,6 +373,8 @@ class H(BaseHTTPRequestHandler):
             S["log"].append(f"{method} {path}")
             if S["down"]:
                 return self._send(500, {"message": "fake barkd is down"})
+            if S.get("garbage"):
+                return self._send_garbage(S["garbage"])
             if path != "/wallet/create":
                 auth = self.headers.get("authorization", "")
                 if auth != f"Bearer {self.token}":

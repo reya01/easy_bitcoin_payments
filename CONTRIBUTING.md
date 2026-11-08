@@ -7,12 +7,12 @@ merchants.
 ## Ground rules
 
 - **Doc precedence.** For current status and operations, `README.md`,
-  `docs/HANDOFF.md`, and the close-out block in `docs/PHASE1_PLAN.md` are
+  `docs/dev/HANDOFF.md`, and the close-out block in `docs/dev/PHASE1_PLAN.md` are
   authoritative. `spec.md` is the product intent; when the build supersedes a
   spec claim, update the spec in the same PR rather than treating the stale
   claim as a requirement.
 - **Phase 0 is done; Phase 1 is code-complete.** The wallet layer is a real
-  barkd client, live-verified on signet (docs/HANDOFF.md is the status/ops
+  barkd client, live-verified on signet (docs/dev/HANDOFF.md is the status/ops
   entry point and records the drills). The EXPERIMENTAL / signet-only banner
   still applies: never wire real funds without the maintainer's go-ahead.
 - **Out of scope by design:** refund tooling, watch-only/external-signing

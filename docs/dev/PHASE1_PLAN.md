@@ -14,7 +14,7 @@ x86_64 + aarch64 musl binaries, `SHA256SUMS`, the GitHub release, and
 the multi-arch ghcr.io image that `scripts/release.sh` publishes and the
 recipe/`scripts/install.sh` ecosystem consumes alongside the release
 tarballs install.sh actually fetches.
-**Depends on:** Phase 0 spike log (docs/PHASE0_SPIKE_PLAN.md) answered in writing
+**Depends on:** Phase 0 spike log (docs/dev/PHASE0_SPIKE_PLAN.md) answered in writing
 **Window:** months 1–3
 
 ## Goal
@@ -209,7 +209,7 @@ zero to a live testnet invoice using only the recipe and an iPhone.
 
 > DONE: the recipe ships and now resolves the release URLs. OPEN: the UX gate
 > itself — a non-technical tester goes zero → live signet invoice using only
-> docs/MASTER_TEST_WALKTHROUGH.md (the single gate instrument) and an iPhone —
+> docs/START_HERE.md (the single gate instrument) and an iPhone —
 > plus cutting the first release (tag `v*` → .github/workflows/release.yml).
 
 - **What:** the plain-text + AI-assisted recipe, and the gate itself.
@@ -318,7 +318,7 @@ expiry sweep, doc-sync + security sweeps.
 
 Still open before Phase 1 is declared done:
 - **UX gate (task 12)**: a non-technical tester goes zero → live signet
-  invoice using docs/MASTER_TEST_WALKTHROUGH.md (v5) and an iPhone.
+  invoice using docs/START_HERE.md (v5) and an iPhone.
   Status 2026-11-03: the VPS deploy path is UNBLOCKED and verified
   (restart-loop root-caused + fixed, see docs/KNOWN_ISSUES.md); the tester
   is at the wizard step (wallet creation pending).

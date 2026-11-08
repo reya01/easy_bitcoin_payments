@@ -161,7 +161,7 @@ Proves the backup is real. Budget an hour. Do it on signet first.
 3. Restore the wallet from the recovery words using barkd's own restore
    command on the server — the merchant types the words, never the AI.
    NOTE: the exact command is not written down here yet; it is confirmed
-   during the live signet drill (docs/SIGNET_DRILL.md) and will be added
+   during the live signet drill (docs/dev/SIGNET_DRILL.md) and will be added
    then. Do not guess it. The wizard's create step accepts a restored
    datadir unchanged.
 4. Point EBP at it (`EBP_BARKD_TOKEN` from `barkd secret show`), start

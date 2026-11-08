@@ -3,7 +3,7 @@
 What this checks: our barkd client and operating behavior against the pinned
 OpenAPI spec (`docs/barkd-openapi.json`, barkd 0.8.0) and the Bark docs in
 `docs/bark-reference/`. Nothing here was tested against a live daemon; the
-signet drill (`docs/SIGNET_DRILL.md`) is what confirms the real responses.
+signet drill (`docs/dev/SIGNET_DRILL.md`) is what confirms the real responses.
 
 ## 1. Request/response contract (now enforced in CI)
 

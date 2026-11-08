@@ -92,7 +92,7 @@ pub struct Config {
     /// `onchain_address` in the API, and any on-chain payment that still
     /// arrives is parked in `unmatched_payments`, never auto-credited.
     /// Enable with `EBP_ONCHAIN_RAIL_ENABLED=true` once the signet drill in
-    /// docs/SIGNET_DRILL.md has passed.
+    /// docs/dev/SIGNET_DRILL.md has passed.
     pub onchain_rail_enabled: bool,
     /// Block confirmations required before an on-chain payment counts as
     /// paid (minimum 1: zero-confirmation payments can be replaced by the

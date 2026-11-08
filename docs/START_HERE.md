@@ -1,216 +1,162 @@
-# Start here — for a shop owner
+# Start here
 
-Plain words, no jargon. If a word is new, it is in the glossary at the bottom.
+Easy Bitcoin Payments (EBP) lets your WooCommerce shop take Bitcoin into a
+wallet **you** control, with no company in the middle. This page takes you from
+nothing to a first paid test order. It uses a small DigitalOcean server, and you
+do not need a terminal.
 
-## What this is, honestly
+**This is a test version: play money (signet) only.** Do not use real bitcoin.
 
-Easy Bitcoin Payments (EBP) lets your online shop take Bitcoin payments into
-**your own wallet**, with no company in the middle and no fees to us.
+**You need**
 
-**Today it is a test version.** You can set it up and take **play-money
-(signet) payments** to see how it works. **Do not use real bitcoin yet.**
-Two things to know before you invest time:
+- A DigitalOcean account with a payment method (the server costs about $12 a month).
+- A WooCommerce shop with a **public** web address, where you are an admin.
+- A wallet for the payout address. The tested ones: **Arké** or **Noah** (Ark),
+  **Sparrow**, **Nunchuk** or **Liana** (on-chain). Use a signet wallet for play money.
+- Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
+  5 to 10 minutes to arrive).
+- Pen and paper (for 12 recovery words) and a password manager.
+- About an hour, mostly waiting.
 
-- **Shop plugin: WooCommerce only.** There is a WooCommerce plugin
-  ([setup guide](WOOCOMMERCE.md)); there is no Shopify app yet
-  ([why, and what is planned](SHOPIFY.md)). You can also try a payment by
-  hand: admin page → Payments → **Try a payment**.
-- **Customers need a padlock (https) address.** The DigitalOcean path below
-  sets one up for you; on your own computer or server see
-  "Getting a padlock (https) address" further down.
+## 1. Copy the setup text
 
-## Easiest path: DigitalOcean, no terminal
+DigitalOcean will ask for a block of setup text. Copy it first.
 
-[Put it on a DigitalOcean server](VPS_DIGITALOCEAN.md) by pasting one block of
-text when you create the server. The server's own screen then shows the address
-and setup code. If you use it, you can skip "What you need" and "The short
-version" below; the setup steps on the page you reach are the same ones.
-
-## What you need (any other way)
-
-- **A place to run it** — pick ONE:
-  - **The computer you are sitting at** (Mac, Windows with WSL, or Linux), left
-    on while you test. The simplest: everything opens at `http://localhost:8080`.
-  - **A rented cloud server** (Linux). Its address will NOT open from your own
-    computer directly (that is deliberate, for safety). You first make a safe
-    "tunnel" from your computer: follow Part 5 of
-    [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md), then use
-    `http://localhost:8080` as above.
-- **Docker and git installed.** Docker: <https://docs.docker.com/get-started/get-docker/>.
-  On a Linux server put `sudo` in front of the commands below if you see
-  "permission denied".
-- **A terminal** (Terminal on Mac, the Ubuntu app on Windows, or your server's
-  login) and the ability to copy and paste about ten commands. (Only the
-  DigitalOcean path above needs no terminal.)
-- About 90 minutes the first time, mostly waiting: the first start compiles
-  the software and is silent for 15–30 minutes. That is normal.
-- A pen and paper (for the 12 recovery words — the most important step).
-- A phone wallet that can receive signet (play-money) coins. The tested one is
-  **Arké** (iPhone). Get free play coins from the signet faucet
-  (<https://signet.2nd.dev/>, needs a GitHub login) and wait 5–10 minutes for
-  them to arrive.
-
-Step-by-step with every known error and its fix, for a cloud server and an
-iPhone: [MASTER_TEST_WALKTHROUGH.md](MASTER_TEST_WALKTHROUGH.md).
-
-## The short version (your own computer or server)
-
-EBP can run its own wallet engine inside one container, so you never copy
-tokens or edit files. (This path is newer and has not yet had its live
-signet run — see [SIGNET_DRILL.md](SIGNET_DRILL.md). If you are testing for
-us, use it and tell us where it hurts.)
+Open <https://github.com/reya01/easy_bitcoin_payments/blob/main/deploy/cloud-init.yaml>
+and tap the **copy icon** at the top right of the file. (Same file, without its
+comments, shown here in case you prefer to copy it from this page.)
 
 ```
-git clone https://github.com/reya01/easy_bitcoin_payments.git
-cd easy_bitcoin_payments
-./scripts/start.sh
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - curl
+  - ca-certificates
+  - docker.io
+  - docker-compose-v2
+runcmd:
+  - [ sh, -c, "git clone --depth 1 --branch main https://github.com/reya01/easy_bitcoin_payments.git /opt/ebp" ]
+  - [ sh, -c, "/opt/ebp/scripts/vps-setup.sh > /var/log/ebp-vps-setup.log 2>&1" ]
 ```
 
-The script prints a boxed **SETUP CODE** and the address of the setup page.
-(If the first start is still compiling it will say so; run it again in a
-minute.) Then the setup page walks you through, in this order:
+Paste it exactly, starting with the `#cloud-config` line.
 
-1. **Setup code** — type the code from the box.
-2. **Create wallet** — one button.
-3. **Recovery words** — 12 words, shown for 60 seconds at a time. Write them
-   on paper, twice, keep the copies in different places. Never photograph,
-   never type them anywhere else. You will be asked to type three of them
-   back to prove you wrote them down correctly.
-4. **Name your store, choose an admin password** (16+ characters, for example four random words; it signs
-   you in to the admin page and locks your backups). **Then choose where your
-   money goes and paste that wallet's address.** This is required. Pick "Ark
-   wallet" (for example Arké or Noah) or "On-chain Bitcoin wallet" (for example
-   Sparrow, Nunchuk or Liana), open Receive in that wallet, copy an address and
-   paste it. For play money use a signet address (starts with `tark1` for Ark
-   or `tb1` on-chain). You can change it later in Settings.
-5. **One secret appears once** — the **API key**. Save it in a password manager;
-   it cannot be shown again. (You can always make a new one later on the admin
-   page's **Connect** tab. The *signing secret* does not exist yet; it is made
-   when you connect your shop.)
-6. **Finish.** The server restarts once, so the page may not answer for about
-   a minute. Then open `/admin` and sign in with your admin password.
+## 2. Create the server
 
-## Using Render instead of your own server (experimental)
+1. Sign in at digitalocean.com, then **Create → Droplets**.
+2. **Region:** one near you. Not every region offers every size; if you cannot
+   find the **Basic** plan in step 4, go back and pick another region.
+3. **Image:** Ubuntu **24.04 (LTS) x64**.
+4. **Size:** **Basic → Regular → 2 GB / 1 CPU** (about $12/month) or bigger.
+5. **Authentication:** choose **Password** and save it in your password manager.
+6. Scroll to **Advanced Options** (open it), tick **Add Initialization scripts
+   (free)**, and **paste** the setup text into the box that appears.
+7. Click **Create Droplet**.
 
-Not sure which to pick? See [CHOOSING_A_HOST.md](CHOOSING_A_HOST.md). Render is
-planned as a second beginner option and may become the first we recommend once
-it has been tested the same way as DigitalOcean. The draft steps are in
-[RENDER.md](RENDER.md).
+DigitalOcean's screens change from time to time. If a label differs, look for
+"user data", "startup script" or "cloud-init".
 
-Render (render.com) can run EBP for you with no terminal, using the
-`render.yaml` file in this repository. **This route is untested; try it with
-play money only.**
+## 3. Wait, then check it is ready
 
-> **⚠ Render needs a PAID plan or EBP will break.** EBP stores your wallet and
-> your order history on a disk that must survive restarts. Render only offers
-> such a disk on paid services (see <https://render.com/docs/disks>). On a free
-> plan there is no disk: **everything is erased every time the service restarts
-> or redeploys, including your wallet files.** Choose a paid plan (the one in
-> `render.yaml` is "Starter"), check the current price on Render's site, and do
-> not switch it to a free plan later.
+Installing takes **15 to 30 minutes**. Until then there is nothing to see: the
+green "Active" dot only means the empty server is on.
 
-On Render the setup code is in the service's **Logs** tab (search for
-`SETUP CODE`), and you update by pressing **Manual Deploy**; nothing updates
-by itself.
+1. Open your Droplet and click **Console** (top right). Click inside it and press
+   **Enter**. If it asks you to log in, use `root` and your Droplet password.
+2. **A box titled "Easy Bitcoin Payments" showing a web address and a SETUP CODE**
+   means the install finished.
+3. Just a plain `login:` prompt means it is still installing. Wait 5 minutes and
+   look again.
+4. A box saying "No setup code yet" or "still starting": wait 2 minutes, log in as
+   `root`, type `ebp-info` and press Enter.
+5. It is truly ready when the web address opens in your browser with a padlock
+   and asks for the code. If it does not open, wait 5 minutes and try again.
 
-## Make a test payment
+If nothing has appeared after 30 minutes, log in and run `cloud-init status` and
+`tail -n 40 /var/log/ebp-vps-setup.log`. If you share those lines, delete the one
+containing the SETUP CODE. If the address never opens, check that a DigitalOcean
+**Firewall** (if you made one) allows ports 80 and 443.
+
+## 4. Finish setup in your browser
+
+Open the web address from the box (it ends in `/setup`) and follow the page:
+
+1. **Setup code.** Type the code from the box.
+2. **Create wallet.** One button.
+3. **Recovery words.** 12 words, shown for 60 seconds at a time. Write them on
+   paper, twice, and keep the copies in different places. Never photograph them
+   or type them anywhere else. You will be asked for three of them to prove you
+   wrote them down. Anyone with these words can take the wallet's money.
+4. **Store name and admin password.** The password must be at least 16
+   characters (four random words works well). It signs you in to the admin page
+   and locks your backups.
+5. **Where your money goes.** Choose **Ark wallet** or **On-chain Bitcoin
+   wallet**, open Receive in that wallet, copy an address and paste it. For play
+   money it starts with `tark1` (Ark) or `tb1` (on-chain). This is required. You
+   can change it later in Settings (a change waits a day for safety).
+6. **API key.** Shown once. Save it in your password manager.
+7. **Finish.** The server restarts once, so the page may not answer for about a
+   minute. Then open `/admin` on the same address and sign in with your password.
+
+## 5. Make a test payment
 
 1. Admin page → **Payments** → **Try a payment** → **Create a test payment
    request** → **Open the checkout page**. It shows a QR code.
-2. In your signet wallet, choose Send, scan that QR (from the computer screen)
-   and confirm. The checkout page flips to **Paid** within seconds.
-3. The payment now shows as paid under **Payments**.
+2. In your signet wallet choose Send, scan the QR and confirm. The page flips to
+   **Paid** within seconds.
 
-**Next: connect your shop.** For WooCommerce, follow
-[WOOCOMMERCE.md](WOOCOMMERCE.md). The admin page's **Connect** tab gives you
-what the shop plugin asks for, one numbered step at a time.
+## 6. Connect your shop
 
-## Keep a backup
+Follow [WOOCOMMERCE.md](WOOCOMMERCE.md) (about 10 minutes). The admin page's
+**Connect** tab gives you what the plugin asks for, one numbered step at a time.
+Finish by sending a test notification and placing a small test order.
 
-Admin page → **Settings** → **Download a backup**. Your browser saves a file
-locked with your admin password; copy it somewhere that is not this computer or
-server (if your server is remote, you are downloading through your tunnel, so
-it lands on your own computer, which is what you want). Download a fresh one
-after changing your admin password, because an older file still needs the old
-password. Details and how to restore: [RECIPE_BACKUP.md](RECIPE_BACKUP.md).
+## 7. Keep a backup
 
-## How you know it worked
+Admin page → **Settings → Download a backup**. Copy the file somewhere that is not
+the server. It is locked with your admin password, so download a fresh one after
+changing the password. Details and how to restore:
+[RECIPE_BACKUP.md](RECIPE_BACKUP.md).
 
-You are done when ALL of these are true:
+## You are done when
 
-- [ ] The admin page (`/admin`) opens after you sign in (just a password; no
-      username), and its **Home** tab says everything is OK or lists what
-      needs attention in plain words.
-- [ ] A test payment (admin → Payments → **Try a payment**) shows **Paid** on the checkout page.
-- [ ] The same payment appears under **Payments** in the admin page.
-- [ ] You downloaded a backup (**Settings → Download a backup**) and stored
-      the file somewhere that is not this server.
+- [ ] `/admin` opens after you sign in, and **Home** says everything is OK.
+- [ ] A test payment shows **Paid** and appears under **Payments**.
+- [ ] On the **Connect** tab, **Send a test notification** says "Your shop received the test."
+- [ ] A small test order in your shop moved to Processing by itself.
+- [ ] You downloaded a backup and stored it away from the server.
 - [ ] Your recovery words are on paper in two places.
-- [ ] (If you use a shop) On the **Connect** tab, **Send a test notification** says "Your shop received the test."
 
-## Getting a padlock (https) address (own computer or server)
+## Later
 
-Customers, and the setup page itself, need a padlock (`https://`) address.
-EBP can set that up for you with one extra word. You need a server on the
-internet (a small rented one is fine) that accepts visitors on **ports 80 and
-443**. Most hosting companies leave these open; if yours has a firewall page,
-open both.
+- **A nicer address.** The free `sslip.io` address is built from the server's IP,
+  so it changes if you rebuild the server. For a fixed address, reserve an IP in
+  DigitalOcean (**Networking → Reserved IPs**) or use your own domain: add an **A
+  record** pointing at the server, then in the Console run
+  `cd /opt/ebp && ./scripts/start.sh --domain pay.myshop.com`. Do this before
+  connecting your shop; afterwards, update the server address in the plugin.
+- **Updating.** Nothing updates itself. The admin Home page tells you when a new
+  version exists: [UPGRADING.md](UPGRADING.md).
+- **Something looks wrong:** [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md)
+  (money going to the wrong place, a leaked password or key) and
+  [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+- **Start over:** before setup is finished, destroy the Droplet and make a new one.
 
-**Easiest: no domain name needed.** In the EBP folder, run:
+## Other options
 
-```
-./scripts/start.sh --https
-```
-
-It finds your server's address and builds a free padlock address from it,
-for example `https://203-0-113-7.sslip.io`. It prints that address and your
-setup code at the end. Open the address, enter the code, and continue as
-before. The first time can take a minute while the padlock is issued.
-
-**With your own domain** (looks nicer, e.g. `pay.myshop.com`): in your
-domain's settings, point the name at your server's address, then run:
-
-```
-./scripts/start.sh --domain pay.myshop.com
-```
-
-The choice is remembered. After that, plain `./scripts/start.sh` (and
-upgrades) keep https on and renew the padlock by themselves.
-
-If it prints "the padlock address is not answering yet", the cause is nearly
-always closed ports 80/443 or (own domain) a name that does not point at the
-server yet. Fix that and run the same command again; nothing is lost.
-
-Until the test version is finished, take only play money. Never set
-`EBP_ALLOW_INSECURE_SETUP` on a server reachable from the internet.
-
-## Updating
-
-EBP never updates itself. When a new version exists, the admin Home page
-shows a notice and exact steps; you decide when. See
-[UPGRADING.md](UPGRADING.md). A copy of your data is taken automatically
-before every upgrade.
-
-## If something goes wrong
-
-- The admin Home page lists problems in plain words, worst first.
-- Think money is going to the wrong place, or a password or key leaked:
-  [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md).
-- Known problems and fixes: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
-- Backup and restore: [RECIPE_BACKUP.md](RECIPE_BACKUP.md).
+- **Another hosting company, Render, or your own computer:** [OTHER_HOSTS.md](OTHER_HOSTS.md).
+- **Shopify:** not supported yet. [Notes and plan](dev/SHOPIFY.md).
+- **Developers:** [dev/TECHNICAL.md](dev/TECHNICAL.md).
 
 ## Glossary
 
-- **Signet** — a practice Bitcoin network with worthless coins.
-- **Wallet / till** — the small wallet EBP uses to receive payments. EBP
-  moves its contents to *your own* wallet on a schedule; the till is kept small.
-- **Recovery words (mnemonic)** — 12 words that can rebuild the till wallet.
-  Anyone with them can take its money.
-- **Ark** — the payment technology EBP uses. **ASP / Ark server** is the
-  service that coordinates it; you can leave this at the default.
-- **barkd** — the wallet program (by Second) that EBP talks to.
-- **API key** — the password your *shop* uses to ask EBP for payments.
-- **Webhook** — a message EBP sends your shop when an order is paid. The
-  **signing secret** lets your shop check the message really came from EBP.
-- **Backup file** — an encrypted copy of your history and settings, opened
-  with your admin password.
+- **Signet:** a practice Bitcoin network with worthless coins.
+- **Till:** the small wallet on your server that receives payments. EBP moves its
+  contents to your own wallet automatically.
+- **Recovery words:** 12 words that can rebuild the till wallet.
+- **Ark:** the payment technology EBP uses. Leave its server at the default.
+- **API key:** the password your shop uses to ask EBP for payments.
+- **Webhook / signing secret:** the message EBP sends your shop when an order is
+  paid, and the secret that proves it came from EBP.

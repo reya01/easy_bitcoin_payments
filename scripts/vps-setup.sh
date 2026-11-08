@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot setup for a fresh Ubuntu server, run by cloud-init (see
-# docs/VPS_DIGITALOCEAN.md and deploy/cloud-init.yaml). It:
+# docs/START_HERE.md and deploy/cloud-init.yaml). It:
 #   1. adds a little swap so building on a small server cannot run out of memory
 #   2. starts Docker
 #   3. runs ./scripts/start.sh --https (free padlock address)

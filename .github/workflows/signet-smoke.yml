@@ -1,4 +1,4 @@
-# The automated half of docs/SIGNET_DRILL.md: the REAL single-container install
+# The automated half of docs/dev/SIGNET_DRILL.md: the REAL single-container install
 # (real barkd, real signet Ark server) driven by a browser. Run by hand:
 # Actions -> signet-smoke -> Run workflow. Read-only: publishes nothing, needs
 # no secrets, never touches real funds (signet only). The report is an

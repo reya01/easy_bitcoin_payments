@@ -37,7 +37,7 @@ and performs the recovery-words ceremony by restarting its own child with
 `--expose-mnemonic` for one read. Removes the token/.env/command steps.
 Binary stays checksum-pinned. The separate-container layout remains for
 advanced users.
-1c. **One-click deploy template. (`render.yaml` drafted, untested on the live service; DigitalOcean first, Render after, see docs/CHOOSING_A_HOST.md. Render may become the preferred option if testing shows it is substantially easier; no single-vendor lock-in either way.)** for a host with a web dashboard (HTTPS
+1c. **One-click deploy template. (`render.yaml` drafted, untested on the live service; DigitalOcean first, Render after, see docs/OTHER_HOSTS.md. Render may become the preferred option if testing shows it is substantially easier; no single-vendor lock-in either way.)** for a host with a web dashboard (HTTPS
 included, log viewer for the setup code, secret variables for
 `EBP_KEY_ENCRYPTION_KEY`). Needs 1b first because such hosts run one container.
 

@@ -26,7 +26,7 @@ drift from the documented API.
 
 What it does NOT prove: that the real barkd behaves like its OpenAPI spec, the
 managed-barkd process handoff, real money, HTTPS termination, or phones. Those
-are what `docs/SIGNET_DRILL.md` is for.
+are what `docs/dev/SIGNET_DRILL.md` is for.
 
 Run it yourself (needs Python 3, `pip install playwright jsonschema`,
 `playwright install chromium`, and a built binary):

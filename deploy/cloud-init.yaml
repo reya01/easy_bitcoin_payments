@@ -1,7 +1,7 @@
 #cloud-config
 # Paste this whole file into your hosting provider's "user data" /
 # "initialization script" box when you create the server (Ubuntu 24.04).
-# Step-by-step: docs/VPS_DIGITALOCEAN.md
+# Step-by-step: docs/START_HERE.md
 package_update: true
 package_upgrade: true
 packages:

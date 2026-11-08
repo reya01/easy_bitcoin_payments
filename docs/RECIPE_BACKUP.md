@@ -21,6 +21,10 @@ in `.ebpbackup`, locked with that same password. EBP never stores it.
   (the normal setup) the wallet folder is inside too. If you run a separate wallet
   container, the page says the wallet files are **not** inside; back up that
   container's data folder instead.
+- **Two-step sign-in is not in the file.** The file opens with your password alone,
+  so keeping the authenticator secret in it would let the password undo the second
+  lock. After a restore, two-step sign-in is off; the admin page offers to turn it
+  on again (Settings → Two-step sign-in).
 - **Keep it off the server:** a password manager's file storage, a USB stick or
   another cloud account. A backup on the same disk is not a backup.
 - **Use a long password.** The file can contain the wallet, and anyone who gets it
@@ -50,7 +54,7 @@ write into a folder that already has files), copy the files into the data folder
 and start EBP. The restored `ebp.key` goes next to the database (it is used when
 `EBP_KEY_ENCRYPTION_KEY` is not set); if you set that variable yourself, put the
 same value back. Your admin password, payout address and shop API keys are in the
-restored database, so you sign in as before.
+restored database, so you sign in as before (with your password only: turn two-step sign-in back on afterwards).
 
 ## The recovery words
 

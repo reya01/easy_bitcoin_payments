@@ -551,6 +551,25 @@ async fn tick(
 mod tests {
     use super::*;
 
+    #[test]
+    fn turning_alerts_back_on_starts_counting_from_now() {
+        let c = Connection::open_in_memory().unwrap();
+        settings::set(&c, "alerts_state", "off").unwrap();
+        settings::set(&c, "alerts_activity_cursor", "5").unwrap();
+        settings::set(&c, "alerts_activity_digest_at", "5").unwrap();
+        enable(&c, None).unwrap();
+        let read = |k: &str| -> i64 { settings::get(&c, k).unwrap().unwrap().parse().unwrap() };
+        assert!(
+            read("alerts_activity_cursor") > 1_000_000,
+            "reset on re-enable"
+        );
+        assert!(read("alerts_activity_digest_at") > 1_000_000);
+        // Already on: saving again (say, a new server address) must not reset it.
+        settings::set(&c, "alerts_activity_cursor", "7").unwrap();
+        enable(&c, None).unwrap();
+        assert_eq!(read("alerts_activity_cursor"), 7);
+    }
+
     fn none() -> HashMap<String, i64> {
         HashMap::new()
     }

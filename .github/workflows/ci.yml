@@ -81,8 +81,15 @@ jobs:
           echo "plugin versions: header=$v1 constant=$v2 readme=$v3"
           test -n "$v1" && test "$v1" = "$v2" && test "$v1" = "$v3"
 
-      - name: WooCommerce end-to-end test
-        run: python3 tests/woo/run_woo.py target/release/ebp
+      # Test the zip that would be shipped (built the same way as in
+      # release.yml), not the source folder, so a packaging mistake shows up here.
+      - name: WooCommerce end-to-end test (from the packaged zip)
+        run: |
+          mkdir -p "$RUNNER_TEMP/plugin-zip" "$RUNNER_TEMP/plugin-unzipped"
+          (cd integrations/woocommerce && zip -r -X "$RUNNER_TEMP/plugin-zip/ebp-bitcoin-woocommerce.zip" ebp-bitcoin)
+          unzip -q "$RUNNER_TEMP/plugin-zip/ebp-bitcoin-woocommerce.zip" -d "$RUNNER_TEMP/plugin-unzipped"
+          test -f "$RUNNER_TEMP/plugin-unzipped/ebp-bitcoin/ebp-bitcoin.php"
+          EBP_PLUGIN_DIR="$RUNNER_TEMP/plugin-unzipped/ebp-bitcoin" python3 tests/woo/run_woo.py target/release/ebp
 
   vps-rehearsal:
     name: DigitalOcean install rehearsal (clean Ubuntu 24.04)

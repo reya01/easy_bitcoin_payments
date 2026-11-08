@@ -1782,3 +1782,177 @@ async fn payment_summary_setting_defaults_to_daily_and_can_be_changed() {
     .unwrap();
     assert_eq!(bad.status().as_u16(), 400);
 }
+
+#[tokio::test]
+async fn password_change_checks_the_current_password_and_the_code_and_signs_everyone_out() {
+    use easy_bitcoin_payments::totp;
+    let step0 = now_unix() / 30;
+    let config = Config {
+        password_hash_iterations: 1_000,
+        // Each call below says which address it comes from, so the
+        // password-guessing brake (10 a minute per client) is easy to steer.
+        trust_proxy_headers: true,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let pw = "a good long password";
+    let new_pw = "another good long password";
+    state
+        .db
+        .call(move |c| easy_bitcoin_payments::admin_auth::set_password(c, pw, 1_000))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let send = |path: &str, ip: &str, session: Option<(&str, &str)>, body: serde_json::Value| {
+        let mut r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("x-forwarded-for", ip.to_string())
+            .json(&body);
+        if let Some((cookie, csrf)) = session {
+            r = r
+                .header("cookie", cookie.to_string())
+                .header("x-ebp-csrf", csrf.to_string());
+        }
+        r.send()
+    };
+
+    let login = send(
+        "/admin/login",
+        "10.2.0.1",
+        None,
+        serde_json::json!({"password": pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(login.status().as_u16(), 200);
+    let cookie = login.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let csrf = login.json::<serde_json::Value>().await.unwrap()["csrf"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let sess = Some((cookie.as_str(), csrf.as_str()));
+
+    // A mistyped current password is a plain error (400), not "signed out" (401).
+    let r = send(
+        "/admin/password",
+        "10.2.0.2",
+        sess,
+        serde_json::json!({"current": "not the password at all", "new": new_pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    // A too-short new password is refused.
+    let r = send(
+        "/admin/password",
+        "10.2.0.2",
+        sess,
+        serde_json::json!({"current": pw, "new": "short"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    // With two-step on, the right password alone is not enough.
+    let secret = state.db.call(|c| totp::begin_setup(c)).await.unwrap();
+    let key = totp::base32_decode(&secret).unwrap();
+    let code = totp::code_for_step(&key, step0);
+    state
+        .db
+        .call(move |c| totp::confirm(c, &code, step0 * 30 + 1).map(|_| ()))
+        .await
+        .unwrap();
+    let r = send(
+        "/admin/password",
+        "10.2.0.3",
+        sess,
+        serde_json::json!({"current": pw, "new": new_pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400, "no code");
+    let r = send(
+        "/admin/password",
+        "10.2.0.3",
+        sess,
+        serde_json::json!({"current": pw, "new": new_pw, "code": "000000"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400, "wrong code");
+    // Nothing changed: the old password still signs in (and asks for the code).
+    let r = send(
+        "/admin/login",
+        "10.2.0.4",
+        None,
+        serde_json::json!({"password": pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert_eq!(
+        r.json::<serde_json::Value>().await.unwrap()["code_required"],
+        true
+    );
+
+    // Right password and right code: changed, and every session is signed out.
+    let r = send(
+        "/admin/password",
+        "10.2.0.5",
+        sess,
+        serde_json::json!({"current": pw, "new": new_pw, "code": totp::code_for_step(&key, step0)}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let r = send(
+        "/admin/keylock/status",
+        "10.2.0.6",
+        sess,
+        serde_json::json!({}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 401, "old session is gone");
+    let r = send(
+        "/admin/login",
+        "10.2.0.7",
+        None,
+        serde_json::json!({"password": pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 401, "old password no longer works");
+    let r = send(
+        "/admin/login",
+        "10.2.0.8",
+        None,
+        serde_json::json!({"password": new_pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200, "new password works");
+
+    // The route shares the password-guessing brake (10 a minute per client).
+    let mut last = 0;
+    for _ in 0..12 {
+        last = send(
+            "/admin/password",
+            "10.2.0.99",
+            None,
+            serde_json::json!({"current": "x", "new": new_pw}),
+        )
+        .await
+        .unwrap()
+        .status()
+        .as_u16();
+    }
+    assert_eq!(last, 429);
+}

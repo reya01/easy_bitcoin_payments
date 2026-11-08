@@ -1,5 +1,7 @@
 # Easy Bitcoin Payments
 
+**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **play-money testing only**.
+
 > **⚠ EXPERIMENTAL STATUS — NOT FOR REAL FUNDS.** EBP is pre-release software
 > under active development. Its wallet integration has not been audited, its
 > response shapes are pinned by fixture tests, not a security audit, and no independent

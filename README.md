@@ -30,7 +30,7 @@ Every click is spelled out in **[docs/START_HERE.md](docs/START_HERE.md)**.
 ## Other ways to run it
 
 Another hosting company, Render, or your own computer: [docs/OTHER_HOSTS.md](docs/OTHER_HOSTS.md).
-Shopify is not supported yet ([notes](docs/dev/SHOPIFY.md)).
+WooCommerce is the supported, first-class shop. Shopify is planned for a much later release ([notes](docs/dev/SHOPIFY.md)).
 
 ## How it compares to BTCPay Server
 

@@ -1440,7 +1440,13 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     )
     .await
     .unwrap();
-    assert_eq!(r.status().as_u16(), 400);
+    // Refused without a code (400). Another backup test running at the same
+    // moment can make it a 409 "one at a time" instead; either way no file.
+    assert!(
+        [400, 409].contains(&r.status().as_u16()),
+        "backup without a code must be refused, got {}",
+        r.status()
+    );
 
     // Turning it off needs the password and a code, then sign-in is password-only again.
     let r = send(

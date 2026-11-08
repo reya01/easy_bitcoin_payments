@@ -307,6 +307,27 @@ def main():
             page.fill("#store", "E2E Shop")
             page.fill("#admin-pw", ADMIN_PW)
             page.click("#btn-store")
+            page.wait_for_selector("#store-error:not(.hidden)")
+            assert "Choose where your money" in page.inner_text("#store-error")
+            page.select_option("#payout-kind", "ark")
+            page.click("#btn-store")
+            assert "Paste your wallet" in page.inner_text("#store-error")
+            page.fill("#payout", "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
+            page.click("#btn-store")
+            assert "does not look like an Ark address" in page.inner_text("#store-error")
+            page.select_option("#payout-kind", "onchain")
+            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh")
+            page.click("#btn-store")
+            assert "looks like an Ark address" in page.inner_text("#store-error")
+            page.select_option("#payout-kind", "ark")
+            before = page.inner_text("#store-error")
+            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjX")
+            page.click("#btn-store")
+            wait_for(lambda: page.inner_text("#store-error") != before, "server rejects a bad address")
+            err = page.inner_text("#store-error")
+            assert "[object" not in err and len(err) > 10, err
+            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh")
+            page.click("#btn-store")
             page.wait_for_selector("#store-secrets:not(.hidden)")
             state["api_key"] = page.inner_text("#api-key").strip()
             state["hook_secret"] = page.inner_text("#webhook-secret").strip()
@@ -523,7 +544,7 @@ def main():
             assert rest.returncode == 0, (rest.stdout, rest.stderr)
             assert os.path.getsize(os.path.join(out, "ebp.sqlite3")) > 0
 
-        @step("payout: add an address in Settings (first is immediate), a change waits and can be cancelled")
+        @step("payout: the wizard set the first address; a change in Settings waits and can be cancelled")
         def _():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
@@ -531,10 +552,7 @@ def main():
             page.wait_for_selector("#po-go")
             first = "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
             second = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
-            page.fill("#po-addr", first)
-            page.fill("#po-pw", ADMIN_PW)
-            page.click("#po-go")
-            wait_for(lambda: first in page.inner_text("#po-now"), "first address shown")
+            wait_for(lambda: first in page.inner_text("#po-now"), "address from the wizard shown")
             page.fill("#po-addr", second)
             page.fill("#po-pw", ADMIN_PW)
             page.click("#po-go")

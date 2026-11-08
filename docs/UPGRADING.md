@@ -53,7 +53,21 @@ docker compose up -d
 ```
 
 These three commands update your install. Always run them from the folder
-that holds `docker-compose.yml`.
+that holds `docker-compose.yml`. If you turned on https with `start.sh`, that
+choice is remembered; the commands keep it.
+
+**On a DigitalOcean server made with the paste-in setup:** the files are in
+`/opt/ebp`. In the DigitalOcean website open your server, then **Console**, and run:
+
+```
+cd /opt/ebp
+git pull
+./scripts/start.sh
+```
+
+Wait a few minutes (it rebuilds), then check the admin Home page. Nothing is
+lost: your data lives in a separate volume, and a copy is taken before any
+database change.
 
 SQLite migrations run automatically on boot. Afterwards check
 `GET /api/v1/health` and the dashboard's ASP indicator before taking
@@ -65,6 +79,10 @@ payments again.
 scripts/install.sh 0.1.0        # a specific release
 scripts/install.sh              # latest
 ```
+
+"Latest" means the newest *full* release. GitHub does not count release
+candidates such as `0.1.0-rc1` as latest, so while only release candidates exist
+give the exact version: `scripts/install.sh 0.1.0-rc1`.
 
 The installer detects the architecture and verifies the tarball against
 `SHA256SUMS` before installing. `SHA256SUMS` is itself signed (sigstore,
@@ -82,9 +100,9 @@ cosign verify-blob --bundle SHA256SUMS.sigstore.json \
 
 - Read the release notes on the releases page; the CHANGELOG states
   exactly what the server can and cannot do at each custody level.
-- Upgrade one release at a time and read each release's notes — the spec
-  requires the upgrade path to be tested in CI before a release is
-  tagged, and until that job exists this doc says so rather than
-  pretending otherwise.
+- Upgrade one release at a time and read each release's notes. CI checks on
+  every change that the previous build upgrades in place with your data intact,
+  and that an encrypted backup restores; it cannot check every possible jump
+  between far-apart versions, which is why one step at a time is the rule.
 - The barkd sidecar is version-pinned in docker-compose; bump it only
   with an EBP release that says it was tested against the new version.

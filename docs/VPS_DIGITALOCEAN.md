@@ -17,33 +17,89 @@ is not covered here yet.
 
 ## 1. Create the server ("Droplet")
 
-1. Create an account at digitalocean.com and add a payment method.
-2. Click **Create → Droplets**.
-3. **Region:** the one nearest you.
-4. **Image:** Ubuntu **24.04 (LTS) x64**.
-5. **Size:** Basic → Regular → **2 GB / 1 CPU (about $12/month)** or bigger.
+### Step 1a. Copy the setup text first (30 seconds)
+
+DigitalOcean will ask you to paste a block of setup text, so copy it **before**
+you start. It is a ready-made list of instructions that installs and starts
+everything for you.
+
+1. Open this page: <https://github.com/reya01/easy_bitcoin_payments/blob/main/deploy/cloud-init.yaml>
+2. Tap the **copy icon** at the top right of the grey file area (two small
+   squares). On a computer you can also click inside the text, press Ctrl+A
+   (Cmd+A on Mac), then Ctrl+C (Cmd+C).
+3. Leave it copied. The first line of what you copied must be `#cloud-config`.
+
+### Step 1b. Fill in DigitalOcean's "Create Droplet" page
+
+1. Sign in at digitalocean.com (create an account and add a payment method if
+   you have not).
+2. Click the green **Create** button at the top, then **Droplets**.
+3. **Region:** the one nearest you. (Not every region offers every server
+   size. If you cannot find the **Basic** plan in step 5, or the 2 GB size is
+   greyed out, go back and pick a different region, for example New York,
+   San Francisco or Amsterdam. Any region works.)
+4. **Image / operating system:** Ubuntu, version **24.04 (LTS) x64**.
+5. **Size:** choose the **Basic** plan, then **Regular**, then **2 GB / 1 CPU
+   (about $12/month)** or bigger. If there is no Basic plan, change the region
+   (step 3).
    (Until the first official release exists, the server builds the software
-   itself, which needs the memory. After a release, 1 GB is enough.)
-6. **Authentication:** pick **Password** and choose a strong one, or an SSH key
-   if you know what that is. You will mostly not need it.
-7. Open **Advanced Options** → tick **Add Initialization scripts (free)**
-   and paste the entire contents of
-   [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml).
-8. Click **Create Droplet**.
+   itself, which needs the memory.)
+6. **Authentication:** choose **Password** and make a strong one (save it in
+   your password manager). You will rarely need it.
+7. **The setup text.** Scroll down the page until you see **Advanced Options**
+   (it may be a collapsed heading; click it to open it). Inside, tick
+   **Add Initialization scripts (free)**. A large empty text box appears. Click
+   in it and **paste** (Ctrl+V or Cmd+V, or long-press then Paste on a phone).
+   You should now see the text starting with `#cloud-config`.
+8. Click **Create Droplet** at the bottom. That is all. Do not open anything on
+   the server yet; go to step 2.
+
+If you cannot find the box, DigitalOcean may have renamed it. Look for
+"user data", "startup script" or "cloud-init" near the bottom of the page.
+(This guide has not yet been checked against DigitalOcean's current screens, so
+please write down any label that differs. That is useful.)
 
 ## 2. Wait, then read the server's screen
 
 The server installs everything by itself. Building the first time takes
-**15–30 minutes** (a few minutes once an official release exists).
+**15-30 minutes** (a few minutes once an official release exists).
 
-When it's ready:
+### How to tell it is ready
+
+**The install has finished when the Console shows a box that starts with "Easy
+Bitcoin Payments", with a web address and a SETUP CODE inside it.** Nothing else
+on the DigitalOcean website tells you that. **It is truly ready when that web
+address opens in your browser (with a padlock) and asks for the code.** The box
+can appear a little before the address works, so if the address does not open,
+wait 5 minutes and try again before worrying.
+
+Be careful with these, because they look like "done" but are not:
+
+- **The green dot / "Active" next to your Droplet** only means the empty server
+  is switched on. It turns green within a minute or two, long before our
+  software is installed.
+- **A plain login prompt in the Console** (just `login:` or a line ending in
+  `login:`, with no box) means it is **still installing**. Wait and check again.
+- **The web address does not open yet** while it is installing. That is normal.
+
+How to check, step by step:
 
 1. Open your Droplet in DigitalOcean and click **Console** (top right).
-2. The Console opens in a new window. It shows a box with **a web address**
-   and a **SETUP CODE**. If it asks you to log in, sign in as `root` with the
-   password you chose; the same box is also shown on the login screen.
-3. If the box says the server is still starting, wait two minutes, then type
-   `ebp-info` and press Enter.
+2. The Console opens in a new window. Click inside it and press **Enter** (this
+   redraws the screen, so you see the newest message).
+3. **Box with "Easy Bitcoin Payments", an address and a SETUP CODE:** the
+   install has finished. Go to step 3 below and open the address.
+   **A box that says "No setup code yet"** is not ready: wait two minutes, log in
+   as `root`, type `ebp-info` and press Enter. (If it asks you to log in, sign in as `root`
+   with the password you chose; the same box is shown after you log in.)
+4. **No box yet:** it is still installing. Close the Console, wait 5 minutes,
+   try again. Nothing is wrong until about 30 minutes have passed.
+5. **Box that says "The server is still starting":** wait two minutes, then log
+   in as `root`, type `ebp-info` and press Enter.
+
+Want a more exact check? Log in as `root` and type `cloud-init status`. It
+says `status: running` while installing and `status: done` when finished. (If it
+says `done` but there is still no box, type `ebp-info`.)
 
 ## 3. Finish setup in your browser
 
@@ -97,8 +153,13 @@ address.
 - **The address doesn't open:** wait a few minutes; the padlock certificate is
   requested on first start. If you turned on a DigitalOcean **Firewall**, it
   must allow ports 80 and 443.
-- **The box never appears:** log in to the Console as `root`, type `ebp-info`.
-  The full log is in `/var/log/ebp-vps-setup.log`.
+- **The box never appears:** first make sure at least 30 minutes have passed
+  since you created the Droplet. Then log in to the Console as `root` and type
+  `ebp-info`. If it says "command not found", the install did not finish: type
+  `cloud-init status` (it says "running" while still working) and
+  `tail -n 40 /var/log/ebp-vps-setup.log`, and send us those lines (they
+  contain no passwords or recovery words, but they do show your one-time SETUP
+  CODE, so leave that line out).
 - **Start over:** destroy the Droplet and make a new one (nothing important is
   on it before setup is finished).
 

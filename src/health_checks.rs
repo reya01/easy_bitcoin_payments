@@ -80,7 +80,7 @@ pub fn build(f: &Facts) -> Vec<Check> {
             "wallet",
             Level::Bad,
             "Your wallet is not answering",
-            "New payments cannot be received right now. Restart the service; if it keeps happening, check your host's logs.",
+            "New payments cannot be received right now. Wait a minute and refresh. If it stays red, restart your server from your hosting dashboard, then check again.",
         );
     } else {
         match f.asp_connected {

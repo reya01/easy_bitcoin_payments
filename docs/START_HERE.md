@@ -76,10 +76,13 @@ minute.) Then the setup page walks you through, in this order:
    on paper, twice, keep the copies in different places. Never photograph,
    never type them anywhere else. You will be asked to type three of them
    back to prove you wrote them down correctly.
-4. **Name your store, choose an admin password** (10+ characters; it signs
-   you in to the admin page and locks your backups) **and paste the address
-   of your own wallet** (where the till empties to; you can skip it and add
-   it later in Settings).
+4. **Name your store, choose an admin password** (16+ characters, for example four random words; it signs
+   you in to the admin page and locks your backups). **Then choose where your
+   money goes and paste that wallet's address.** This is required. Pick "Ark
+   wallet" (for example Arké or Noah) or "On-chain Bitcoin wallet" (for example
+   Sparrow, Nunchuk or Liana), open Receive in that wallet, copy an address and
+   paste it. For play money use a signet address (starts with `tark1` for Ark
+   or `tb1` on-chain). You can change it later in Settings.
 5. **One secret appears once** — the **API key**. Save it in a password manager;
    it cannot be shown again. (You can always make a new one later on the admin
    page's **Connect** tab. The *signing secret* does not exist yet; it is made

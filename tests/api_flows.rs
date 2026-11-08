@@ -830,7 +830,7 @@ async fn wizard_store_step_sets_the_admin_password() {
     };
 
     // Too short: refused, nothing set.
-    let r = post(serde_json::json!({"name": "Shop", "admin_password": "short"}))
+    let r = post(serde_json::json!({"name": "Shop", "admin_password": "short", "payout_address": "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"}))
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 400);
@@ -841,8 +841,20 @@ async fn wizard_store_step_sets_the_admin_password() {
         .unwrap();
     assert!(!set);
 
-    // Good password: stored hashed, and it logs in.
+    // No payout address: refused, nothing set.
     let r = post(serde_json::json!({"name": "Shop", "admin_password": "a good long password"}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let set = state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::password_is_set(c))
+        .await
+        .unwrap();
+    assert!(!set);
+
+    // Good password and address: stored hashed, and it logs in.
+    let r = post(serde_json::json!({"name": "Shop", "admin_password": "a good long password", "payout_address": "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"}))
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 200);

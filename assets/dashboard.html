@@ -7,6 +7,9 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Easy Bitcoin Payments — Admin</title>
 <style>
+  .pwrow { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .pwrow button { background: none; border: 0; color: inherit; text-decoration: underline; font: inherit; padding: 0 4px; min-height: 44px; cursor: pointer; }
+
 :root{--accent:#f7931a;--bg:#fff;--fg:#14161a;--muted:#5b6472;--line:#e3e6eb;--card:#f7f8fa;--ok:#157f3b;--warn:#8a5300;--bad:#b3261e;--radius:14px}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--fg:#f2f4f8;--muted:#9aa4b2;--line:#242a33;--card:#171a20;--ok:#4cc27a;--warn:#ffb74d;--bad:#ff8a80}}
 *{box-sizing:border-box}
@@ -134,7 +137,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <h2>Change admin password</h2>
   <div class="card">
     <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
-    <label for="pw-new">New password (10+ characters)</label><input type="password" id="pw-new" autocomplete="new-password">
+    <label for="pw-new">New password (16+ characters)</label><input type="password" id="pw-new" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <div class="pwrow"><span id="pw-new-count"></span><button type="button" id="pw-new-show">Show</button></div>
     <div class="btns"><button id="pw-save" type="button">Change password</button></div>
     <p class="msg hidden" id="pw-msg"></p>
   </div>
@@ -179,6 +183,21 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 
 <script src="/assets/qr.js"></script>
 <script>
+function pwHelper(inputId, btnId, countId) {
+  var pw = document.getElementById(inputId), b = document.getElementById(btnId), c = document.getElementById(countId);
+  function upd() {
+    var n = pw.value.length;
+    c.textContent = n >= 16 ? n + " characters. Long enough." : n + " of 16 characters";
+  }
+  pw.addEventListener("input", upd);
+  b.addEventListener("click", function () {
+    var show = pw.type === "password";
+    pw.type = show ? "text" : "password";
+    b.textContent = show ? "Hide" : "Show";
+  });
+  upd();
+}
+pwHelper("pw-new", "pw-new-show", "pw-new-count");
 (function () {
 "use strict";
 var csrf = "";
@@ -196,11 +215,12 @@ function api(method, path, body) {
   if (body !== undefined) h["content-type"] = "application/json";
   if (method !== "GET") h["x-ebp-csrf"] = csrf;
   return fetch(path, { method: method, headers: h, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) })
+    .catch(function () { throw new Error("Can't reach your server right now. Check your internet connection and that the server is running, then try again."); })
     .then(function (r) {
       return r.text().then(function (t) {
         var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
         if (r.status === 401 && path !== "/admin/login") { signedOut(); throw new Error("Please sign in again."); }
-        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || ("Request failed (" + r.status + ")"));
+        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many tries. Wait a minute, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
         return j;
       });
     });

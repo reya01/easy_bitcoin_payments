@@ -1,6 +1,7 @@
 # Shopify (planned, not built)
 
-**Status: research and a written plan only. There is no Shopify code in this
+**Status: research and a written plan only, deliberately parked until
+WooCommerce is thoroughly tested and built out. There is no Shopify code in this
 project and the first release does not support Shopify.** WooCommerce is the
 supported shop ([WOOCOMMERCE.md](../WOOCOMMERCE.md)). This page records what we learned so the next
 step is a decision, not another round of research.
@@ -158,21 +159,27 @@ like other secrets); a stolen token could mark orders paid, so scopes must stay
 minimal and we need the same amount-mismatch guard as WooCommerce (an order
 total that changed after the invoice was made must not be auto-paid).
 
-## Recommendation
+## Recommendation and priority
 
-1. Ship the first release with **WooCommerce only**. Say so plainly (README and
-   START_HERE already do).
-2. Before spending engineering time, answer two questions that cost nothing but
-   a day of someone's time:
-   - **Ask Shopify** (Partner support) whether a self-hosted, open-source,
-     merchant-run payment connector can be an approved payments app without a
-     central service, and what the revenue share would be for a Bitcoin offsite
-     method.
-   - **Try option B by hand** on a free Partner development store: is the manual
-     payment method flow acceptable for a buyer, and what can the thank-you
-     page show?
-3. Decide after those two answers. If Shopify requires a central service,
-   that is a product decision about vendor lock-in, not a coding task.
+**WooCommerce is the first-class experience, and will stay that way.** A
+WooCommerce plugin runs on the merchant's own site with a single install, which
+matches EBP's goals (merchant-run, easy, no one in the middle). Shopify can
+only be reached through a heavier, more fragile setup (see above), so it will
+always be a secondary, best-effort integration.
+
+**Order of work**
+
+1. Get WooCommerce thoroughly tested and built out first: the DigitalOcean test,
+   the signet drill, real shop-host testing, polish from what those find, and a
+   stable release. No Shopify engineering starts before that is done.
+2. Only then, a cheap feasibility step: follow BTCPay's Shopify v2 guide by hand
+   on a free Partner development store, and check the licence on its app code.
+3. Decide after that whether to build a Shopify connector (the BTCPay-style
+   per-merchant app is the only design that fits our goals). Do not pursue the
+   official approved-payments-app route unless Shopify accepts a connector with
+   no central service.
+
+Until then Shopify merchants are not supported, and the docs say so plainly.
 
 ## Things only the project owner can do
 

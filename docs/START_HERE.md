@@ -147,7 +147,7 @@ changing the password. Details and how to restore:
 ## Other options
 
 - **Another hosting company, Render, or your own computer:** [OTHER_HOSTS.md](OTHER_HOSTS.md).
-- **Shopify:** not supported yet. [Notes and plan](dev/SHOPIFY.md).
+- **Shopify:** not supported. WooCommerce comes first; Shopify is planned for a much later release. [Notes](dev/SHOPIFY.md).
 - **Developers:** [dev/TECHNICAL.md](dev/TECHNICAL.md).
 
 ## Glossary

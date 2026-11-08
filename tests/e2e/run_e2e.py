@@ -320,6 +320,13 @@ def main():
             page.click("#btn-store")
             assert "looks like an Ark address" in page.inner_text("#store-error")
             page.select_option("#payout-kind", "ark")
+            before = page.inner_text("#store-error")
+            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjX")
+            page.click("#btn-store")
+            wait_for(lambda: page.inner_text("#store-error") != before, "server rejects a bad address")
+            err = page.inner_text("#store-error")
+            assert "[object" not in err and len(err) > 10, err
+            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh")
             page.click("#btn-store")
             page.wait_for_selector("#store-secrets:not(.hidden)")
             state["api_key"] = page.inner_text("#api-key").strip()

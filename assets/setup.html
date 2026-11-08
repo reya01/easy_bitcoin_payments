@@ -353,6 +353,16 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   var setupToken = "";
   var lastStatus = null;
 
+  // The server sends errors as {error: {code, message}} (API routes) or as
+  // {error: "code", message: "..."} (setup-code check). Always return text.
+  function errorText(data) {
+    if (!data) return "";
+    if (typeof data.message === "string" && data.message) return data.message;
+    var e = data.error;
+    if (e && typeof e === "object" && typeof e.message === "string") return e.message;
+    return typeof e === "string" ? e : "";
+  }
+
   function api(method, path, body, retried) {
     var headers = { "content-type": "application/json", "accept": "application/json" };
     if (setupToken) headers["x-ebp-setup-token"] = setupToken;
@@ -368,7 +378,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
           if (lastStatus) { show("code"); }
         }
         if (!res.ok) {
-          throw new Error(data.message || data.error || (res.status === 429 ? "Too many tries. Wait a minute, then try again." : res.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + res.status + ")."));
+          throw new Error(errorText(data) || (res.status === 429 ? "Too many tries. Wait a minute, then try again." : res.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + res.status + ")."));
         }
         return data;
       });

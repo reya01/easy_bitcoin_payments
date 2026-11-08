@@ -44,6 +44,17 @@ Play money only: signet coins. Do not send real bitcoin.
 | 13 | Place a small test order and pay it | WOOCOMMERCE | | | |
 | 14 | Order moves to Processing by itself | WOOCOMMERCE | | | |
 
+## Extra checks only a real server can answer (if time allows)
+
+CI already covers these on a fake wallet and a local shop. These need the real thing:
+
+- [ ] **The real address reaches EBP.** On the Connect tab, open "Extra protection" and save a wrong address (for example `203.0.113.7`). Place a small test order from the shop. Checkout should fail, and the Connect tab should then say a request with your shop key from **your shop's real public address** was refused. If it shows a `172.x` or `10.x` address instead, the proxy is hiding the real one: write it down. Then clear the box and Save so checkout works again.
+- [ ] **Pause works from the shop's side.** Settings → Pause new payments. At the shop's checkout, choosing Bitcoin should say it is not available and offer another method. Resume and confirm it works again.
+- [ ] **Phone alerts and the daily summary.** Turn on phone alerts, send a test alert, and look at the "Tell me about payments" choice (it should say "Once a day"). Pay one more test order and check whether the daily message arrives the next day, with a count and no amounts.
+- [ ] **A real phone scan.** Scan the checkout QR with your signet wallet and with the camera. Also tap **Open in my wallet app** on the phone.
+- [ ] **Restore turns two-step off.** (Optional, only if you have a spare server.) After restoring a backup, sign in with the password only; Home should offer two-step sign-in again.
+- [ ] **A cancelled or expired payment page.** Let a test payment expire and open its page: it should say it expired, hide the QR, and offer a way back to the shop.
+
 ## Quick checks at the end
 
 - [ ] The admin Home tab says everything is OK (or lists problems in plain words).

@@ -103,3 +103,12 @@ open box.
 >
 > Install: `docs/START_HERE.md` (no terminal) or `docs/START_HERE.md`.
 > Verify the download with the checksums and signature in this release.
+
+## 6. When live mode exists
+
+Decision (8 Nov 2026): the public walkthrough `docs/START_HERE.md` stays in its
+play-money wording until live mode is supported. The version written for real use
+(no test or signet wording, `ark1` / `bc1` addresses) is ready on branch
+`start-here-live-wording`. Merge it in the same release that enables live mode,
+rebase it first, and drop its note in `DROPLET_TEST_SHEET.md` if testing is then
+done differently.

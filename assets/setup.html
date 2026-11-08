@@ -56,6 +56,7 @@
   .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-top: 14px; }
   .card a { color: var(--fg); font-weight: 600; display: inline-block; padding: 12px 0; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid var(--line, #888); background: inherit; color: inherit; font: inherit; min-height: 44px; }
   input[type=text], input[type=password] {
     width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
     background: transparent; color: var(--fg);
@@ -201,9 +202,19 @@
       <input type="password" id="admin-pw" autocomplete="new-password" placeholder="At least 16 characters" autocapitalize="none" autocorrect="off" spellcheck="false">
       <div class="pwrow"><span id="admin-pw-count"></span><button type="button" id="admin-pw-show">Show</button></div>
       <p class="note">You will use this to sign in to your admin page from any phone or computer. Store it in a password manager. A few random words works well.</p>
-      <label for="payout">Where should your money go? (optional)</label>
-      <input type="text" id="payout" autocomplete="off" spellcheck="false" placeholder="Ark or Bitcoin address">
-      <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control (for example Arké). You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
+      <label for="payout-kind">Where should your money go? (optional)</label>
+      <select id="payout-kind">
+        <option value="">Decide later (skip for now)</option>
+        <option value="ark">Ark wallet</option>
+        <option value="onchain">On-chain Bitcoin wallet</option>
+      </select>
+      <p class="note">Examples. Ark wallets: Arké, Noah. On-chain wallets: Sparrow, Nunchuk, Liana.</p>
+      <div class="hidden" id="payout-box">
+        <label for="payout" id="payout-label">Your wallet's address</label>
+        <input type="text" id="payout" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="">
+        <p class="note" id="payout-hint"></p>
+      </div>
+      <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control. You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
       <div class="hidden" id="store-secrets">
         <p class="note">API key — shown once, save it in a password manager:</p>
@@ -301,6 +312,31 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       element.className = index < step ? "done" : index === step ? "now" : "";
     });
   }
+
+  // Payout wallet picker: choosing a kind shows the address box with the right
+  // hint. The server still checks the address properly; this only catches the
+  // obvious mix-up (an Ark address in the on-chain box, or the reverse).
+  var payoutHints = {
+    ark: { label: "Your Ark address", ph: "ark1… (play money: tark1…)",
+      hint: "In your Ark wallet (Arké or Noah) open Receive and copy the Ark address. It starts with ark1, or tark1 for play money." },
+    onchain: { label: "Your Bitcoin address", ph: "bc1… (play money: tb1…)",
+      hint: "In your wallet (Sparrow, Nunchuk or Liana) open Receive and copy a fresh address. It starts with bc1, or tb1 for play money. Use a wallet you control, not an exchange deposit address." }
+  };
+  function payoutKind() { return document.getElementById("payout-kind").value; }
+  function looksArk(a) { return /^t?ark1/i.test(a); }
+  function payoutValue() {
+    var kind = payoutKind(), a = document.getElementById("payout").value.trim();
+    return kind && a ? a : null;
+  }
+  document.getElementById("payout-kind").addEventListener("change", function () {
+    var kind = payoutKind(), box = document.getElementById("payout-box");
+    if (!kind) { box.classList.add("hidden"); return; }
+    var h = payoutHints[kind];
+    document.getElementById("payout-label").textContent = h.label;
+    document.getElementById("payout").placeholder = h.ph;
+    document.getElementById("payout-hint").textContent = h.hint;
+    box.classList.remove("hidden");
+  });
 
   function fail(element, message) {
     element.textContent = message;
@@ -611,8 +647,21 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       fail(els.storeError, "Choose an admin password of at least 16 characters (a few random words works well).");
       return;
     }
+    var kind = payoutKind(), addr = document.getElementById("payout").value.trim();
+    if (kind && !addr) {
+      fail(els.storeError, "Paste your wallet's address, or choose \"Decide later\" to skip this for now.");
+      return;
+    }
+    if (kind === "ark" && addr && !looksArk(addr)) {
+      fail(els.storeError, "That does not look like an Ark address (they start with ark1, or tark1 for play money). If it is a regular Bitcoin address, choose the on-chain option instead.");
+      return;
+    }
+    if (kind === "onchain" && addr && looksArk(addr)) {
+      fail(els.storeError, "That looks like an Ark address. Choose the Ark option instead.");
+      return;
+    }
     els.btnStore.disabled = true;
-    api("POST", "/setup/store", { name: name, admin_password: pw, payout_address: document.getElementById("payout").value.trim() || null })
+    api("POST", "/setup/store", { name: name, admin_password: pw, payout_address: payoutValue() })
       .then(function (result) {
         document.getElementById("admin-pw").value = "";
         document.getElementById("admin-pw").type = "password";

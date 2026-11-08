@@ -22,6 +22,8 @@ h2{font-size:15px;margin:22px 0 8px;font-weight:600}
 .hidden{display:none!important}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:10px 0}
 .row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.row>*{min-width:0;overflow-wrap:anywhere}
+.card{overflow-wrap:anywhere}
 .row:last-child{border-bottom:0}
 .muted{color:var(--muted);font-size:14px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.check{padding:8px 0;border-bottom:1px solid var(--line)}.check:last-child{border-bottom:0}

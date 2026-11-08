@@ -16,6 +16,14 @@ that nobody else, not us and not a payment company, ever holds their money. We
 trade some purist trust-minimization for that accessibility, on purpose, and we say
 plainly where.
 
+**Why Ark?** Ark makes a fundamentally lower-risk design possible for a small
+business. Moving money off the server with regular Bitcoin transactions is only
+worthwhile in larger amounts, but Ark lets the server sweep even tiny payments out
+to your own wallet within minutes. Less bitcoin sitting on a server that is
+connected to the internet means less to lose if it is ever compromised, while you
+still hold your own keys. (In exchange, fast payments rely on the Ark server staying
+online; if it ever disappears you can exit to regular Bitcoin on your own.)
+
 ## Get started (beginner path)
 
 A small DigitalOcean server and a WooCommerce shop. No terminal needed.

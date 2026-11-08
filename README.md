@@ -24,6 +24,16 @@ connected to the internet means less to lose if it is ever compromised, while yo
 still hold your own keys. (In exchange, fast payments rely on the Ark server staying
 online; if it ever disappears you can exit to regular Bitcoin on your own.)
 
+**Our design stance.** AI is making software easier to attack, and in this
+environment a hack is a matter of *when*, not *if*. We cannot fix that by "coding
+harder": every program has bugs we have not found yet. So EBP is built around
+choices that make a break-in matter less: keep little money on the server (Ark),
+keep the keys with you, make payouts go to one fixed address that takes a day to
+change, ask for a second lock (a code from your phone) before anything risky, and
+keep the amount of code and number of moving parts small. We still write careful
+code and test it, but we plan as if something will go wrong and ask, "what is the
+worst that could happen then?"
+
 ## Get started (beginner path)
 
 A small DigitalOcean server and a WooCommerce shop. No terminal needed.

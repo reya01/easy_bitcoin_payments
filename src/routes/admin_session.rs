@@ -36,26 +36,80 @@ pub async fn session(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let token = aa::token_from_headers(&headers, secure(&state));
-    let (set, csrf) = state
+    let (set, csrf, twofa, declined) = state
         .db
         .call(move |c| {
             let csrf = match token {
                 Some(t) => aa::lookup_session(c, &t)?,
                 None => None,
             };
-            Ok((aa::password_is_set(c)?, csrf))
+            Ok((
+                aa::password_is_set(c)?,
+                csrf,
+                crate::totp::is_enabled(c)?,
+                crate::totp::is_declined(c)?,
+            ))
         })
         .await?;
+    // The 2FA flags are only for signed-in pages (the sign-in screen asks for
+    // a code after the password is right, so it never needs them).
+    let signed_in = csrf.is_some();
     Ok(Json(json!({
         "password_set": set,
-        "authenticated": csrf.is_some(),
+        "authenticated": signed_in,
         "csrf": csrf,
+        "twofa": signed_in && twofa,
+        "twofa_declined": signed_in && declined,
     })))
 }
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
     pub password: String,
+    /// 6-digit code (or a recovery code); only needed when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+enum LoginOutcome {
+    Session(aa::Session),
+    NeedCode,
+    WrongCode,
+    Locked,
+    Denied,
+}
+
+const LOCKED_MSG: &str = "Too many wrong codes. Wait 10 minutes and try again.";
+
+/// Second-step check for actions that move money or hand out the backup.
+/// Does nothing when two-step sign-in is off. Call it after the password check.
+pub(crate) async fn check_second_step(
+    state: &AppState,
+    code: Option<String>,
+) -> Result<(), AppError> {
+    state
+        .db
+        .call(move |c| {
+            if !crate::totp::is_enabled(c)? {
+                return Ok(());
+            }
+            let Some(code) = code.filter(|x| !x.trim().is_empty()) else {
+                return Err(AppError::BadRequest(
+                    "Enter the 6-digit code from your authenticator app.".into(),
+                ));
+            };
+            match crate::totp::verify(c, &code, crate::util::now_unix(), true)? {
+                crate::totp::Second::Ok => Ok(()),
+                crate::totp::Second::Wrong => {
+                    audit(c, "admin.2fa_failed", "wrong code on a protected action");
+                    Err(AppError::BadRequest(
+                        "That code isn't right. Check your authenticator app and try again.".into(),
+                    ))
+                }
+                crate::totp::Second::Locked => Err(AppError::BadRequest(LOCKED_MSG.into())),
+            }
+        })
+        .await
 }
 
 /// `POST /admin/login`
@@ -75,21 +129,45 @@ pub async fn login(
         .await
         .map_err(|e| AppError::Internal(format!("login check failed: {e}")))?;
     // 3. Record the outcome (fast, inside the lock).
+    let code = req.code;
     let outcome = state
         .db
         .call(move |c| {
-            if ok {
-                let s = aa::create_session(c)?;
-                audit(c, "admin.login", "signed in");
-                Ok(Some(s))
-            } else {
+            if !ok {
                 audit(c, "admin.login_failed", "wrong password");
-                Ok(None)
+                return Ok(LoginOutcome::Denied);
             }
+            // Password right. If two-step sign-in is on, a code is needed too.
+            if crate::totp::is_enabled(c)? {
+                let Some(code) = code.filter(|x| !x.trim().is_empty()) else {
+                    return Ok(LoginOutcome::NeedCode);
+                };
+                match crate::totp::verify(c, &code, crate::util::now_unix(), false)? {
+                    crate::totp::Second::Ok => {}
+                    crate::totp::Second::Wrong => {
+                        audit(c, "admin.login_failed", "wrong code");
+                        return Ok(LoginOutcome::WrongCode);
+                    }
+                    crate::totp::Second::Locked => return Ok(LoginOutcome::Locked),
+                }
+            }
+            let s = aa::create_session(c)?;
+            audit(c, "admin.login", "signed in");
+            Ok(LoginOutcome::Session(s))
         })
         .await?;
-    let Some(s) = outcome else {
-        return Err(AppError::Unauthorized);
+    let s = match outcome {
+        LoginOutcome::Session(s) => s,
+        LoginOutcome::NeedCode => {
+            return Ok((StatusCode::OK, Json(json!({ "code_required": true }))).into_response())
+        }
+        LoginOutcome::WrongCode => {
+            return Err(AppError::BadRequest(
+                "That code isn't right. Check your authenticator app and try again, or use a recovery code.".into(),
+            ))
+        }
+        LoginOutcome::Locked => return Err(AppError::BadRequest(LOCKED_MSG.into())),
+        LoginOutcome::Denied => return Err(AppError::Unauthorized),
     };
     let body = Json(json!({ "authenticated": true, "csrf": s.csrf }));
     Ok(with_cookie(
@@ -144,6 +222,8 @@ pub async fn logout(
 pub struct ChangePasswordRequest {
     pub current: String,
     pub new: String,
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 /// `POST /admin/password` — change the password (signs every session out).
@@ -156,12 +236,17 @@ pub async fn change_password(
     aa::validate_password(&req.new)?;
     let iters = state.config.password_hash_iterations;
     let (current, new) = (req.current, req.new);
+    let pw_ok = state
+        .db
+        .call(move |c| aa::check_password(c, &current))
+        .await?;
+    if !pw_ok {
+        return Err(AppError::Unauthorized);
+    }
+    check_second_step(&state, req.code).await?;
     state
         .db
         .call(move |c| {
-            if !aa::check_password(c, &current)? {
-                return Err(AppError::Unauthorized);
-            }
             aa::set_password(c, &new, iters)?;
             audit(c, "admin.password_changed", "password changed");
             Ok(())

@@ -29,6 +29,7 @@ pub mod routes;
 pub mod secrets;
 pub mod settings;
 pub mod store;
+pub mod totp;
 pub mod updates;
 pub mod uri;
 pub mod util;

@@ -12,6 +12,7 @@ pub mod payout;
 pub mod reconcile;
 pub mod setup;
 pub mod stores;
+pub mod twofa;
 pub mod unmatched;
 
 use std::sync::Arc;
@@ -138,6 +139,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/reconcile/status", post(reconcile::status))
         .route("/admin/reconcile/done", post(reconcile::done))
         .route("/admin/password", post(admin_session::change_password))
+        .route("/admin/2fa/status", post(twofa::status))
+        .route("/admin/2fa/skip", post(twofa::skip))
         .merge(
             Router::new()
                 .route("/admin/login", post(admin_session::login))
@@ -145,6 +148,10 @@ pub fn router(state: AppState) -> Router {
                 .route("/admin/backup", post(backup::download))
                 // Also checks the admin password.
                 .route("/admin/payout", post(payout::change))
+                // These check the admin password or a code, so they share the brake.
+                .route("/admin/2fa/start", post(twofa::start))
+                .route("/admin/2fa/confirm", post(twofa::confirm))
+                .route("/admin/2fa/disable", post(twofa::disable))
                 // Password-guessing brake: 10 attempts a minute per client.
                 .layer(middleware::from_fn_with_state(
                     Arc::new(crate::ratelimit::RateLimiter::new(

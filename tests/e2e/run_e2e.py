@@ -9,8 +9,10 @@ request EBP made to the fake matched the pinned OpenAPI spec.
 
 Usage: run_e2e.py <path-to-ebp-binary>
 """
+import base64
 import hashlib
 import hmac
+import struct
 import json
 import os
 import shutil
@@ -209,6 +211,14 @@ class Hook(BaseHTTPRequestHandler):
         self.end_headers()
 
 
+def totp_code(secret_b32, step):
+    """The 6-digit code an authenticator app shows (RFC 6238, SHA-1, 30 s)."""
+    key = base64.b32decode(secret_b32.upper() + "=" * (-len(secret_b32) % 8))
+    mac = hmac.new(key, struct.pack(">Q", step), "sha1").digest()
+    off = mac[-1] & 15
+    return f"{(struct.unpack('>I', mac[off:off + 4])[0] & 0x7FFFFFFF) % 1000000:06d}"
+
+
 def verify_sig(secret, item):
     parts = dict(p.strip().split("=", 1) for p in item["sig"].split(","))
     mac = hmac.new(secret.encode(), f"{parts['t']}.".encode() + item["body"], hashlib.sha256).hexdigest()
@@ -349,6 +359,59 @@ def main():
             wait_for(lambda: "Wallet is connected" in page.inner_text("#health"), "wallet connected line")
             text = page.inner_text("#health")
             assert "only works on this computer" in text, "a localhost address must be flagged"
+
+        @step("two-step sign-in: offered with a warning to skip, turned on with an app code, asked at sign-in, turned off")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            wait_for(lambda: page.is_visible("#twofa-prompt"), "the offer to turn on two-step sign-in")
+            page.get_by_role("button", name="Skip, use password only").click()
+            wait_for(lambda: "less secure" in page.inner_text("#twofa-prompt"), "warning about password-only")
+            page.get_by_role("button", name="Turn on instead (recommended)").click()
+            page.wait_for_selector("#tf-pw")
+            page.fill("#tf-pw", ADMIN_PW)
+            page.get_by_role("button", name="Continue").click()
+            page.wait_for_selector("#tf-key")
+            secret = page.inner_text("#tf-key").replace(" ", "").strip()
+            assert len(secret) >= 32, secret
+            assert page.is_visible("#twofa-card img"), "a QR picture is shown"
+            if DEVICE:
+                problem = phone_audit("two-step setup")
+                assert not problem, problem
+            cur = int(time.time()) // 30
+            page.fill("#tf-code", "000000")
+            page.get_by_role("button", name="Turn on two-step sign-in").click()
+            wait_for(lambda: page.is_visible("#tf-msg"), "wrong code refused")
+            page.fill("#tf-code", totp_code(secret, cur))
+            page.get_by_role("button", name="Turn on two-step sign-in").click()
+            page.wait_for_selector("#tf-codes")
+            codes = [c for c in page.inner_text("#tf-codes").split() if c]
+            assert len(codes) == 10, codes
+            page.get_by_role("button", name="I saved them").click()
+            wait_for(lambda: "Backup codes left: 10" in page.inner_text("#twofa-card"), "turned on, 10 backup codes")
+            assert page.is_visible("#bk-code"), "protected actions now ask for a code"
+            # Sign out and back in: the password alone is no longer enough.
+            page.click("#logout")
+            page.wait_for_selector("#login-form:not(.hidden)")
+            page.fill("#pw", ADMIN_PW)
+            page.click("#login-btn")
+            page.wait_for_selector("#code-box:not(.hidden)")
+            page.fill("#code", "000000")
+            page.click("#login-btn")
+            wait_for(lambda: "code" in page.inner_text("#login-err"), "wrong code refused at sign-in")
+            page.fill("#code", totp_code(secret, cur + 1))
+            page.click("#login-btn")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            assert not page.is_visible("#twofa-prompt"), "no offer once it is on"
+            # Turn it off again (so the rest of the run signs in with the password only).
+            page.click('#tabs button[data-v="set"]')
+            page.locator("#twofa-card").get_by_role("button", name="Turn off", exact=True).click()
+            page.wait_for_selector("#tf-off-pw")
+            page.fill("#tf-off-pw", ADMIN_PW)
+            page.fill("#tf-off-code", totp_code(secret, cur + 1))
+            page.get_by_role("button", name="Turn off two-step sign-in").click()
+            wait_for(lambda: "Off (password only)" in page.inner_text("#twofa-card"), "turned off")
+            assert not page.is_visible("#bk-code"), "no code box once it is off"
 
         @step("connect tab: save webhook, test notification arrives with a valid signature")
         def _():

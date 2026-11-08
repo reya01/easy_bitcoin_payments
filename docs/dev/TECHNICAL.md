@@ -93,6 +93,7 @@ Requires Rust 1.82+ (pinned in `rust-toolchain.toml`).
 cargo run -- store create --name "My Shop" --webhook-url "https://shop.example.com/ebp"
 cargo run -- store list
 cargo run -- admin set-password         # forgot the admin-page password? reset it here
+cargo run -- admin reset-2fa            # lost your phone and your backup codes? turns two-step sign-in off
 cargo run -- store rotate-key            # lost your API key? mints a new one, shown once
 
 # 2. Start the server.

@@ -4,6 +4,7 @@
 //! * `POST /admin/alerts/status`   — state, topic and server (POST so the CSRF check applies)
 //! * `POST /admin/alerts/enable`   — turn on (optional own `server`)
 //! * `POST /admin/alerts/disable`  — opt out
+//! * `POST /admin/alerts/activity` — how to hear about payments: daily (default), each or off
 //! * `POST /admin/alerts/test`     — send a test alert
 
 use axum::extract::State;
@@ -29,6 +30,7 @@ async fn view(state: &AppState) -> Result<Json<Value>, AppError> {
                 "topic": if st == al::State::On { topic } else { None },
                 "server": server,
                 "default_server": al::DEFAULT_SERVER,
+                "activity": al::activity(c)?.as_str(),
             }))
         })
         .await?;
@@ -58,6 +60,25 @@ pub async fn enable(
     state
         .db
         .call(move |c| al::enable(c, server.as_deref()))
+        .await?;
+    view(&state).await
+}
+
+#[derive(Deserialize)]
+pub struct ActivityRequest {
+    pub mode: String,
+}
+
+/// `POST /admin/alerts/activity` — `daily`, `each` or `off`.
+pub async fn activity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ActivityRequest>,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    state
+        .db
+        .call(move |c| al::set_activity(c, &req.mode))
         .await?;
     view(&state).await
 }

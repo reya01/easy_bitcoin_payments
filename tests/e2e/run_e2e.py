@@ -626,6 +626,37 @@ def main():
             page.click('#tabs button[data-v="home"]')
             wait_for(lambda: "Payout address is set" in page.inner_text("#health"), "home says the payout address is set")
 
+        @step("pause + key limit: pausing refuses new payments, the shop key can be limited to an address, both undone")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.get_by_role("button", name="Pause new payments").click()
+            wait_for(lambda: "Paused" in page.inner_text("#pause-card"), "paused")
+            page.click('#tabs button[data-v="home"]')
+            wait_for(lambda: page.is_visible("#paused-card"), "paused notice on Home")
+            code, body = http("POST", f"{BASE}/api/v1/invoices", {"order_id": "paused-1", "sats": 1000}, auth())
+            assert code == 409 and "paused" in json.dumps(body), (code, body)
+            page.locator("#paused-card").get_by_role("button", name="Resume payments").click()
+            wait_for(lambda: not page.is_visible("#paused-card"), "resumed")
+            new_invoice("paused-2", 1000)
+            # The shop key limited to another address stops working from here.
+            page.click('#tabs button[data-v="hooks"]')
+            page.click("#keylock-box summary")
+            page.fill("#kl-addr", "198.51.100.7")
+            page.click("#kl-save")
+            wait_for(lambda: "Saved" in page.inner_text("#kl-msg"), "limit saved")
+            code, _ = http("GET", f"{BASE}/api/v1/invoices?limit=1", headers=auth())
+            assert code == 401, code
+            page.click('#tabs button[data-v="home"]')
+            page.click('#tabs button[data-v="hooks"]')
+            wait_for(lambda: "was refused" in page.inner_text("#kl-blocked"), "the refused address is shown to the owner")
+            page.fill("#kl-addr", "")
+            page.click("#kl-save")
+            wait_for(lambda: "No limit" in page.inner_text("#kl-msg"), "limit removed")
+            code, _ = http("GET", f"{BASE}/api/v1/invoices?limit=1", headers=auth())
+            assert code == 200, code
+
         if DEVICE:
 
             @step("phone: every admin tab and the checkout page fit the screen")

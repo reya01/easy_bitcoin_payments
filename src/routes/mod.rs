@@ -11,6 +11,7 @@ pub mod invoices;
 pub mod payout;
 pub mod reconcile;
 pub mod setup;
+pub mod shopkey;
 pub mod stores;
 pub mod twofa;
 pub mod unmatched;
@@ -136,11 +137,15 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/alerts/enable", post(alerts::enable))
         .route("/admin/alerts/disable", post(alerts::disable))
         .route("/admin/alerts/test", post(alerts::test))
+        .route("/admin/alerts/activity", post(alerts::activity))
         .route("/admin/reconcile/status", post(reconcile::status))
         .route("/admin/reconcile/done", post(reconcile::done))
         .route("/admin/password", post(admin_session::change_password))
         .route("/admin/2fa/status", post(twofa::status))
         .route("/admin/2fa/skip", post(twofa::skip))
+        .route("/admin/pause", post(shopkey::pause))
+        .route("/admin/keylock/status", post(shopkey::status))
+        .route("/admin/keylock/save", post(shopkey::save))
         .merge(
             Router::new()
                 .route("/admin/login", post(admin_session::login))

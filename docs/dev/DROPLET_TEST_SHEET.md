@@ -17,6 +17,10 @@ Play money only: signet coins. Do not send real bitcoin.
       "localhost" or a site only on your own computer), where you are an admin.
 - [ ] The plugin zip `ebp-bitcoin-woocommerce.zip` saved where your browser
       can reach it.
+- [ ] Your shop's PHP is up to date (WordPress: Tools, Site Health, Info, Server;
+      PHP security fixes were released 21 October 2026, see
+      [WOOCOMMERCE.md](../WOOCOMMERCE.md#keep-your-shop-patched)). Play money only,
+      but check anyway so the habit is there.
 - [ ] Your DigitalOcean account with a payment method added.
 - [ ] The setup text copied (START_HERE.md step 1).
 

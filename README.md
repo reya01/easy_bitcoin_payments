@@ -30,7 +30,7 @@ harder": every program has bugs we have not found yet. So EBP is built around
 choices that make a break-in matter less: keep little money on the server (Ark),
 keep the keys with you, make payouts go to one fixed address that takes a day to
 change, ask for a second lock (a code from your phone) before anything risky, and
-keep the amount of code and number of moving parts small. We still write careful
+keep the amount of code and number of moving parts small. (Example: after the PHP2Shell bugs showed that any PHP shop can be taken over, we made sure a hacked shop cannot move your money, and added a one-click pause and optional limits on the shop's key.) We still write careful
 code and test it, but we plan as if something will go wrong and ask, "what is the
 worst that could happen then?"
 

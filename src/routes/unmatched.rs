@@ -15,7 +15,7 @@ use axum::Json;
 use rusqlite::params;
 use serde::Serialize;
 
-use crate::auth::StoreAuth;
+use crate::auth::{OwnerAuth, StoreAuth};
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::util::{now_unix, to_rfc3339};
@@ -87,7 +87,7 @@ pub async fn list(
 /// (refunded / fulfilled manually). Idempotent; 404 for other stores' rows.
 pub async fn resolve(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let store_id = auth.store.id.clone();

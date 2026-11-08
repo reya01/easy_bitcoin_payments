@@ -1,14 +1,16 @@
 //! Store self-service: webhook configuration and API-key rotation.
 //!
 //! Closes review finding R4: a store created by the setup wizard had no way
-//! to receive webhooks, and keys could not be rotated. Both endpoints
-//! authenticate with the store's API key; secrets are returned once.
+//! to receive webhooks, and keys could not be rotated. Both endpoints need the
+//! signed-in admin session (NOT the shop's API key, which a hacked shop would
+//! hold; changed because of the PHP2Shell bugs, see docs/dev/SHOP_COMPROMISE.md);
+//! secrets are returned once.
 
 use axum::extract::State;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::auth::StoreAuth;
+use crate::auth::{OwnerAuth, StoreAuth};
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::store;
@@ -29,7 +31,7 @@ pub struct SetWebhookRequest {
 /// generated; store it, it cannot be read back.
 pub async fn set_webhook(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
     Json(req): Json<SetWebhookRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let url = req
@@ -105,7 +107,7 @@ pub async fn version(
 /// shop receives and verifies it. No invoice and no payment is involved.
 pub async fn test_webhook(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
 ) -> Result<Json<serde_json::Value>, AppError> {
     if auth.store.webhook_url.is_none() {
         return Err(AppError::BadRequest(
@@ -139,7 +141,7 @@ pub async fn test_webhook(
 /// the response carries the replacement (shown once).
 pub async fn rotate_key(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let store_id = auth.store.id.clone();
     let key = state

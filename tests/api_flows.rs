@@ -21,6 +21,36 @@ use easy_bitcoin_payments::util::now_unix;
 use easy_bitcoin_payments::wallet::StubWallet;
 use easy_bitcoin_payments::webhook::WebhookEmitter;
 
+/// Sign in as the shop owner (admin page) and return (cookie, csrf). Owner-only
+/// actions (webhook settings, key rotation, marking payments handled) need this;
+/// the shop's API key is deliberately not enough.
+async fn owner_session(base: &str, state: &AppState) -> (String, String) {
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .await
+        .unwrap();
+    let login = reqwest::Client::new()
+        .post(format!("{base}/admin/login"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    let cookie = login.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let csrf = login.json::<serde_json::Value>().await.unwrap()["csrf"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    (cookie, csrf)
+}
+
 /// Serve the router with setup marked complete; returns (base url, state,
 /// store id, api key).
 async fn serve() -> (String, AppState, String, String) {
@@ -172,10 +202,21 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
     assert!(rows[0]["resolved_at"].is_null());
 
     let id = rows[0]["id"].as_str().unwrap().to_string();
-    let resolved = client
+    // The shop's key cannot hide a payment; only the owner (admin page) can.
+    let by_key = client
         .post(format!("{base}/api/v1/unmatched-payments/{id}/resolve"))
         .header("host", "localhost")
         .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(by_key.status(), 401);
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let resolved = client
+        .post(format!("{base}/api/v1/unmatched-payments/{id}/resolve"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
         .send()
         .await
         .unwrap();
@@ -217,7 +258,7 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
         .send()
         .await
         .unwrap();
-    assert_eq!(cross.status(), 404);
+    assert_eq!(cross.status(), 401);
 }
 
 #[tokio::test]
@@ -422,22 +463,47 @@ async fn every_response_carries_browser_hardening_headers() {
 
 #[tokio::test]
 async fn webhook_config_and_key_rotation() {
-    let (base, _state, _store_id, key) = serve().await;
+    let (base, state, _store_id, key) = serve().await;
     let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
     let put = |body: serde_json::Value, key: String| {
         let client = client.clone();
         let base = base.clone();
+        let (cookie, csrf) = (cookie.clone(), csrf.clone());
         async move {
+            // `key` is the shop's API key; webhook settings ignore it and need
+            // the owner's session.
+            let _ = key;
             client
                 .put(format!("{base}/api/v1/stores/webhook"))
                 .header("host", "localhost")
-                .bearer_auth(key)
+                .header("cookie", cookie)
+                .header("x-ebp-csrf", csrf)
                 .json(&body)
                 .send()
                 .await
                 .unwrap()
         }
     };
+
+    // A shop's API key cannot change where notifications go, or replace itself.
+    let by_key = client
+        .put(format!("{base}/api/v1/stores/webhook"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .json(&serde_json::json!({ "url": "https://evil.example.com/x" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(by_key.status(), 401);
+    let by_key = client
+        .post(format!("{base}/api/v1/stores/rotate-key"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(by_key.status(), 401);
 
     // Unsafe targets are refused.
     let bad = put(
@@ -476,11 +542,12 @@ async fn webhook_config_and_key_rotation() {
     let v: serde_json::Value = rot.json().await.unwrap();
     assert_ne!(v["webhook_secret"].as_str().unwrap(), first);
 
-    // Key rotation: new key works, old key is dead.
+    // Key rotation (by the owner): new key works, old key is dead.
     let r = client
         .post(format!("{base}/api/v1/stores/rotate-key"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
         .send()
         .await
         .unwrap();
@@ -489,10 +556,22 @@ async fn webhook_config_and_key_rotation() {
         .as_str()
         .unwrap()
         .to_string();
-    let old = put(serde_json::json!({ "url": null }), key).await;
-    assert_eq!(old.status(), 401);
-    let fresh = put(serde_json::json!({ "url": null }), new_key).await;
-    assert_eq!(fresh.status(), 200);
+    let list = |k: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .get(format!("{base}/api/v1/invoices?limit=1"))
+                .header("host", "localhost")
+                .bearer_auth(k)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(list(key).await, 401);
+    assert_eq!(list(new_key).await, 200);
 }
 
 #[tokio::test]
@@ -578,10 +657,12 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     assert_eq!(list.as_array().unwrap().len(), 1, "only this store's rows");
     assert_eq!(list[0]["id"], "whd_mine");
 
+    let (cookie, csrf) = owner_session(&base, &state).await;
     let other = client
         .post(format!("{base}/api/v1/webhook-deliveries/whd_other/resend"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
         .send()
         .await
         .unwrap();
@@ -590,7 +671,8 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     let ok = client
         .post(format!("{base}/api/v1/webhook-deliveries/whd_mine/resend"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
         .send()
         .await
         .unwrap();
@@ -617,7 +699,12 @@ async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
         .json()
         .await
         .unwrap();
-    assert_eq!(audit[0]["action"], "webhook.resend");
+    // (Newest first, but the owner's sign-in can share the same second.)
+    assert!(audit
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|a| a["action"] == "webhook.resend"));
 }
 
 #[tokio::test]
@@ -888,13 +975,15 @@ async fn backup_cannot_be_confirmed_without_verifying_the_words() {
 
 #[tokio::test]
 async fn webhook_test_needs_a_url_and_queues_a_test_event() {
-    let (base, _state, _store_id, key) = serve_with(Config::default()).await;
+    let (base, state, _store_id, key) = serve_with(Config::default()).await;
     let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
     let test = || {
         client
             .post(format!("{base}/api/v1/stores/webhook/test"))
             .header("host", "localhost")
-            .bearer_auth(&key)
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
             .send()
     };
     // No webhook yet: refused with a plain message.
@@ -903,7 +992,8 @@ async fn webhook_test_needs_a_url_and_queues_a_test_event() {
     let set = client
         .put(format!("{base}/api/v1/stores/webhook"))
         .header("host", "localhost")
-        .bearer_auth(&key)
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
         .json(&serde_json::json!({ "url": "https://shop.example.com/hook" }))
         .send()
         .await
@@ -1502,4 +1592,183 @@ async fn five_wrong_codes_lock_two_step_for_ten_minutes_even_for_the_right_code(
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn pause_switch_refuses_new_payments_only_and_the_shop_key_cannot_undo_it() {
+    let (base, state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let new_invoice = || {
+        client
+            .post(format!("{base}/api/v1/invoices"))
+            .header("host", "localhost")
+            .bearer_auth(&key)
+            .json(&serde_json::json!({"sats": 1000, "order_id": format!("o-{}", easy_bitcoin_payments::util::random_hex(4))}))
+            .send()
+    };
+    let pause = |paused: bool, session: bool| {
+        let mut r = client
+            .post(format!("{base}/admin/pause"))
+            .header("host", "localhost")
+            .json(&serde_json::json!({ "paused": paused }));
+        if session {
+            r = r.header("cookie", &cookie).header("x-ebp-csrf", &csrf);
+        } else {
+            r = r.bearer_auth(&key);
+        }
+        r.send()
+    };
+
+    let made: serde_json::Value = new_invoice().await.unwrap().json().await.unwrap();
+    let existing = made["id"].as_str().unwrap().to_string();
+
+    // The shop's key cannot pause or resume; the owner can.
+    assert_eq!(pause(true, false).await.unwrap().status().as_u16(), 401);
+    assert_eq!(pause(true, true).await.unwrap().status().as_u16(), 200);
+
+    // New requests are refused with a plain message; existing ones still load.
+    let refused = new_invoice().await.unwrap();
+    assert_eq!(refused.status().as_u16(), 409);
+    let body: serde_json::Value = refused.json().await.unwrap();
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("paused"));
+    let still = client
+        .get(format!("{base}/api/v1/invoices/{existing}"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(still.status().as_u16(), 200);
+
+    // The session reports it, and resuming works.
+    let s: serde_json::Value = client
+        .get(format!("{base}/admin/session"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s["paused"], true);
+    assert_eq!(pause(false, true).await.unwrap().status().as_u16(), 200);
+    assert_eq!(new_invoice().await.unwrap().status().as_u16(), 201);
+}
+
+#[tokio::test]
+async fn shop_key_can_be_locked_to_the_shops_address() {
+    let config = Config {
+        // Pretend requests come from the address in X-Forwarded-For.
+        trust_proxy_headers: true,
+        ..Config::default()
+    };
+    let (base, state, _store_id, key) = serve_with(config).await;
+    let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let from = |ip: &'static str| {
+        client
+            .get(format!("{base}/api/v1/invoices?limit=1"))
+            .header("host", "localhost")
+            .header("x-forwarded-for", ip)
+            .bearer_auth(&key)
+            .send()
+    };
+    let admin = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
+            .json(&body)
+            .send()
+    };
+
+    // No limit yet: anywhere works.
+    assert_eq!(from("198.51.100.9").await.unwrap().status().as_u16(), 200);
+
+    // A bad entry is refused in plain words; a good one is saved.
+    let bad = admin(
+        "/admin/keylock/save",
+        serde_json::json!({"addresses": "my-shop.com"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bad.status().as_u16(), 400);
+    let saved: serde_json::Value = admin(
+        "/admin/keylock/save",
+        serde_json::json!({"addresses": "203.0.113.7"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(saved["addresses"][0], "203.0.113.7");
+
+    // Now only the shop's address works; the refused one is reported to the owner.
+    assert_eq!(from("203.0.113.7").await.unwrap().status().as_u16(), 200);
+    assert_eq!(from("198.51.100.9").await.unwrap().status().as_u16(), 401);
+    let status: serde_json::Value = admin("/admin/keylock/status", serde_json::json!({}))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["last_blocked_address"], "198.51.100.9");
+
+    // The owner (admin page) is never locked out, and can remove the limit.
+    let removed = admin("/admin/keylock/save", serde_json::json!({"addresses": ""}))
+        .await
+        .unwrap();
+    assert_eq!(removed.status().as_u16(), 200);
+    assert_eq!(from("198.51.100.9").await.unwrap().status().as_u16(), 200);
+}
+
+#[tokio::test]
+async fn payment_summary_setting_defaults_to_daily_and_can_be_changed() {
+    let (base, state, _store_id, _key) = serve().await;
+    let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let post = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
+            .json(&body)
+            .send()
+    };
+    let v: serde_json::Value = post("/admin/alerts/status", serde_json::json!({}))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        v["state"], "undecided",
+        "alerts stay off until the owner turns them on"
+    );
+    assert_eq!(v["activity"], "daily");
+    let v: serde_json::Value = post(
+        "/admin/alerts/activity",
+        serde_json::json!({"mode": "each"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(v["activity"], "each");
+    let bad = post(
+        "/admin/alerts/activity",
+        serde_json::json!({"mode": "hourly"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bad.status().as_u16(), 400);
 }

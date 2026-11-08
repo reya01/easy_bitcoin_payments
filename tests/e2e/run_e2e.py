@@ -577,6 +577,40 @@ def main():
             # The session is stored server-side, so it should survive a restart.
             assert page.is_visible("#v-home"), "signed-in session should survive a server restart"
 
+        @step("crash: the server is killed (kill -9) at random moments around a payment; after a restart each payment is credited once")
+        def _():
+            import random
+            import sqlite3
+            rng = random.Random(20261108)
+            _, before = http("GET", f"{BASE}/api/v1/unmatched-payments", headers=auth())
+            invoices = []
+            for i in range(8):
+                sats = 1000 + i * 7
+                inv = new_invoice(f"crash-{i}", sats)
+                invoices.append((inv, sats))
+                ctl(action="pay_ark", address=inv["ark_address"], sats=sats)
+                time.sleep(rng.uniform(0, 1.2))  # the watcher looks every second
+                state["ebp"].kill()  # no goodbye: SIGKILL
+                state["ebp"].wait(timeout=10)
+                state["ebp"] = start_ebp()
+            for inv, sats in invoices:
+                got = wait_for(lambda: status_of(inv)["status"] == "paid" and status_of(inv), f"{inv['id']} credited after the crashes", timeout=60)
+                assert got["paid_sats"] == sats, ("credited once, for the exact amount", got)
+            # Nobody was credited twice or left over as an unmatched payment.
+            _, after = http("GET", f"{BASE}/api/v1/unmatched-payments", headers=auth())
+            assert len(after) == len(before), ("no new unmatched payments", before, after)
+            # One notification record per paid invoice (a delivery may be repeated
+            # after a crash, but there is never more than one record).
+            _, rows = http("GET", f"{BASE}/api/v1/webhook-deliveries?limit=200", headers=auth())
+            for inv, _s in invoices:
+                mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
+                assert len(mine) == 1, (inv["id"], mine)
+            # The database is sound.
+            con = sqlite3.connect(f"file:{os.path.join(tmp, 'data', 'ebp.sqlite3')}?mode=ro", uri=True)
+            assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            assert con.execute("SELECT count(*) FROM invoices WHERE status = 'paid' AND paid_sats < amount_sats").fetchone()[0] == 0
+            con.close()
+
         @step("underpayment is not marked paid")
         def _():
             inv = new_invoice("under-1", 5000)

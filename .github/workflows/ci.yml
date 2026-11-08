@@ -46,6 +46,11 @@ jobs:
           python3 -m pip install --user playwright jsonschema
           python3 -m playwright install --with-deps chromium
 
+      # The customer's payment page in every state the server can report
+      # (server mocked; also needs the browser installed above).
+      - name: Checkout page states
+        run: python3 tests/e2e/checkout_states.py
+
       - name: Browser end-to-end test
         run: python3 tests/e2e/run_e2e.py target/release/ebp
 

@@ -51,6 +51,10 @@ jobs:
       - name: Checkout page states
         run: python3 tests/e2e/checkout_states.py
 
+      # Mistakes in settings or commands: a plain message, never a crash.
+      - name: Startup and command-line mistakes
+        run: python3 tests/e2e/startup_errors.py target/release/ebp
+
       - name: Browser end-to-end test
         run: python3 tests/e2e/run_e2e.py target/release/ebp
 

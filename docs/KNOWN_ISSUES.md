@@ -101,7 +101,7 @@ but was never the cause of the loop.
 ## Two-step sign-in and other limits found in review (2026-11-08)
 - **Someone who knows your password can lock you out of two-step for a while.** Five wrong codes pause code tries for ten minutes, and an attacker who has the password can repeat that. They still cannot get in; you wait, or run `ebp admin reset-2fa` on the server. A longer pause after repeated lockouts is planned.
 - **A code used to sign in can approve a payout change for about 90 seconds** (it must be a different code for the next sign-in). Acceptable for now; strict one-time use for protected actions is planned.
-- **The shop address-lock only means something if the server is reached through your proxy.** Behind a proxy, keep "trust proxy headers" on and do not leave port 8080 reachable around it; otherwise a request can claim any address. The dashboard shows the last refused address so a mistake is easy to fix.
+- **The shop address-lock only means something if the server is reached through your proxy.** The DigitalOcean install already does this right (Caddy in front, EBP listening only on the server itself, "trust proxy headers" on). If you change that, do not leave port 8080 reachable around the proxy; otherwise a request can claim any address. The dashboard shows the last refused address so a mistake is easy to fix.
 - **Alert summaries can very rarely count a payment twice** (one that lands in the same second a summary is cut). Counts only, never amounts.
 - **A session (the signed-in browser) can change the shop-address lock, pause payments and change the alert server without a code.** That matches the existing webhook and key actions; a code for these is being considered.
 

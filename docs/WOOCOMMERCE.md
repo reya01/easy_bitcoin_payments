@@ -97,6 +97,7 @@ or show customers a wrong address. So:
 - Never install WordPress or other PHP on the payment server.
 - Optional: in the admin page's **Connect** tab, limit the API key to your shop's
   server address; and in Settings you can pause new payments instantly.
+- A longer checklist for shop owners: [KEEPING_WORDPRESS_SAFE.md](KEEPING_WORDPRESS_SAFE.md).
 - If the shop may have been exposed: [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md), section 6.
 
 ## Known limits

@@ -34,6 +34,23 @@ keep the amount of code and number of moving parts small. (Example: after the PH
 code and test it, but we plan as if something will go wrong and ask, "what is the
 worst that could happen then?"
 
+## What we do and do not protect against
+
+Being honest about this matters more than sounding safe.
+
+**Built to hold up if these happen:**
+- *Your shop website is hacked.* The shop's key can create payment requests but cannot change where your money goes. You can pause new payments with one switch.
+- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in or change your payout address, and a changed address waits a day before it is used.
+- *The payment server is attacked.* It holds only a small amount at a time (the rest is moved to your own wallet), and nobody but you holds your keys.
+
+**Not protected, so please plan for it:**
+- Someone with full control of the payment server can take what it holds at that moment, and can read its keys.
+- Your recovery words, phone or authenticator in the wrong hands. Lose the recovery words and nobody, including us, can recover them.
+- A hacked shop can still show your customers a fake payment page. EBP cannot see that happen.
+- Bugs in the software we build on (including the Ark server and wallet) and in ours. No independent security audit has been done yet, which is why this is play-money only.
+
+The longer lists are in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) and [docs/dev/SHOP_COMPROMISE.md](docs/dev/SHOP_COMPROMISE.md).
+
 ## Get started (beginner path)
 
 A small DigitalOcean server and a WooCommerce shop. No terminal needed.
@@ -92,6 +109,7 @@ grows, more of it sits in colder storage. The full, blunt comparison:
 ## More
 
 - [docs/WOOCOMMERCE.md](docs/WOOCOMMERCE.md): connect a WooCommerce shop
+- [docs/KEEPING_WORDPRESS_SAFE.md](docs/KEEPING_WORDPRESS_SAFE.md): keeping the shop itself safe
 - [docs/RECIPE_BACKUP.md](docs/RECIPE_BACKUP.md): backups and restore
 - [docs/UPGRADING.md](docs/UPGRADING.md): updating
 - [docs/IF_SOMETHING_LOOKS_WRONG.md](docs/IF_SOMETHING_LOOKS_WRONG.md) and [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)

@@ -94,6 +94,9 @@ def start_ebp():
         "EBP_ONCHAIN_RAIL_ENABLED": "true",
         "EBP_SETUP_TOKEN": SETUP_CODE,
         "EBP_WEBHOOK_ALLOW_PRIVATE": "1",
+        # Lets a step pretend to be a different visitor (X-Forwarded-For), so the
+        # sign-in brake (10 tries a minute per visitor) does not trip a long run.
+        "EBP_TRUST_PROXY_HEADERS": "true",
         "EBP_UPDATE_CHECK": "false",
         "EBP_LOG_LEVEL": "info",
     }
@@ -362,6 +365,7 @@ def main():
 
         @step("two-step sign-in: offered with a warning to skip, turned on with an app code, asked at sign-in, turned off")
         def _():
+            page.context.set_extra_http_headers({"x-forwarded-for": "10.77.0.1"})
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             wait_for(lambda: page.is_visible("#twofa-prompt"), "the offer to turn on two-step sign-in")
@@ -403,6 +407,26 @@ def main():
             page.click("#login-btn")
             page.wait_for_selector("#v-home:not(.hidden)")
             assert not page.is_visible("#twofa-prompt"), "no offer once it is on"
+            # A backup made while two-step is on must not carry its secret or
+            # backup codes (the password alone opens the file).
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#bk-go")
+            page.fill("#bk-admin", ADMIN_PW)
+            page.fill("#bk-code", totp_code(secret, cur + 1))
+            with page.expect_download(timeout=60000) as dl2:
+                page.click("#bk-go")
+            bpath = os.path.join(tmp, "backup-2fa.ebpbackup")
+            dl2.value.save_as(bpath)
+            rdir = os.path.join(tmp, "restored-2fa")
+            rest2 = subprocess.run([EBP_BIN, "backup", "restore", bpath, rdir], input=ADMIN_PW + "\n",
+                                   capture_output=True, text=True, timeout=60)
+            assert rest2.returncode == 0, (rest2.stdout, rest2.stderr)
+            import sqlite3
+            con = sqlite3.connect(os.path.join(rdir, "ebp.sqlite3"))
+            for tbl in ("admin_totp", "admin_recovery_codes"):
+                n = con.execute(f"SELECT count(*) FROM {tbl}").fetchone()[0]
+                assert n == 0, f"{tbl} must not travel in a backup ({n} rows)"
+            con.close()
             # Turn it off again (so the rest of the run signs in with the password only).
             page.click('#tabs button[data-v="set"]')
             page.locator("#twofa-card").get_by_role("button", name="Turn off", exact=True).click()
@@ -412,6 +436,7 @@ def main():
             page.get_by_role("button", name="Turn off two-step sign-in").click()
             wait_for(lambda: "Off (password only)" in page.inner_text("#twofa-card"), "turned off")
             assert not page.is_visible("#bk-code"), "no code box once it is off"
+            page.context.set_extra_http_headers({})
 
         @step("connect tab: save webhook, test notification arrives with a valid signature")
         def _():
@@ -606,6 +631,40 @@ def main():
                                   capture_output=True, text=True, timeout=60)
             assert rest.returncode == 0, (rest.stdout, rest.stderr)
             assert os.path.getsize(os.path.join(out, "ebp.sqlite3")) > 0
+
+        @step("password: a mistyped current password is a message (still signed in); a real change signs out and the new one works; changed back")
+        def _():
+            newpw = "a second long password for testing"
+            page.context.set_extra_http_headers({"x-forwarded-for": "10.77.0.2"})
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#pw-save")
+            page.fill("#pw-cur", "definitely not the password")
+            page.fill("#pw-new", newpw)
+            page.click("#pw-save")
+            wait_for(lambda: page.is_visible("#pw-msg") and page.inner_text("#pw-msg").strip(), "message for a wrong current password")
+            assert not page.is_visible("#login-form"), "a mistyped password must not look like being signed out"
+            page.fill("#pw-cur", ADMIN_PW)
+            page.fill("#pw-new", newpw)
+            page.click("#pw-save")
+            page.wait_for_selector("#login-form:not(.hidden)")
+            page.fill("#pw", ADMIN_PW)
+            page.click("#login-btn")
+            wait_for(lambda: page.inner_text("#login-err").strip() != "", "old password refused")
+            page.fill("#pw", newpw)
+            page.click("#login-btn")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#pw-save")
+            page.fill("#pw-cur", newpw)
+            page.fill("#pw-new", ADMIN_PW)
+            page.click("#pw-save")
+            page.wait_for_selector("#login-form:not(.hidden)")
+            page.fill("#pw", ADMIN_PW)
+            page.click("#login-btn")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.context.set_extra_http_headers({})
 
         @step("payout: the wizard set the first address; a change in Settings waits and can be cancelled")
         def _():

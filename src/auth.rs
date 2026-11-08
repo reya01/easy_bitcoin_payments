@@ -95,6 +95,27 @@ impl FromRequestParts<AppState> for StoreAuth {
             .filter(|token| !token.is_empty())
             .ok_or(AppError::Unauthorized)?;
 
+        // Optional lock: shop keys only work from the addresses the owner
+        // listed. A stolen key is then useless anywhere else.
+        let ip = crate::ratelimit::client_ip(
+            &parts.headers,
+            &parts.extensions,
+            state.config.trust_proxy_headers,
+        );
+        let allowed = state
+            .db
+            .call(move |conn| {
+                let ok = crate::shopkey::ip_allowed(conn, &ip)?;
+                if !ok {
+                    crate::shopkey::note_blocked(conn, &ip)?;
+                }
+                Ok(ok)
+            })
+            .await?;
+        if !allowed {
+            return Err(AppError::Unauthorized);
+        }
+
         let key_hash = hash_secret(token);
         let store = state
             .db
@@ -104,6 +125,25 @@ impl FromRequestParts<AppState> for StoreAuth {
         store
             .map(|store| StoreAuth { store })
             .ok_or(AppError::Unauthorized)
+    }
+}
+
+/// Owner-only actions (change where shop notifications go, replace the key,
+/// mark payments handled, ...). Needs a signed-in admin session; an API key,
+/// the thing a hacked shop would hold, is never enough.
+pub struct OwnerAuth {
+    pub store: Store,
+}
+
+impl FromRequestParts<AppState> for OwnerAuth {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let StoreAuth { store } = session_store(parts, state).await?;
+        Ok(OwnerAuth { store })
     }
 }
 

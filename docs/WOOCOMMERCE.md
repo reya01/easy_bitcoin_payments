@@ -82,6 +82,23 @@ refund it by hand.
 - Keep the API key and signing secret private. If either leaks, make a new one
   on the Connect tab and paste it in.
 
+## Keep your shop patched
+
+Your shop is the part of the system that runs PHP and WordPress. A takeover of the
+shop cannot move money out of your payment server, but it could steal the API key
+or show customers a wrong address. So:
+
+- Make sure your host runs a current PHP version. Security fixes for the serious
+  "PHP2Shell" bugs ([Wiz](https://www.wiz.io/blog/php2shell-php-rce)) were released
+  on 21 October 2026. In WordPress: **Tools → Site Health → Info → Server** shows the
+  PHP version; ask your host if it includes that update.
+- Turn on automatic updates for WordPress, WooCommerce and plugins; remove plugins
+  you do not use; use two-step sign-in on WordPress admin accounts.
+- Never install WordPress or other PHP on the payment server.
+- Optional: in the admin page's **Connect** tab, limit the API key to your shop's
+  server address; and in Settings you can pause new payments instantly.
+- If the shop may have been exposed: [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md), section 6.
+
 ## Known limits
 
 - After paying, the customer is not redirected automatically; the checkout

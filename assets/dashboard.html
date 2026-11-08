@@ -27,6 +27,9 @@ h2{font-size:15px;margin:22px 0 8px;font-weight:600}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.check{padding:8px 0;border-bottom:1px solid var(--line)}.check:last-child{border-bottom:0}
 label{display:block;font-size:14px;color:var(--muted);margin:12px 0 4px}
 input[type=text],input[type=password],input[type=url],input[type=tel]{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+select{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+details{margin-top:12px}
+summary{cursor:pointer;min-height:44px;padding:10px 0}
 button{font:inherit;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 button.primary{background:var(--accent);border-color:var(--accent);color:#1a1100;font-weight:600}
 button.plain{background:transparent}
@@ -71,6 +74,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-home" class="hidden">
+  <div class="card hidden" id="paused-card"></div>
   <div class="card hidden" id="twofa-prompt"></div>
   <div class="card hidden" id="phone-home"></div>
   <div class="card hidden" id="recon"></div>
@@ -116,6 +120,15 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="rotate" type="button">Make a new API key</button></div>
     <div class="hidden" id="key-box"><p class="muted">Copy it into your shop now:</p><div class="secret" id="newkey"></div><button class="small" data-copy="newkey" type="button">Copy</button></div>
     <p class="msg hidden" id="rotate-msg"></p>
+    <details id="keylock-box">
+      <summary>Extra protection (optional): only allow your shop's address</summary>
+      <p class="muted">If your shop's website were ever hacked, this key is what an attacker would get. You can limit the key to your shop's server address so it is useless anywhere else. Ask your hosting company for your shop's outgoing IP address. Shared hosts sometimes change it, which would stop checkout until you update it here.</p>
+      <label for="kl-addr">Your shop's address (for example 203.0.113.7; leave empty for no limit)</label>
+      <input type="text" id="kl-addr" autocomplete="off" spellcheck="false">
+      <div class="btns"><button id="kl-save" type="button">Save</button></div>
+      <p class="msg hidden" id="kl-msg"></p>
+      <p class="muted hidden" id="kl-blocked"></p>
+    </details>
   </div>
   <div class="card">
     <strong>3. Payment notifications to your shop</strong>
@@ -141,6 +154,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 </section>
 
 <section id="v-set" class="hidden">
+  <h2>Pause new payments</h2>
+  <div class="card" id="pause-card"></div>
   <h2>Phone alerts</h2>
   <div class="card" id="phone-set"></div>
   <h2>Two-step sign-in</h2>
@@ -215,7 +230,7 @@ pwHelper("pw-new", "pw-new-show", "pw-new-count");
 (function () {
 "use strict";
 var csrf = "";
-var twofaOn = false, twofaDeclined = false;
+var twofaOn = false, twofaDeclined = false, paused = false;
 var $ = function (id) { return document.getElementById(id); };
 var views = ["login", "home", "orders", "alerts", "hooks", "set"];
 
@@ -248,17 +263,17 @@ function show(name) {
   if (name === "home") loadHome();
   if (name === "orders") loadOrders();
   if (name === "alerts") loadAlerts();
-  if (name === "hooks") loadDeliveries();
+  if (name === "hooks") { loadDeliveries(); loadKeylock(); }
   if (name === "set") { loadAudit(); loadPayout(); }
   if (name === "home" || name === "set") { loadPhone(); loadTwofa(); }
   if (name === "home") loadRecon();
 }
-function signedOut() { csrf = ""; twofaOn = false; twofaDeclined = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
+function signedOut() { csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
 
 function boot() {
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
-    if (s.authenticated) { twofaOn = !!s.twofa; twofaDeclined = !!s.twofa_declined; return signedIn(s.csrf); }
+    if (s.authenticated) { twofaOn = !!s.twofa; twofaDeclined = !!s.twofa_declined; paused = !!s.paused; return signedIn(s.csrf); }
     $("nopw").classList.toggle("hidden", !!s.password_set);
     show("login");
   }).catch(function () { show("login"); });
@@ -328,7 +343,7 @@ function loadRecon() {
     box.appendChild(btns);
     var d = document.createElement("details");
     d.appendChild(el("summary", "It doesn't match"));
-    d.appendChild(el("p", "1. In your shop, turn off the Bitcoin payment method now (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
+    d.appendChild(el("p", "1. In Settings, press \"Pause new payments\". Then in your shop, turn off the Bitcoin payment method (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
     d.appendChild(el("p", "2. Do not delete anything on the server; it may help work out what happened.", "muted"));
     d.appendChild(el("p", "3. Turn the server off at your hosting company, then follow \"If something looks wrong\" in the docs (IF_SOMETHING_LOOKS_WRONG.md) before you do anything else. Never type your recovery words anywhere while fixing this.", "muted"));
     box.appendChild(d);
@@ -391,6 +406,19 @@ function renderPhone(box, a, onHome) {
   row2.appendChild(phoneBtn("Turn phone alerts off", function () { phoneAct("/admin/alerts/disable", {}, function () { loadPhone(); }); }, true));
   box.appendChild(row2);
   box.appendChild(msg);
+  var al = document.createElement("label"); al.textContent = "Tell me about payments"; al.setAttribute("for", "phone-activity"); box.appendChild(al);
+  var sel = document.createElement("select"); sel.id = "phone-activity";
+  [["daily", "Once a day, only on days with payments (recommended)"], ["each", "Every payment"], ["off", "Not at all"]].forEach(function (o) {
+    var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if (a.activity === o[0]) op.selected = true; sel.appendChild(op);
+  });
+  sel.addEventListener("change", function () {
+    phoneAct("/admin/alerts/activity", { mode: sel.value }, function (e) {
+      msg.classList.remove("hidden"); msg.className = "msg " + (e ? "bad" : "ok");
+      msg.textContent = e ? e.message : "Saved. These messages only say how many payments arrived, never amounts.";
+    });
+  });
+  box.appendChild(sel);
+  box.appendChild(el("p", "A reminder to compare with your own wallet is included. Alerts never contain amounts or addresses.", "muted"));
   var d = document.createElement("details");
   d.appendChild(el("summary", "Use my own ntfy server (advanced)"));
   var inp = document.createElement("input"); inp.type = "text"; inp.id = "phone-server"; inp.placeholder = "https://ntfy.example.com";
@@ -611,6 +639,46 @@ $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });
 
+// ---- Pause new payments ----
+function setPaused(p, btn) {
+  if (btn) btn.disabled = true;
+  api("POST", "/admin/pause", { paused: p }).then(function () { paused = p; renderPause(); })
+    .catch(function (e) { say("pause-msg", e.message, true); if (btn) btn.disabled = false; });
+}
+function renderPause() {
+  var box = $("pause-card"), top = $("paused-card"); clear(box); clear(top);
+  top.classList.toggle("hidden", !paused);
+  if (paused) {
+    top.appendChild(el("strong", "New Bitcoin payments are paused", "bad"));
+    top.appendChild(el("p", "Customers can't start a new Bitcoin payment. Payments already started still finish.", "muted"));
+    var tb = el("div", "", "btns"); tb.appendChild(button("Resume payments", function (b) { setPaused(false, b); }, "primary")); top.appendChild(tb);
+    box.appendChild(el("p", "Paused. Customers can't start new Bitcoin payments; ones already started still finish.", "muted"));
+    var rb = el("div", "", "btns"); rb.appendChild(button("Resume payments", function (b) { setPaused(false, b); }, "primary")); box.appendChild(rb);
+  } else {
+    box.appendChild(el("p", "Bitcoin payments are on. If you think your shop was hacked, or something looks wrong, pause here first: customers can't start a new Bitcoin payment (ones already started still finish). You can resume any time.", "muted"));
+    var pb = el("div", "", "btns"); pb.appendChild(button("Pause new payments", function (b) { setPaused(true, b); })); box.appendChild(pb);
+  }
+  var m = el("p", "", "msg hidden"); m.id = "pause-msg"; box.appendChild(m);
+}
+
+// ---- Limit the shop's key to the shop's address ----
+function loadKeylock() {
+  api("POST", "/admin/keylock/status", {}).then(showKeylock).catch(function () {});
+}
+function showKeylock(r) {
+  if (document.activeElement !== $("kl-addr")) $("kl-addr").value = (r.addresses || []).join(", ");
+  var b = $("kl-blocked");
+  if (r.last_blocked_address) { b.textContent = "A request from " + r.last_blocked_address + " (" + when(r.last_blocked_at * 1000) + ") was refused. If that is your shop, add this address."; b.classList.remove("hidden"); }
+  else b.classList.add("hidden");
+}
+$("kl-save").addEventListener("click", function () {
+  var btn = $("kl-save"); btn.disabled = true;
+  api("POST", "/admin/keylock/save", { addresses: $("kl-addr").value }).then(function (r) {
+    showKeylock(r);
+    say("kl-msg", (r.addresses || []).length ? "Saved. Only these addresses can use your shop's key. Test your shop checkout now." : "Saved. No limit: the key works from anywhere.");
+  }).catch(function (e) { say("kl-msg", e.message, true); }).then(function () { btn.disabled = false; });
+});
+
 // ---- Two-step sign-in ----
 function applyTwofa(on, declined) {
   twofaOn = on; twofaDeclined = declined;
@@ -620,6 +688,7 @@ function applyTwofa(on, declined) {
 function loadTwofa() {
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
     applyTwofa(!!s.twofa, !!s.twofa_declined);
+    paused = !!s.paused; renderPause();
     renderPrompt();
     if (!twofaBusy) renderTwofaCard();
   }).catch(function () {});

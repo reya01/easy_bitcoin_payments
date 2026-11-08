@@ -36,7 +36,7 @@ pub async fn session(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let token = aa::token_from_headers(&headers, secure(&state));
-    let (set, csrf, twofa, declined) = state
+    let (set, csrf, twofa, declined, paused) = state
         .db
         .call(move |c| {
             let csrf = match token {
@@ -48,6 +48,7 @@ pub async fn session(
                 csrf,
                 crate::totp::is_enabled(c)?,
                 crate::totp::is_declined(c)?,
+                crate::shopkey::is_paused(c)?,
             ))
         })
         .await?;
@@ -60,6 +61,7 @@ pub async fn session(
         "csrf": csrf,
         "twofa": signed_in && twofa,
         "twofa_declined": signed_in && declined,
+        "paused": signed_in && paused,
     })))
 }
 

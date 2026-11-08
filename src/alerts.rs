@@ -12,6 +12,11 @@
 //! * `alerts_server` — optional own ntfy server (https), default ntfy.sh
 //! * `alert.active.<key>` — unix time the problem was last announced
 //!   (`0` = not active), used to alert once and repeat at most daily.
+//! * `alerts_activity` — how to hear about payments: `daily` (the default; one
+//!   short message a day, only on days with payments), `each` (one message per
+//!   payment) or `off`. Messages carry counts only, never amounts or addresses.
+//! * `alerts_activity_cursor` / `alerts_activity_digest_at` — where the last
+//!   per-payment / daily message left off.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -160,6 +165,92 @@ pub fn evaluate(o: &Observation, announced: &HashMap<String, i64>, now: i64) -> 
 }
 
 // ---------------------------------------------------------------- settings
+
+/// How the owner wants to hear about payments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    Off,
+    Daily,
+    Each,
+}
+
+impl Activity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Activity::Off => "off",
+            Activity::Daily => "daily",
+            Activity::Each => "each",
+        }
+    }
+}
+
+/// Default is a daily summary: per-payment messages are too frequent to be
+/// the default (the owner can choose them).
+pub fn activity(conn: &Connection) -> Result<Activity, AppError> {
+    Ok(match settings::get(conn, "alerts_activity")?.as_deref() {
+        Some("off") => Activity::Off,
+        Some("each") => Activity::Each,
+        _ => Activity::Daily,
+    })
+}
+
+pub fn set_activity(conn: &Connection, mode: &str) -> Result<(), AppError> {
+    let mode = match mode {
+        "off" | "daily" | "each" => mode,
+        _ => return Err(AppError::BadRequest("choose daily, each or off".into())),
+    };
+    settings::set(conn, "alerts_activity", mode)?;
+    // Start counting from now so switching never replays old payments.
+    let now = now_unix().to_string();
+    settings::set(conn, "alerts_activity_cursor", &now)?;
+    settings::set(conn, "alerts_activity_digest_at", &now)
+}
+
+/// Orders this server marked paid since `since` (test payments excluded).
+pub fn paid_since(conn: &Connection, since: i64) -> Result<i64, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT metadata_json FROM invoices
+         WHERE status IN ('paid','overpaid') AND paid_at IS NOT NULL AND paid_at > ?1",
+    )?;
+    let metas = stmt
+        .query_map([since], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(metas
+        .iter()
+        .filter(|m| !crate::invoice::is_test_invoice(m))
+        .count() as i64)
+}
+
+/// A message about payments, or nothing. Pure.
+///
+/// * `each`: one message when something was paid since the last one.
+/// * `daily`: at most one a day, and only if something was paid in that day
+///   (a quiet day sends nothing).
+pub fn activity_message(
+    mode: Activity,
+    now: i64,
+    last_digest_at: i64,
+    paid_since_cursor: i64,
+    paid_since_digest: i64,
+) -> Option<(String, String)> {
+    let check = "Open your own wallet and check that the same payments arrived.";
+    match mode {
+        Activity::Off => None,
+        Activity::Each if paid_since_cursor > 0 => Some((
+            "A payment arrived".to_string(),
+            format!("{check} (No amounts are sent in alerts.)"),
+        )),
+        Activity::Daily if now - last_digest_at >= 24 * 3600 && paid_since_digest > 0 => Some((
+            format!(
+                "{} payment{} in the last day",
+                paid_since_digest,
+                if paid_since_digest == 1 { "" } else { "s" }
+            ),
+            format!("{check} (No amounts are sent in alerts.)"),
+        )),
+        _ => None,
+    }
+}
 
 pub fn state(conn: &Connection) -> Result<State, AppError> {
     Ok(match settings::get(conn, "alerts_state")?.as_deref() {
@@ -393,6 +484,54 @@ async fn tick(
             Err(e) => tracing::warn!(error = %e, "could not send a phone alert"),
         }
     }
+
+    // Payment activity (daily summary by default; the owner can pick each
+    // payment, or none).
+    let (mode, cursor, digest_at, new_since_cursor, new_since_digest) = db
+        .call(move |c| {
+            let mode = activity(c)?;
+            let get = |k: &str, c: &Connection| -> Result<i64, AppError> {
+                Ok(settings::get(c, k)?
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or(0))
+            };
+            let mut cursor = get("alerts_activity_cursor", c)?;
+            let mut digest_at = get("alerts_activity_digest_at", c)?;
+            // First run: start from now, never from the beginning of history.
+            if cursor <= 0 {
+                cursor = now;
+                settings::set(c, "alerts_activity_cursor", &now.to_string())?;
+            }
+            if digest_at <= 0 {
+                digest_at = now;
+                settings::set(c, "alerts_activity_digest_at", &now.to_string())?;
+            }
+            Ok((
+                mode,
+                cursor,
+                digest_at,
+                paid_since(c, cursor)?,
+                paid_since(c, digest_at)?,
+            ))
+        })
+        .await?;
+    let _ = cursor;
+    if let Some((title, body)) =
+        activity_message(mode, now, digest_at, new_since_cursor, new_since_digest)
+    {
+        match send(&server, &topic, &title, &body, false).await {
+            Ok(()) => {
+                let key = if mode == Activity::Each {
+                    "alerts_activity_cursor"
+                } else {
+                    "alerts_activity_digest_at"
+                };
+                db.call(move |c| settings::set(c, key, &now.to_string()))
+                    .await?;
+            }
+            Err(e) => tracing::warn!(error = %e, "could not send a payment summary"),
+        }
+    }
     Ok(())
 }
 
@@ -402,6 +541,28 @@ mod tests {
 
     fn none() -> HashMap<String, i64> {
         HashMap::new()
+    }
+
+    #[test]
+    fn payment_summaries_are_daily_by_default_and_quiet_on_empty_days() {
+        let day = 24 * 3600;
+        // Daily: nothing until a day has passed, nothing on a day without payments.
+        assert!(activity_message(Activity::Daily, day - 1, 0, 5, 5).is_none());
+        assert!(activity_message(Activity::Daily, day, 0, 0, 0).is_none());
+        let (title, body) = activity_message(Activity::Daily, day, 0, 0, 3).unwrap();
+        assert_eq!(title, "3 payments in the last day");
+        assert!(body.contains("check that the same payments arrived"));
+        assert_eq!(
+            activity_message(Activity::Daily, day, 0, 0, 1).unwrap().0,
+            "1 payment in the last day"
+        );
+        // Each: any new payment, any time.
+        assert!(activity_message(Activity::Each, 10, 0, 1, 1).is_some());
+        assert!(activity_message(Activity::Each, 10, 0, 0, 5).is_none());
+        // Off: never. No amounts in any message.
+        assert!(activity_message(Activity::Off, day, 0, 9, 9).is_none());
+        let (_, b) = activity_message(Activity::Each, 10, 0, 2, 2).unwrap();
+        assert!(!b.chars().any(|c| c.is_ascii_digit()), "{b}");
     }
 
     #[test]

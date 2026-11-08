@@ -86,27 +86,35 @@ impl RateLimiter {
         if self.global {
             return "global".to_string();
         }
-        if self.trust_proxy_headers {
-            // The RIGHTMOST entry is the one our own proxy appended (the
-            // address it actually saw). The leftmost is whatever the client
-            // claimed, so trusting it would let an attacker pick a fresh
-            // identity per request and dodge the limit.
-            if let Some(last) = req
-                .headers()
-                .get("x-forwarded-for")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.rsplit(',').next())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-            {
-                return last.to_string();
-            }
-        }
-        req.extensions()
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|ci| ci.0.ip().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+        client_ip(req.headers(), req.extensions(), self.trust_proxy_headers)
     }
+}
+
+/// The address a request came from. With `trust_proxy_headers` the RIGHTMOST
+/// `X-Forwarded-For` entry is used: it is the one our own proxy appended (the
+/// address it actually saw). The leftmost is whatever the client claimed, so
+/// trusting it would let an attacker pick a fresh identity per request and
+/// dodge the limit.
+pub fn client_ip(
+    headers: &axum::http::HeaderMap,
+    extensions: &axum::http::Extensions,
+    trust_proxy_headers: bool,
+) -> String {
+    if trust_proxy_headers {
+        if let Some(last) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit(',').next())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            return last.to_string();
+        }
+    }
+    extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// axum middleware: 429 + `Retry-After` when the client is over the limit.

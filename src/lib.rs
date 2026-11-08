@@ -28,6 +28,7 @@ pub mod retention;
 pub mod routes;
 pub mod secrets;
 pub mod settings;
+pub mod shopkey;
 pub mod store;
 pub mod totp;
 pub mod updates;

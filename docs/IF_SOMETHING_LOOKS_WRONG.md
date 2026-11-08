@@ -17,7 +17,8 @@ dashboard.
 
 Do these in order. Each one is quick and none destroys anything.
 
-1. **Stop new Bitcoin orders.** In WordPress: **WooCommerce → Settings →
+1. **Pause new payments.** On the admin page go to **Settings → Pause new
+   payments**. Then stop new Bitcoin orders in your shop too. In WordPress: **WooCommerce → Settings →
    Payments**, switch **Bitcoin** off. Customers can still pay another way.
    This works even if the payment server is not behaving, because it happens on
    your shop.
@@ -82,6 +83,34 @@ notification** to check it still works.
 3. The dashboard Home page lists problems in plain words, worst first, once it
    opens.
 4. Known problems and fixes: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
+## 6. Your shop's website (WordPress or PHP) was hacked, or may have been exposed
+
+Bugs in PHP or WordPress can let a stranger take over a shop without any mistake of
+yours (for example [PHP2Shell](https://www.wiz.io/blog/php2shell-php-rce), fixed in
+PHP updates released on 21 October 2026). Your payment server is a separate machine
+and the shop cannot move money out of it, but the shop holds your **API key** and
+**signing secret**, and could be made to show customers a wrong payment address.
+
+Treat it as serious if your shop ran an unpatched PHP while open to the internet,
+or if you see odd files, new admin users, unexplained orders or errors.
+
+1. **Pause new payments** (admin page, Settings), and switch the Bitcoin payment
+   method off in WooCommerce.
+2. **Look at your own wallet** and compare it with your paid orders since the
+   problem may have started. This is the check that cannot be faked.
+3. **Make a new API key and a new signing secret** on the **Connect** tab, and keep
+   them out of the shop until the shop is clean.
+4. **Clean the shop:** ask your host to restore a backup from before the problem
+   and update PHP, WordPress and plugins, or rebuild it fresh. Change the passwords
+   of WordPress, the hosting account and the database. Remove unknown admin users.
+5. **Check the admin page's Settings** (payout address, security activity). Nothing
+   there changes because of the shop, but it is a quick check that nothing else did.
+6. **Reconnect** with the new key and secret ([WOOCOMMERCE.md](WOOCOMMERCE.md)),
+   send a test notification, resume payments, and place a small test order.
+
+If you cannot tell whether the shop was exposed, do steps 3 and 6 anyway; they are
+quick and cost nothing.
 
 ## Practise once
 

@@ -8,7 +8,7 @@ use axum::Json;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::StoreAuth;
+use crate::auth::{OwnerAuth, StoreAuth};
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::util::{now_unix, to_rfc3339};
@@ -94,7 +94,7 @@ pub async fn list(
 /// already processed it should dedupe; this is for outages on their side.
 pub async fn resend(
     State(state): State<AppState>,
-    auth: StoreAuth,
+    auth: OwnerAuth,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let store_id = auth.store.id.clone();

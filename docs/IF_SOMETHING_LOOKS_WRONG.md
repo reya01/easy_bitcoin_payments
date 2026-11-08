@@ -35,28 +35,32 @@ Do these in order. Each one is quick and none destroys anything.
 
 Only after that, decide whether to rebuild: make a **new server**, restore your
 encrypted backup (see [RECIPE_BACKUP.md](RECIPE_BACKUP.md)), then create a new
-API key and a new webhook secret on the Connect tab and paste them into the
+API key and a new signing secret on the Connect tab and paste them into the
 plugin. Do not reuse the old server.
 
 ## 2. You think someone saw your recovery words, or your admin password
 
 - **Admin password only:** sign in and change it (Settings). If you cannot sign
-  in, it is reset on the server with `ebp admin set-password`. Then download a
-  fresh backup, because older backups still need the old password.
+  in, open the Console of your server (DigitalOcean: your Droplet, then
+  **Console**), log in as `root`, and run
+  `cd /opt/ebp && docker compose exec ebp ebp admin set-password`. Type the new
+  password (16+ characters) and press Enter. Then download a fresh backup,
+  because older backups still need the old password.
 - **Lost your phone (two-step sign-in):** type one of your 10 backup codes
-  instead of the 6-digit code. With none left, run `ebp admin reset-2fa` on the
-  server (Console on DigitalOcean), sign in with your password, and turn it on
+  instead of the 6-digit code. With none left, run
+  `cd /opt/ebp && docker compose exec ebp ebp admin reset-2fa` in the server's
+  Console, sign in with your password, and turn it on
   again in Settings.
-- **Recovery words seen by someone else:** treat the small "till" wallet on that
+- **Recovery words seen by someone else:** treat the small wallet on that
   server as no longer private. Stop using that server, set up a new one with a
-  **new wallet (new words)**, and point your shop at it. The till is kept small
+  **new wallet (new words)**, and point your shop at it. The small wallet on the server is kept small
   on purpose, and your payout address (your own wallet) is not affected by
   these words.
 
-## 3. Your API key or webhook secret may have leaked
+## 3. Your API key or signing secret may have leaked
 
 On the dashboard, **Connect** tab: **Make a new API key** (the old key stops
-working immediately), and make a new webhook secret the same way. Paste both
+working immediately), and make a new signing secret the same way. Paste both
 into the WooCommerce plugin and press **Save changes**. Then use **Send a test
 notification** to check it still works.
 

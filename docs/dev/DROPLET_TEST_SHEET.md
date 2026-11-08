@@ -31,6 +31,7 @@ Play money only: signet coins. Do not send real bitcoin.
 | 5 | Setup wizard: code, wallet, **write down 12 words**, quiz | START_HERE step 4 | | | |
 | 6 | Store name, admin password (16+ characters), payout address | START_HERE step 4 | | | |
 | 7 | Save the API key; sign in at `/admin` | START_HERE step 4 | | | |
+| 7b | On first sign-in, turn on two-step sign-in with an authenticator app; save the 10 backup codes; sign out and back in with a code | START_HERE step 4 | | | |
 | 8 | **Try a payment** and pay it from the wallet; it shows Paid | START_HERE step 5 | | | |
 | 9 | Download a backup (Settings) | START_HERE step 7 | | | |
 | 10 | Install the plugin zip in WordPress and enable it | [WOOCOMMERCE.md](../WOOCOMMERCE.md) | | | |
@@ -45,6 +46,23 @@ Play money only: signet coins. Do not send real bitcoin.
 - [ ] The payment shows under Payments.
 - [ ] The order in WooCommerce is Processing, with a note about the payment.
 - [ ] Your recovery words are on paper in two places.
+
+## Likely snags and what to try
+
+| What you see | Try this |
+|--------------|----------|
+| The Console shows only `login:` after 30+ minutes | Log in as `root`, run `cloud-init status`, then `tail -n 40 /var/log/ebp-vps-setup.log`. "running" means still installing. |
+| A box saying "No setup code yet" or "still starting" | Wait 2 minutes, log in, run `ebp-info`. |
+| `ebp-info`: command not found | The install has not reached its last step. Wait, then run `cd /opt/ebp && ./scripts/vps-setup.sh`. |
+| The address does not open | Wait 5 minutes. Then check ports 80 and 443 are open (a DigitalOcean Firewall, if you made one). |
+| Browser warns the certificate is wrong | Wait a few minutes (the padlock is still being issued), then reload. Do not click through a warning. |
+| Wizard says the setup code is wrong | Type the code again (capitals, dashes and spaces do not matter). If the server restarted, run `ebp-info` for the new code. |
+| The page does not answer right after "Finish" | The server restarts once; wait about a minute, then open `/admin`. |
+| Forgot the admin password | In the Console: `cd /opt/ebp && docker compose exec ebp ebp admin set-password` |
+| Lost your phone, no backup codes | In the Console: `cd /opt/ebp && docker compose exec ebp ebp admin reset-2fa` |
+| "Connected" never appears in the WooCommerce plugin | The shop address must be public (not localhost). Re-check the API key and the https address. |
+| Test notification fails | The shop must be reachable from the internet; see WOOCOMMERCE.md. |
+| The test payment never shows Paid | Check the wallet really sent play coins (signet, not mainnet) and that Home says the wallet is connected. |
 
 ## If something goes wrong
 

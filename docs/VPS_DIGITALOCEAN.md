@@ -26,10 +26,21 @@ is not covered here yet.
    itself, which needs the memory. After a release, 1 GB is enough.)
 6. **Authentication:** pick **Password** and choose a strong one, or an SSH key
    if you know what that is. You will mostly not need it.
-7. Open **Advanced Options** → tick **Add Initialization scripts (free)**
-   and paste the entire contents of
-   [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml).
+7. Scroll down to **Advanced Options** and open it. Tick **Add Initialization
+   scripts (free)**: a text box appears. Paste the setup text into that box
+   (see "Where to get the setup text" just below).
 8. Click **Create Droplet**.
+
+### Where to get the setup text
+
+It is a short file called `deploy/cloud-init.yaml`. Open it here, tap the copy
+icon at the top right of the file, and paste into the box (paste everything,
+unchanged, including the first line `#cloud-config`):
+
+<https://github.com/reya01/easy_bitcoin_payments/blob/main/deploy/cloud-init.yaml>
+
+It is about 15 lines. It tells the new server to install Docker, download Easy
+Bitcoin Payments and start it, which is why you do not need a terminal.
 
 ## 2. Wait, then read the server's screen
 

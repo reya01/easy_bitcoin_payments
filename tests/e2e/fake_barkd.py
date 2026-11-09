@@ -193,13 +193,32 @@ def handle(method, path, query, body):
     if path == "/wallet/connected":
         return 200, {"connected": S["connected"]}
     if path == "/wallet/ark-info":
-        # The shape of the real signet server's answer (8 Nov 2026 drill):
-        # one-day coins, refresh free below 288 blocks.
+        # The real signet server's answer (8 Nov 2026 drill): one-day coins,
+        # refresh free below 288 blocks.
+        table = [
+            {"expiry_blocks_threshold": 0, "ppm": 2000},
+            {"expiry_blocks_threshold": 1008, "ppm": 4000},
+            {"expiry_blocks_threshold": 2016, "ppm": 5000},
+        ]
         return 200, {
             "network": "signet",
+            "server_pubkey": "03244a5a493e5f0c7b2ff513575715c036100ae219e5765ea688eb542a06f85aed",
+            "mailbox_pubkey": "03bb15de36c79b3216fb05e5a4ebc3e8d6e9b693efcee8a8bd99872efe15ab22d5",
+            "round_interval": "5m",
+            "nb_round_nonces": 10,
+            "vtxo_exit_delta": 12,
             "vtxo_lifetime": 144,
-            "vtxo_expiry_delta": 144,
+            "htlc_send_expiry_delta": 256,
+            "htlc_expiry_delta": 6,
+            "max_vtxo_amount": 100000000,
+            "required_board_confirmations": 1,
+            "max_user_invoice_cltv_delta": 250,
+            "min_board_amount_sat": 10000,
+            "offboard_feerate_sat_per_kvb": 100,
+            "ln_receive_anti_dos_required": False,
             "fees": {
+                "board": {"min_fee_sat": 0, "base_fee_sat": 0, "ppm": 0},
+                "offboard": {"base_fee_sat": 0, "fixed_additional_vb": 221, "ppm_expiry_table": table},
                 "refresh": {
                     "base_fee_sat": 0,
                     "ppm_expiry_table": [
@@ -208,8 +227,14 @@ def handle(method, path, query, body):
                         {"expiry_blocks_threshold": 1008, "ppm": 4000},
                         {"expiry_blocks_threshold": 2016, "ppm": 5000},
                     ],
-                }
+                },
+                "lightning_receive": {"base_fee_sat": 0, "ppm": 0},
+                "lightning_send": {"min_fee_sat": 20, "base_fee_sat": 0, "ppm_expiry_table": table},
             },
+            "max_vtxo_exit_depth": 100,
+            "tos_link": None,
+            "max_offboard_inputs": 100,
+            "vtxo_expiry_delta": 144,
         }
     if path == "/bitcoin/tip":
         return 200, {"tip_height": S["tip"]}

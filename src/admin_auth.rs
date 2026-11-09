@@ -161,6 +161,43 @@ pub fn verify_login(stored: Option<&str>, password: &str) -> bool {
     }
 }
 
+/// At most this many slow password checks (PBKDF2) run at once. Each takes
+/// a good fraction of a second of CPU on purpose; without a limit a flood of
+/// guesses could keep a one-CPU server busy and slow down checkout.
+const SLOW_CHECK_SLOTS: usize = 2;
+/// How long a check waits for a free slot before giving up.
+const SLOW_CHECK_WAIT_SECS: u64 = 10;
+static SLOW_CHECKS: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SLOW_CHECK_SLOTS));
+
+/// Run a slow password-derived-key job (a login check, opening a backup) on a
+/// blocking thread, with at most [`SLOW_CHECK_SLOTS`] at once.
+pub async fn run_slow<T: Send + 'static>(
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, AppError> {
+    let permit = tokio::time::timeout(
+        std::time::Duration::from_secs(SLOW_CHECK_WAIT_SECS),
+        SLOW_CHECKS.acquire(),
+    )
+    .await
+    .map_err(|_| {
+        AppError::TooManyRequests(
+            "The server is busy checking passwords. Wait a moment and try again.".into(),
+        )
+    })?
+    .map_err(|_| AppError::Internal("password check unavailable".into()))?;
+    let out = tokio::task::spawn_blocking(job)
+        .await
+        .map_err(|_| AppError::Internal("password check failed".into()))?;
+    drop(permit);
+    Ok(out)
+}
+
+/// [`verify_login`] through [`run_slow`]: what every route uses.
+pub async fn verify_login_slow(stored: Option<String>, password: String) -> Result<bool, AppError> {
+    run_slow(move || verify_login(stored.as_deref(), &password)).await
+}
+
 /// Check a login attempt (hash read and verified together). Convenience for
 /// tests and low-traffic callers; the login route uses the split form.
 pub fn check_password(conn: &Connection, password: &str) -> Result<bool, AppError> {

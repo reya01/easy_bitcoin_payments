@@ -66,6 +66,9 @@ check, and a day of running unattended. The new things are in
 - [ ] **Bitcoin price line.** Right after the server first starts, Home may say "Bitcoin price not available yet". It should disappear within a minute or two by itself and stay away. If it stays, write down the exact Home text (the server cannot reach the price websites).
 - [ ] **Check a backup.** Settings → Check a backup works with the downloaded file and the right password, and says clearly when the password is wrong.
 - [ ] **Leave it running for a day.** After the tests, leave the server on. The next day, open Home: copy its text, and on the server run `cd /opt/ebp && ./scripts/drill_capture.sh` and save the file it writes. We want to see that coins keep being renewed quietly and "Held on your server" stays sensible, with no red items.
+- [ ] **Lightning fee.** On a Lightning checkout, if a fee note shows, it says what your wallet will show (order plus fee); pay it and check the order shows Paid, not "part of your payment". Write down the amounts your wallet showed.
+- [ ] **No false coin alerts.** With phone alerts on, leave the server a day: there should be no "Some coins are close to expiring" alert while Home is green.
+- [ ] **Payout change alert.** With phone alerts on, start a payout address change in Settings (any valid test address), check your phone gets "Your payout address is being changed" within a minute, then cancel the change.
 - [ ] **A shop order priced in your currency.** (WooCommerce, step 13.) The amount in sats on the checkout page matches your shop total at roughly the current Bitcoin price.
 
 ## Extra checks only a real server can answer (if time allows)

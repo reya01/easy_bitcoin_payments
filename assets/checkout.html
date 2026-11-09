@@ -136,8 +136,11 @@ function render() {
   els.method.textContent = shown ? "Paying with " + methodName[s.tab] + (Object.keys(tabs).filter(function (j) { return !tabs[j].hidden; }).length > 1 ? ". Not what your wallet supports? Open \u201cOther ways to pay\u201d." : ".") : "";
   els.help.textContent = helpText[s.tab] || "";
   els.help.classList.toggle("hidden", !helpText[s.tab]);
-  if (s.tab === "ln" && s.ln && typeof s.ln.fee_estimate_sat === "number") {
-    els.fee.textContent = "A small network fee of about " + fmtSats(s.ln.fee_estimate_sat) + " applies. It goes to the network, not to this store.";
+  if (s.tab === "ln" && s.ln && typeof s.ln.fee_estimate_sat === "number" && s.ln.fee_estimate_sat > 0) {
+    // The Lightning invoice already includes the fee (the customer pays it).
+    els.fee.textContent = "Lightning adds a small network fee of about " + fmtSats(s.ln.fee_estimate_sat) +
+      ", so your wallet will show " + fmtSats(Number(s.data.amount_sats) + s.ln.fee_estimate_sat) +
+      ". The fee goes to the network, not to this store.";
     els.fee.classList.remove("hidden");
   } else { els.fee.classList.add("hidden"); }
 }

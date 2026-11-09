@@ -840,8 +840,23 @@ impl BarkdClient {
         amount_sats: i64,
         description: &str,
     ) -> Result<LightningInvoice, WalletError> {
+        self.ln_invoice_with_expiry(amount_sats, description, None)
+            .await
+    }
+
+    /// [`ln_invoice`](Self::ln_invoice) that stops being payable after
+    /// `expiry_secs` (barkd caps it at the Ark server's own maximum).
+    pub async fn ln_invoice_with_expiry(
+        &self,
+        amount_sats: i64,
+        description: &str,
+        expiry_secs: Option<i64>,
+    ) -> Result<LightningInvoice, WalletError> {
         // Pinned OpenAPI: required `amount_sat`; optional description/expiry_secs.
-        let body = serde_json::json!({ "amount_sat": amount_sats, "description": description });
+        let mut body = serde_json::json!({ "amount_sat": amount_sats, "description": description });
+        if let Some(secs) = expiry_secs.filter(|s| *s > 0) {
+            body["expiry_secs"] = serde_json::json!(secs);
+        }
         let v: Json = self.post(PATH_LN_INVOICE, &body).await?;
         let bolt11 = flex::str_field(&v, &["invoice", "payment_request", "bolt11", "ln_invoice"])
             .ok_or_else(|| {
@@ -1696,10 +1711,15 @@ impl WalletAdapter for BarkdWallet {
         &self,
         amount_sats: i64,
         description: &str,
+        expiry_secs: i64,
     ) -> Result<LightningInvoice, WalletError> {
         let client = self.client.clone();
         let description = description.to_string();
-        self.block_on(async move { client.ln_invoice(amount_sats, &description).await })
+        self.block_on(async move {
+            client
+                .ln_invoice_with_expiry(amount_sats, &description, Some(expiry_secs))
+                .await
+        })
     }
 }
 
@@ -2185,6 +2205,19 @@ mod tests {
         assert_eq!(all[0].path, "/api/v1/lightning/receives/invoice");
         let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
         assert_eq!(body["amount_sat"], 21_000);
+        assert!(body.get("expiry_secs").is_none());
+    }
+
+    #[tokio::test]
+    async fn ln_invoice_can_expire_with_the_payment_request() {
+        let (base, recorded) = mock::spawn(|_| (200, r#"{"invoice": "lnbc1..."}"#.to_string()));
+        client(&base)
+            .ln_invoice_with_expiry(21_003, "order 1", Some(1_200))
+            .await
+            .unwrap();
+        let all = recorded.lock().unwrap();
+        let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
+        assert_eq!(body["expiry_secs"], 1_200);
     }
 
     #[tokio::test]

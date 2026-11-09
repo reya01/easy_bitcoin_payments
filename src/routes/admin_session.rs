@@ -127,9 +127,7 @@ pub async fn login(
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
     // 2. The slow PBKDF2 check runs on a blocking thread OUTSIDE the lock, so
     //    a flood of login attempts cannot stall invoices and checkout.
-    let ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &password))
-        .await
-        .map_err(|e| AppError::Internal(format!("login check failed: {e}")))?;
+    let ok = aa::verify_login_slow(stored, password).await?;
     // 3. Record the outcome (fast, inside the lock).
     let code = req.code;
     let outcome = state
@@ -245,9 +243,7 @@ pub async fn change_password(
     }
     // The slow hash check runs outside the database lock, like sign-in does.
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
-    let pw_ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &current))
-        .await
-        .map_err(|e| AppError::Internal(format!("password check failed: {e}")))?;
+    let pw_ok = aa::verify_login_slow(stored, current).await?;
     if !pw_ok {
         // 400, not 401: a mistyped password must not look like "signed out".
         return Err(AppError::BadRequest(

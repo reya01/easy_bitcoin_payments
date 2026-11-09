@@ -141,12 +141,15 @@ pub trait WalletAdapter: Send + Sync {
     /// Best-effort Lightning invoice via the ASP's gateway. Callers must
     /// degrade gracefully when this fails: checkout stays functional with
     /// Ark and on-chain alone.
+    /// `expiry_secs`: how long the invoice may be paid for (the payment
+    /// request's own lifetime, so nobody pays an expired order).
     fn lightning_invoice(
         &self,
         amount_sats: i64,
         description: &str,
+        expiry_secs: i64,
     ) -> Result<LightningInvoice, WalletError> {
-        let _ = (amount_sats, description);
+        let _ = (amount_sats, description, expiry_secs);
         Err(WalletError::Rejected(
             "this wallet cannot create lightning invoices".to_string(),
         ))

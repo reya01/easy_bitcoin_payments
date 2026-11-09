@@ -34,8 +34,74 @@ use crate::wallet::WalletAdapter;
 pub const DEFAULT_SERVER: &str = "https://ntfy.sh";
 /// Wallet must be unreachable this long before we bother anyone.
 pub const WALLET_DOWN_GRACE_SECS: i64 = 5 * 60;
-/// Coins this close to expiry that are still around mean renewal is stuck.
-pub const COIN_EXPIRY_WARN_SECS: i64 = 3 * 24 * 3600;
+/// Where the settlement engine saves how long before expiry it renews a
+/// coin (seconds). The coin-expiry alert is measured against it.
+pub const RENEWAL_TRIGGER_KEY: &str = "renewal_trigger_secs";
+/// The smallest warning window: a coin with less than this left is always
+/// worth a warning (renewal rounds take minutes, not hours).
+pub const COIN_EXPIRY_FLOOR_SECS: i64 = 3600;
+/// Before the settlement engine has run once: warn under two hours.
+const COIN_EXPIRY_DEFAULT_SECS: i64 = 2 * 3600;
+
+/// How close to expiry a coin must be before the alert says renewal is
+/// stuck: half the renewal window. A coin is renewed when it reaches the
+/// renewal point, so one still around halfway past it means renewals have
+/// been failing for a while. (A fixed "3 days" fired constantly: signet
+/// coins only live a day, and mainnet coins are renewed in their last two
+/// days on purpose, because that is when it is free.)
+pub fn coin_expiry_warn_secs(renewal_trigger_secs: Option<i64>) -> i64 {
+    match renewal_trigger_secs {
+        Some(t) if t > 0 => (t / 2).max(COIN_EXPIRY_FLOOR_SECS),
+        _ => COIN_EXPIRY_DEFAULT_SECS,
+    }
+}
+
+/// One-off notices queued by other parts of the server and sent on the next
+/// check (comma-separated names, see [`notice_text`]).
+const NOTICES_KEY: &str = "alert_notices";
+
+/// Queue a one-off phone notice (sent within a minute if alerts are on).
+pub fn queue_notice(conn: &Connection, name: &str) -> Result<(), AppError> {
+    let mut list: Vec<String> = settings::get(conn, NOTICES_KEY)?
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    if !list.iter().any(|n| n == name) {
+        list.push(name.to_string());
+    }
+    settings::set(conn, NOTICES_KEY, &list.join(","))
+}
+
+fn take_notices(conn: &Connection) -> Result<Vec<String>, AppError> {
+    let list: Vec<String> = settings::get(conn, NOTICES_KEY)?
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    if !list.is_empty() {
+        settings::set(conn, NOTICES_KEY, "")?;
+    }
+    Ok(list)
+}
+
+/// Title and body of a queued notice. No amounts and no addresses, like
+/// every other alert.
+pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "payout_requested" => Some((
+            "Your payout address is being changed",
+            "Someone asked to change where your money is sent. It takes effect after the safety delay. If this was not you, open Settings now, cancel the change, and change your admin password.",
+        )),
+        "payout_changed" => Some((
+            "Your payout address was changed",
+            "The payout address change has taken effect. If you did not ask for it, pause payments in Settings and follow If something looks wrong.",
+        )),
+        _ => None,
+    }
+}
 /// A still-active problem is repeated at most this often.
 pub const REPEAT_SECS: i64 = 24 * 3600;
 const CHECK_INTERVAL_SECS: u64 = 60;
@@ -447,9 +513,17 @@ async fn tick(
     }
 
     if db.call(|c| state(c)).await? != State::On {
+        // Alerts are off: drop queued notices so they are not sent later,
+        // out of date, when alerts are turned on.
+        db.call(take_notices).await?;
         return Ok(());
     }
 
+    let warn_secs = coin_expiry_warn_secs(
+        db.call(|c| settings::get(c, RENEWAL_TRIGGER_KEY))
+            .await?
+            .and_then(|v| v.parse::<i64>().ok()),
+    );
     let near = if health.reachable {
         let w = wallet.clone();
         tokio::task::spawn_blocking(move || w.vtxos())
@@ -457,7 +531,7 @@ async fn tick(
             .map_err(|_| AppError::Internal("wallet check failed".into()))?
             .map(|v| {
                 v.iter()
-                    .filter(|x| x.expires_at > 0 && x.expires_at - now < COIN_EXPIRY_WARN_SECS)
+                    .filter(|x| x.expires_at > 0 && x.expires_at - now < warn_secs)
                     .count()
             })
             .unwrap_or(0)
@@ -481,6 +555,18 @@ async fn tick(
         .await?;
     let Some(topic) = topic else { return Ok(()) };
     let server = server?;
+
+    // One-off notices (a payout address change). A failed send is queued
+    // again for the next check.
+    for name in db.call(take_notices).await? {
+        let Some((title, body)) = notice_text(&name) else {
+            continue;
+        };
+        if let Err(e) = send(&server, &topic, title, body, true).await {
+            tracing::warn!(error = %e, "could not send a phone notice");
+            db.call(move |c| queue_notice(c, &name)).await?;
+        }
+    }
 
     for d in decisions {
         match send(&server, &topic, &d.title, &d.body, d.urgent).await {
@@ -639,6 +725,40 @@ mod tests {
         assert!(!d[0].urgent);
         a.insert("sweep_failed".into(), 0);
         assert!(evaluate(&Observation::default(), &a, 7_000).is_empty());
+    }
+
+    #[test]
+    fn the_coin_expiry_warning_follows_the_renewal_point() {
+        // Signet: coins renewed 48 blocks (8 h) before expiry -> warn under 4 h.
+        assert_eq!(coin_expiry_warn_secs(Some(48 * 600)), 4 * 3600);
+        // Mainnet-like: renewed in the last ~2 days -> warn under ~1 day,
+        // so the normal 2-to-3-day stretch is quiet.
+        assert_eq!(coin_expiry_warn_secs(Some(287 * 600)), 287 * 300);
+        // Never below an hour; a sensible default before the first renewal round.
+        assert_eq!(coin_expiry_warn_secs(Some(600)), COIN_EXPIRY_FLOOR_SECS);
+        assert_eq!(coin_expiry_warn_secs(None), 2 * 3600);
+        assert_eq!(coin_expiry_warn_secs(Some(0)), 2 * 3600);
+    }
+
+    #[tokio::test]
+    async fn payout_notices_are_queued_once_and_taken_once() {
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| {
+            queue_notice(c, "payout_requested")?;
+            queue_notice(c, "payout_requested")?;
+            queue_notice(c, "payout_changed")
+        })
+        .await
+        .unwrap();
+        let first = db.call(take_notices).await.unwrap();
+        assert_eq!(first, vec!["payout_requested", "payout_changed"]);
+        assert!(db.call(take_notices).await.unwrap().is_empty());
+        for name in first {
+            let (title, body) = notice_text(&name).unwrap();
+            let t = format!("{title} {body}").to_lowercase();
+            assert!(!t.chars().any(|c| c.is_ascii_digit()), "no numbers: {t}");
+            assert!(!t.contains("bc1") && !t.contains("ark1"));
+        }
     }
 
     #[test]

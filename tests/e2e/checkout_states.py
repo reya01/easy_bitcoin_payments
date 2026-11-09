@@ -157,6 +157,7 @@ def main():
             has(a, pr, "says which way is shown", "Paying with Lightning", pg.inner_text("#method"))
             if not pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should be visible without opening anything")
             has(a, pr, "fee note", "3 sats", pg.inner_text("#ln-fee"))
+            has(a, pr, "fee note says what the wallet will show", "wallet will show 1,503 sats", pg.inner_text("#ln-fee"))
             if pg.get_attribute("#tab-ln", "aria-selected") != "true": pr.append("Lightning tab not selected")
             pg.click("#other summary")
             pg.click("#tab-bip321")

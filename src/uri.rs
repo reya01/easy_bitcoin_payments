@@ -45,9 +45,35 @@ pub fn combined(
     uri
 }
 
+/// The Lightning invoice to put inside the combined code.
+///
+/// The combined code states the order amount. When a Lightning fee was added
+/// to the Lightning invoice (the customer pays it), that invoice asks for
+/// more than the code says, and some wallets refuse a code whose amounts
+/// disagree. In that case Lightning is left out of the combined code; it has
+/// its own choice on the checkout page.
+pub fn lightning_for_combined(bolt11: Option<&str>, fee_sat: Option<i64>) -> Option<&str> {
+    if fee_sat.unwrap_or(0) > 0 {
+        None
+    } else {
+        bolt11
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lightning_is_left_out_of_the_combined_code_when_a_fee_makes_amounts_differ() {
+        assert_eq!(lightning_for_combined(Some("lnbc1"), None), Some("lnbc1"));
+        assert_eq!(
+            lightning_for_combined(Some("lnbc1"), Some(0)),
+            Some("lnbc1")
+        );
+        assert_eq!(lightning_for_combined(Some("lnbc1"), Some(3)), None);
+        assert_eq!(lightning_for_combined(None, Some(3)), None);
+    }
 
     #[test]
     fn sats_encode_as_trimmed_btc_decimals() {

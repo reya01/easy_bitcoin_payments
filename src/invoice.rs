@@ -390,6 +390,19 @@ pub fn find_pending_by_address(
     .map_err(Into::into)
 }
 
+/// Is this Ark address already attached to a payment request that can still
+/// be paid? Two open requests must never share one: a payment could then be
+/// credited to the wrong order.
+pub fn ark_address_in_use(conn: &Connection, ark_address: &str) -> Result<bool, AppError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM invoices
+         WHERE ark_address = ?1 AND status IN ('pending', 'underpaid')",
+        params![ark_address],
+        |row| row.get(0),
+    )?;
+    Ok(n > 0)
+}
+
 /// Newest still-open (`pending`, not past `expires_at`) invoice a store
 /// already created for `order_id`, if any.
 ///

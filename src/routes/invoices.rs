@@ -492,14 +492,37 @@ pub async fn create(
     //
     // The wallet adapter is synchronous (barkd = blocking HTTP bridge), so it
     // runs on the blocking pool, never on an async worker (beta hardening).
-    let addresses = {
+    let fresh_addresses = || {
         let wallet = state.wallet.clone();
         let id = invoice_id.clone();
-        tokio::task::spawn_blocking(move || wallet.receive_addresses(&id))
-            .await
-            .map_err(|e| AppError::Internal(format!("wallet task failed: {e}")))?
-            .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))?
+        async move {
+            tokio::task::spawn_blocking(move || wallet.receive_addresses(&id))
+                .await
+                .map_err(|e| AppError::Internal(format!("wallet task failed: {e}")))?
+                .map_err(|e| AppError::Internal(format!("wallet unavailable: {e}")))
+        }
     };
+    let mut addresses = fresh_addresses().await?;
+    // Two open payment requests must never share an address (a payment could
+    // be credited to the wrong order). The wallet hands out a new one each
+    // time; if it ever repeats one, ask once more, then refuse.
+    for attempt in 0..2 {
+        let ark = addresses.ark_address.clone();
+        let taken = state
+            .db
+            .call(move |conn| invoice::ark_address_in_use(conn, &ark))
+            .await?;
+        if !taken {
+            break;
+        }
+        if attempt == 1 {
+            return Err(AppError::Unavailable(
+                "The wallet could not give a new payment address just now. Please try again in a moment.".into(),
+            ));
+        }
+        tracing::warn!("the wallet repeated a payment address that is still in use; asking again");
+        addresses = fresh_addresses().await?;
+    }
 
     // Metadata carries the store's own key/value data plus two internal
     // markers: `test` (set in test mode; test invoices are excluded from

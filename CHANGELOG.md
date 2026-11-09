@@ -2,6 +2,14 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Fixes from the second pre-release review (9 November):**
+  - "Check a backup" verified the sign-in only after the whole upload had been read into memory, so anyone could make the server hold hundreds of megabytes. The sign-in is now checked before any of the upload is read.
+  - A renewal that failed no longer holds withdrawals back, and "Move my money now" always goes ahead (it reads the wallet again after a renewal). Before, while renewals kept failing, nothing was withdrawn and the button only said to try again later.
+  - If the Ark server refuses our Lightning invoice lifetime, the invoice is made again with the server's default, so Lightning cannot silently vanish from checkout.
+  - A Lightning payment counts as paying the order in full only when the amount is within the quoted fee (plus a small margin) of the order; anything further off is counted as what arrived.
+  - A signed-in owner is no longer counted against the overall sign-in cap (junk sign-ins from a few machines could have locked the owner out of payout and backup actions); the cap for everyone else is 60 a minute. A password check keeps its slot until it really finishes.
+  - Renewal no longer depends on reading the balance or saving a setting first.
+  - Two open payment requests can never share an address; the "One code, any wallet" option leaves Lightning out when a Lightning fee would make its two amounts disagree; the admin status lists which price sources answered.
 - **Fixes from the pre-release review (9 November):**
   - The "Renewing your coins is not working" warning could never appear: a failed renewal was only logged. It is now recorded, so Home warns after three in a row.
   - The "coins close to expiring" phone alert fired all the time (it used a fixed 3 days; signet coins live one day, and mainnet coins are renewed in their last two days on purpose). It now fires only when a coin is halfway past the point where it should have been renewed.

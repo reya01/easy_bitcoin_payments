@@ -243,5 +243,8 @@ pub async fn status(
         "usd_per_btc": usd_per_btc,
         // Seconds since the price was last refreshed; null = never yet.
         "price_age_secs": state.rates.newest_age_secs(),
+        // Which of the five price sources answered last time.
+        "price_sources": state.rates.usd_sources(),
+        "price_sources_total": crate::rates::default_sources().len(),
     })))
 }

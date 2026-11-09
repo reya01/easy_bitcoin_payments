@@ -2,6 +2,8 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- From the first droplet test: **Ark is now the recommended payout type** (setup wizard and Settings; on-chain stays a full option), because money is moved to your own wallet at very small amounts so little is held on the server. The Settings list no longer shows the two "not available yet" lines (Lightning and silent-payment addresses stay in the docs). The 2FA heading now reads "Two-step sign-in (2FA)". The wallet-type dropdown is readable in dark mode (option text and background no longer match).
+
 - Narrower shop key: the payout address, security activity, notification log and late-payment list now need the owner's admin session, not the shop's API key (the WooCommerce plugin never used them). New limits on the key: a single payment request is capped at 1 BTC by default (`EBP_MAX_INVOICE_SATS`) and one key may create 60 requests a minute (`EBP_INVOICE_RATE_LIMIT_PER_MIN`; `0` turns it off); over the rate limit the server answers 429. Existing scripts that read those lists with the API key must sign in as the owner instead.
 
 - Customer payment page: a cancelled payment request now says so (it used to keep showing "Waiting for your payment" and a live code); the pay details disappear once a payment is paid, expired or cancelled, so nobody sends money to a request that is closed. Very long values no longer stretch the page (here and in the admin page). New test `tests/e2e/checkout_states.py` runs the page through every state the server can report.

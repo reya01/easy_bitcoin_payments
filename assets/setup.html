@@ -56,7 +56,8 @@
   .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-top: 14px; }
   .card a { color: var(--fg); font-weight: 600; display: inline-block; padding: 12px 0; }
   label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
-  select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid var(--line, #888); background: inherit; color: inherit; font: inherit; min-height: 44px; }
+  select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid var(--line, #888); background: var(--bg); color: var(--fg); font: inherit; min-height: 44px; }
+  select option { background: var(--bg); color: var(--fg); }
   input[type=text], input[type=password] {
     width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
     background: transparent; color: var(--fg);
@@ -205,10 +206,10 @@
       <label for="payout-kind">Where should your money go?</label>
       <select id="payout-kind">
         <option value="">Choose your wallet type…</option>
-        <option value="ark">Ark wallet</option>
+        <option value="ark">Ark wallet (recommended)</option>
         <option value="onchain">On-chain Bitcoin wallet</option>
       </select>
-      <p class="note">Examples. Ark wallets: Arké, Noah. On-chain wallets: Sparrow, Nunchuk, Liana.</p>
+      <p class="note">Ark is recommended: your money is moved to your own wallet at very small amounts, so little is ever held on this server. On-chain works too. Examples. Ark wallets: Arké, Noah. On-chain wallets: Sparrow, Nunchuk, Liana.</p>
       <div class="hidden" id="payout-box">
         <label for="payout" id="payout-label">Your wallet's address</label>
         <input type="text" id="payout" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="">

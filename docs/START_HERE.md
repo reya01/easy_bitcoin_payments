@@ -100,8 +100,8 @@ Open the web address from the box (it ends in `/setup`) and follow the page:
 4. **Store name and admin password.** The password must be at least 16
    characters (four random words works well). It signs you in to the admin page
    and locks your backups.
-5. **Where your money goes.** Choose **Ark wallet** or **On-chain Bitcoin
-   wallet**, open Receive in that wallet, copy an address and paste it. For play
+5. **Where your money goes.** Choose **Ark wallet** (recommended: your money is moved to your own
+   wallet at very small amounts) or **On-chain Bitcoin wallet**, open Receive in that wallet, copy an address and paste it. For play
    money it starts with `tark1` (Ark) or `tb1` (on-chain). This is required. You
    can change it later in Settings (a change waits a day for safety).
 6. **API key.** Shown once. Save it in your password manager.

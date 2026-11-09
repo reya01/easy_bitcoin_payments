@@ -30,6 +30,7 @@ h2{font-size:15px;margin:22px 0 8px;font-weight:600}
 label{display:block;font-size:14px;color:var(--muted);margin:12px 0 4px}
 input[type=text],input[type=password],input[type=url],input[type=tel]{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 select{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+select option{background:var(--bg);color:var(--fg)}
 details{margin-top:12px}
 summary{cursor:pointer;min-height:44px;padding:10px 0}
 button{font:inherit;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
@@ -158,7 +159,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 <section id="v-set" class="hidden">
   <h2>Pause new payments</h2>
   <div class="card" id="pause-card"></div>
-  <h2>Two-step sign-in</h2>
+  <h2>Two-step sign-in (2FA)</h2>
   <div class="card" id="twofa-card"></div>
   <h2>Phone alerts</h2>
   <div class="card" id="phone-set"></div>
@@ -614,10 +615,8 @@ function loadPayout() {
     var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
     $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + Number(p.cap_sats).toLocaleString() + " sats." : "No payout address yet — money stays in the till until you add one.";
     var kinds = $("po-kinds"); clear(kinds);
-    [["On-chain Bitcoin address (recommended)", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + Number(p.onchain_cap_sats).toLocaleString() + " sats, and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."],
-     ["Ark address", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + Number(p.ark_cap_sats).toLocaleString() + " sats."],
-     ["Lightning address", "not available yet."],
-     ["Silent payment address (sp1\u2026)", "not available yet: see docs/SILENT_PAYMENTS.md for why."]].forEach(function (k) {
+    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + Number(p.ark_cap_sats).toLocaleString() + " sats, so only a small amount is ever held on this server."],
+     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + Number(p.onchain_cap_sats).toLocaleString() + " sats, and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);

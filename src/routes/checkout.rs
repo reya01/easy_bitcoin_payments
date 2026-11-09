@@ -63,7 +63,7 @@ pub async fn invoice_json(
         // address, no URI path, and the page hides the tab.
         "onchain_enabled": onchain_enabled,
         "onchain_address": onchain_enabled.then(|| inv.onchain_address.clone()),
-        "bip321": uri::combined(inv.amount_sats, onchain_enabled.then_some(inv.onchain_address.as_str()), bolt11.as_deref(), Some(&inv.ark_address)),
+        "bip321": uri::combined(inv.amount_sats, onchain_enabled.then_some(inv.onchain_address.as_str()), uri::lightning_for_combined(bolt11.as_deref(), fee), Some(&inv.ark_address)),
         "lightning": bolt11.map(|b| serde_json::json!({ "bolt11": b, "fee_estimate_sat": fee })),
         "test_mode": app.config.mode == "test",
         // For showing "(about $0.40)" next to sats; null when no price is known.

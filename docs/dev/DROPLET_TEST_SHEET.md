@@ -59,6 +59,7 @@ check, and a day of running unattended. The new things are in
 
 ## New since round 1 (please check each one)
 
+- [ ] **Lightning is there at all.** Do this one first: create a test payment and check the checkout page opens on Lightning. If it opens on "One code, any wallet" instead, Lightning invoices are failing: write it down and send the last lines of the server log (`cd /opt/ebp && docker compose logs --tail 50 ebp`), with nothing secret in them.
 - [ ] **Lightning first.** The checkout page opens on a Lightning invoice, says "Paying with Lightning" and shows the small network fee in plain view.
 - [ ] **Other ways to pay.** Under it: "One code, any wallet", Ark, and Regular Bitcoin. Pick each one: the shown code changes, the **Copy** button copies exactly what is shown, and Regular Bitcoin shows just an address (starting `tb1`), not a long `bitcoin:` code. Paste any `bitcoin:` code into your terminal inside single quotes.
 - [ ] **Dollars next to sats.** On the checkout page, Home, Payments, the test-payment box and the payout/transfer lists you see things like "1,000 sats ($0.40)". The dollar figure is roughly right for today's real Bitcoin price (play coins are worth nothing, but the number should look sensible). Write down anywhere sats show with **no** dollar figure.

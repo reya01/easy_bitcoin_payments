@@ -208,8 +208,14 @@ impl SettlementEngine {
         // renewal — renewal is what keeps boarded/received funds alive, and
         // it must run regardless of where sweeps would go.
 
-        let vtxos = self.client.vtxos().await.map_err(AppError::from)?;
-        let balances = self.client.balances().await.map_err(AppError::from)?;
+        let mut vtxos = self.client.vtxos().await.map_err(AppError::from)?;
+        // Renewal only needs the coin list. A balance that cannot be read
+        // right now must not stop it; the sweep further down needs it and
+        // reports the error then.
+        let mut balances = self.client.balances().await.map_err(AppError::from);
+        if let Err(err) = &balances {
+            tracing::warn!(error = %err, "settlement: balance unavailable; renewing anyway");
+        }
 
         let now = now_unix();
         // How long before expiry a coin is refreshed. The Ark server's own
@@ -230,12 +236,17 @@ impl SettlementEngine {
         let lead =
             refresh_trigger_blocks(self.config.renewal_lead_time_secs, terms) * SECS_PER_BLOCK;
         // The phone alert for coins near expiry is measured against this.
+        // Best effort: nothing here may stop a renewal.
         let lead_text = lead.to_string();
-        self.db
+        if let Err(err) = self
+            .db
             .call(move |conn| {
                 crate::settings::set(conn, crate::alerts::RENEWAL_TRIGGER_KEY, &lead_text)
             })
-            .await?;
+            .await
+        {
+            tracing::warn!(error = %err, "settlement: could not save the renewal point");
+        }
 
         // 1. Renewal: refresh spendable VTXOs inside the renewal window,
         //    before their per-VTXO expiry. A VTXO barkd already refreshed
@@ -294,7 +305,7 @@ impl SettlementEngine {
         // before they can be sent again" (needs_refresh_sat) are refreshed
         // now, soonest-to-expire first, even if our timing has not reached
         // them yet. Otherwise they could not be swept.
-        let flagged = balances.needs_refresh_sats;
+        let flagged = balances.as_ref().map(|b| b.needs_refresh_sats).unwrap_or(0);
         let mut covered: i64 = due.iter().map(|v| v.amount_sats).sum();
         if flagged > covered {
             let mut rest: Vec<(&crate::wallet::barkd::Vtxo, i64)> = vtxos
@@ -318,6 +329,7 @@ impl SettlementEngine {
             .map(|v| v.id.clone())
             .filter(|id| !id.is_empty())
             .collect();
+        let mut renewal_accepted = false;
         if !due_ids.is_empty() {
             match self.client.refresh_vtxos(&due_ids).await {
                 Ok(_) => {
@@ -336,6 +348,7 @@ impl SettlementEngine {
                         })
                         .await?;
                     report.refreshed_vtxos = count;
+                    renewal_accepted = true;
                 }
                 Err(err) => {
                     // Recorded (not only logged): Home warns after a few
@@ -350,16 +363,22 @@ impl SettlementEngine {
                         .await?;
                 }
             }
-            // A renewal was just started: the balance read above may still
-            // count the coins it locked. Sweep on the next cycle instead of
-            // sending from a stale balance (which would fail and alarm).
-            if manual {
-                report.sweep_refused = Some(
-                    "some coins are being renewed right now; try again in a few minutes".into(),
-                );
-            }
-            return Ok(report);
         }
+        if renewal_accepted {
+            // The wallet accepted a renewal: the balance read above may still
+            // count the coins it locked. The timed round sweeps on the next
+            // cycle instead of sending from a stale balance (which would
+            // fail and alarm). The owner's button reads everything again and
+            // goes ahead with what is spendable now. A renewal that FAILED
+            // never holds a sweep back: that is exactly when the owner needs
+            // "move my money now" to work.
+            if !manual {
+                return Ok(report);
+            }
+            vtxos = self.client.vtxos().await.map_err(AppError::from)?;
+            balances = self.client.balances().await.map_err(AppError::from);
+        }
+        let balances = balances?;
 
         // 2. Cap-driven sweep: move the excess above the hot cap to the
         //    merchant's own wallet. Requires a configured destination; an
@@ -1342,8 +1361,18 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_renewal_is_recorded_so_home_can_warn() {
-        let (engine, db, _recorded) = due_and_rich_engine(500);
-        engine.tick().await.unwrap();
+        let (engine, db, recorded) = due_and_rich_engine(500);
+        let report = engine.tick().await.unwrap();
+        // A failing renewal must never hold withdrawals back: that is when
+        // the owner most needs the money to keep moving out.
+        assert_eq!(report.swept_sats, Some(50_000));
+        assert!(recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/send"));
+        // ... and "move my money now" works too (whole till, no cap).
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(150_000));
         let failed: i64 = db
             .call(|c| {
                 Ok(c.query_row(
@@ -1354,7 +1383,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(failed, 1);
+        assert_eq!(
+            failed, 2,
+            "one per round that tried (the tick and the button)"
+        );
     }
 
     #[tokio::test]
@@ -1377,9 +1409,41 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(saved.as_deref(), Some("604800"));
-        // A manual "move my money now" says why nothing moved.
+        // The owner's button reads the wallet again after the renewal and
+        // moves what is spendable (the mock still reports the full balance).
         let report = engine.sweep_now().await.unwrap();
-        assert!(report.sweep_refused.unwrap().contains("being renewed"));
+        assert_eq!(report.swept_sats, Some(150_000));
+    }
+
+    #[tokio::test]
+    async fn renewal_runs_even_when_the_balance_cannot_be_read() {
+        let soon = crate::util::now_unix() + 86_400;
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": 1000, "expires_at": {soon}, "state": {{"type": "spendable"}}}}]"#
+                ),
+            ),
+            "/api/v1/wallet/balance" => (500, "{}".to_string()),
+            "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            Db::open(":memory:").unwrap(),
+            test_config(None, 100_000),
+        );
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        assert!(recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/refresh/vtxos"));
     }
 
     #[test]

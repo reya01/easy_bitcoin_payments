@@ -496,11 +496,14 @@ impl PollingWatcher {
 /// longer reports as `gone` (spent, swept, or exited).
 /// How much a payment pays toward its invoice.
 ///
-/// A Lightning invoice has a fixed amount and can only be paid in full, so a
-/// receive for this invoice's own Lightning invoice pays the order in full,
-/// whatever the Ark server's receive fee left over (the customer was asked
-/// for the order amount plus that fee; what arrives can differ by a rounding
-/// sat). Everything else counts what actually arrived.
+/// A Lightning invoice has a fixed amount and can only be paid in full. The
+/// customer was asked for the order amount plus the Ark server's receive fee,
+/// and what the wallet reports can be that sum, the order amount, or a
+/// rounding sat off. So a receive for this invoice's own Lightning invoice
+/// that lands within the quoted fee (plus a small margin) of the order
+/// amount pays the order exactly. Anything further off is counted as what
+/// actually arrived, like every other payment, so a wildly wrong amount can
+/// never mark an order paid.
 fn credited_amount(
     payment: &crate::wallet::WalletPayment,
     invoice: &crate::models::Invoice,
@@ -509,17 +512,32 @@ fn credited_amount(
         .address
         .get(..2)
         .is_some_and(|p| p.eq_ignore_ascii_case("ln"));
-    if lightning {
+    if !lightning {
+        return payment.amount_sats;
+    }
+    let quoted_fee = serde_json::from_str::<serde_json::Value>(&invoice.metadata_json)
+        .ok()
+        .and_then(|m| m.get("lightning_fee_estimate_sat").and_then(|v| v.as_i64()))
+        .unwrap_or(0)
+        .max(0);
+    let margin = quoted_fee + (invoice.amount_sats / 100).max(10);
+    if (payment.amount_sats - invoice.amount_sats).abs() <= margin {
         if payment.amount_sats != invoice.amount_sats {
             tracing::info!(
                 invoice_id = %invoice.id,
                 received_sats = payment.amount_sats,
                 order_sats = invoice.amount_sats,
-                "lightning payment of this invoice's own invoice counted as paid in full"
+                "lightning payment within the fee margin counted as paying the order in full"
             );
         }
         invoice.amount_sats
     } else {
+        tracing::warn!(
+            invoice_id = %invoice.id,
+            received_sats = payment.amount_sats,
+            order_sats = invoice.amount_sats,
+            "lightning payment far from the order amount; counting what arrived"
+        );
         payment.amount_sats
     }
 }
@@ -726,6 +744,83 @@ mod tests {
             .unwrap();
         assert_eq!(invoice.status, InvoiceStatus::Paid);
         assert_eq!(invoice.paid_sats, 1000);
+    }
+
+    #[tokio::test]
+    async fn an_address_counts_as_in_use_only_while_its_request_can_still_be_paid() {
+        let (db, store_id) = setup(vec![]).await;
+        let in_use = |db: Db, a: &'static str| async move {
+            db.call(move |c| invoice::ark_address_in_use(c, a))
+                .await
+                .unwrap()
+        };
+        assert!(in_use(db.clone(), "ark1qinv_1").await);
+        assert!(!in_use(db.clone(), "ark1qsomething_else").await);
+        db.call(move |c| invoice::cancel(c, &store_id, "inv_1"))
+            .await
+            .unwrap();
+        assert!(
+            !in_use(db.clone(), "ark1qinv_1").await,
+            "cancelled: free again"
+        );
+    }
+
+    fn test_invoice() -> crate::models::Invoice {
+        crate::models::Invoice {
+            id: "inv_t".into(),
+            store_id: "store_t".into(),
+            order_id: None,
+            status: InvoiceStatus::Pending,
+            amount_sats: 0,
+            fiat_currency: None,
+            fiat_amount: None,
+            rate: None,
+            rate_source: None,
+            rate_locked_at: None,
+            ark_address: String::new(),
+            onchain_address: String::new(),
+            expires_at: 0,
+            paid_at: None,
+            paid_sats: 0,
+            confs_required: 1,
+            metadata_json: "{}".into(),
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn a_lightning_amount_far_from_the_order_is_counted_as_what_arrived() {
+        let ln = |sats: i64| WalletPayment {
+            address: "lntbs1fake".to_string(),
+            rail: Rail::Ark,
+            amount_sats: sats,
+            vtxo_id: None,
+            txid: None,
+            detected_at: 0,
+            confirmed_at: None,
+        };
+        let invoice = |meta: &str| crate::models::Invoice {
+            amount_sats: 100_000,
+            metadata_json: meta.to_string(),
+            ..test_invoice()
+        };
+        let plain = invoice("{}");
+        // Within 1% (no fee quoted): the order is paid exactly.
+        assert_eq!(credited_amount(&ln(99_500), &plain), 100_000);
+        assert_eq!(credited_amount(&ln(100_400), &plain), 100_000);
+        // Far off: never rounded up to "paid".
+        assert_eq!(credited_amount(&ln(1), &plain), 1);
+        assert_eq!(credited_amount(&ln(50_000), &plain), 50_000);
+        assert_eq!(credited_amount(&ln(150_000), &plain), 150_000);
+        // A quoted fee widens the margin by that fee.
+        let with_fee = invoice(r#"{"lightning_fee_estimate_sat": 2000}"#);
+        assert_eq!(credited_amount(&ln(102_000), &with_fee), 100_000);
+        assert_eq!(credited_amount(&ln(97_500), &with_fee), 100_000);
+        assert_eq!(credited_amount(&ln(96_000), &with_fee), 96_000);
+        // Not Lightning: always what arrived.
+        let mut ark = ln(99_999);
+        ark.address = "tark1qqq".to_string();
+        assert_eq!(credited_amount(&ark, &plain), 99_999);
     }
 
     fn onchain_payment() -> WalletPayment {

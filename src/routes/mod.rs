@@ -46,6 +46,66 @@ impl AppState {
     }
 }
 
+/// Is this request carrying a live admin session cookie?
+async fn has_session(state: &AppState, headers: &axum::http::HeaderMap) -> bool {
+    let Some(token) = crate::admin_auth::token_from_headers(
+        headers,
+        crate::admin_auth::is_secure(&state.config.public_base_url),
+    ) else {
+        return false;
+    };
+    state
+        .db
+        .call(move |c| crate::admin_auth::lookup_session(c, &token))
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+/// The overall cap on the sign-in style routes (it does not depend on
+/// trusting any client address). A signed-in owner is never counted against
+/// it: otherwise a few machines sending junk sign-ins could keep the owner
+/// from changing the payout address or downloading a backup during an
+/// attack. CPU is protected separately (two slow password checks at once).
+async fn overall_brake(
+    axum::extract::State((state, limiter)): axum::extract::State<(
+        AppState,
+        Arc<crate::ratelimit::RateLimiter>,
+    )>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let headers = request.headers().clone();
+    if has_session(&state, &headers).await || limiter.allow("global", crate::util::now_unix()) {
+        next.run(request).await
+    } else {
+        (
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            [(axum::http::header::RETRY_AFTER, "60")],
+            "rate limit exceeded",
+        )
+            .into_response()
+    }
+}
+
+/// Session and CSRF check BEFORE the request body is read. For routes that
+/// accept a large upload: without this, anyone could make the server hold
+/// hundreds of megabytes in memory just by sending them, signed in or not.
+async fn signed_in_only(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let headers = request.headers().clone();
+    match admin_session::require_session(&state, &headers).await {
+        Ok(_) => next.run(request).await,
+        Err(err) => err.into_response(),
+    }
+}
+
 pub fn router(state: AppState) -> Router {
     use axum::middleware;
 
@@ -162,7 +222,13 @@ pub fn router(state: AppState) -> Router {
                 // larger upload than the 64 KB default.
                 .route(
                     "/admin/backup/check",
-                    post(backup::check).layer(DefaultBodyLimit::max(backup::MAX_CHECK_BYTES)),
+                    post(backup::check)
+                        .layer(DefaultBodyLimit::max(backup::MAX_CHECK_BYTES))
+                        // Outermost: runs before any of the upload is read.
+                        .layer(middleware::from_fn_with_state(
+                            state.clone(),
+                            signed_in_only,
+                        )),
                 )
                 // Also checks the admin password.
                 .route("/admin/payout", post(payout::change))
@@ -177,8 +243,11 @@ pub fn router(state: AppState) -> Router {
                 // it runs AFTER the per-client brake: one noisy client is
                 // refused before it can use up everyone else's share.
                 .layer(middleware::from_fn_with_state(
-                    Arc::new(crate::ratelimit::RateLimiter::new_global(30)),
-                    crate::ratelimit::limit,
+                    (
+                        state.clone(),
+                        Arc::new(crate::ratelimit::RateLimiter::new_global(60)),
+                    ),
+                    overall_brake,
                 ))
                 // Password-guessing brake (runs first): 10 attempts a minute per client.
                 .layer(middleware::from_fn_with_state(

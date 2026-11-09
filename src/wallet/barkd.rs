@@ -1716,9 +1716,19 @@ impl WalletAdapter for BarkdWallet {
         let client = self.client.clone();
         let description = description.to_string();
         self.block_on(async move {
-            client
+            match client
                 .ln_invoice_with_expiry(amount_sats, &description, Some(expiry_secs))
                 .await
+            {
+                Ok(invoice) => Ok(invoice),
+                Err(err) => {
+                    // The Ark server has its own longest invoice lifetime and
+                    // may refuse a longer one. Lightning must not vanish
+                    // from checkout over that: ask again with its default.
+                    tracing::warn!(error = %err, "lightning invoice with our expiry was refused; retrying with the server's default");
+                    client.ln_invoice(amount_sats, &description).await
+                }
+            }
         })
     }
 }
@@ -2475,6 +2485,26 @@ mod tests {
         assert!(health.reachable);
         assert_eq!(health.asp, AspStatus::Ok);
         assert!(health.detail.contains("ark.example"));
+    }
+
+    #[tokio::test]
+    async fn a_refused_invoice_expiry_falls_back_to_the_servers_default() {
+        // An Ark server whose longest invoice lifetime is shorter than ours.
+        let (base, recorded) = mock::spawn(|req| {
+            if req.body.contains("expiry_secs") {
+                (400, r#"{"message": "expiry too long"}"#.to_string())
+            } else {
+                (200, r#"{"invoice": "lnbc1fallback"}"#.to_string())
+            }
+        });
+        let wallet = BarkdWallet::new(BarkdConfig::new(base, "t")).unwrap();
+        let ln = wallet.lightning_invoice(21_000, "order 1", 1_200).unwrap();
+        assert_eq!(ln.bolt11, "lnbc1fallback");
+        assert_eq!(
+            recorded.lock().unwrap().len(),
+            2,
+            "one refused try, one retry"
+        );
     }
 
     #[tokio::test]

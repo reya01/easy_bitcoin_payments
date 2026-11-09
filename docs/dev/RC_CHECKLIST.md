@@ -129,5 +129,19 @@ done differently.
       renewing merges small coins, and show renewal fees paid on Home.
 - [ ] **Backup restore drill.** Write the exact wallet restore command from the words
       into RECIPE_BACKUP.md after doing it once.
+- [ ] **Ark payments made with nearly expired coins.** A coin paid over Ark keeps the
+      sender's expiry and the order is marked Paid when it arrives. Decide a minimum
+      time left (or wait for the renewal on larger amounts) before marking Paid; needs
+      a way to tie a received payment to its coin's expiry.
+- [ ] **Lightning for a brand-new mainnet shop.** The Ark server setting
+      `ln_receive_anti_dos_required` is off on signet. If mainnet turns it on and it
+      needs existing coins, an empty wallet cannot make Lightning invoices while
+      checkout is Lightning-first. Check on mainnet.
+- [ ] **Keep the amount that actually arrived for Lightning payments** (the order
+      amount is what is recorded today; the received amount is only in the log), so
+      the accounts match the wallet when a fee applies.
+- [ ] **Sign-in flooding.** Enough machines sending junk sign-ins can still make a new
+      sign-in slow or refused for a while (signed-in owners are not affected). Accepted
+      for now; revisit with real traffic.
 - [ ] **Safety reserve size.** 15,000 sats per coin grows fast with many small Lightning
       payments; revisit with real mainnet coin counts.

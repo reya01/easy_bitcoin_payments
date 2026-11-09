@@ -168,6 +168,15 @@ impl RateService {
         self.quote("USD").ok().map(|q| q.fiat_per_btc)
     }
 
+    /// Which sources the current dollar price came from (for the admin
+    /// status: "4 of 5 answering" is fine, 1 is worth a look).
+    pub fn usd_sources(&self) -> Vec<String> {
+        self.read()
+            .get("USD")
+            .map(|e| e.sources.clone())
+            .unwrap_or_default()
+    }
+
     /// Seconds since the newest price was fetched; `None` = never.
     pub fn newest_age_secs(&self) -> Option<i64> {
         let now = now_unix();

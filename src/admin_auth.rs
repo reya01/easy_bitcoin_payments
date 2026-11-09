@@ -167,8 +167,8 @@ pub fn verify_login(stored: Option<&str>, password: &str) -> bool {
 const SLOW_CHECK_SLOTS: usize = 2;
 /// How long a check waits for a free slot before giving up.
 const SLOW_CHECK_WAIT_SECS: u64 = 10;
-static SLOW_CHECKS: std::sync::LazyLock<tokio::sync::Semaphore> =
-    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(SLOW_CHECK_SLOTS));
+static SLOW_CHECKS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(tokio::sync::Semaphore::new(SLOW_CHECK_SLOTS)));
 
 /// Run a slow password-derived-key job (a login check, opening a backup) on a
 /// blocking thread, with at most [`SLOW_CHECK_SLOTS`] at once.
@@ -177,7 +177,7 @@ pub async fn run_slow<T: Send + 'static>(
 ) -> Result<T, AppError> {
     let permit = tokio::time::timeout(
         std::time::Duration::from_secs(SLOW_CHECK_WAIT_SECS),
-        SLOW_CHECKS.acquire(),
+        SLOW_CHECKS.clone().acquire_owned(),
     )
     .await
     .map_err(|_| {
@@ -186,11 +186,15 @@ pub async fn run_slow<T: Send + 'static>(
         )
     })?
     .map_err(|_| AppError::Internal("password check unavailable".into()))?;
-    let out = tokio::task::spawn_blocking(job)
-        .await
-        .map_err(|_| AppError::Internal("password check failed".into()))?;
-    drop(permit);
-    Ok(out)
+    // The slot travels with the work: if the caller hangs up, it is still
+    // held until the check really finishes, so hang-ups cannot stack up
+    // more than the allowed number of checks.
+    tokio::task::spawn_blocking(move || {
+        let _slot = permit;
+        job()
+    })
+    .await
+    .map_err(|_| AppError::Internal("password check failed".into()))
 }
 
 /// [`verify_login`] through [`run_slow`]: what every route uses.

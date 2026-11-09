@@ -247,7 +247,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_SETTLEMENT_DESTINATION` | unset | Merchant's Ark or on-chain sweep destination. Checked at startup like any saved address: a typo or an address for the wrong network (mainnet on a test server, or the reverse) stops the server from starting |
 | `EBP_SETTLEMENT_INTERVAL_SECS` | `300` | Settlement engine cadence |
 | `EBP_CONFIG` | unset | Path to an extra TOML config file (see `ebp.example.toml`) |
-| `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | Renew/settle VTXOs this long before expiry |
+| `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | The earliest EBP refreshes a coin before it expires. EBP also reads the Ark server's coin lifetime and its free-refresh window (`GET /wallet/ark-info`) and waits until the coin is inside the free window, but never later than a few hours before expiry; if the server's terms cannot be read this value is used as is |
 | `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
 | `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is accepted as a config value but is NOT supported in this EXPERIMENTAL release: never point it at real funds |
 | `EBP_RATES_PROVIDER` | `static` | `static` (deterministic, offline) or `live` (median of public APIs) |

@@ -18,6 +18,7 @@
     {"method": "POST", "path": "/wallet/refresh/all", "sends": [], "reads": []},
     {"method": "POST", "path": "/wallet/refresh/vtxos", "sends": ["vtxos"], "reads": []},
     {"method": "POST", "path": "/lightning/receives/invoice", "sends": ["amount_sat", "description"], "reads": ["invoice"]},
-    {"method": "GET",  "path": "/fees/lightning/receive", "query": ["amount_sat"], "reads": ["fee_sat"]}
+    {"method": "GET",  "path": "/fees/lightning/receive", "query": ["amount_sat"], "reads": ["fee_sat"]},
+    {"method": "GET",  "path": "/wallet/ark-info", "reads": ["vtxo_lifetime", "fees.refresh.base_fee_sat", "fees.refresh.ppm_expiry_table"]}
   ]
 }

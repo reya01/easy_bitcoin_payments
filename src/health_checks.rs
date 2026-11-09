@@ -43,6 +43,8 @@ pub struct Check {
 pub struct Facts {
     /// Dollars per bitcoin, to write "($0.40)" next to sats; unknown or off = None.
     pub usd_per_btc: Option<f64>,
+    /// Seconds since the Bitcoin price was last refreshed; `None` = never yet.
+    pub price_age_secs: Option<i64>,
     /// The public address starts with https://.
     pub https: bool,
     /// The public address is localhost (only reachable from this machine).
@@ -158,6 +160,28 @@ pub fn build(f: &Facts) -> Vec<Check> {
             "A payout address change is waiting",
             "Your payout address was changed in Settings and takes effect after a safety delay. If you did not do this, open Settings and cancel it, then change your admin password.",
         ),
+    }
+
+    match f.price_age_secs {
+        None => push(
+            "price",
+            Level::Warn,
+            "Bitcoin price not available yet",
+            "The server looks up the Bitcoin price every few minutes. Until it has one, dollar amounts are hidden and payment requests priced in a currency (instead of sats) cannot be created. If this stays here for more than a few minutes, check that the server can reach the internet.",
+        ),
+        Some(age) if age > crate::rates::MAX_AGE_SECS => push(
+            "price",
+            Level::Bad,
+            "Bitcoin price is more than a day old",
+            "The server could not refresh the price for over a day, so it stopped using it: dollar amounts are hidden and payment requests priced in a currency (instead of sats) are refused. Check that the server can reach the internet.",
+        ),
+        Some(age) if age > crate::rates::OLD_AFTER_SECS => push(
+            "price",
+            Level::Warn,
+            "Bitcoin price is out of date",
+            "The server could not refresh the price for over an hour. It keeps using the last price it had and tries again every ten minutes. If this stays for a day, dollar amounts disappear and payment requests priced in a currency are refused.",
+        ),
+        Some(_) => {}
     }
 
     if f.unmatched_open > 0 {
@@ -290,6 +314,7 @@ mod tests {
             offchain_sats: Some(1_000),
             hot_wallet_cap_sats: 500_000,
             webhook_configured: true,
+            price_age_secs: Some(60),
             ..Facts::default()
         }
     }
@@ -298,6 +323,28 @@ mod tests {
         c.iter()
             .find(|x| x.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    #[test]
+    fn an_old_or_missing_bitcoin_price_is_flagged_in_plain_words() {
+        let mut f = healthy();
+        assert!(
+            build(&f).iter().all(|c| c.id != "price"),
+            "fresh: nothing to say"
+        );
+
+        f.price_age_secs = None;
+        assert_eq!(find(&build(&f), "price").level, Level::Warn);
+
+        f.price_age_secs = Some(crate::rates::OLD_AFTER_SECS + 1);
+        let c = build(&f);
+        assert_eq!(find(&c, "price").level, Level::Warn);
+        assert!(find(&c, "price")
+            .detail
+            .contains("keeps using the last price"));
+
+        f.price_age_secs = Some(crate::rates::MAX_AGE_SECS + 1);
+        assert_eq!(find(&build(&f), "price").level, Level::Bad);
     }
 
     #[test]

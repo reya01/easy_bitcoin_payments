@@ -24,6 +24,11 @@ pub enum AppError {
     #[error("{0}")]
     TooManyRequests(String),
 
+    /// Something the request needs is temporarily missing (for example the
+    /// Bitcoin price). Safe to show: the message is plain words.
+    #[error("{0}")]
+    Unavailable(String),
+
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),
 
@@ -39,6 +44,7 @@ impl AppError {
             AppError::BadRequest(_) => "bad_request",
             AppError::Conflict(_) => "conflict",
             AppError::TooManyRequests(_) => "rate_limited",
+            AppError::Unavailable(_) => "unavailable",
             AppError::Db(_) | AppError::Internal(_) => "internal_error",
         }
     }
@@ -50,6 +56,7 @@ impl AppError {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
+            AppError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AppError::Db(_) | AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -60,7 +67,7 @@ impl IntoResponse for AppError {
         let status = self.status();
 
         // Log server-side detail; return a generic message to the client.
-        let message = if status.is_server_error() {
+        let message = if status.is_server_error() && !matches!(self, AppError::Unavailable(_)) {
             tracing::error!(error = %self, "request failed");
             "the server hit an internal error; check the server logs".to_string()
         } else {
@@ -97,6 +104,10 @@ mod tests {
         assert_eq!(
             AppError::TooManyRequests("x".into()).status(),
             StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            AppError::Unavailable("x".into()).status(),
+            StatusCode::SERVICE_UNAVAILABLE
         );
         assert_eq!(
             AppError::Internal("x".into()).status(),

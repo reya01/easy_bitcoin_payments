@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -23,10 +22,6 @@ pub struct Config {
     /// How many payment requests one shop key may create per minute (0 = no limit).
     pub invoice_rate_limit_per_min: u32,
     pub default_currency: String,
-    /// Static fiat-per-BTC rates used when `rates_provider = "static"`
-    /// (the default); `rates_provider = "live"` uses the median of public
-    /// spot APIs instead.
-    pub static_rates: HashMap<String, f64>,
     /// How much the till may hold before it sweeps to an ARK payout address.
     /// Low on purpose: Ark transfers cost (almost) nothing.
     pub hot_wallet_cap_sats: i64,
@@ -62,10 +57,8 @@ pub struct Config {
     pub renewal_lead_time_secs: u64,
     /// Create a Lightning invoice (ASP gateway) for each checkout invoice.
     pub lightning_receive_enabled: bool,
-    /// Rate provider selection: `static` (the configured `static_rates`) or
-    /// `live` (median of public APIs, cached briefly).
-    pub rates_provider: String,
-    /// Per-source timeout for the live rate provider.
+    /// How long each Bitcoin-price source gets to answer (seconds). The price
+    /// is fetched in the background, so this never slows a page down.
     pub rates_timeout_secs: u64,
     /// Deployment mode: `"test"` (default — signet, play money, test
     /// invoices flagged in metadata and excluded from the accounting
@@ -113,11 +106,6 @@ pub struct Config {
     /// Look up the newest release for the admin page's update notice (one
     /// anonymous request, cached). EBP never updates itself.
     pub update_check: bool,
-    /// Show a dollar amount next to sats on the admin page and the checkout
-    /// page. Needs an occasional lookup of the public Bitcoin price; turn it
-    /// off to make none. The price is for display only and never changes an
-    /// invoice.
-    pub show_usd: bool,
     /// PBKDF2 rounds for the admin password (default 600,000; minimum 1,000).
     /// Lowering it weakens the hash — it exists for tests only.
     pub password_hash_iterations: u32,
@@ -127,12 +115,6 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let mut static_rates = HashMap::new();
-        static_rates.insert("EUR".to_string(), 95_000.0);
-        static_rates.insert("USD".to_string(), 88_000.0);
-        static_rates.insert("GBP".to_string(), 82_000.0);
-        static_rates.insert("CHF".to_string(), 99_000.0);
-
         Self {
             bind_addr: "0.0.0.0:8080".parse().expect("valid default bind addr"),
             database_path: "./data/ebp.sqlite3".to_string(),
@@ -142,7 +124,6 @@ impl Default for Config {
             max_invoice_sats: 100_000_000,
             invoice_rate_limit_per_min: 60,
             default_currency: "EUR".to_string(),
-            static_rates,
             hot_wallet_cap_sats: 20_000,
             onchain_sweep_cap_sats: 1_000_000,
             onchain_sweep_max_fee_sat_vb: 50,
@@ -159,8 +140,7 @@ impl Default for Config {
             settlement_interval_secs: 300,
             renewal_lead_time_secs: 604_800,
             lightning_receive_enabled: true,
-            rates_provider: "static".to_string(),
-            rates_timeout_secs: 5,
+            rates_timeout_secs: 4,
             mode: "test".to_string(),
             public_rate_limit_per_min: 120,
             trust_proxy_headers: false,
@@ -171,7 +151,6 @@ impl Default for Config {
             allow_insecure_setup: false,
             managed_barkd: false,
             update_check: true,
-            show_usd: true,
             password_hash_iterations: crate::admin_auth::DEFAULT_ITERATIONS,
             payout_change_delay_secs: crate::payout::DEFAULT_DELAY_SECS,
         }
@@ -240,7 +219,9 @@ struct FileConfig {
     default_expiry_minutes: Option<i64>,
     max_expiry_minutes: Option<i64>,
     default_currency: Option<String>,
-    static_rates: Option<HashMap<String, f64>>,
+    // Retired (the price now always comes from live sources): still accepted
+    // in an old config file so an upgrade does not stop the server, then ignored.
+    static_rates: Option<toml::Value>,
     hot_wallet_cap_sats: Option<i64>,
     onchain_sweep_cap_sats: Option<i64>,
     onchain_sweep_max_fee_sat_vb: Option<i64>,
@@ -256,7 +237,7 @@ struct FileConfig {
     settlement_interval_secs: Option<u64>,
     renewal_lead_time_secs: Option<u64>,
     lightning_receive_enabled: Option<bool>,
-    rates_provider: Option<String>,
+    rates_provider: Option<toml::Value>,
     rates_timeout_secs: Option<u64>,
     mode: Option<String>,
     public_rate_limit_per_min: Option<u32>,
@@ -267,7 +248,6 @@ struct FileConfig {
     allow_insecure_setup: Option<bool>,
     managed_barkd: Option<bool>,
     update_check: Option<bool>,
-    show_usd: Option<bool>,
 }
 
 impl Config {
@@ -361,8 +341,8 @@ impl Config {
         if let Some(v) = file.default_currency {
             self.default_currency = v.to_uppercase();
         }
-        if let Some(v) = file.static_rates {
-            self.static_rates = v.into_iter().map(|(k, v)| (k.to_uppercase(), v)).collect();
+        if file.static_rates.is_some() || file.rates_provider.is_some() {
+            eprintln!("note: static_rates and rates_provider in the config file are no longer used; the Bitcoin price now always comes from public price sources");
         }
         if let Some(v) = file.onchain_sweep_max_fee_sat_vb {
             self.onchain_sweep_max_fee_sat_vb = v;
@@ -409,9 +389,6 @@ impl Config {
         if let Some(v) = file.lightning_receive_enabled {
             self.lightning_receive_enabled = v;
         }
-        if let Some(v) = file.rates_provider {
-            self.rates_provider = v.trim().to_lowercase();
-        }
         if let Some(v) = file.rates_timeout_secs {
             self.rates_timeout_secs = v;
         }
@@ -429,9 +406,6 @@ impl Config {
         }
         if let Some(v) = file.update_check {
             self.update_check = v;
-        }
-        if let Some(v) = file.show_usd {
-            self.show_usd = v;
         }
         if let Some(v) = file.managed_barkd {
             self.managed_barkd = v;
@@ -549,9 +523,6 @@ impl Config {
         if let Some(v) = lookup("EBP_RENEWAL_LEAD_TIME_SECS") {
             self.renewal_lead_time_secs = positive_u64("EBP_RENEWAL_LEAD_TIME_SECS", &v)?;
         }
-        if let Some(v) = lookup("EBP_RATES_PROVIDER") {
-            self.rates_provider = v.trim().to_lowercase();
-        }
         if let Some(v) = lookup("EBP_RATES_TIMEOUT_SECS") {
             self.rates_timeout_secs = positive_u64("EBP_RATES_TIMEOUT_SECS", &v)?;
         }
@@ -579,9 +550,6 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
-        }
-        if let Some(v) = lookup("EBP_SHOW_USD") {
-            self.show_usd = parse_bool("EBP_SHOW_USD", &v)?;
         }
         if let Some(v) = lookup("EBP_UPDATE_CHECK") {
             self.update_check = parse_bool("EBP_UPDATE_CHECK", &v)?;
@@ -669,29 +637,6 @@ impl Config {
                 key: "webhook_timeout_secs".into(),
                 value: "0".into(),
             });
-        }
-        match self.rates_provider.as_str() {
-            "static" | "live" => {}
-            other => {
-                return Err(ConfigError::Invalid {
-                    key: "rates_provider".into(),
-                    value: other.to_string(),
-                })
-            }
-        }
-        if self.static_rates.is_empty() {
-            return Err(ConfigError::Invalid {
-                key: "static_rates".into(),
-                value: "empty".into(),
-            });
-        }
-        for (currency, rate) in &self.static_rates {
-            if !rate.is_finite() || *rate <= 0.0 {
-                return Err(ConfigError::Invalid {
-                    key: format!("static_rates.{currency}"),
-                    value: rate.to_string(),
-                });
-            }
         }
         if self.settlement_interval_secs == 0 {
             return Err(ConfigError::Invalid {
@@ -783,6 +728,7 @@ mod tests {
     }
 
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn defaults_are_sane() {
@@ -791,7 +737,6 @@ mod tests {
         assert_eq!(c.hot_wallet_cap_sats, 20_000);
         assert_eq!(c.onchain_sweep_cap_sats, 1_000_000);
         assert_eq!(c.onchain_sweep_max_fee_sat_vb, 50);
-        assert!(c.static_rates.contains_key("EUR"));
         c.validate().expect("defaults validate");
     }
 
@@ -875,8 +820,6 @@ mod tests {
             r#"
             bind_addr = "0.0.0.0:9000"
             default_currency = "gbp"
-            [static_rates]
-            GBP = 80000.0
             "#,
         )
         .unwrap();
@@ -884,7 +827,21 @@ mod tests {
         c.apply_file(file).unwrap();
         assert_eq!(c.bind_addr.to_string(), "0.0.0.0:9000");
         assert_eq!(c.default_currency, "GBP");
-        assert_eq!(c.static_rates.get("GBP"), Some(&80_000.0));
+    }
+
+    #[test]
+    fn retired_price_settings_in_an_old_config_file_are_accepted_and_ignored() {
+        let file: FileConfig = toml::from_str(
+            r#"
+            rates_provider = "static"
+            [static_rates]
+            EUR = 95000.0
+            "#,
+        )
+        .unwrap();
+        let mut c = Config::default();
+        c.apply_file(file).unwrap();
+        c.validate().expect("still valid");
     }
 }
 

@@ -18,6 +18,23 @@ Technical detail is welcome, but it is never the default:
   Bitcoin", not "on-chain"), with opinionated defaults, without ever weakening
   security or sovereignty (the merchant still holds the keys).
 
+## Design principle: a beginner on a cheap server must never be stranded
+
+Assume the person running EBP is a beginner on a small, cheap VPS with little or
+no ability to fix a problem themselves. So:
+
+- Nothing outside the server (a price website, a notification service, an update
+  check) may be able to slow a page down or stop a payment. Look such things up in
+  the background, store the last good answer, and only read the stored answer when
+  a customer or the owner is waiting.
+- Prefer one simple path over two special cases. Extra paths add ways to fail; a
+  small inaccuracy in a rare edge case (for example an order priced a percent
+  off the very latest price) is a better trade than another failure mode.
+- When something does go wrong, keep working as far as possible, say so in plain
+  words on Home, and tell the owner what to do (or that nothing is needed).
+- No fixed or fake data in a "test mode" code path: test mode should exercise the
+  same code that live mode will run.
+
 ## Ground rules
 
 - **Doc precedence.** For current status and operations, `README.md`,

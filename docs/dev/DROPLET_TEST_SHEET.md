@@ -8,10 +8,12 @@ Play money only: signet coins. Do not send real bitcoin.
 
 ## Before you start (about 30 minutes, can be done a day earlier)
 
-- [ ] A signet wallet that can receive coins (the tested one is **Arké**,
-      iPhone), with some free play coins from the faucet
-      (<https://signet.2nd.dev/>, needs a GitHub login). They take 5 to 10 minutes
-      to arrive.
+- [ ] A signet wallet that can receive coins and pay (the phone wallets are
+      mainnet only, so use the bark command-line wallet on your computer:
+      <https://second.tech/docs/getting-started/bark-cli/signet>), with some
+      free play coins from the faucet (<https://signet.2nd.dev/>, needs a GitHub
+      login). They take 5 to 10 minutes to arrive. When you paste a payment code
+      into a terminal, put it in single quotes (it contains `&` and `?`).
 - [ ] A password manager open, and pen and paper (for the 12 recovery words).
 - [ ] A WordPress + WooCommerce shop with a **public** address (not
       "localhost" or a site only on your own computer), where you are an admin.
@@ -78,6 +80,7 @@ CI already covers these on a fake wallet and a local shop. These need the real t
 | Lost your phone, no backup codes | In the Console: `cd /opt/ebp && docker compose exec ebp ebp admin reset-2fa` |
 | "Connected" never appears in the WooCommerce plugin | The shop address must be public (not localhost). Re-check the API key and the https address. |
 | Test notification fails | The shop must be reachable from the internet; see WOOCOMMERCE.md. |
+| Your bark wallet says "Invalid payment request / No valid payment option found" for the "Any wallet" code | Put the whole code in single quotes: `bark send 'bitcoin:?amount=…&lightning=…&ark=…'`. Without quotes the terminal cuts the code at the first `&`. |
 | The test payment never shows Paid | Check the wallet really sent play coins (signet, not mainnet) and that Home says the wallet is connected. |
 
 ## If something goes wrong

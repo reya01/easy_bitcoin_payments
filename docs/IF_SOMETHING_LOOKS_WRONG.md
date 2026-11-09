@@ -112,6 +112,21 @@ or if you see odd files, new admin users, unexplained orders or errors.
 If you cannot tell whether the shop was exposed, do steps 3 and 6 anyway; they are
 quick and cost nothing.
 
+## 7. Home says "Renewing your coins is not working"
+
+Your coins are renewed automatically a little before they would expire. This
+message means the last few renewals failed. Your money is safe for now, but coins
+that are never renewed eventually expire, so do not ignore it for more than a day.
+
+1. Look at the top of Home: is the wallet connected? If not, fix that first
+   ([KNOWN_ISSUES.md](KNOWN_ISSUES.md)).
+2. Wait ten minutes and refresh. The payment server's rounds can be slow, and the
+   message clears on its own after a renewal succeeds.
+3. Restart the server (on DigitalOcean, in the Console: `cd /opt/ebp && docker compose restart`).
+4. If it is still there after a day, or it turned red ("coins are due"), move
+   your money to your own wallet now: Settings, "Move my money to my payout address now".
+   Your 12 recovery words always restore the wallet.
+
 ## Practise once
 
 On play money, do section 1 steps 1 and 2 and then restore a backup onto a new

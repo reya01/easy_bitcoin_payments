@@ -61,6 +61,8 @@ pub struct Facts {
     pub webhooks_failed: i64,
     pub webhook_configured: bool,
     pub last_settlement_failed: bool,
+    /// How many of the most recent coin renewals in a row failed.
+    pub renewals_failing: u32,
     pub payout: Payout,
 }
 
@@ -204,6 +206,21 @@ pub fn build(f: &Facts) -> Vec<Check> {
         None => {}
     }
 
+    if f.renewals_failing >= 3 {
+        // Coins due for renewal AND renewals failing is the dangerous
+        // combination: coins that expire can only be recovered the slow way.
+        let due = f.needs_refresh_sats.unwrap_or(0) > 0;
+        push(
+            "renewals",
+            if due { Level::Bad } else { Level::Warn },
+            "Renewing your coins is not working",
+            &format!(
+                "The last {} attempts failed. Your money is safe for now, but coins that are never renewed eventually expire. Check that the wallet is connected (see the top of this page); if this stays here, see the guide \"If something looks wrong\".",
+                f.renewals_failing
+            ),
+        );
+    }
+
     if f.webhooks_failed > 0 {
         push(
             "webhooks",
@@ -278,6 +295,22 @@ mod tests {
         c.iter()
             .find(|x| x.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    #[test]
+    fn repeated_renewal_failures_warn_and_become_an_alarm_when_coins_are_due() {
+        let mut f = healthy();
+        f.renewals_failing = 2;
+        assert!(
+            build(&f).iter().all(|c| c.id != "renewals"),
+            "two is a blip"
+        );
+        f.renewals_failing = 3;
+        assert_eq!(find(&build(&f), "renewals").level, Level::Warn);
+        f.needs_refresh_sats = Some(500);
+        let c = build(&f);
+        assert_eq!(find(&c, "renewals").level, Level::Bad);
+        assert!(find(&c, "renewals").detail.contains("last 3"));
     }
 
     #[test]

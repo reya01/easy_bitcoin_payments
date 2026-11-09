@@ -14,8 +14,10 @@ do not need a terminal.
   Make sure your host runs a current PHP version (WordPress: **Tools → Site
   Health → Info → Server**); see [Keep your shop patched](WOOCOMMERCE.md#keep-your-shop-patched).
 - The plugin file `ebp-bitcoin-woocommerce.zip`, saved where your browser can reach
-  it (from the project's **Releases** page; [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin)
-  says which one).
+  it. Get it from the project's
+  [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases): open the
+  newest release and download the zip under **Assets** (see
+  [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin) if you cannot find it).
 - A wallet for the payout address (Ark or on-chain).
 - Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
   5 to 10 minutes to arrive).
@@ -50,8 +52,10 @@ Paste it exactly, starting with the `#cloud-config` line.
 ## 2. Create the server
 
 1. Sign in at digitalocean.com, then **Create → Droplets**.
-2. **Region:** one near you. Not every region offers every size; if you cannot
-   find the **Basic** plan in step 4, go back and pick another region.
+2. **Region:** we recommend **San Francisco 3 (SFO3)**, which offers the Basic
+   plan used in step 4. Another region works too, but not every region offers
+   every size; if you cannot find the **Basic** plan in step 4, go back and pick
+   another region.
 3. **Image:** Ubuntu **24.04 (LTS) x64**.
 4. **Size:** **Basic → Regular → 2 GB / 1 CPU** (about $12/month) or bigger.
 5. **Authentication:** choose **Password** and save it in your password manager.

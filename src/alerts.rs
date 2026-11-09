@@ -515,7 +515,7 @@ async fn tick(
     if db.call(|c| state(c)).await? != State::On {
         // Alerts are off: drop queued notices so they are not sent later,
         // out of date, when alerts are turned on.
-        db.call(take_notices).await?;
+        db.call(|c| take_notices(c)).await?;
         return Ok(());
     }
 
@@ -558,7 +558,7 @@ async fn tick(
 
     // One-off notices (a payout address change). A failed send is queued
     // again for the next check.
-    for name in db.call(take_notices).await? {
+    for name in db.call(|c| take_notices(c)).await? {
         let Some((title, body)) = notice_text(&name) else {
             continue;
         };
@@ -750,9 +750,9 @@ mod tests {
         })
         .await
         .unwrap();
-        let first = db.call(take_notices).await.unwrap();
+        let first = db.call(|c| take_notices(c)).await.unwrap();
         assert_eq!(first, vec!["payout_requested", "payout_changed"]);
-        assert!(db.call(take_notices).await.unwrap().is_empty());
+        assert!(db.call(|c| take_notices(c)).await.unwrap().is_empty());
         for name in first {
             let (title, body) = notice_text(&name).unwrap();
             let t = format!("{title} {body}").to_lowercase();

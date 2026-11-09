@@ -373,7 +373,10 @@ mod tests {
         let c = build(&f);
         assert!(find(&c, "reserve").detail.contains("12,345 sats"));
         assert!(find(&c, "expiry").detail.contains("777 sats"));
-        assert!(!find(&c, "expiry").detail.contains('$'), "no price known, no dollars");
+        assert!(
+            !find(&c, "expiry").detail.contains('$'),
+            "no price known, no dollars"
+        );
         f.usd_per_btc = Some(40_000.0);
         let c = build(&f);
         assert!(find(&c, "reserve").detail.contains("12,345 sats ($4.94)"));

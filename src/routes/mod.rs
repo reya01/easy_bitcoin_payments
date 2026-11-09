@@ -150,6 +150,12 @@ pub fn router(state: AppState) -> Router {
                 .route("/admin/login", post(admin_session::login))
                 // Checks the admin password again, so it shares the brake.
                 .route("/admin/backup", post(backup::download))
+                // Opens a downloaded backup to say what is inside; takes a
+                // larger upload than the 64 KB default.
+                .route(
+                    "/admin/backup/check",
+                    post(backup::check).layer(DefaultBodyLimit::max(backup::MAX_CHECK_BYTES)),
+                )
                 // Also checks the admin password.
                 .route("/admin/payout", post(payout::change))
                 // These check the admin password or a code, so they share the brake.

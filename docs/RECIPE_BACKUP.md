@@ -37,7 +37,13 @@ in `.ebpbackup`, locked with that same password. EBP never stores it.
 
 ### Check that a backup opens
 
-Nothing is changed. On a DigitalOcean server, in the Console:
+Nothing is changed. The easy way: in the admin page open **Settings**, find
+**Check a backup**, choose the file you saved and type its password (the admin
+password you had when you downloaded it). It says the backup is good and what it
+holds. The file is not kept.
+
+For a terminal check, on a DigitalOcean server, in the Console (the file has to be
+on the server first, for example copied there with `scp` from your computer):
 
 ```
 cd /opt/ebp

@@ -124,7 +124,7 @@ that are never renewed eventually expire, so do not ignore it for more than a da
    message clears on its own after a renewal succeeds.
 3. Restart the server (on DigitalOcean, in the Console: `cd /opt/ebp && docker compose restart`).
 4. If it is still there after a day, or it turned red ("coins are due"), move
-   your money to your own wallet now: Settings, "Move everything in the till".
+   your money to your own wallet now: Settings, "Move my money to my payout address now".
    Your 12 recovery words always restore the wallet.
 
 ## Practise once

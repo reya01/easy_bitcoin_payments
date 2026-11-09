@@ -1144,8 +1144,112 @@ async fn version_endpoint_needs_auth_and_respects_the_off_switch() {
     assert!(v["host"].is_string());
 }
 
+/// The server prepares one backup at a time (process-wide), so tests that
+/// download one must not overlap.
+static BACKUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[tokio::test]
+async fn a_downloaded_backup_can_be_checked_from_the_admin_page() {
+    let _one_backup_at_a_time = BACKUP_LOCK.lock().await;
+    let config = Config {
+        password_hash_iterations: 1_000,
+        ..Config::default()
+    };
+    let (base, state, _store_id, key) = serve_with(config).await;
+    let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    // owner_session signs in with this password.
+    let pw = "a good long password";
+    let dl = client
+        .post(format!("{base}/admin/backup"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
+        .json(&serde_json::json!({ "admin_password": pw }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(dl.status().as_u16(), 200);
+    let file = dl.bytes().await.unwrap().to_vec();
+    assert!(
+        file.len() > 64 * 1024,
+        "the sample backup is bigger than the 64 KB default upload limit ({} bytes), so this test proves the larger limit applies",
+        file.len()
+    );
+    let body = |password: &str, bytes: &[u8]| {
+        let mut v = (password.len() as u32).to_be_bytes().to_vec();
+        v.extend_from_slice(password.as_bytes());
+        v.extend_from_slice(bytes);
+        v
+    };
+    let check = |csrf: Option<&str>, cookie: Option<&str>, payload: Vec<u8>| {
+        let mut r = client
+            .post(format!("{base}/admin/backup/check"))
+            .header("host", "localhost")
+            .header("content-type", "application/octet-stream")
+            .body(payload);
+        if let Some(c) = csrf {
+            r = r.header("x-ebp-csrf", c);
+        }
+        if let Some(c) = cookie {
+            r = r.header("cookie", c);
+        }
+        r.send()
+    };
+
+    // Good file, right password: names and sizes only.
+    let ok = check(Some(&csrf), Some(&cookie), body(pw, &file))
+        .await
+        .unwrap();
+    assert_eq!(ok.status().as_u16(), 200);
+    let j: serde_json::Value = ok.json().await.unwrap();
+    assert_eq!(j["ok"], true);
+    assert_eq!(j["has_database"], true);
+    assert_eq!(j["has_key"], true);
+    assert_eq!(j["wallet_included"], false);
+    assert!(
+        !j.to_string().contains("BEGIN"),
+        "no file contents in the answer"
+    );
+
+    // Wrong backup password, and a file that is not a backup: plain 400s.
+    let wrong = check(Some(&csrf), Some(&cookie), body("not the password", &file))
+        .await
+        .unwrap();
+    assert_eq!(wrong.status().as_u16(), 400);
+    assert!(wrong
+        .text()
+        .await
+        .unwrap()
+        .contains("wrong backup password"));
+    let junk = check(Some(&csrf), Some(&cookie), body(pw, &vec![7u8; 100 * 1024]))
+        .await
+        .unwrap();
+    assert_eq!(junk.status().as_u16(), 400);
+    // An upload that is not in the expected shape.
+    let odd = check(Some(&csrf), Some(&cookie), vec![1, 2]).await.unwrap();
+    assert_eq!(odd.status().as_u16(), 400);
+
+    // Needs the signed-in session and the CSRF header.
+    let anon = check(None, None, body(pw, &file)).await.unwrap();
+    assert_eq!(anon.status().as_u16(), 401);
+    let no_csrf = check(None, Some(&cookie), body(pw, &file)).await.unwrap();
+    assert_eq!(no_csrf.status().as_u16(), 401);
+    // The shop's API key is not a session.
+    let by_key = client
+        .post(format!("{base}/admin/backup/check"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .body(body(pw, &file))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(by_key.status().as_u16(), 401);
+}
+
 #[tokio::test]
 async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
+    let _one_backup_at_a_time = BACKUP_LOCK.lock().await;
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let config = Config {
         password_hash_iterations: 1_000,

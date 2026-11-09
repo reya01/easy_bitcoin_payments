@@ -196,6 +196,12 @@ pub fn open(bytes: &[u8], password: &str) -> Result<Vec<Entry>, AppError> {
     decode(&plain)
 }
 
+/// Files a restore does not need: lock files (they belong to a running
+/// process) and the daemon's debug log.
+fn is_not_worth_backing_up(name: &str) -> bool {
+    matches!(name, "LOCK" | "barkd.lock" | "debug.log")
+}
+
 fn is_sqlite_name(n: &str) -> bool {
     let n = n.to_ascii_lowercase();
     n.ends_with(".sqlite") || n.ends_with(".sqlite3") || n.ends_with(".db")
@@ -315,7 +321,7 @@ fn walk(
             walk(root, &path, tmp_dir, out, total, depth + 1)?;
             continue;
         }
-        if !ft.is_file() || is_sqlite_sidecar(&fname) {
+        if !ft.is_file() || is_sqlite_sidecar(&fname) || is_not_worth_backing_up(&fname) {
             continue;
         }
         let rel = path
@@ -523,6 +529,10 @@ mod tests {
         }
         std::fs::write(wd.join("db.sqlite-wal"), b"junk").unwrap();
         std::fs::write(wd.join("sub/seed.bin"), b"seedfile").unwrap();
+        // Lock files and the debug log are not worth backing up.
+        std::fs::write(wd.join("LOCK"), b"1\n").unwrap();
+        std::fs::write(wd.join("barkd.lock"), b"1\n").unwrap();
+        std::fs::write(wd.join("debug.log"), b"noise").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("/etc/hostname", wd.join("link")).unwrap();
         let entries = wallet_entries(&wd).unwrap();

@@ -34,6 +34,56 @@ pub struct BackupRequest {
     pub code: Option<String>,
 }
 
+/// Biggest backup file the check accepts (the same ceiling as a backup).
+pub const MAX_CHECK_BYTES: usize = crate::backup::MAX_TOTAL_BYTES + 1024 * 1024;
+
+/// `POST /admin/backup/check` — open a backup file you downloaded earlier and
+/// say what is inside (file names and sizes only), without a terminal.
+///
+/// Body: 4 bytes (big-endian) = length of the backup password, then the
+/// password (UTF-8), then the backup file. It never changes anything and
+/// never returns the contents. Needs a signed-in session + CSRF; shares the
+/// password brake.
+pub async fn check(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_session(&state, &headers).await?;
+    let (password, file) = split_check_body(&body)?;
+    let password = password.to_string();
+    let file = file.to_vec();
+    let entries = tokio::task::spawn_blocking(move || crate::backup::open(&file, &password))
+        .await
+        .map_err(|_| AppError::Internal("backup check failed".into()))??;
+    let files: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| serde_json::json!({ "name": e.name, "bytes": e.data.len() }))
+        .collect();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "file_count": entries.len(),
+        "has_database": entries.iter().any(|e| e.name == "ebp.sqlite3"),
+        "has_key": entries.iter().any(|e| e.name == "ebp.key"),
+        "wallet_included": entries.iter().any(|e| e.name.starts_with("barkd/")),
+        "files": files,
+    })))
+}
+
+/// Split the check body into (backup password, backup file).
+fn split_check_body(body: &[u8]) -> Result<(&str, &[u8]), AppError> {
+    let bad = || AppError::BadRequest("that upload was not understood; try again".into());
+    if body.len() < 4 {
+        return Err(bad());
+    }
+    let n = u32::from_be_bytes(body[..4].try_into().map_err(|_| bad())?) as usize;
+    if n == 0 || n > crate::backup::MAX_PASSWORD_LEN * 4 || body.len() < 4 + n {
+        return Err(bad());
+    }
+    let password = std::str::from_utf8(&body[4..4 + n]).map_err(|_| bad())?;
+    Ok((password, &body[4 + n..]))
+}
+
 pub async fn download(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -122,4 +172,42 @@ pub async fn download(
         HeaderValue::from_static(if wallet_included { "true" } else { "false" }),
     );
     Ok(resp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(pw: &str, file: &[u8]) -> Vec<u8> {
+        let mut v = (pw.len() as u32).to_be_bytes().to_vec();
+        v.extend_from_slice(pw.as_bytes());
+        v.extend_from_slice(file);
+        v
+    }
+
+    #[test]
+    fn check_body_splits_password_and_file() {
+        let b = body("pässword with spaces", b"FILEBYTES");
+        let (pw, file) = split_check_body(&b).unwrap();
+        assert_eq!(pw, "pässword with spaces");
+        assert_eq!(file, b"FILEBYTES");
+    }
+
+    #[test]
+    fn check_body_rejects_nonsense() {
+        assert!(split_check_body(&[]).is_err());
+        assert!(split_check_body(&[0, 0, 0]).is_err());
+        assert!(
+            split_check_body(&[0, 0, 0, 0, 1]).is_err(),
+            "empty password"
+        );
+        assert!(
+            split_check_body(&[0, 0, 0, 9, 1, 2]).is_err(),
+            "length beyond body"
+        );
+        assert!(split_check_body(&[255, 255, 255, 255, 1]).is_err());
+        let mut bad_utf8 = vec![0, 0, 0, 2, 0xff, 0xfe];
+        bad_utf8.extend_from_slice(b"x");
+        assert!(split_check_body(&bad_utf8).is_err());
+    }
 }

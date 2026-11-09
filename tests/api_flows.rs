@@ -1144,8 +1144,13 @@ async fn version_endpoint_needs_auth_and_respects_the_off_switch() {
     assert!(v["host"].is_string());
 }
 
+/// The server prepares one backup at a time (process-wide), so tests that
+/// download one must not overlap.
+static BACKUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 async fn a_downloaded_backup_can_be_checked_from_the_admin_page() {
+    let _one_backup_at_a_time = BACKUP_LOCK.lock().await;
     let config = Config {
         password_hash_iterations: 1_000,
         ..Config::default()
@@ -1244,6 +1249,7 @@ async fn a_downloaded_backup_can_be_checked_from_the_admin_page() {
 
 #[tokio::test]
 async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
+    let _one_backup_at_a_time = BACKUP_LOCK.lock().await;
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     let config = Config {
         password_hash_iterations: 1_000,

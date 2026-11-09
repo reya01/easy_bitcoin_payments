@@ -43,7 +43,7 @@ for path in \
   /api/v1/onchain/transactions \
   /api/v1/onchain/utxos \
   /api/v1/bitcoin/tip \
-  /api/v1/exits/status \
+  /api/v1/exits/status/all \
   /api/v1/fees/onchain \
   /api/v1/boards/pending
 do

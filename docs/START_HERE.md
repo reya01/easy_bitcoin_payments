@@ -122,9 +122,13 @@ and use a password only, which is less secure, and turn it on later in
 ## 5. Make a test payment
 
 1. Admin page → **Payments** → **Try a payment** → **Create a test payment
-   request** → **Open the checkout page**. It shows a QR code.
-2. In your signet wallet choose Send, scan the QR and confirm. The page flips to
+   request** → **Open the checkout page**. It shows a QR code, normally for a
+   Lightning payment, with the amount in sats and its dollar value.
+2. In your wallet choose Send, scan the QR and confirm. The page flips to
    **Paid** within seconds.
+3. To pay another way, open **Other ways to pay** on the checkout page: one code
+   that works in most wallets, an Ark address, or a regular Bitcoin address. The
+   **Copy** button always copies what is shown.
 
 ## 6. Connect your shop
 
@@ -136,7 +140,9 @@ Finish by sending a test notification and placing a small test order.
 
 Admin page → **Settings → Download a backup**. Copy the file somewhere that is not
 the server. It is locked with your admin password, so download a fresh one after
-changing the password. Details and how to restore:
+changing the password. Then check it: **Settings → Check a backup**, choose the
+file, type the password. It tells you whether the backup opens and what it holds
+(nothing is changed and the file is not kept). Details and how to restore:
 [RECIPE_BACKUP.md](RECIPE_BACKUP.md).
 
 ## You are done when
@@ -146,7 +152,7 @@ changing the password. Details and how to restore:
 - [ ] A test payment shows **Paid** and appears under **Payments**.
 - [ ] On the **Connect** tab, **Send a test notification** says "Your shop received the test."
 - [ ] A small test order in your shop moved to Processing by itself.
-- [ ] You downloaded a backup and stored it away from the server.
+- [ ] You downloaded a backup, checked that it opens, and stored it away from the server.
 - [ ] Your recovery words are on paper in two places.
 
 ## Later

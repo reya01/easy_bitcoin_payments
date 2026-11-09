@@ -42,6 +42,18 @@ was changed on the test server during the session.
 6. Backups include lock files and a debug log a restore does not need.
 7. `scripts/drill_capture.sh` calls `/api/v1/exits/status`, which now redirects.
 
+## Follow-up status (9 November 2026)
+
+All seven findings are done and merged:
+
+1. Renewal rule reads the Ark server's coin lifetime and fee table (#132); Home warns when renewals keep failing (#135).
+2. Home shows one honest held balance, with arriving money counted and noted (#133).
+3. Checkout shows Lightning first, other ways under "Other ways to pay" (#136).
+4. Dollar amounts next to sats on checkout, admin and two Home warnings (#137). Phone alerts still carry no amounts, by design. All price lookups now come from one background-refreshed stored price (#138).
+5. Docs: quoting rule, and a "Check a backup" button on the Settings page (#134).
+6. Backups no longer include lock files or the debug log (#134).
+7. `scripts/drill_capture.sh` uses `/api/v1/exits/status/all`.
+
 ## Not yet tested on a real server
 
 WooCommerce connect and order, owner-only pages, shop-address lock, phone alerts and

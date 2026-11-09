@@ -106,7 +106,17 @@ or show customers a wrong address. So:
   page shows **Done — return to <your shop>**, which opens their WooCommerce
   order page. Order emails still go out as usual.
 - Refunds are done by hand from your own wallet.
-- Prices are converted at the moment the order is placed.
+- Prices are converted at the moment the order is placed, using the Bitcoin price your
+  server looks up every ten minutes (a median of five public sources). An order can
+  therefore be a little cheaper or dearer than the very latest price; the customer sees
+  a fixed amount in sats with a countdown.
+- Your shop's currency must be one of **USD, EUR, GBP, CHF, CAD, AUD or JPY**. With
+  another currency the server refuses the order (the customer is told to use another
+  way to pay) until support for it is added.
+- If the server cannot refresh the price for more than a day (for example it lost
+  its internet connection), orders in your shop's currency are refused until it can;
+  Home says so in plain words. See "Home says Bitcoin price is missing" in
+  [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md).
 
 ## Translations
 

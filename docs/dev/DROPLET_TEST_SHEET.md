@@ -6,6 +6,13 @@ notes are the result of the test. Times are guesses; write the real ones.
 
 Play money only: signet coins. Do not send real bitcoin.
 
+**Round 2 (after the 8 November test).** Round 1 proved the install, the wizard,
+Lightning and Ark payments, pause and backup. Round 2 repeats that quick path (time
+it again) and then covers what changed since and what round 1 could not reach: the
+WooCommerce shop, the new checkout, dollar amounts, the Home balance, the backup
+check, and a day of running unattended. The new things are in
+**"New since round 1"** below.
+
 ## Before you start (about 30 minutes, can be done a day earlier)
 
 - [ ] A signet wallet that can receive coins and pay (the phone wallets are
@@ -18,7 +25,11 @@ Play money only: signet coins. Do not send real bitcoin.
 - [ ] A WordPress + WooCommerce shop with a **public** address (not
       "localhost" or a site only on your own computer), where you are an admin.
 - [ ] The plugin zip `ebp-bitcoin-woocommerce.zip` saved where your browser
-      can reach it.
+      can reach it. No release exists yet, so it comes from the project owner's
+      assistant (sent in the chat) or from the **plugin-zip** download at the bottom
+      of any green run on GitHub: Actions, open the latest "CI" run, Artifacts.
+- [ ] Your shop's currency is one of USD, EUR, GBP, CHF, CAD, AUD or JPY (other
+      currencies are refused for now).
 - [ ] Your shop's PHP is up to date (WordPress: Tools, Site Health, Info, Server;
       PHP security fixes were released 21 October 2026, see
       [WOOCOMMERCE.md](../WOOCOMMERCE.md#keep-your-shop-patched)). Play money only,
@@ -38,13 +49,24 @@ Play money only: signet coins. Do not send real bitcoin.
 | 6 | Store name, admin password (16+ characters), payout address | START_HERE step 4 | | | |
 | 7 | Save the API key; sign in at `/admin` | START_HERE step 4 | | | |
 | 7b | On first sign-in, turn on two-step sign-in with an authenticator app; save the 10 backup codes; sign out and back in with a code | START_HERE step 4 | | | |
-| 8 | **Try a payment** and pay it from the wallet; it shows Paid | START_HERE step 5 | | | |
-| 9 | Download a backup (Settings) | START_HERE step 7 | | | |
+| 8 | **Try a payment**; the checkout page shows a Lightning invoice first, with the dollar value next to the sats. Pay it from the wallet; it shows Paid | START_HERE step 5 | | | |
+| 9 | Download a backup (Settings), then **Check a backup** with the file you just saved | START_HERE step 7 | | | |
 | 10 | Install the plugin zip in WordPress and enable it | [WOOCOMMERCE.md](../WOOCOMMERCE.md) | | | |
 | 11 | Fill in server address, API key, notification address, signing secret | WOOCOMMERCE (and the steps at the top of the plugin page) | | | |
 | 12 | Save: green "connected" message; **Send a test notification** | WOOCOMMERCE | | | |
 | 13 | Place a small test order and pay it | WOOCOMMERCE | | | |
 | 14 | Order moves to Processing by itself | WOOCOMMERCE | | | |
+
+## New since round 1 (please check each one)
+
+- [ ] **Lightning first.** The checkout page opens on a Lightning invoice, says "Paying with Lightning" and shows the small network fee in plain view.
+- [ ] **Other ways to pay.** Under it: "One code, any wallet", Ark, and Regular Bitcoin. Pick each one: the shown code changes, the **Copy** button copies exactly what is shown, and Regular Bitcoin shows just an address (starting `tb1`), not a long `bitcoin:` code. Paste any `bitcoin:` code into your terminal inside single quotes.
+- [ ] **Dollars next to sats.** On the checkout page, Home, Payments, the test-payment box and the payout/transfer lists you see things like "1,000 sats ($0.40)". The dollar figure is roughly right for today's real Bitcoin price (play coins are worth nothing, but the number should look sensible). Write down anywhere sats show with **no** dollar figure.
+- [ ] **Home's balance.** Pay two or three small test payments. "Held on your server" counts money that is still arriving, with a grey note saying so, instead of showing 0 while coins refresh. Routine upkeep (renewals) is in its own **Routine upkeep** card, not mixed into the money-moved list.
+- [ ] **Bitcoin price line.** Right after the server first starts, Home may say "Bitcoin price not available yet". It should disappear within a minute or two by itself and stay away. If it stays, write down the exact Home text (the server cannot reach the price websites).
+- [ ] **Check a backup.** Settings → Check a backup works with the downloaded file and the right password, and says clearly when the password is wrong.
+- [ ] **Leave it running for a day.** After the tests, leave the server on. The next day, open Home: copy its text, and on the server run `cd /opt/ebp && ./scripts/drill_capture.sh` and save the file it writes. We want to see that coins keep being renewed quietly and "Held on your server" stays sensible, with no red items.
+- [ ] **A shop order priced in your currency.** (WooCommerce, step 13.) The amount in sats on the checkout page matches your shop total at roughly the current Bitcoin price.
 
 ## Extra checks only a real server can answer (if time allows)
 
@@ -81,6 +103,8 @@ CI already covers these on a fake wallet and a local shop. These need the real t
 | "Connected" never appears in the WooCommerce plugin | The shop address must be public (not localhost). Re-check the API key and the https address. |
 | Test notification fails | The shop must be reachable from the internet; see WOOCOMMERCE.md. |
 | Your bark wallet says "Invalid payment request / No valid payment option found" for the "One code, any wallet" code | Put the whole code in single quotes: `bark send 'bitcoin:?amount=…&lightning=…&ark=…'`. Without quotes the terminal cuts the code at the first `&`. |
+| Home says "Bitcoin price not available yet" or "out of date" | Wait two minutes and reload. If it stays, the server may have no internet: in the Console run `curl -sS https://mempool.space/api/v1/prices` and write down what it prints. Dollar amounts disappear meanwhile; payments still work. |
+| A shop order fails with "Bitcoin price ... is not available right now" | The server has no recent price. Wait a few minutes and try again; see "Home says Bitcoin price ..." in IF_SOMETHING_LOOKS_WRONG.md. |
 | The test payment never shows Paid | Check the wallet really sent play coins (signet, not mainnet) and that Home says the wallet is connected. |
 
 ## If something goes wrong

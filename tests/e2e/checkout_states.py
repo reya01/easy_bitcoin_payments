@@ -137,6 +137,47 @@ def main():
                 pr.append("a javascript: link was followed")
             has(a, pr, "shows the store name as text", X, a["page"].inner_text("#store-name"))
 
+        BOLT = "lntbs1500n1pfakeinvoicefakeinvoicefakeinvoice"
+
+        def copied(a):
+            """Click Copy and return what would have gone to the clipboard."""
+            pg = a["page"]
+            pg.evaluate("window.__copied = null; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function (t) { window.__copied = t; return Promise.resolve(); } } })")
+            pg.click("#copy-btn")
+            pg.wait_for_timeout(100)
+            return pg.evaluate("window.__copied")
+
+        def shown(a):
+            return a["page"].text_content("#address").strip()
+
+        def c_ln_first(a, pr):
+            pg = a["page"]
+            if shown(a) != BOLT: pr.append(f"Lightning invoice should be shown first, saw {shown(a)[:50]}")
+            if copied(a) != BOLT: pr.append("Copy should copy the Lightning invoice")
+            has(a, pr, "says which way is shown", "Paying with Lightning", pg.inner_text("#method"))
+            if not pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should be visible without opening anything")
+            has(a, pr, "fee note", "3 sats", pg.inner_text("#ln-fee"))
+            if pg.get_attribute("#tab-ln", "aria-selected") != "true": pr.append("Lightning tab not selected")
+            pg.click("#other summary")
+            pg.click("#tab-bip321")
+            if not shown(a).startswith("bitcoin:"): pr.append("the combined code should show after choosing it")
+            if copied(a) != shown(a): pr.append("Copy should follow the combined code")
+            if pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should hide on other methods")
+            pg.click("#tab-ark")
+            if not shown(a).startswith("tark1"): pr.append("Ark address should show after choosing Ark")
+            if copied(a) != shown(a): pr.append("Copy should follow Ark")
+            pg.click("#tab-chain")
+            if shown(a) != "tb1qfakefakefakefakefake": pr.append(f"on-chain tab should show the plain address only, saw {shown(a)[:40]}")
+            if copied(a) != "tb1qfakefakefakefakefake": pr.append("Copy should copy just the on-chain address")
+            if "bitcoin:" in shown(a): pr.append("the on-chain choice must not include the combined code")
+            pg.click("#tab-ln")
+            if copied(a) != BOLT: pr.append("Copy should follow back to Lightning")
+
+        def c_no_ln(a, pr):
+            if not shown(a).startswith("bitcoin:"): pr.append(f"without Lightning the combined code shows first, saw {shown(a)[:40]}")
+            if a["page"].is_visible("#tab-ln"): pr.append("no Lightning tab without an invoice")
+            if a["page"].is_visible("#ln-fee"): pr.append("no fee note without Lightning")
+
         cases = [
             ("pending: waiting message, pay details shown", invoice(), [{"status": "pending", "onchain_confirmations": None}], c_pending),
             ("paid: thank-you, pay details hidden, 'Done' link", invoice(), [{"status": "paid"}], c_paid),
@@ -149,6 +190,12 @@ def main():
             ("server unreachable: plain connection message", "abort", [{"status": "pending"}], c_net),
             ("status errors then recovery: the page keeps trying and shows paid", invoice(), [500, "abort", {"status": "paid"}], c_recover),
             ("hostile text and a javascript: link are inert", invoice(store_name=X, return_url="javascript:window.__xss=1", fiat_amount=X, amount_sats=10**18), [{"status": "pending"}], c_evil),
+        ]
+        cases += [
+            ("Lightning is shown first; Copy follows every way to pay; on-chain has no combined code",
+             invoice(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}, onchain_enabled=True, onchain_address="tb1qfakefakefakefakefake"),
+             [{"status": "pending"}], c_ln_first),
+            ("no Lightning invoice: the combined code is the default", invoice(), [{"status": "pending"}], c_no_ln),
         ]
         for name, j, st, chk in cases:
             ok &= run_case(pw, name, j, st, chk)

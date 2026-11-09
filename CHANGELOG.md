@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- Checkout starts with **Lightning** (fast, a tiny fee, shown with its fee note) whenever the payment has a Lightning invoice. The combined all-in-one code moved under "Other ways to pay" as "One code, any wallet", next to Ark and regular Bitcoin; the page says which way it is showing, and Copy payment details always copies what is shown (checked for every choice; the regular Bitcoin choice is the plain address only). Without a Lightning invoice the combined code is still the default.
 - Home warns in plain words when coin renewals keep failing (three in a row; red when coins are already due), with a matching section in "If something looks wrong".
 
 - **Check a backup from the admin page** (Settings → Check a backup): pick the downloaded file, type its password, and the server opens it and says it is good and what it holds (file names and sizes only; nothing is kept or changed). No terminal needed. Backups no longer include lock files or the wallet daemon's debug log, which a restore never needs.

@@ -241,5 +241,7 @@ pub async fn status(
         "wallet": wallet,
         // Dollars per bitcoin, for showing "(about $0.40)" next to sats; null when no price is known.
         "usd_per_btc": usd_per_btc,
+        // Seconds since the price was last refreshed; null = never yet.
+        "price_age_secs": state.rates.newest_age_secs(),
     })))
 }

@@ -260,9 +260,7 @@ impl RateService {
                 && entry.rate > 0.0
                 && entry.at <= now + 300
                 && entry.sources.len() <= 10;
-            let newer = prices
-                .get(&currency)
-                .map_or(true, |have| have.at < entry.at);
+            let newer = prices.get(&currency).is_none_or(|have| have.at < entry.at);
             if sane && newer {
                 prices.insert(currency, entry);
             }

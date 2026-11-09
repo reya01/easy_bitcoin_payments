@@ -192,6 +192,25 @@ def handle(method, path, query, body):
         return 200, {"mnemonic": " ".join(WORDS)}
     if path == "/wallet/connected":
         return 200, {"connected": S["connected"]}
+    if path == "/wallet/ark-info":
+        # The shape of the real signet server's answer (8 Nov 2026 drill):
+        # one-day coins, refresh free below 288 blocks.
+        return 200, {
+            "network": "signet",
+            "vtxo_lifetime": 144,
+            "vtxo_expiry_delta": 144,
+            "fees": {
+                "refresh": {
+                    "base_fee_sat": 0,
+                    "ppm_expiry_table": [
+                        {"expiry_blocks_threshold": 0, "ppm": 0},
+                        {"expiry_blocks_threshold": 288, "ppm": 2000},
+                        {"expiry_blocks_threshold": 1008, "ppm": 4000},
+                        {"expiry_blocks_threshold": 2016, "ppm": 5000},
+                    ],
+                }
+            },
+        }
     if path == "/bitcoin/tip":
         return 200, {"tip_height": S["tip"]}
     if path == "/wallet/addresses/next":

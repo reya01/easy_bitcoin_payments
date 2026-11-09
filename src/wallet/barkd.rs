@@ -120,6 +120,8 @@ const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// is `{"connected": true}` — a bare boolean under `connected`, no
 /// wrapper object.
 const PATH_CONNECTED: &str = "/wallet/connected";
+/// The Ark server's terms (coin lifetime, refresh pricing). Read-only.
+const PATH_ARK_INFO: &str = "/wallet/ark-info";
 /// The wallet's recovery words. GET. VERIFIED (same pass): answers
 /// `{"mnemonic": "<12 words, space-separated>"}` — a single string
 /// field, no wrapper object — but ONLY while barkd runs with
@@ -849,6 +851,15 @@ impl BarkdClient {
 
     // -- Status -------------------------------------------------------------
 
+    /// What the Ark server says about how long coins live and what a refresh
+    /// costs, so renewal can wait for the free window instead of a fixed
+    /// number of days. Callers fall back to the configured lead time when
+    /// this cannot be read.
+    pub async fn ark_terms(&self) -> Result<ArkTerms, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(parse_ark_terms(&v))
+    }
+
     /// Whether the wallet is connected to its ASP (health endpoint).
     // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn connected(&self) -> Result<ConnectedStatus, WalletError> {
@@ -1313,6 +1324,68 @@ pub fn vtxo_expiry_unix(v: &Vtxo, tip: Option<&Tip>) -> Option<i64> {
         }
         _ => None,
     }
+}
+
+/// The parts of `GET /wallet/ark-info` that decide when to refresh coins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArkTerms {
+    /// How many blocks a freshly made coin lives (`vtxo_lifetime`).
+    pub vtxo_lifetime_blocks: Option<i64>,
+    /// A refresh is free while a coin has FEWER blocks left than this
+    /// (the first tier of the server's refresh price table that costs
+    /// something). `None`: no free tier is known, or everything is free.
+    pub free_refresh_below_blocks: Option<i64>,
+}
+
+/// Read the terms out of the ark-info answer. Missing or odd fields give
+/// `None` for that part, never an error: the caller then keeps the safe,
+/// older rule for it.
+pub fn parse_ark_terms(v: &Json) -> ArkTerms {
+    let lifetime = flex::i64_field(v, &["vtxo_lifetime", "vtxo_expiry_delta"]).filter(|n| *n > 0);
+    let refresh = v.get("fees").and_then(|f| f.get("refresh"));
+    let base_fee = refresh
+        .and_then(|r| r.get("base_fee_sat"))
+        .and_then(Json::as_i64)
+        .unwrap_or(0);
+    let table: Vec<(i64, i64)> = refresh
+        .and_then(|r| r.get("ppm_expiry_table"))
+        .and_then(Json::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|e| {
+                    Some((
+                        e.get("expiry_blocks_threshold")?.as_i64()?,
+                        e.get("ppm")?.as_i64()?,
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ArkTerms {
+        vtxo_lifetime_blocks: lifetime,
+        free_refresh_below_blocks: if base_fee > 0 {
+            None
+        } else {
+            free_refresh_boundary(&table)
+        },
+    }
+}
+
+/// The refresh price table maps "blocks until expiry" to a fee: an entry with
+/// threshold T applies to coins with at least T blocks left (until the next
+/// entry's threshold). The free window is everything below the first entry
+/// that costs money, provided the cheapest tier is itself free.
+pub fn free_refresh_boundary(table: &[(i64, i64)]) -> Option<i64> {
+    let mut t = table.to_vec();
+    t.sort_by_key(|(threshold, _)| *threshold);
+    let (_, first_ppm) = *t.first()?;
+    if first_ppm != 0 {
+        return None;
+    }
+    t.iter()
+        .find(|(_, ppm)| *ppm > 0)
+        .map(|(threshold, _)| *threshold)
+        .filter(|threshold| *threshold > 0)
 }
 
 /// ASP connection status from `GET /wallet/connected`.
@@ -2540,5 +2613,71 @@ mod tests {
         assert_eq!(payments[0].amount_sats, 2500);
         assert!(matches!(payments[0].rail, Rail::Ark));
         assert_eq!(payments[0].vtxo_id.as_deref(), Some("aa11:0:0"));
+    }
+}
+
+#[cfg(test)]
+mod ark_terms_tests {
+    use super::*;
+
+    /// The relevant part of the real answer captured from Second's signet
+    /// Ark server during the 8 Nov 2026 droplet test.
+    const SIGNET: &str = r#"{"network":"signet","round_interval":"5m","vtxo_exit_delta":12,
+        "vtxo_lifetime":144,"vtxo_expiry_delta":144,
+        "fees":{"refresh":{"base_fee_sat":0,"ppm_expiry_table":[
+            {"expiry_blocks_threshold":0,"ppm":0},
+            {"expiry_blocks_threshold":288,"ppm":2000},
+            {"expiry_blocks_threshold":1008,"ppm":4000},
+            {"expiry_blocks_threshold":2016,"ppm":5000}]}}}"#;
+
+    #[test]
+    fn real_signet_answer_gives_a_one_day_lifetime_and_a_288_block_free_window() {
+        let v: Json = serde_json::from_str(SIGNET).unwrap();
+        assert_eq!(
+            parse_ark_terms(&v),
+            ArkTerms {
+                vtxo_lifetime_blocks: Some(144),
+                free_refresh_below_blocks: Some(288)
+            }
+        );
+    }
+
+    #[test]
+    fn free_window_edge_cases() {
+        // Unsorted input is fine.
+        assert_eq!(
+            free_refresh_boundary(&[(1008, 4000), (0, 0), (288, 2000)]),
+            Some(288)
+        );
+        // The cheapest tier already costs money: no free window.
+        assert_eq!(free_refresh_boundary(&[(0, 500), (288, 2000)]), None);
+        // Everything is free: nothing to wait for.
+        assert_eq!(free_refresh_boundary(&[(0, 0), (288, 0)]), None);
+        // Empty or missing table.
+        assert_eq!(free_refresh_boundary(&[]), None);
+    }
+
+    #[test]
+    fn a_flat_fee_or_missing_fields_never_invent_a_free_window() {
+        let flat: Json = serde_json::from_str(
+            r#"{"vtxo_lifetime":4320,"fees":{"refresh":{"base_fee_sat":5,"ppm_expiry_table":[
+                {"expiry_blocks_threshold":0,"ppm":0},{"expiry_blocks_threshold":288,"ppm":2000}]}}}"#,
+        )
+        .unwrap();
+        let t = parse_ark_terms(&flat);
+        assert_eq!(t.vtxo_lifetime_blocks, Some(4320));
+        assert_eq!(t.free_refresh_below_blocks, None);
+
+        let empty: Json = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            parse_ark_terms(&empty),
+            ArkTerms {
+                vtxo_lifetime_blocks: None,
+                free_refresh_below_blocks: None
+            }
+        );
+        // Garbage values are ignored, not trusted.
+        let bad: Json = serde_json::from_str(r#"{"vtxo_lifetime":-5,"fees":"nope"}"#).unwrap();
+        assert_eq!(parse_ark_terms(&bad).vtxo_lifetime_blocks, None);
     }
 }

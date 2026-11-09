@@ -64,6 +64,40 @@ pub struct TickReport {
     pub sweep_refused: Option<String>,
 }
 
+/// Bitcoin's target block time, used to turn blocks into seconds.
+const SECS_PER_BLOCK: i64 = 600;
+
+/// Never wait until fewer blocks than this are left (about two hours): room
+/// for a refresh to be retried.
+const MIN_TRIGGER_BLOCKS: i64 = 12;
+
+/// How many blocks before expiry a coin is refreshed.
+///
+/// Refreshing is cheaper the closer a coin is to expiry (on mainnet it is
+/// free in the last two days and 0.2% before that), so we wait as long as is
+/// safe: until the coin is inside the server's free window, and no earlier
+/// than the configured lead time asks. A third of the coin lifetime is the
+/// outer limit so a short-lived coin is never refreshed the moment it is
+/// made (a new coin on a server whose coins live a day would otherwise be
+/// "due" at once, forever). If the server's terms are unknown this is just
+/// the configured lead time, the older and more cautious rule.
+pub fn refresh_trigger_blocks(
+    lead_secs: u64,
+    terms: Option<crate::wallet::barkd::ArkTerms>,
+) -> i64 {
+    let mut blocks = ((lead_secs as i64) / SECS_PER_BLOCK).max(1);
+    let Some(terms) = terms else {
+        return blocks;
+    };
+    if let Some(free_below) = terms.free_refresh_below_blocks {
+        blocks = blocks.min(free_below - 1);
+    }
+    if let Some(lifetime) = terms.vtxo_lifetime_blocks {
+        blocks = blocks.min(lifetime / 3);
+    }
+    blocks.max(MIN_TRIGGER_BLOCKS)
+}
+
 /// Minimum gap between refresh attempts for VTXOs whose expiry we cannot
 /// determine (no timestamp and no resolvable height).
 const UNKNOWN_EXPIRY_RETRY_SECS: i64 = 3600;
@@ -171,7 +205,18 @@ impl SettlementEngine {
         let balances = self.client.balances().await.map_err(AppError::from)?;
 
         let now = now_unix();
-        let lead = self.config.renewal_lead_time_secs as i64;
+        // How long before expiry a coin is refreshed. The Ark server's own
+        // terms (coin lifetime, free refresh window) shape this; if they
+        // cannot be read we keep the configured lead time unchanged.
+        let terms = match self.client.ark_terms().await {
+            Ok(t) => Some(t),
+            Err(err) => {
+                tracing::warn!(error = %err, "settlement: Ark server terms unavailable; using the configured renewal lead time");
+                None
+            }
+        };
+        let lead =
+            refresh_trigger_blocks(self.config.renewal_lead_time_secs, terms) * SECS_PER_BLOCK;
 
         // 1. Renewal: refresh spendable VTXOs inside the renewal window,
         //    before their per-VTXO expiry. A VTXO barkd already refreshed
@@ -224,6 +269,28 @@ impl SettlementEngine {
                 due.retain(|v| vtxo_expiry_unix(v, tip.as_ref()).is_some());
             } else {
                 *last = Some(now);
+            }
+        }
+        // The wallet's own flag wins: coins it says "have to be refreshed
+        // before they can be sent again" (needs_refresh_sat) are refreshed
+        // now, soonest-to-expire first, even if our timing has not reached
+        // them yet. Otherwise they could not be swept.
+        let flagged = balances.needs_refresh_sats;
+        let mut covered: i64 = due.iter().map(|v| v.amount_sats).sum();
+        if flagged > covered {
+            let mut rest: Vec<(&crate::wallet::barkd::Vtxo, i64)> = vtxos
+                .spendable
+                .iter()
+                .filter(|v| !due.iter().any(|d| d.id == v.id))
+                .filter_map(|v| vtxo_expiry_unix(v, tip.as_ref()).map(|t| (v, t)))
+                .collect();
+            rest.sort_by_key(|(_, t)| *t);
+            for (v, _) in rest {
+                if covered >= flagged {
+                    break;
+                }
+                covered += v.amount_sats;
+                due.push(v);
             }
         }
         let due_ids: Vec<String> = due
@@ -1059,6 +1126,130 @@ mod tests {
         let (engine, _rec) = height_expiry_engine(900);
         let report = engine.tick().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 1);
+    }
+
+    #[test]
+    fn refresh_trigger_follows_the_servers_terms() {
+        use crate::wallet::barkd::ArkTerms;
+        let terms = |life, free| {
+            Some(ArkTerms {
+                vtxo_lifetime_blocks: life,
+                free_refresh_below_blocks: free,
+            })
+        };
+        let week = 604_800; // the default lead time: 1_008 blocks
+                            // Unknown terms: exactly the configured lead time (the old rule).
+        assert_eq!(refresh_trigger_blocks(week, None), 1_008);
+        assert_eq!(refresh_trigger_blocks(week, terms(None, None)), 1_008);
+        // The real signet server: coins live 144 blocks, refresh is free
+        // below 288. A third of the lifetime is the limit: 48 blocks.
+        assert_eq!(
+            refresh_trigger_blocks(week, terms(Some(144), Some(288))),
+            48
+        );
+        // A mainnet-like server: long-lived coins, free in the last two
+        // days (288 blocks): wait until inside the free window.
+        assert_eq!(
+            refresh_trigger_blocks(week, terms(Some(4_320), Some(288))),
+            287
+        );
+        // No free window known: the lead time or a third of the life.
+        assert_eq!(
+            refresh_trigger_blocks(week, terms(Some(4_320), None)),
+            1_008
+        );
+        // An operator who asks for a shorter lead time keeps it.
+        assert_eq!(
+            refresh_trigger_blocks(86_400, terms(Some(4_320), Some(288))),
+            144
+        );
+        // Never so late that a failed refresh cannot be retried.
+        assert_eq!(refresh_trigger_blocks(week, terms(Some(18), Some(288))), 12);
+        assert_eq!(
+            refresh_trigger_blocks(60, terms(Some(4_320), Some(288))),
+            12
+        );
+    }
+
+    /// Mock barkd shaped like the signet drill: tip at 800, one 1_000-sat
+    /// coin expiring at `expiry_height`, optionally the real ark-info terms
+    /// (144-block coins, refresh free below 288 blocks) and a wallet that
+    /// reports `needs_refresh` sats.
+    fn signet_engine(expiry_height: u64, with_terms: bool, needs_refresh: i64) -> SettlementEngine {
+        let now = crate::util::now_unix();
+        let (base, _recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": 1000, "expiry_height": {expiry_height}, "state": {{"type": "spendable"}}}}]"#
+                ),
+            ),
+            "/api/v1/wallet/ark-info" if with_terms => (
+                200,
+                r#"{"vtxo_lifetime":144,"fees":{"refresh":{"base_fee_sat":0,"ppm_expiry_table":[
+                    {"expiry_blocks_threshold":0,"ppm":0},
+                    {"expiry_blocks_threshold":288,"ppm":2000},
+                    {"expiry_blocks_threshold":1008,"ppm":4000}]}}}"#
+                    .to_string(),
+            ),
+            "/api/v1/bitcoin/tip" => (200, format!(r#"{{"height": 800, "timestamp": {now}}}"#)),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 15000, "trusted_spendable_sat": 15000, "confirmed_sat": 15000}"#
+                    .to_string(),
+            ),
+            "/api/v1/wallet/balance" => (
+                200,
+                format!(r#"{{"spendable_sat": 1000, "needs_refresh_sat": {needs_refresh}}}"#),
+            ),
+            "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        SettlementEngine::new(
+            client,
+            Db::open(":memory:").unwrap(),
+            test_config(None, 100_000),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_fresh_short_lived_coin_is_left_alone_so_money_is_not_stuck_in_refreshes() {
+        // 143 blocks left of 144: brand new. The old 7-day rule refreshed
+        // it every tick, forever (the droplet test, 8 Nov 2026).
+        let engine = signet_engine(800 + 143, true, 0);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+    }
+
+    #[tokio::test]
+    async fn a_short_lived_coin_is_refreshed_when_it_gets_near_the_end_of_its_life() {
+        // 40 blocks left: inside the last third (48).
+        let engine = signet_engine(800 + 40, true, 0);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+    }
+
+    #[tokio::test]
+    async fn a_coin_that_arrives_nearly_expired_is_refreshed_straight_away() {
+        // Coins paid over Ark keep the sender's expiry: 16 blocks left.
+        let engine = signet_engine(800 + 16, true, 0);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+    }
+
+    #[tokio::test]
+    async fn without_the_servers_terms_the_old_lead_time_still_applies() {
+        // ark-info unreadable: 143 blocks left is inside the 7-day lead, so
+        // it is refreshed (cautious, never misses a renewal).
+        let engine = signet_engine(800 + 143, false, 0);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+    }
+
+    #[tokio::test]
+    async fn coins_the_wallet_says_need_refreshing_are_refreshed_even_if_our_timing_says_wait() {
+        let engine = signet_engine(800 + 143, true, 1_000);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
     }
 
     #[test]

@@ -87,7 +87,9 @@ checkout_accent_color = "#f7931a"
 # How often the settlement engine runs.
 settlement_interval_secs = 300
 
-# Renew or settle VTXOs this long before their per-VTXO expiry.
+# The earliest EBP refreshes a coin before its expiry. EBP also reads the Ark
+# server's coin lifetime and free-refresh window and waits for the free window
+# (refreshing late is cheaper); this value is used as is if those cannot be read.
 renewal_lead_time_secs = 604800
 
 # Create a Lightning invoice (ASP gateway) for each checkout invoice.

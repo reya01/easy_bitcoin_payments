@@ -371,8 +371,13 @@ mod tests {
         f.needs_refresh_sats = Some(777);
         f.unmatched_open = 2;
         let c = build(&f);
-        assert!(find(&c, "reserve").detail.contains("12345"));
-        assert!(find(&c, "expiry").detail.contains("777"));
+        assert!(find(&c, "reserve").detail.contains("12,345 sats"));
+        assert!(find(&c, "expiry").detail.contains("777 sats"));
+        assert!(!find(&c, "expiry").detail.contains('$'), "no price known, no dollars");
+        f.usd_per_btc = Some(40_000.0);
+        let c = build(&f);
+        assert!(find(&c, "reserve").detail.contains("12,345 sats ($4.94)"));
+        assert!(find(&c, "expiry").detail.contains("777 sats ($0.31)"));
         assert!(find(&c, "late").title.starts_with('2'));
         assert!(["reserve", "expiry", "late"]
             .iter()

@@ -114,3 +114,20 @@ play-money wording until live mode is supported. The version written for real us
 `start-here-live-wording`. Merge it in the same release that enables live mode,
 rebase it first, and drop its note in `DROPLET_TEST_SHEET.md` if testing is then
 done differently.
+
+### Follow-ups from the 9 November review (need mainnet or a later test)
+
+- [ ] **Lightning receive fee on a server that charges one.** Checkout now asks the
+      customer for the order plus the quoted fee and counts a payment of the shop's own
+      Lightning invoice as paid in full. Confirm on mainnet (signet's fee is 0) what the
+      wallet history reports as received, and that orders show Paid.
+- [ ] **Ark payout address on a different Ark server.** Sweeps to it fail forever. Refuse
+      it when saved by comparing the server key inside the address with the wallet's own
+      server (needs the exact mainnet address format confirmed first).
+- [ ] **Renewal fees.** Extra renewals of coins the wallet flags now stay inside the free
+      window. Confirm the mainnet fee table and coin lifetime parse as expected, whether
+      renewing merges small coins, and show renewal fees paid on Home.
+- [ ] **Backup restore drill.** Write the exact wallet restore command from the words
+      into RECIPE_BACKUP.md after doing it once.
+- [ ] **Safety reserve size.** 15,000 sats per coin grows fast with many small Lightning
+      payments; revisit with real mainnet coin counts.

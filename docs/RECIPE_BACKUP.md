@@ -55,6 +55,14 @@ docker compose exec ebp ebp backup verify /tmp/b.ebpbackup
 
 ### Restore on a new machine
 
+**Which restores what.** The **recovery words** restore the money: the wallet
+rebuilds its balance from them with the Ark server's help. The **backup file**
+restores your order history, settings and shop connection. The wallet folder inside
+the file is a snapshot from the moment you downloaded it; if money moved after that,
+it is out of date, so do not rely on it for the money. When in doubt, restore the
+wallet from the words. (The exact wallet restore command is added after the restore
+drill; see "Practice a restore once" below.)
+
 Stop EBP, run `ebp backup restore my-backup.ebpbackup ./restored` (it refuses to
 write into a folder that already has files), copy the files into the data folder,
 and start EBP. The restored `ebp.key` goes next to the database (it is used when

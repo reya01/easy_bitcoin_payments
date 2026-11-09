@@ -333,7 +333,7 @@ impl PollingWatcher {
             let observed = invoice::ObservedPayment {
                 invoice_id: invoice.id.clone(),
                 rail: payment.rail.as_str().to_string(),
-                amount_sats: payment.amount_sats,
+                amount_sats: credited_amount(&payment, &invoice),
                 vtxo_id: payment.vtxo_id.clone(),
                 txid: payment.txid.clone(),
                 detected_at: payment.detected_at,
@@ -494,6 +494,36 @@ impl PollingWatcher {
 /// Rebuild the expiry queue from the wallet's live VTXO list: upsert every
 /// reported VTXO with its real per-VTXO expiry, and mark rows the wallet no
 /// longer reports as `gone` (spent, swept, or exited).
+/// How much a payment pays toward its invoice.
+///
+/// A Lightning invoice has a fixed amount and can only be paid in full, so a
+/// receive for this invoice's own Lightning invoice pays the order in full,
+/// whatever the Ark server's receive fee left over (the customer was asked
+/// for the order amount plus that fee; what arrives can differ by a rounding
+/// sat). Everything else counts what actually arrived.
+fn credited_amount(
+    payment: &crate::wallet::WalletPayment,
+    invoice: &crate::models::Invoice,
+) -> i64 {
+    let lightning = payment
+        .address
+        .get(..2)
+        .is_some_and(|p| p.eq_ignore_ascii_case("ln"));
+    if lightning {
+        if payment.amount_sats != invoice.amount_sats {
+            tracing::info!(
+                invoice_id = %invoice.id,
+                received_sats = payment.amount_sats,
+                order_sats = invoice.amount_sats,
+                "lightning payment of this invoice's own invoice counted as paid in full"
+            );
+        }
+        invoice.amount_sats
+    } else {
+        payment.amount_sats
+    }
+}
+
 fn upsert_vtxo_expiry(
     conn: &Connection,
     vtxos: &[WalletVtxo],
@@ -653,6 +683,42 @@ mod tests {
         let applied = watcher.tick().await.unwrap();
         assert_eq!(applied, 1);
 
+        let invoice = db
+            .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Paid);
+        assert_eq!(invoice.paid_sats, 1000);
+    }
+
+    #[tokio::test]
+    async fn a_lightning_payment_of_our_own_invoice_pays_the_order_in_full() {
+        // The Ark server keeps its receive fee: 1003 asked (1000 + fee),
+        // 998 arrived after rounding. The order is still paid, not underpaid.
+        let (db, store_id) = setup(vec![]).await;
+        db.call(|c| invoice::set_lightning_invoice(c, "inv_1", "lntbs10030n1pfake", None))
+            .await
+            .unwrap();
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![WalletPayment {
+                    address: "lntbs10030n1pfake".to_string(),
+                    rail: Rail::Ark,
+                    amount_sats: 998,
+                    vtxo_id: Some("ln_1:0".to_string()),
+                    txid: None,
+                    detected_at: now_unix(),
+                    confirmed_at: None,
+                }],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        assert_eq!(watcher.tick().await.unwrap(), 1);
         let invoice = db
             .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
             .await

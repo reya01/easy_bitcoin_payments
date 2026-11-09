@@ -70,9 +70,7 @@ pub async fn change(
 
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
     let pw = req.admin_password;
-    let ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &pw))
-        .await
-        .map_err(|_| AppError::Internal("password check failed".into()))?;
+    let ok = aa::verify_login_slow(stored, pw).await?;
     if !ok {
         return Err(AppError::BadRequest(
             "that admin password isn't right".into(),

@@ -50,22 +50,25 @@ pub async fn check(
     body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_session(&state, &headers).await?;
-    let (password, file) = split_check_body(&body)?;
-    let password = password.to_string();
-    let file = file.to_vec();
-    let entries = tokio::task::spawn_blocking(move || crate::backup::open(&file, &password))
-        .await
-        .map_err(|_| AppError::Internal("backup check failed".into()))??;
+    split_check_body(&body)?; // a bad upload is refused before any slow work
+                              // The upload is used in place (no copies) and only names and sizes are
+                              // read back out, so checking a large backup does not need several
+                              // copies of it in memory.
+    let entries = aa::run_slow(move || {
+        let (password, file) = split_check_body(&body)?;
+        crate::backup::inspect(file, password)
+    })
+    .await??;
     let files: Vec<serde_json::Value> = entries
         .iter()
-        .map(|e| serde_json::json!({ "name": e.name, "bytes": e.data.len() }))
+        .map(|(name, bytes)| serde_json::json!({ "name": name, "bytes": bytes }))
         .collect();
     Ok(Json(serde_json::json!({
         "ok": true,
         "file_count": entries.len(),
-        "has_database": entries.iter().any(|e| e.name == "ebp.sqlite3"),
-        "has_key": entries.iter().any(|e| e.name == "ebp.key"),
-        "wallet_included": entries.iter().any(|e| e.name.starts_with("barkd/")),
+        "has_database": entries.iter().any(|(n, _)| n == "ebp.sqlite3"),
+        "has_key": entries.iter().any(|(n, _)| n == "ebp.key"),
+        "wallet_included": entries.iter().any(|(n, _)| n.starts_with("barkd/")),
         "files": files,
     })))
 }
@@ -100,9 +103,7 @@ pub async fn download(
     // Re-check the admin password (slow hash, off the database thread).
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
     let admin_pw = req.admin_password.clone();
-    let ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &admin_pw))
-        .await
-        .map_err(|_| AppError::Internal("backup task failed".into()))?;
+    let ok = aa::verify_login_slow(stored, admin_pw).await?;
     if !ok {
         return Err(AppError::BadRequest(
             "that admin password isn't right".into(),

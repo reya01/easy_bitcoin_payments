@@ -51,7 +51,7 @@ services:
   # Automatic https. Only runs when ./scripts/start.sh --https (or --domain)
   # has been used; it remembers the choice in .env.
   caddy:
-    image: caddy:2
+    image: caddy:2.10  # pinned minor version: repeatable installs (bump on purpose)
     profiles: ["https"]
     environment:
       EBP_DOMAIN: ${EBP_DOMAIN:-localhost}

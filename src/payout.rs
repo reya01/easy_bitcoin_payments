@@ -237,6 +237,8 @@ fn promote_if_due(conn: &Connection) -> Result<(), AppError> {
         "payout.changed",
         "the payout address change took effect",
     );
+    // Phone alert (if on): the owner hears about it even without signing in.
+    let _ = crate::alerts::queue_notice(conn, "payout_changed");
     Ok(())
 }
 
@@ -325,6 +327,9 @@ pub fn request_change(
     if current.is_none() || delay_secs <= 0 {
         crate::settings::set(conn, KEY_ACTIVE, &a)?;
         clear_pending(conn)?;
+        if current.is_some() {
+            let _ = crate::alerts::queue_notice(conn, "payout_changed");
+        }
         audit(
             conn,
             "payout.set",
@@ -343,6 +348,8 @@ pub fn request_change(
             short(&a)
         ),
     );
+    // The safety delay only helps if the owner hears about the change.
+    let _ = crate::alerts::queue_notice(conn, "payout_requested");
     Ok(Change::Pending(at))
 }
 
@@ -502,9 +509,24 @@ mod tests {
         request_change(&c, a, 3600, None, "test").unwrap();
         request_change(&c, b, 3600, None, "test").unwrap();
         // Pretend the delay has passed.
+        let queued = || {
+            crate::settings::get(&c, "alert_notices")
+                .unwrap()
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            queued(),
+            "payout_requested",
+            "the owner's phone hears about the request"
+        );
         crate::settings::set(&c, KEY_EFFECTIVE_AT, &(now_unix() - 1).to_string()).unwrap();
         assert_eq!(effective(&c, None).unwrap().as_deref(), Some(b));
         assert_eq!(status(&c, None).unwrap().pending, None);
+        assert_eq!(
+            queued(),
+            "payout_requested,payout_changed",
+            "and about it taking effect"
+        );
     }
 
     #[test]

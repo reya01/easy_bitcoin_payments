@@ -170,6 +170,11 @@ pub fn seal_with(entries: &[Entry], password: &str, iterations: u32) -> Result<V
 /// Decrypt and parse a bundle. A wrong password and a damaged file look the
 /// same on purpose (the cipher cannot tell them apart).
 pub fn open(bytes: &[u8], password: &str) -> Result<Vec<Entry>, AppError> {
+    decode(&decrypt(bytes, password)?)
+}
+
+/// Check the header and decrypt; the plaintext is the encoded entry list.
+fn decrypt(bytes: &[u8], password: &str) -> Result<Vec<u8>, AppError> {
     if bytes.len() < HEADER_LEN + 16 || &bytes[..8] != MAGIC {
         return Err(AppError::BadRequest(
             "this is not an Easy Bitcoin Payments backup file".into(),
@@ -193,7 +198,38 @@ pub fn open(bytes: &[u8], password: &str) -> Result<Vec<Entry>, AppError> {
             "could not open the backup: wrong backup password, or the file is damaged".into(),
         )
     })?;
-    decode(&plain)
+    Ok(plain)
+}
+
+/// Open a bundle and list what it holds (names and sizes) without copying
+/// the files out: for the admin page's "Check a backup".
+pub fn inspect(bytes: &[u8], password: &str) -> Result<Vec<(String, usize)>, AppError> {
+    let plain = decrypt(bytes, password)?;
+    let mut buf: &[u8] = &plain;
+    let count = u32::from_be_bytes(take(&mut buf, 4)?.try_into().unwrap()) as usize;
+    if count > MAX_ENTRIES {
+        return Err(corrupt());
+    }
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let nl = u16::from_be_bytes(take(&mut buf, 2)?.try_into().unwrap()) as usize;
+        let name = std::str::from_utf8(take(&mut buf, nl)?)
+            .map_err(|_| corrupt())?
+            .to_string();
+        if !valid_name(&name) {
+            return Err(AppError::BadRequest(
+                "this backup contains an unsafe file name and was not opened".into(),
+            ));
+        }
+        let dl = u64::from_be_bytes(take(&mut buf, 8)?.try_into().unwrap());
+        let dl = usize::try_from(dl).map_err(|_| corrupt())?;
+        take(&mut buf, dl)?;
+        out.push((name, dl));
+    }
+    if !buf.is_empty() {
+        return Err(corrupt());
+    }
+    Ok(out)
 }
 
 /// Files a restore does not need: lock files (they belong to a running
@@ -415,6 +451,30 @@ mod tests {
     }
 
     const PW: &str = "correct horse battery";
+
+    #[test]
+    fn inspect_lists_names_and_sizes_and_refuses_a_wrong_password() {
+        let entries = vec![
+            Entry {
+                name: "ebp.sqlite3".into(),
+                data: vec![1, 2, 3],
+            },
+            Entry {
+                name: "barkd/db.sqlite".into(),
+                data: vec![9; 10],
+            },
+        ];
+        let sealed = seal_with(&entries, "a good long password", 1_000).unwrap();
+        let listed = inspect(&sealed, "a good long password").unwrap();
+        assert_eq!(
+            listed,
+            vec![
+                ("ebp.sqlite3".to_string(), 3),
+                ("barkd/db.sqlite".to_string(), 10)
+            ]
+        );
+        assert!(inspect(&sealed, "the wrong password!!").is_err());
+    }
 
     #[test]
     fn round_trip_and_nothing_readable_in_the_file() {

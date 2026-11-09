@@ -177,7 +177,7 @@ pub fn router(state: AppState) -> Router {
                 // it runs AFTER the per-client brake: one noisy client is
                 // refused before it can use up everyone else's share.
                 .layer(middleware::from_fn_with_state(
-                    Arc::new(crate::ratelimit::RateLimiter::new_global(120)),
+                    Arc::new(crate::ratelimit::RateLimiter::new_global(30)),
                     crate::ratelimit::limit,
                 ))
                 // Password-guessing brake (runs first): 10 attempts a minute per client.

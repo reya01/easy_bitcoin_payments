@@ -32,9 +32,7 @@ async fn password_ok(state: &AppState, password: String) -> Result<(), AppError>
         ));
     }
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
-    let ok = tokio::task::spawn_blocking(move || aa::verify_login(stored.as_deref(), &password))
-        .await
-        .map_err(|_| AppError::Internal("password check failed".into()))?;
+    let ok = aa::verify_login_slow(stored, password).await?;
     if ok {
         Ok(())
     } else {

@@ -565,13 +565,21 @@ pub async fn create(
         let ln_result = {
             let wallet = state.wallet.clone();
             let description = format!("invoice {}", invoice.id);
-            tokio::task::spawn_blocking(move || wallet.lightning_invoice(amount_sats, &description))
-                .await
-                .unwrap_or_else(|e| {
-                    Err(crate::wallet::WalletError::Unavailable(format!(
-                        "wallet task failed: {e}"
-                    )))
-                })
+            // The customer pays the Lightning fee: the Ark server takes its
+            // receive fee out of what arrives, so the invoice asks for the
+            // order amount plus that fee (the checkout page says so).
+            let ln_amount = amount_sats + lightning_fee_estimate_sat.unwrap_or(0).max(0);
+            // Payable only for as long as the payment request is open.
+            let expiry_secs = expiry_minutes * 60;
+            tokio::task::spawn_blocking(move || {
+                wallet.lightning_invoice(ln_amount, &description, expiry_secs)
+            })
+            .await
+            .unwrap_or_else(|e| {
+                Err(crate::wallet::WalletError::Unavailable(format!(
+                    "wallet task failed: {e}"
+                )))
+            })
         };
         match ln_result {
             Ok(ln) => {

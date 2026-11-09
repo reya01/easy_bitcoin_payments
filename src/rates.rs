@@ -50,6 +50,11 @@ pub const OLD_AFTER_SECS: i64 = 3_600;
 /// the next round (a broken source or a typo, not a real move).
 const MAX_JUMP: f64 = 0.25;
 
+/// When only ONE source answered, its price is taken only if it is within
+/// this of a recent price (or there is no recent price at all). One source
+/// on its own can be wrong; two or more are checked by the median.
+const SINGLE_SOURCE_MAX_MOVE: f64 = 0.05;
+
 const SETTINGS_KEY: &str = "btc_price";
 const MAX_BODY_BYTES: usize = 1_000_000;
 
@@ -183,9 +188,14 @@ impl RateService {
                 continue;
             };
             if let Some(previous) = prices.get(&currency) {
-                if now - previous.at < OLD_AFTER_SECS
-                    && ((rate / previous.rate) - 1.0).abs() > MAX_JUMP
-                {
+                let recent = now - previous.at < OLD_AFTER_SECS;
+                let moved = ((rate / previous.rate) - 1.0).abs();
+                let limit = if answers.len() < 2 {
+                    SINGLE_SOURCE_MAX_MOVE
+                } else {
+                    MAX_JUMP
+                };
+                if recent && moved > limit {
                     outcome.rejected.push(currency);
                     continue;
                 }
@@ -757,6 +767,20 @@ mod tests {
         let out = service.merge(samples(&[("a", 90_000.0)]), now);
         assert_eq!(out.updated, vec!["USD".to_string()]);
         assert_eq!(service.usd_per_btc(), Some(90_000.0));
+    }
+
+    #[test]
+    fn a_lone_source_cannot_move_a_recent_price_far() {
+        let service = RateService::seeded_for_tests(&[("USD", 50_000.0)]);
+        let now = now_unix();
+        // One source, 10% away: waits.
+        let out = service.merge(samples(&[("a", 55_000.0)]), now);
+        assert_eq!(out.rejected, vec!["USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(50_000.0));
+        // Two sources agreeing on the same move: taken.
+        let out = service.merge(samples(&[("a", 55_000.0), ("b", 55_100.0)]), now);
+        assert_eq!(out.updated, vec!["USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(55_050.0));
     }
 
     #[test]

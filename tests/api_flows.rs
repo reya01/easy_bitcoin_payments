@@ -2221,8 +2221,9 @@ async fn malformed_requests_never_cause_server_errors() {
         "/api/v1/webhook-deliveries/whd_x/resend",
     ];
 
-    // These share the sign-in brake, which has an overall cap of 120 a minute
-    // that no pretend address gets around; keep their share of requests under it.
+    // These share the sign-in brake, which has an overall cap of 30 a minute
+    // that no pretend address gets around: past it they answer 429 (never 5xx),
+    // which this test also accepts.
     let braked = [
         "/admin/login",
         "/admin/payout",

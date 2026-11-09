@@ -31,13 +31,10 @@ max_expiry_minutes = 1440
 # Default fiat currency when an invoice does not name one.
 default_currency = "EUR"
 
-# "static" (use the static_rates below — deterministic, offline) or "live"
-# (median of public spot APIs, cached briefly; the source is recorded per
-# invoice).
-rates_provider = "static"
-
-# Per-source timeout for the live rate provider.
-rates_timeout_secs = 5
+# The Bitcoin price comes from five public price sources, asked every ten
+# minutes in the background; the median is used. Nothing to configure except
+# how long each one gets to answer (seconds).
+rates_timeout_secs = 4
 
 # The till: the server's capped hot wallet. When the off-chain balance
 # passes this, the settlement engine sweeps to settlement_destination.
@@ -121,10 +118,3 @@ onchain_min_confirmations = 1
 # Setup refuses plain http:// on non-local addresses. Only for a trusted LAN or testing:
 # allow_insecure_setup = false
 # setup_token = "change-me"
-
-# BTC/fiat rates used when rates_provider = "static" (fiat per 1 BTC).
-[static_rates]
-EUR = 95000.0
-USD = 88000.0
-GBP = 82000.0
-CHF = 99000.0

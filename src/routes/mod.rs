@@ -25,7 +25,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
 use crate::db::Db;
-use crate::rates::RateProvider;
+use crate::rates::RateService;
 use crate::wallet::WalletAdapter;
 use crate::webhook::WebhookEmitter;
 
@@ -33,21 +33,16 @@ use crate::webhook::WebhookEmitter;
 pub struct AppState {
     pub db: Db,
     pub config: Arc<Config>,
-    pub rates: Arc<dyn RateProvider>,
-    /// Dollar price for display next to sats (never used to price invoices).
-    pub usd: Arc<crate::rates::UsdDisplay>,
+    /// The stored Bitcoin price (refreshed in the background; reading it never waits).
+    pub rates: Arc<RateService>,
     pub wallet: Arc<dyn WalletAdapter>,
     pub webhooks: Arc<WebhookEmitter>,
 }
 
 impl AppState {
-    /// Dollars per bitcoin for display, or `None` (turned off, or no price right now).
-    pub async fn usd_per_btc(&self) -> Option<f64> {
-        let usd = self.usd.clone();
-        tokio::task::spawn_blocking(move || usd.usd_per_btc())
-            .await
-            .ok()
-            .flatten()
+    /// Dollars per bitcoin for "(about $0.40)" labels, or `None` when no price is known.
+    pub fn usd_per_btc(&self) -> Option<f64> {
+        self.rates.usd_per_btc()
     }
 }
 

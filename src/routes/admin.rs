@@ -172,9 +172,10 @@ pub async fn status(
     };
 
     // Plain-language checklist for the Home tab (pure rules in health_checks).
-    let usd_per_btc = state.usd_per_btc().await;
+    let usd_per_btc = state.usd_per_btc();
     let mut facts = crate::health_checks::Facts {
         usd_per_btc,
+        price_age_secs: state.rates.newest_age_secs(),
         https: state.config.public_base_url.starts_with("https://"),
         local_only: {
             let u = state.config.public_base_url.to_lowercase();
@@ -238,7 +239,9 @@ pub async fn status(
         "counters": counters,
         "recent_settlements": recent_settlements,
         "wallet": wallet,
-        // Dollars per bitcoin, for showing "(about $0.40)" next to sats; null when unknown or off.
+        // Dollars per bitcoin, for showing "(about $0.40)" next to sats; null when no price is known.
         "usd_per_btc": usd_per_btc,
+        // Seconds since the price was last refreshed; null = never yet.
+        "price_age_secs": state.rates.newest_age_secs(),
     })))
 }

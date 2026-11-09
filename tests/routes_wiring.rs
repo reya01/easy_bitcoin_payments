@@ -8,7 +8,6 @@
 //! `router()` that no one ever merged — the checkout page would 404 its
 //! first data fetch.)
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
@@ -16,7 +15,7 @@ use tokio::net::TcpListener;
 use easy_bitcoin_payments::config::Config;
 use easy_bitcoin_payments::db::Db;
 use easy_bitcoin_payments::invoice::{self, NewInvoice};
-use easy_bitcoin_payments::rates::StaticRateProvider;
+use easy_bitcoin_payments::rates::RateService;
 use easy_bitcoin_payments::routes::{router, AppState};
 use easy_bitcoin_payments::store;
 use easy_bitcoin_payments::util::now_unix;
@@ -39,8 +38,7 @@ async fn test_state() -> AppState {
     AppState {
         db,
         config,
-        rates: Arc::new(StaticRateProvider::new(HashMap::new())),
-        usd: Arc::new(easy_bitcoin_payments::rates::UsdDisplay::off()),
+        rates: Arc::new(RateService::new()),
         wallet: Arc::new(StubWallet::new()),
         webhooks: Arc::new(WebhookEmitter::new(5)),
     }

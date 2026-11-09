@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use easy_bitcoin_payments::config::Config;
 use easy_bitcoin_payments::db::Db;
-use easy_bitcoin_payments::rates::{LiveRateProvider, RateProvider, StaticRateProvider};
+use easy_bitcoin_payments::rates::RateService;
 use easy_bitcoin_payments::routes::{router, AppState};
 use easy_bitcoin_payments::store;
 use easy_bitcoin_payments::wallet::StubWallet;
@@ -143,36 +143,16 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-    // Rate provider: "static" serves the configured rates (default, offline);
-    // "live" takes the median of public spot APIs (see src/rates.rs).
-    let rates: Arc<dyn RateProvider> = match config.rates_provider.as_str() {
-        "live" => {
-            tracing::info!(
-                timeout_secs = %config.rates_timeout_secs,
-                "using the live rate provider (median of public APIs)"
-            );
-            Arc::new(LiveRateProvider::new(config.rates_timeout_secs))
-        }
-        "static" => Arc::new(StaticRateProvider::new(config.static_rates.clone())),
-        other => {
-            return Err(format!("unknown rates_provider: {other} (use static or live)").into())
-        }
-    };
-    // Dollar amounts shown next to sats: its own price lookup, so a slow or
-    // failing one can never hold up creating an invoice.
-    let usd = Arc::new(if config.show_usd {
-        easy_bitcoin_payments::rates::UsdDisplay::from_provider(Arc::new(LiveRateProvider::new(
-            config.rates_timeout_secs,
-        )))
-    } else {
-        easy_bitcoin_payments::rates::UsdDisplay::off()
-    });
+    // The Bitcoin price: one stored value, refreshed in the background from
+    // five public sources (see src/rates.rs). Pages and invoice creation only
+    // read it, so an outside website can never slow them down or break them.
+    let rates = Arc::new(RateService::new());
+    rates.clone().spawn(db.clone(), config.rates_timeout_secs);
     let webhooks = Arc::new(WebhookEmitter::new(config.webhook_timeout_secs));
 
     let state = AppState {
         db: db.clone(),
         config: Arc::new(config.clone()),
-        usd,
         rates,
         wallet: wallet.clone(),
         webhooks: webhooks.clone(),

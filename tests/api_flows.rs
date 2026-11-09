@@ -6,7 +6,6 @@
 //! Pattern copied from tests/routes_wiring.rs. If you add API behaviour,
 //! extend this file rather than growing routes_wiring.rs.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
@@ -14,7 +13,7 @@ use tokio::net::TcpListener;
 use easy_bitcoin_payments::config::Config;
 use easy_bitcoin_payments::db::Db;
 use easy_bitcoin_payments::invoice;
-use easy_bitcoin_payments::rates::StaticRateProvider;
+use easy_bitcoin_payments::rates::RateService;
 use easy_bitcoin_payments::routes::{router, AppState};
 use easy_bitcoin_payments::store;
 use easy_bitcoin_payments::util::now_unix;
@@ -58,12 +57,13 @@ async fn serve() -> (String, AppState, String, String) {
 }
 
 async fn serve_with(config: Config) -> (String, AppState, String, String) {
-    serve_with_usd(config, easy_bitcoin_payments::rates::UsdDisplay::off()).await
+    serve_with_rates(config, RateService::new()).await
 }
 
-async fn serve_with_usd(
+/// Like `serve_with`, with a Bitcoin price already in place (as a refresh would leave it).
+async fn serve_with_rates(
     config: Config,
-    usd: easy_bitcoin_payments::rates::UsdDisplay,
+    rates: RateService,
 ) -> (String, AppState, String, String) {
     let config = Arc::new(config);
     let db = Db::open(":memory:").unwrap();
@@ -82,8 +82,7 @@ async fn serve_with_usd(
     let state = AppState {
         db,
         config,
-        rates: Arc::new(StaticRateProvider::new(HashMap::new())),
-        usd: Arc::new(usd),
+        rates: Arc::new(rates),
         wallet: Arc::new(StubWallet::new()),
         webhooks: Arc::new(WebhookEmitter::new(5)),
     };
@@ -2390,17 +2389,12 @@ async fn the_dollar_price_reaches_the_checkout_page_and_the_admin_status_only_wh
     let client = reqwest::Client::new();
 
     // Known price: both carry it.
-    let mut table = HashMap::new();
-    table.insert("USD".to_string(), 40_000.0);
-    let usd = easy_bitcoin_payments::rates::UsdDisplay::from_provider(Arc::new(
-        StaticRateProvider::new(table),
-    ));
-    let (base, _s, _store, key) = serve_with_usd(
+    let (base, _s, _store, key) = serve_with_rates(
         Config {
             admin_token: Some("adm1n".to_string()),
             ..Config::default()
         },
-        usd,
+        RateService::seeded_for_tests(&[("USD", 40_000.0)]),
     )
     .await;
     let (_, inv) = create(&client, &base, &key, "wc-usd", 1_000).await;
@@ -2426,14 +2420,25 @@ async fn the_dollar_price_reaches_the_checkout_page_and_the_admin_status_only_wh
         .await
         .unwrap();
     assert_eq!(st["usd_per_btc"], 40_000.0);
+    assert!(st["price_age_secs"].as_i64().unwrap() < 60);
+    assert!(
+        st["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["id"] != "price"),
+        "a fresh price needs no warning"
+    );
 
-    // Turned off (or no price): null, and nothing else changes.
+    // No price yet (the server just started, or no source has ever answered):
+    // null, a plain warning on Home, and sats-priced payments are unaffected.
     let (base, _s, _store, key) = serve_with(Config {
         admin_token: Some("adm1n".to_string()),
         ..Config::default()
     })
     .await;
-    let (_, inv) = create(&client, &base, &key, "wc-nousd", 1_000).await;
+    let (status, inv) = create(&client, &base, &key, "wc-nousd", 1_000).await;
+    assert_eq!(status, 201);
     let id = inv["id"].as_str().unwrap();
     let co: serde_json::Value = client
         .get(format!("{base}/i/{id}/json"))
@@ -2446,4 +2451,64 @@ async fn the_dollar_price_reaches_the_checkout_page_and_the_admin_status_only_wh
         .unwrap();
     assert!(co["usd_per_btc"].is_null());
     assert_eq!(co["amount_sats"], 1_000);
+    let st: serde_json::Value = client
+        .get(format!("{base}/api/v1/admin/status"))
+        .header("host", "localhost")
+        .bearer_auth("adm1n")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(st["usd_per_btc"].is_null());
+    assert!(st["price_age_secs"].is_null());
+    assert!(st["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["id"] == "price" && c["level"] == "warn"));
+}
+
+#[tokio::test]
+async fn an_order_priced_in_a_currency_uses_the_stored_price_and_is_refused_without_one() {
+    let client = reqwest::Client::new();
+    let post = |base: String, key: String| {
+        let client = client.clone();
+        async move {
+            let resp = client
+                .post(format!("{base}/api/v1/invoices"))
+                .header("host", "localhost")
+                .bearer_auth(key)
+                .json(&serde_json::json!({
+                    "order_id": "eur-1",
+                    "fiat": { "amount": "10.00", "currency": "eur" }
+                }))
+                .send()
+                .await
+                .unwrap();
+            let status = resp.status().as_u16();
+            (status, resp.json::<serde_json::Value>().await.unwrap())
+        }
+    };
+
+    // With a price: 10 EUR at 100,000 EUR/BTC is exactly 10,000 sats.
+    let (base, _s, _store, key) = serve_with_rates(
+        Config::default(),
+        RateService::seeded_for_tests(&[("EUR", 100_000.0)]),
+    )
+    .await;
+    let (status, inv) = post(base, key).await;
+    assert_eq!(status, 201, "{inv}");
+    assert_eq!(inv["amount_sats"], 10_000);
+
+    // Without one: a clear, temporary refusal (not a crash, not a guess).
+    let (base, _s, _store, key) = serve().await;
+    let (status, body) = post(base, key).await;
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["error"]["code"], "unavailable");
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not available right now"));
 }

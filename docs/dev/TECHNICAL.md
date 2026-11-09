@@ -250,8 +250,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | The earliest EBP refreshes a coin before it expires. EBP also reads the Ark server's coin lifetime and its free-refresh window (`GET /wallet/ark-info`) and waits until the coin is inside the free window, but never later than a few hours before expiry; if the server's terms cannot be read this value is used as is |
 | `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
 | `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is accepted as a config value but is NOT supported in this EXPERIMENTAL release: never point it at real funds |
-| `EBP_RATES_PROVIDER` | `static` | `static` (deterministic, offline) or `live` (median of public APIs) |
-| `EBP_RATES_TIMEOUT_SECS` | `5` | Live-rate fetch timeout |
+| `EBP_RATES_TIMEOUT_SECS` | `4` | How long each Bitcoin-price source gets to answer. The price is fetched in the background (see "The Bitcoin price" below), so this never slows a page down |
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
 | `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
@@ -259,7 +258,6 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_INVOICE_RATE_LIMIT_PER_MIN` | `60` | New payment requests one shop key may make per minute; over it the server answers 429 `rate_limited` (`0` disables) |
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
 | `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
-| `EBP_SHOW_USD` | `true` | Show a dollar value next to sats on the admin and checkout pages ("1,000 sats ($0.40)"). Uses its own cached lookup of public prices (separate from `EBP_RATES_PROVIDER`, which prices invoices); display only. `false` makes no lookup and shows sats only. The JSON gains `usd_per_btc` (null when unknown) |
 | `EBP_UPDATE_CHECK` | `true` | Let the admin page check the public releases page for a newer version (one anonymous cached request). EBP never updates itself |
 | `EBP_MANAGED_BARKD` | `false` (`true` in the default Docker image) | EBP runs the barkd wallet daemon itself, so setup needs no token copying or terminal commands. Use `docker-compose.managed.yml` |
 | `EBP_ALLOW_INSECURE_SETUP` | `false` | The setup wizard refuses to run over plain `http://` on a non-local address (your recovery words and keys would cross the network unprotected). Set `true` only on a trusted LAN or for throwaway testing |
@@ -269,6 +267,24 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
 ---
+
+### The Bitcoin price
+
+One price, one path (`src/rates.rs`). A background task asks five public sources
+(mempool.space, blockchain.info, CoinGecko, Kraken, Coinbase) at once every 10
+minutes, 4 seconds each, for USD, EUR, GBP, CHF, CAD, AUD and JPY, takes the median per
+currency, and stores it in memory and in the `settings` table (`btc_price`) so a restart
+keeps it. Everything else only reads the stored value, so no page or API call ever waits on
+an outside website. The same price writes "1,000 sats ($0.40)" and converts orders priced in
+a currency into sats (an order can be a little cheaper or dearer than the very latest
+price: accepted, in exchange for never failing because of a price site).
+
+- Any sources failing is fine; none answering keeps the last good price.
+- A new price more than 25% from one under an hour old waits for the next round.
+- After 24 hours without a refresh the price is dropped: dollars disappear and currency-priced
+  orders get a 503 `unavailable` (sats-priced orders are unaffected). Home warns after one hour.
+- There is no built-in table of prices, in any mode. At 10-minute pace each source sees about
+  4,300 requests a month; one request per source returns all currencies.
 
 ## Docker (VPS-first)
 

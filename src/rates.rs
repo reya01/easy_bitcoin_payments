@@ -1,8 +1,57 @@
-use std::collections::HashMap;
+//! The Bitcoin price: ONE source of truth for the whole server.
+//!
+//! A background task asks five public sources for the price every ten
+//! minutes (all at once, a few seconds each), takes the median, and keeps the
+//! answer in memory and in the database. Everything else only READS that
+//! stored price, so nothing a customer or the owner does can ever wait on, or
+//! fail because of, an outside website.
+//!
+//! The same price serves both jobs: writing "1,000 sats ($0.40)" and turning
+//! an order priced in dollars, euros and so on into sats. A price up to ten
+//! minutes old can make an order a little cheaper or dearer than the very
+//! latest price; that is a small, accepted cost. What is not acceptable is
+//! the server failing, so:
+//!
+//! - one, several or all sources failing is fine: the median of those that
+//!   answered is used, and if none answered the last good price stays;
+//! - a price is kept for up to 24 hours without a successful refresh, then
+//!   dollar amounts disappear and orders priced in a currency are refused
+//!   (orders priced in sats keep working);
+//! - the last good price is saved, so a restart during an outage keeps it;
+//! - there is no built-in fixed table of prices, in testing or anywhere else.
+
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::db::Db;
 use crate::error::AppError;
 use crate::util::now_unix;
+
+/// The currencies a shop may price in (fiat per 1 BTC). Every source is asked
+/// for all of them in a single request.
+pub const CURRENCIES: [&str; 7] = ["USD", "EUR", "GBP", "CHF", "CAD", "AUD", "JPY"];
+
+/// How often the sources are asked. Five sources at this pace is about 4,300
+/// requests a month each, far below any free-tier limit we know of.
+pub const REFRESH_SECS: u64 = 600;
+
+/// A price older than this is no longer used (dollars hidden, orders priced
+/// in a currency refused).
+pub const MAX_AGE_SECS: i64 = 86_400;
+
+/// A price older than this is "out of date": Home says so, but it is still used.
+pub const OLD_AFTER_SECS: i64 = 3_600;
+
+/// A new price more than this far from a price under an hour old waits for
+/// the next round (a broken source or a typo, not a real move).
+const MAX_JUMP: f64 = 0.25;
+
+const SETTINGS_KEY: &str = "btc_price";
+const MAX_BODY_BYTES: usize = 1_000_000;
 
 /// A locked BTC quote for one currency.
 #[derive(Debug, Clone)]
@@ -14,115 +63,384 @@ pub struct RateQuote {
     pub quoted_at: i64,
 }
 
-/// Source of BTC/fiat rates.
-///
-/// [`StaticRateProvider`] serves configured rates (deterministic, offline —
-/// the default, and what tests use). [`LiveRateProvider`] takes the median
-/// of public spot APIs and records the source per invoice. The trait is the
-/// seam.
-pub trait RateProvider: Send + Sync {
-    fn quote(&self, currency: &str) -> Result<RateQuote, AppError>;
+/// One currency's price and where it came from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Entry {
+    rate: f64,
+    at: i64,
+    sources: Vec<String>,
 }
 
-pub struct StaticRateProvider {
-    rates: HashMap<String, f64>,
+/// The stored Bitcoin price. Create it with [`RateService::new`], then call
+/// [`RateService::spawn`] once to keep it fresh.
+#[derive(Default)]
+pub struct RateService {
+    prices: RwLock<BTreeMap<String, Entry>>,
 }
 
-impl StaticRateProvider {
-    pub fn new(rates: HashMap<String, f64>) -> Self {
-        Self {
-            rates: rates
-                .into_iter()
-                .map(|(currency, rate)| (currency.to_uppercase(), rate))
-                .collect(),
-        }
+#[derive(Debug, Default)]
+struct MergeOutcome {
+    updated: Vec<String>,
+    rejected: Vec<String>,
+}
+
+/// What one refresh round did.
+#[derive(Debug, Default)]
+pub struct RefreshReport {
+    pub answered: Vec<&'static str>,
+    pub failed: Vec<String>,
+    pub updated: Vec<String>,
+    pub rejected: Vec<String>,
+}
+
+impl RateService {
+    /// No price yet. Fill it with [`spawn`](Self::spawn).
+    pub fn new() -> Self {
+        Self::default()
     }
-}
 
-impl RateProvider for StaticRateProvider {
-    fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
+    /// For tests of other parts of the server: a price table that is already
+    /// in place, as a successful refresh would have left it. The running
+    /// server never calls this; it only ever holds prices it looked up.
+    pub fn seeded_for_tests(rates: &[(&str, f64)]) -> Self {
+        let service = Self::new();
+        {
+            let mut prices = service.write();
+            for (currency, rate) in rates {
+                prices.insert(
+                    currency.to_uppercase(),
+                    Entry {
+                        rate: *rate,
+                        at: now_unix(),
+                        sources: vec!["test".to_string()],
+                    },
+                );
+            }
+        }
+        service
+    }
+
+    fn read(&self) -> RwLockReadGuard<'_, BTreeMap<String, Entry>> {
+        self.prices.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write(&self) -> RwLockWriteGuard<'_, BTreeMap<String, Entry>> {
+        self.prices.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The price of one bitcoin in `currency`, or an error that says why not.
+    /// Never waits on the network.
+    pub fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
         let currency = currency.trim().to_uppercase();
-        let rate = *self
-            .rates
-            .get(&currency)
-            .ok_or_else(|| AppError::BadRequest(format!("unsupported currency: {currency}")))?;
+        if currency.len() != 3 || !currency.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Err(AppError::BadRequest(format!(
+                "unsupported currency: {currency}"
+            )));
+        }
+        if !CURRENCIES.contains(&currency.as_str()) {
+            return Err(AppError::BadRequest(format!(
+                "unsupported currency: {currency} (supported: {})",
+                CURRENCIES.join(", ")
+            )));
+        }
+        let now = now_unix();
+        let prices = self.read();
+        match prices.get(&currency) {
+            Some(entry) if now - entry.at <= MAX_AGE_SECS => Ok(RateQuote {
+                currency,
+                fiat_per_btc: entry.rate,
+                source: format!("median({})", entry.sources.join(",")),
+                quoted_at: entry.at,
+            }),
+            _ => Err(AppError::Unavailable(format!(
+                "The Bitcoin price for {currency} is not available right now, so a payment priced in {currency} cannot be created. Try again in a few minutes, or price it in sats."
+            ))),
+        }
+    }
 
-        if !rate.is_finite() || rate <= 0.0 {
-            return Err(AppError::Internal(
-                "configured BTC rate is not a positive number".into(),
-            ));
+    /// Dollars per bitcoin for "(about $0.40)" labels, or `None` when unknown.
+    pub fn usd_per_btc(&self) -> Option<f64> {
+        self.quote("USD").ok().map(|q| q.fiat_per_btc)
+    }
+
+    /// Seconds since the newest price was fetched; `None` = never.
+    pub fn newest_age_secs(&self) -> Option<i64> {
+        let now = now_unix();
+        self.read()
+            .values()
+            .map(|e| e.at)
+            .max()
+            .map(|at| (now - at).max(0))
+    }
+
+    /// Fold one round of answers in: median per currency, and a price that
+    /// jumps far from a recent one waits for the next round.
+    fn merge(&self, samples: HashMap<String, Vec<(&'static str, f64)>>, now: i64) -> MergeOutcome {
+        let mut outcome = MergeOutcome::default();
+        let mut prices = self.write();
+        for (currency, answers) in samples {
+            let Some(rate) = median(answers.iter().map(|(_, r)| *r).collect()) else {
+                continue;
+            };
+            if let Some(previous) = prices.get(&currency) {
+                if now - previous.at < OLD_AFTER_SECS
+                    && ((rate / previous.rate) - 1.0).abs() > MAX_JUMP
+                {
+                    outcome.rejected.push(currency);
+                    continue;
+                }
+            }
+            let mut names: Vec<String> = answers.iter().map(|(n, _)| (*n).to_string()).collect();
+            names.sort();
+            names.dedup();
+            prices.insert(
+                currency.clone(),
+                Entry {
+                    rate,
+                    at: now,
+                    sources: names,
+                },
+            );
+            outcome.updated.push(currency);
+        }
+        outcome.updated.sort();
+        outcome.rejected.sort();
+        outcome
+    }
+
+    /// Ask every source at once and fold the answers in. Never fails: when
+    /// nothing answers, the stored price simply stays.
+    pub async fn refresh(&self, client: &reqwest::Client, sources: &[Source]) -> RefreshReport {
+        let mut lookups = tokio::task::JoinSet::new();
+        for source in sources {
+            let client = client.clone();
+            let source = source.clone();
+            lookups.spawn(async move {
+                let result = fetch_one(&client, &source).await;
+                (source.kind.name(), result)
+            });
         }
 
-        Ok(RateQuote {
-            currency,
-            fiat_per_btc: rate,
-            source: "static(config)".to_string(),
-            quoted_at: now_unix(),
-        })
+        let mut report = RefreshReport::default();
+        let mut samples: HashMap<String, Vec<(&'static str, f64)>> = HashMap::new();
+        while let Some(joined) = lookups.join_next().await {
+            match joined {
+                Ok((name, Ok(rates))) => {
+                    report.answered.push(name);
+                    for (currency, rate) in rates {
+                        samples.entry(currency).or_default().push((name, rate));
+                    }
+                }
+                Ok((name, Err(why))) => report.failed.push(format!("{name}: {why}")),
+                Err(why) => report.failed.push(format!("a price lookup crashed: {why}")),
+            }
+        }
+        report.answered.sort();
+
+        let outcome = self.merge(samples, now_unix());
+        report.updated = outcome.updated;
+        report.rejected = outcome.rejected;
+        report
+    }
+
+    fn snapshot_json(&self) -> String {
+        serde_json::to_string(&*self.read()).unwrap_or_default()
+    }
+
+    /// Restore a saved price (after a restart). Anything odd is ignored.
+    fn load_json(&self, json: &str) {
+        let Ok(saved) = serde_json::from_str::<BTreeMap<String, Entry>>(json) else {
+            return;
+        };
+        let now = now_unix();
+        let mut prices = self.write();
+        for (currency, entry) in saved {
+            let sane = CURRENCIES.contains(&currency.as_str())
+                && entry.rate.is_finite()
+                && entry.rate > 0.0
+                && entry.at <= now + 300
+                && entry.sources.len() <= 10;
+            let newer = prices.get(&currency).is_none_or(|have| have.at < entry.at);
+            if sane && newer {
+                prices.insert(currency, entry);
+            }
+        }
+    }
+
+    /// Keep the price fresh for as long as the server runs: restore the saved
+    /// one, then refresh now and every [`REFRESH_SECS`]. A failing or even
+    /// crashing round only loses that round.
+    pub fn spawn(self: Arc<Self>, db: Db, timeout_secs: u64) {
+        tokio::spawn(async move {
+            if let Ok(Some(json)) = db.call(|c| crate::settings::get(c, SETTINGS_KEY)).await {
+                self.load_json(&json);
+            }
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(timeout_secs.max(1)))
+                .user_agent(concat!("ebp/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new());
+            let sources = default_sources();
+            let mut tick = tokio::time::interval(Duration::from_secs(REFRESH_SECS));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                let this = self.clone();
+                let (client, sources, db) = (client.clone(), sources.clone(), db.clone());
+                let round = tokio::spawn(async move {
+                    this.run_round(&client, &sources, &db).await;
+                });
+                if let Err(why) = round.await {
+                    tracing::warn!(error = %why, "price refresh crashed; trying again next round");
+                }
+            }
+        });
+    }
+
+    async fn run_round(&self, client: &reqwest::Client, sources: &[Source], db: &Db) {
+        let report = self.refresh(client, sources).await;
+        if report.answered.is_empty() {
+            tracing::warn!(
+                failed = %report.failed.join("; "),
+                "no price source answered; keeping the last good price"
+            );
+        } else {
+            tracing::debug!(answered = ?report.answered, failed = ?report.failed, "price refreshed");
+        }
+        if !report.rejected.is_empty() {
+            tracing::warn!(
+                currencies = ?report.rejected,
+                "a new price was far from the last one; waiting for the next round to confirm"
+            );
+        }
+        if !report.updated.is_empty() {
+            let json = self.snapshot_json();
+            let _ = db
+                .call(move |c| crate::settings::set(c, SETTINGS_KEY, &json))
+                .await;
+        }
     }
 }
 
-/// A public BTC/fiat spot source polled by [`LiveRateProvider`].
+/// The public sources. Each answers for all [`CURRENCIES`] in one request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RateSourceKind {
+pub enum SourceKind {
     MempoolSpace,
     BlockchainInfo,
     CoinGecko,
+    Kraken,
+    Coinbase,
 }
 
-/// The public sources the live provider polls by default.
-pub const DEFAULT_RATE_SOURCES: [RateSourceKind; 3] = [
-    RateSourceKind::MempoolSpace,
-    RateSourceKind::BlockchainInfo,
-    RateSourceKind::CoinGecko,
-];
+/// A source and the address to ask.
+#[derive(Debug, Clone)]
+pub struct Source {
+    pub kind: SourceKind,
+    pub url: String,
+}
 
-/// How long a live quote is reused before the sources are polled again, so
-/// invoice bursts do not hammer the public APIs.
-const QUOTE_CACHE_SECS: i64 = 30;
+/// The five sources asked every round.
+pub fn default_sources() -> Vec<Source> {
+    [
+        SourceKind::MempoolSpace,
+        SourceKind::BlockchainInfo,
+        SourceKind::CoinGecko,
+        SourceKind::Kraken,
+        SourceKind::Coinbase,
+    ]
+    .into_iter()
+    .map(|kind| Source {
+        kind,
+        url: kind.default_url(),
+    })
+    .collect()
+}
 
-impl RateSourceKind {
+impl SourceKind {
     pub fn name(self) -> &'static str {
         match self {
             Self::MempoolSpace => "mempool.space",
             Self::BlockchainInfo => "blockchain.info",
             Self::CoinGecko => "coingecko",
+            Self::Kraken => "kraken",
+            Self::Coinbase => "coinbase",
         }
     }
 
-    fn url_for(self, currency: &str) -> String {
+    fn default_url(self) -> String {
         match self {
             Self::MempoolSpace => "https://mempool.space/api/v1/prices".to_string(),
             Self::BlockchainInfo => "https://blockchain.info/ticker".to_string(),
             Self::CoinGecko => format!(
-                "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={currency}"
+                "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies={}",
+                CURRENCIES
+                    .iter()
+                    .map(|c| c.to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
+            Self::Kraken => format!(
+                "https://api.kraken.com/0/public/Ticker?pair={}",
+                CURRENCIES
+                    .iter()
+                    .map(|c| format!("XBT{c}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Self::Coinbase => "https://api.coinbase.com/v2/exchange-rates?currency=BTC".to_string(),
         }
     }
 
-    /// Pull the fiat-per-BTC rate for `currency` (uppercase) out of one
-    /// source's JSON body.
-    fn parse(self, body: &serde_json::Value, currency: &str) -> Option<f64> {
-        match self {
-            // {"time": 1700000000, "USD": 65432.1, "EUR": 60111.0, ...}
-            Self::MempoolSpace => body.get(currency).and_then(|value| value.as_f64()),
-            // {"USD": {"15m": ..., "last": 65432.1, "buy": ..., ...}, ...}
-            Self::BlockchainInfo => body
-                .get(currency)
-                .and_then(|value| value.get("last"))
-                .and_then(|value| value.as_f64()),
-            // {"bitcoin": {"usd": 65432.1, "eur": 60111.0}}
-            Self::CoinGecko => body
-                .get("bitcoin")
-                .and_then(|value| value.get(currency.to_lowercase()))
-                .and_then(|value| value.as_f64()),
+    /// Pull every usable fiat-per-BTC price out of one source's JSON answer.
+    fn parse(self, body: &Value) -> HashMap<String, f64> {
+        let mut out = HashMap::new();
+        for currency in CURRENCIES {
+            let rate = match self {
+                // {"time": 1700000000, "USD": 65432.1, "EUR": 60111.0, ...}
+                Self::MempoolSpace => body.get(currency).and_then(Value::as_f64),
+                // {"USD": {"15m": ..., "last": 65432.1, ...}, ...}
+                Self::BlockchainInfo => body
+                    .get(currency)
+                    .and_then(|v| v.get("last"))
+                    .and_then(Value::as_f64),
+                // {"bitcoin": {"usd": 65432.1, "eur": 60111.0}}
+                Self::CoinGecko => body
+                    .get("bitcoin")
+                    .and_then(|v| v.get(currency.to_lowercase()))
+                    .and_then(Value::as_f64),
+                // {"error": [], "result": {"XXBTZUSD": {"c": ["65432.1", "0.01"], ...}, ...}}
+                Self::Kraken => body
+                    .get("result")
+                    .and_then(Value::as_object)
+                    .and_then(|pairs| {
+                        pairs
+                            .iter()
+                            .find(|(key, _)| key.contains("XBT") && key.ends_with(currency))
+                            .map(|(_, value)| value)
+                    })
+                    .and_then(|v| v.get("c"))
+                    .and_then(|c| c.get(0))
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse::<f64>().ok()),
+                // {"data": {"currency": "BTC", "rates": {"USD": "65432.1", ...}}}
+                Self::Coinbase => body
+                    .get("data")
+                    .and_then(|d| d.get("rates"))
+                    .and_then(|r| r.get(currency))
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.parse::<f64>().ok()),
+            };
+            if let Some(rate) = rate.filter(|r| r.is_finite() && *r > 0.0) {
+                out.insert(currency.to_string(), rate);
+            }
         }
+        out
     }
 }
 
 /// Median of the sample, `None` when it is empty. Even-sized samples average
 /// their two middle values; sorting keeps one wild source from dragging the
-/// quote anywhere but the middle.
+/// price anywhere but the middle.
 fn median(mut values: Vec<f64>) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -136,161 +454,28 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
     }
 }
 
-/// Ask one source for its rate. `Err` carries the transport/HTTP failure;
-/// `Ok(None)` means the source answered but had no rate for the currency.
-async fn fetch_from_source(
+/// Ask one source. `Err` is a plain-words reason for the log.
+async fn fetch_one(
     client: &reqwest::Client,
-    source: RateSourceKind,
-    currency: &str,
-) -> Result<Option<f64>, String> {
+    source: &Source,
+) -> Result<HashMap<String, f64>, String> {
     let response = client
-        .get(source.url_for(currency))
+        .get(&source.url)
         .send()
         .await
         .map_err(|e| e.to_string())?
         .error_for_status()
         .map_err(|e| e.to_string())?;
-
-    let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-    Ok(source.parse(&body, currency))
-}
-
-/// Build one quote: ask every source (each fetch carries the client's
-/// timeout), keep the sane answers, take their median. Fails only when every
-/// source fails.
-async fn fetch_live_quote(
-    client: &reqwest::Client,
-    sources: &[RateSourceKind],
-    currency: &str,
-) -> Result<RateQuote, AppError> {
-    let mut rates: Vec<f64> = Vec::new();
-    let mut used: Vec<&'static str> = Vec::new();
-    let mut failures: Vec<String> = Vec::new();
-
-    for source in sources {
-        match fetch_from_source(client, *source, currency).await {
-            Ok(Some(rate)) if rate.is_finite() && rate > 0.0 => {
-                rates.push(rate);
-                used.push(source.name());
-            }
-            Ok(_) => failures.push(format!("{}: no usable {currency} rate", source.name())),
-            Err(err) => failures.push(format!("{}: {err}", source.name())),
-        }
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_BODY_BYTES {
+        return Err("the answer was unexpectedly large".to_string());
     }
-
-    let Some(fiat_per_btc) = median(rates) else {
-        return Err(AppError::Internal(format!(
-            "all rate sources failed ({})",
-            failures.join("; ")
-        )));
-    };
-
-    Ok(RateQuote {
-        currency: currency.to_string(),
-        fiat_per_btc,
-        source: format!("median({})", used.join(",")),
-        quoted_at: now_unix(),
-    })
-}
-
-/// Live rate provider: the median of public BTC/fiat spot APIs.
-///
-/// The [`RateProvider`] trait is synchronous (the invoice path calls it
-/// without an await point), so the HTTP work runs on a dedicated worker
-/// thread with its own single-threaded runtime — the same bridge-thread
-/// shape the wallet layer uses. Every source fetch carries its own timeout,
-/// a quote fails only when every source fails, and the last quote is reused
-/// for [`QUOTE_CACHE_SECS`] so invoice bursts do not hammer the APIs.
-pub struct LiveRateProvider {
-    requests: std::sync::mpsc::Sender<LiveRatesRequest>,
-}
-
-/// One quote request on its way to the rates worker.
-struct LiveRatesRequest {
-    currency: String,
-    reply: std::sync::mpsc::Sender<Result<RateQuote, AppError>>,
-}
-
-impl LiveRateProvider {
-    /// Live provider polling the default public sources.
-    pub fn new(timeout_secs: u64) -> Self {
-        Self::with_sources(DEFAULT_RATE_SOURCES.to_vec(), timeout_secs)
+    let body: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let rates = source.kind.parse(&body);
+    if rates.is_empty() {
+        return Err("no usable prices in the answer".to_string());
     }
-
-    /// Live provider polling `sources`, each fetch capped at `timeout_secs`.
-    pub fn with_sources(sources: Vec<RateSourceKind>, timeout_secs: u64) -> Self {
-        let (requests, inbox) = std::sync::mpsc::channel::<LiveRatesRequest>();
-
-        std::thread::Builder::new()
-            .name("ebp-rates".to_string())
-            .spawn(move || rates_worker(inbox, sources, timeout_secs))
-            .expect("could not spawn the rates worker thread");
-
-        Self { requests }
-    }
-}
-
-impl RateProvider for LiveRateProvider {
-    fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
-        let currency = currency.trim().to_uppercase();
-        if currency.len() != 3 || !currency.chars().all(|c| c.is_ascii_alphabetic()) {
-            return Err(AppError::BadRequest(format!(
-                "unsupported currency: {currency}"
-            )));
-        }
-
-        let (reply, responses) = std::sync::mpsc::channel();
-        self.requests
-            .send(LiveRatesRequest { currency, reply })
-            .map_err(|_| AppError::Internal("rates worker stopped".into()))?;
-
-        responses
-            .recv()
-            .map_err(|_| AppError::Internal("rates worker stopped".into()))?
-    }
-}
-
-/// The rates worker: owns a single-threaded runtime, answers quote requests
-/// until the provider (and its sender) is dropped, and reuses the last quote
-/// for [`QUOTE_CACHE_SECS`].
-fn rates_worker(
-    inbox: std::sync::mpsc::Receiver<LiveRatesRequest>,
-    sources: Vec<RateSourceKind>,
-    timeout_secs: u64,
-) {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            tracing::error!(error = %err, "could not start the rates runtime");
-            return;
-        }
-    };
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs.max(1)))
-        .user_agent(concat!("ebp/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
-
-    let mut cache: Option<(String, RateQuote)> = None;
-
-    while let Ok(request) = inbox.recv() {
-        if let Some((currency, quote)) = &cache {
-            if *currency == request.currency && now_unix() - quote.quoted_at < QUOTE_CACHE_SECS {
-                let _ = request.reply.send(Ok(quote.clone()));
-                continue;
-            }
-        }
-
-        let quote = runtime.block_on(fetch_live_quote(&client, &sources, &request.currency));
-        if let Ok(fetched) = &quote {
-            cache = Some((request.currency.clone(), fetched.clone()));
-        }
-        let _ = request.reply.send(quote);
-    }
+    Ok(rates)
 }
 
 /// Convert a fiat amount to sats at a locked rate, rounding to the nearest sat.
@@ -319,9 +504,41 @@ pub fn fiat_to_sats(fiat_amount: f64, fiat_per_btc: f64) -> Result<i64, AppError
     Ok(sats.round() as i64)
 }
 
+/// "1,000 sats ($0.40)" when a dollar price is known, else "1,000 sats".
+pub fn sats_with_usd(sats: i64, usd_per_btc: Option<f64>) -> String {
+    let mut digits = sats.abs().to_string();
+    let mut i = digits.len();
+    while i > 3 {
+        i -= 3;
+        digits.insert(i, ',');
+    }
+    let sign = if sats < 0 { "-" } else { "" };
+    match usd_per_btc.filter(|r| r.is_finite() && *r > 0.0) {
+        None => format!("{sign}{digits} sats"),
+        Some(rate) => {
+            let usd = sats.abs() as f64 / 1e8 * rate;
+            let amount = if usd > 0.0 && usd < 0.01 {
+                "<$0.01".to_string()
+            } else {
+                let cents = (usd * 100.0).round() as i64;
+                let mut whole = (cents / 100).to_string();
+                let mut j = whole.len();
+                while j > 3 {
+                    j -= 3;
+                    whole.insert(j, ',');
+                }
+                format!("${whole}.{:02}", cents % 100)
+            };
+            format!("{sign}{digits} sats ({amount})")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{routing::get, Json, Router};
+    use serde_json::json;
 
     #[test]
     fn fiat_amounts_beyond_the_money_supply_are_rejected() {
@@ -329,27 +546,6 @@ mod tests {
         // possible, but 1e13 fiat exceeds 21M BTC.
         assert!(fiat_to_sats(1e13, 95_000.0).is_err());
         assert!(fiat_to_sats(42.0, 95_000.0).is_ok());
-    }
-
-    fn provider() -> StaticRateProvider {
-        StaticRateProvider::new(HashMap::from([
-            ("EUR".to_string(), 95_000.0),
-            ("USD".to_string(), 88_000.0),
-        ]))
-    }
-
-    #[test]
-    fn quotes_are_case_insensitive() {
-        let quote = provider().quote("eur").unwrap();
-        assert_eq!(quote.currency, "EUR");
-        assert_eq!(quote.fiat_per_btc, 95_000.0);
-        assert_eq!(quote.source, "static(config)");
-    }
-
-    #[test]
-    fn unknown_currency_is_a_bad_request() {
-        let err = provider().quote("XYZ").unwrap_err();
-        assert!(matches!(err, AppError::BadRequest(_)));
     }
 
     #[test]
@@ -391,158 +587,119 @@ mod tests {
     }
 
     #[test]
-    fn mempool_space_payload_parses() {
-        let body = serde_json::json!({
-            "time": 1_700_000_000,
-            "USD": 65_432.1,
-            "EUR": 60_111.0
+    fn every_source_answer_shape_parses() {
+        let mempool = json!({"time": 1_700_000_000, "USD": 65_432.1, "EUR": 60_111.0});
+        let p = SourceKind::MempoolSpace.parse(&mempool);
+        assert_eq!(p.get("USD"), Some(&65_432.1));
+        assert_eq!(p.get("EUR"), Some(&60_111.0));
+        assert_eq!(
+            p.get("GBP"),
+            None,
+            "time is not a currency, missing ones are skipped"
+        );
+
+        let blockchain = json!({
+            "USD": {"15m": 65_000.0, "last": 65_432.1, "symbol": "$"},
+            "CHF": {"last": 58_000.0}
         });
-        assert_eq!(
-            RateSourceKind::MempoolSpace.parse(&body, "EUR"),
-            Some(60_111.0)
-        );
-        assert_eq!(RateSourceKind::MempoolSpace.parse(&body, "GBP"), None);
+        let p = SourceKind::BlockchainInfo.parse(&blockchain);
+        assert_eq!(p.get("USD"), Some(&65_432.1));
+        assert_eq!(p.get("CHF"), Some(&58_000.0));
+
+        let gecko = json!({"bitcoin": {"usd": 65_432.1, "eur": 60_111.0}});
+        let p = SourceKind::CoinGecko.parse(&gecko);
+        assert_eq!(p.get("USD"), Some(&65_432.1));
+        assert_eq!(p.get("EUR"), Some(&60_111.0));
+
+        let kraken = json!({"error": [], "result": {
+            "XXBTZUSD": {"c": ["65432.10", "0.5"]},
+            "XXBTZEUR": {"c": ["60111.00", "0.5"]},
+            "XBTCHF": {"c": ["58000.00", "0.5"]}
+        }});
+        let p = SourceKind::Kraken.parse(&kraken);
+        assert_eq!(p.get("USD"), Some(&65_432.1));
+        assert_eq!(p.get("EUR"), Some(&60_111.0));
+        assert_eq!(p.get("CHF"), Some(&58_000.0));
+        assert_eq!(p.get("JPY"), None);
+
+        let coinbase = json!({"data": {"currency": "BTC", "rates": {"USD": "65432.1", "EUR": "60111.0", "XYZ": "1"}}});
+        let p = SourceKind::Coinbase.parse(&coinbase);
+        assert_eq!(p.get("USD"), Some(&65_432.1));
+        assert_eq!(p.get("EUR"), Some(&60_111.0));
+        assert_eq!(p.len(), 2);
     }
 
     #[test]
-    fn blockchain_info_payload_parses() {
-        let body = serde_json::json!({
-            "USD": {"15m": 65_000.0, "last": 65_432.1, "buy": 65_400.0, "sell": 65_500.0, "symbol": "$"},
-            "EUR": {"15m": 60_000.0, "last": 60_111.0, "buy": 60_100.0, "sell": 60_200.0, "symbol": "EUR"}
-        });
-        assert_eq!(
-            RateSourceKind::BlockchainInfo.parse(&body, "USD"),
-            Some(65_432.1)
-        );
-        assert_eq!(RateSourceKind::BlockchainInfo.parse(&body, "CHF"), None);
+    fn junk_answers_give_no_prices() {
+        for kind in [
+            SourceKind::MempoolSpace,
+            SourceKind::BlockchainInfo,
+            SourceKind::CoinGecko,
+            SourceKind::Kraken,
+            SourceKind::Coinbase,
+        ] {
+            assert!(kind.parse(&json!({})).is_empty());
+            assert!(kind.parse(&json!([1, 2, 3])).is_empty());
+            assert!(kind.parse(&json!("html error page")).is_empty());
+        }
+        // zero, negative and non-numbers never become a price
+        assert!(SourceKind::MempoolSpace
+            .parse(&json!({"USD": 0, "EUR": -5.0, "GBP": "x"}))
+            .is_empty());
     }
 
     #[test]
-    fn coingecko_payload_parses() {
-        let body = serde_json::json!({"bitcoin": {"usd": 65_432.1, "eur": 60_111.0}});
-        assert_eq!(
-            RateSourceKind::CoinGecko.parse(&body, "USD"),
-            Some(65_432.1)
-        );
-        assert_eq!(
-            RateSourceKind::CoinGecko.parse(&body, "eur"),
-            Some(60_111.0)
-        );
-        assert_eq!(RateSourceKind::CoinGecko.parse(&body, "GBP"), None);
+    fn quotes_follow_the_stored_price() {
+        let service = RateService::seeded_for_tests(&[("EUR", 95_000.0), ("usd", 88_000.0)]);
+        let quote = service.quote("eur").unwrap();
+        assert_eq!(quote.currency, "EUR");
+        assert_eq!(quote.fiat_per_btc, 95_000.0);
+        assert!(quote.source.contains("median("));
+        assert_eq!(service.usd_per_btc(), Some(88_000.0));
     }
 
     #[test]
-    fn live_provider_rejects_malformed_currencies_before_fetching() {
-        let provider = LiveRateProvider::new(5);
-        for bad in ["us", "euro", "EU1", ""] {
-            assert!(matches!(
-                provider.quote(bad).unwrap_err(),
-                AppError::BadRequest(_)
-            ));
-        }
+    fn no_price_means_unavailable_not_a_guess() {
+        let service = RateService::new();
+        assert!(matches!(
+            service.quote("USD").unwrap_err(),
+            AppError::Unavailable(_)
+        ));
+        assert_eq!(service.usd_per_btc(), None);
+        assert_eq!(service.newest_age_secs(), None);
     }
-}
 
-/// "1,000 sats ($0.40)" when a dollar price is known, else "1,000 sats".
-pub fn sats_with_usd(sats: i64, usd_per_btc: Option<f64>) -> String {
-    let mut digits = sats.abs().to_string();
-    let mut i = digits.len();
-    while i > 3 {
-        i -= 3;
-        digits.insert(i, ',');
-    }
-    let sign = if sats < 0 { "-" } else { "" };
-    match usd_per_btc.filter(|r| r.is_finite() && *r > 0.0) {
-        None => format!("{sign}{digits} sats"),
-        Some(rate) => {
-            let usd = sats.abs() as f64 / 1e8 * rate;
-            let amount = if usd > 0.0 && usd < 0.01 {
-                "<$0.01".to_string()
-            } else {
-                let cents = (usd * 100.0).round() as i64;
-                let mut whole = (cents / 100).to_string();
-                let mut j = whole.len();
-                while j > 3 {
-                    j -= 3;
-                    whole.insert(j, ',');
-                }
-                format!("${whole}.{:02}", cents % 100)
-            };
-            format!("{sign}{digits} sats ({amount})")
-        }
-    }
-}
-
-/// The dollar price of one bitcoin, for DISPLAY only ("1,000 sats ($0.40)").
-///
-/// Never used to price an invoice. A lookup that fails just means no dollar
-/// amounts are shown: the price is cached for [`USD_OK_SECS`], a failed
-/// lookup is not retried for [`USD_RETRY_SECS`] (so a server without internet
-/// does not stall every page), and the last good price is kept for
-/// [`USD_STALE_SECS`] while lookups fail.
-pub struct UsdDisplay {
-    provider: Option<std::sync::Arc<dyn RateProvider>>,
-    state: std::sync::Mutex<UsdState>,
-}
-
-#[derive(Default)]
-struct UsdState {
-    last_try: i64,
-    last_try_ok: bool,
-    good: Option<(f64, i64)>,
-}
-
-const USD_OK_SECS: i64 = 120;
-const USD_RETRY_SECS: i64 = 60;
-const USD_STALE_SECS: i64 = 3600;
-
-impl UsdDisplay {
-    /// Show dollar amounts using `provider` (its USD quote).
-    pub fn from_provider(provider: std::sync::Arc<dyn RateProvider>) -> Self {
-        Self {
-            provider: Some(provider),
-            state: std::sync::Mutex::new(UsdState::default()),
+    #[test]
+    fn unknown_or_malformed_currencies_are_bad_requests() {
+        let service = RateService::seeded_for_tests(&[("USD", 1.0)]);
+        for bad in ["XYZ", "us", "euro", "EU1", ""] {
+            assert!(
+                matches!(service.quote(bad).unwrap_err(), AppError::BadRequest(_)),
+                "{bad}"
+            );
         }
     }
 
-    /// Never show dollar amounts (and never look anything up).
-    pub fn off() -> Self {
-        Self {
-            provider: None,
-            state: std::sync::Mutex::new(UsdState::default()),
-        }
+    #[test]
+    fn a_price_older_than_a_day_is_no_longer_used() {
+        let service = RateService::seeded_for_tests(&[("USD", 50_000.0)]);
+        service.write().get_mut("USD").unwrap().at -= MAX_AGE_SECS + 5;
+        assert!(matches!(
+            service.quote("USD").unwrap_err(),
+            AppError::Unavailable(_)
+        ));
+        assert_eq!(service.usd_per_btc(), None);
+        assert!(service.newest_age_secs().unwrap() > MAX_AGE_SECS);
     }
 
-    /// Dollars per bitcoin, or `None` when unknown. May wait on the network:
-    /// call it from a blocking context.
-    pub fn usd_per_btc(&self) -> Option<f64> {
-        let provider = self.provider.as_ref()?;
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let now = now_unix();
-        let wait = if st.last_try_ok {
-            USD_OK_SECS
-        } else {
-            USD_RETRY_SECS
-        };
-        if st.last_try == 0 || now - st.last_try >= wait {
-            st.last_try = now;
-            match provider.quote("USD") {
-                Ok(q) if q.fiat_per_btc.is_finite() && q.fiat_per_btc > 0.0 => {
-                    st.last_try_ok = true;
-                    st.good = Some((q.fiat_per_btc, now));
-                }
-                _ => st.last_try_ok = false,
-            }
-        }
-        st.good
-            .filter(|(_, at)| now - *at < USD_STALE_SECS)
-            .map(|(rate, _)| rate)
+    fn samples(pairs: &[(&'static str, f64)]) -> HashMap<String, Vec<(&'static str, f64)>> {
+        let mut m = HashMap::new();
+        m.insert(
+            "USD".to_string(),
+            pairs.iter().map(|(n, r)| (*n, *r)).collect(),
+        );
+        m
     }
-}
-
-#[cfg(test)]
-mod usd_display_tests {
-    use super::*;
 
     #[test]
     fn sats_are_written_with_dollars_when_a_price_is_known() {
@@ -557,76 +714,141 @@ mod usd_display_tests {
         assert_eq!(sats_with_usd(1_000, Some(f64::NAN)), "1,000 sats");
     }
 
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    #[test]
+    fn the_median_of_whoever_answered_is_used() {
+        let service = RateService::new();
+        let now = now_unix();
+        let out = service.merge(samples(&[("a", 100.0), ("b", 101.0), ("c", 900.0)]), now);
+        assert_eq!(out.updated, vec!["USD".to_string()]);
+        assert_eq!(
+            service.usd_per_btc(),
+            Some(101.0),
+            "one wild source is ignored"
+        );
 
-    struct Counting {
-        calls: AtomicUsize,
-        fail: std::sync::atomic::AtomicBool,
-    }
-    impl RateProvider for Counting {
-        fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            if self.fail.load(Ordering::SeqCst) {
-                return Err(AppError::Internal("down".into()));
-            }
-            Ok(RateQuote {
-                currency: currency.into(),
-                fiat_per_btc: 100_000.0,
-                source: "test".into(),
-                quoted_at: now_unix(),
-            })
-        }
+        let single = RateService::new();
+        single.merge(samples(&[("only", 77.0)]), now);
+        assert_eq!(single.usd_per_btc(), Some(77.0), "one answer is enough");
     }
 
     #[test]
-    fn the_price_is_cached_and_off_means_nothing() {
-        let p = Arc::new(Counting {
-            calls: AtomicUsize::new(0),
-            fail: Default::default(),
-        });
-        let d = UsdDisplay::from_provider(p.clone());
-        assert_eq!(d.usd_per_btc(), Some(100_000.0));
-        assert_eq!(d.usd_per_btc(), Some(100_000.0));
-        assert_eq!(
-            p.calls.load(Ordering::SeqCst),
-            1,
-            "second call uses the cache"
-        );
-        assert_eq!(UsdDisplay::off().usd_per_btc(), None);
+    fn nothing_answering_keeps_the_last_good_price() {
+        let service = RateService::seeded_for_tests(&[("USD", 50_000.0)]);
+        let out = service.merge(HashMap::new(), now_unix());
+        assert!(out.updated.is_empty());
+        assert_eq!(service.usd_per_btc(), Some(50_000.0));
     }
 
     #[test]
-    fn a_failed_lookup_hides_dollars_and_is_not_retried_every_time() {
-        let p = Arc::new(Counting {
-            calls: AtomicUsize::new(0),
-            fail: std::sync::atomic::AtomicBool::new(true),
-        });
-        let d = UsdDisplay::from_provider(p.clone());
-        assert_eq!(d.usd_per_btc(), None);
-        assert_eq!(d.usd_per_btc(), None);
-        assert_eq!(
-            p.calls.load(Ordering::SeqCst),
-            1,
-            "failure is remembered briefly"
-        );
+    fn a_sudden_jump_waits_unless_the_old_price_is_already_old() {
+        let service = RateService::seeded_for_tests(&[("USD", 50_000.0)]);
+        let now = now_unix();
+        let out = service.merge(samples(&[("a", 90_000.0), ("b", 91_000.0)]), now);
+        assert_eq!(out.rejected, vec!["USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(50_000.0));
+
+        // a normal move is taken at once
+        let out = service.merge(samples(&[("a", 52_000.0)]), now);
+        assert_eq!(out.updated, vec!["USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(52_000.0));
+
+        // after an hour without a refresh, a big move is believed
+        service.write().get_mut("USD").unwrap().at -= OLD_AFTER_SECS + 5;
+        let out = service.merge(samples(&[("a", 90_000.0)]), now);
+        assert_eq!(out.updated, vec!["USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(90_000.0));
     }
 
     #[test]
-    fn a_recent_good_price_survives_a_failing_lookup() {
-        let p = Arc::new(Counting {
-            calls: AtomicUsize::new(0),
-            fail: Default::default(),
-        });
-        let d = UsdDisplay::from_provider(p.clone());
-        assert_eq!(d.usd_per_btc(), Some(100_000.0));
-        p.fail.store(true, Ordering::SeqCst);
-        d.state.lock().unwrap().last_try -= USD_OK_SECS + 1; // time passes
-        assert_eq!(
-            d.usd_per_btc(),
-            Some(100_000.0),
-            "stale-but-recent price is kept"
+    fn the_saved_price_survives_a_restart_and_junk_is_ignored() {
+        let service = RateService::seeded_for_tests(&[("USD", 61_000.0), ("EUR", 56_000.0)]);
+        let saved = service.snapshot_json();
+
+        let restarted = RateService::new();
+        restarted.load_json(&saved);
+        assert_eq!(restarted.usd_per_btc(), Some(61_000.0));
+
+        let junk = RateService::new();
+        junk.load_json("not json");
+        junk.load_json(
+            r#"{"USD":{"rate":-1.0,"at":1,"sources":[]},"XYZ":{"rate":5.0,"at":1,"sources":[]}}"#,
         );
-        assert_eq!(p.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(junk.usd_per_btc(), None);
+        assert_eq!(junk.newest_age_secs(), None);
+    }
+
+    async fn mock_server() -> String {
+        let app = Router::new()
+            .route(
+                "/mempool",
+                get(|| async { Json(json!({"USD": 100_000.0, "EUR": 90_000.0})) }),
+            )
+            .route(
+                "/coinbase",
+                get(|| async {
+                    Json(json!({"data": {"rates": {"USD": "100200.0", "EUR": "90200.0"}}}))
+                }),
+            )
+            .route(
+                "/broken",
+                get(|| async { (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "oops") }),
+            )
+            .route("/junk", get(|| async { "<html>not json</html>" }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        base
+    }
+
+    #[tokio::test]
+    async fn a_refresh_uses_the_sources_that_answer_and_survives_the_rest() {
+        let base = mock_server().await;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let sources = vec![
+            Source {
+                kind: SourceKind::MempoolSpace,
+                url: format!("{base}/mempool"),
+            },
+            Source {
+                kind: SourceKind::Coinbase,
+                url: format!("{base}/coinbase"),
+            },
+            Source {
+                kind: SourceKind::Kraken,
+                url: format!("{base}/broken"),
+            },
+            Source {
+                kind: SourceKind::CoinGecko,
+                url: format!("{base}/junk"),
+            },
+            Source {
+                kind: SourceKind::BlockchainInfo,
+                // nothing listens here: connection refused
+                url: "http://127.0.0.1:1/ticker".to_string(),
+            },
+        ];
+
+        let service = RateService::new();
+        let report = service.refresh(&client, &sources).await;
+        assert_eq!(report.answered, vec!["coinbase", "mempool.space"]);
+        assert_eq!(report.failed.len(), 3, "{:?}", report.failed);
+        assert_eq!(report.updated, vec!["EUR".to_string(), "USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(100_100.0));
+        assert_eq!(service.quote("EUR").unwrap().fiat_per_btc, 90_100.0);
+
+        // everything down: the price stays, nothing is reported as updated
+        let dead = vec![Source {
+            kind: SourceKind::Kraken,
+            url: format!("{base}/broken"),
+        }];
+        let report = service.refresh(&client, &dead).await;
+        assert!(report.answered.is_empty());
+        assert!(report.updated.is_empty());
+        assert_eq!(service.usd_per_btc(), Some(100_100.0));
     }
 }

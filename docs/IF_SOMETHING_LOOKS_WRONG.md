@@ -127,6 +127,20 @@ that are never renewed eventually expire, so do not ignore it for more than a da
    your money to your own wallet now: Settings, "Move my money to my payout address now".
    Your 12 recovery words always restore the wallet.
 
+## 8. Home says "Bitcoin price" is missing or out of date
+
+The server looks up the Bitcoin price every ten minutes from five public websites. It uses
+the price to show dollar amounts next to sats and to turn an order priced in a currency
+(dollars, euros and so on) into sats. The server keeps working without it.
+
+- **Not available yet:** normal for the first minute after the server starts. If it stays,
+  the server cannot reach the internet. Check your hosting company's status page and restart
+  the server (on DigitalOcean, in the Console: `cd /opt/ebp && docker compose restart`).
+- **Out of date (over an hour):** the last price is still used. It clears on its own.
+- **More than a day old:** dollar amounts are hidden and orders priced in a currency are
+  refused until a lookup works again. Orders priced in sats are not affected. Fix the
+  server's internet access as above.
+
 ## Practise once
 
 On play money, do section 1 steps 1 and 2 and then restore a backup onto a new

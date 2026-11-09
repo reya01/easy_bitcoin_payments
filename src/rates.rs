@@ -442,3 +442,191 @@ mod tests {
         }
     }
 }
+
+/// "1,000 sats ($0.40)" when a dollar price is known, else "1,000 sats".
+pub fn sats_with_usd(sats: i64, usd_per_btc: Option<f64>) -> String {
+    let mut digits = sats.abs().to_string();
+    let mut i = digits.len();
+    while i > 3 {
+        i -= 3;
+        digits.insert(i, ',');
+    }
+    let sign = if sats < 0 { "-" } else { "" };
+    match usd_per_btc.filter(|r| r.is_finite() && *r > 0.0) {
+        None => format!("{sign}{digits} sats"),
+        Some(rate) => {
+            let usd = sats.abs() as f64 / 1e8 * rate;
+            let amount = if usd > 0.0 && usd < 0.01 {
+                "<$0.01".to_string()
+            } else {
+                let cents = (usd * 100.0).round() as i64;
+                let mut whole = (cents / 100).to_string();
+                let mut j = whole.len();
+                while j > 3 {
+                    j -= 3;
+                    whole.insert(j, ',');
+                }
+                format!("${whole}.{:02}", cents % 100)
+            };
+            format!("{sign}{digits} sats ({amount})")
+        }
+    }
+}
+
+/// The dollar price of one bitcoin, for DISPLAY only ("1,000 sats ($0.40)").
+///
+/// Never used to price an invoice. A lookup that fails just means no dollar
+/// amounts are shown: the price is cached for [`USD_OK_SECS`], a failed
+/// lookup is not retried for [`USD_RETRY_SECS`] (so a server without internet
+/// does not stall every page), and the last good price is kept for
+/// [`USD_STALE_SECS`] while lookups fail.
+pub struct UsdDisplay {
+    provider: Option<std::sync::Arc<dyn RateProvider>>,
+    state: std::sync::Mutex<UsdState>,
+}
+
+#[derive(Default)]
+struct UsdState {
+    last_try: i64,
+    last_try_ok: bool,
+    good: Option<(f64, i64)>,
+}
+
+const USD_OK_SECS: i64 = 120;
+const USD_RETRY_SECS: i64 = 60;
+const USD_STALE_SECS: i64 = 3600;
+
+impl UsdDisplay {
+    /// Show dollar amounts using `provider` (its USD quote).
+    pub fn from_provider(provider: std::sync::Arc<dyn RateProvider>) -> Self {
+        Self {
+            provider: Some(provider),
+            state: std::sync::Mutex::new(UsdState::default()),
+        }
+    }
+
+    /// Never show dollar amounts (and never look anything up).
+    pub fn off() -> Self {
+        Self {
+            provider: None,
+            state: std::sync::Mutex::new(UsdState::default()),
+        }
+    }
+
+    /// Dollars per bitcoin, or `None` when unknown. May wait on the network:
+    /// call it from a blocking context.
+    pub fn usd_per_btc(&self) -> Option<f64> {
+        let provider = self.provider.as_ref()?;
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let now = now_unix();
+        let wait = if st.last_try_ok {
+            USD_OK_SECS
+        } else {
+            USD_RETRY_SECS
+        };
+        if st.last_try == 0 || now - st.last_try >= wait {
+            st.last_try = now;
+            match provider.quote("USD") {
+                Ok(q) if q.fiat_per_btc.is_finite() && q.fiat_per_btc > 0.0 => {
+                    st.last_try_ok = true;
+                    st.good = Some((q.fiat_per_btc, now));
+                }
+                _ => st.last_try_ok = false,
+            }
+        }
+        st.good
+            .filter(|(_, at)| now - *at < USD_STALE_SECS)
+            .map(|(rate, _)| rate)
+    }
+}
+
+#[cfg(test)]
+mod usd_display_tests {
+    use super::*;
+
+    #[test]
+    fn sats_are_written_with_dollars_when_a_price_is_known() {
+        assert_eq!(sats_with_usd(1_000, Some(40_000.0)), "1,000 sats ($0.40)");
+        assert_eq!(sats_with_usd(1_000, None), "1,000 sats");
+        assert_eq!(sats_with_usd(0, Some(40_000.0)), "0 sats ($0.00)");
+        assert_eq!(sats_with_usd(5, Some(40_000.0)), "5 sats (<$0.01)");
+        assert_eq!(
+            sats_with_usd(250_000_000, Some(88_000.0)),
+            "250,000,000 sats ($220,000.00)"
+        );
+        assert_eq!(sats_with_usd(1_000, Some(f64::NAN)), "1,000 sats");
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct Counting {
+        calls: AtomicUsize,
+        fail: std::sync::atomic::AtomicBool,
+    }
+    impl RateProvider for Counting {
+        fn quote(&self, currency: &str) -> Result<RateQuote, AppError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(AppError::Internal("down".into()));
+            }
+            Ok(RateQuote {
+                currency: currency.into(),
+                fiat_per_btc: 100_000.0,
+                source: "test".into(),
+                quoted_at: now_unix(),
+            })
+        }
+    }
+
+    #[test]
+    fn the_price_is_cached_and_off_means_nothing() {
+        let p = Arc::new(Counting {
+            calls: AtomicUsize::new(0),
+            fail: Default::default(),
+        });
+        let d = UsdDisplay::from_provider(p.clone());
+        assert_eq!(d.usd_per_btc(), Some(100_000.0));
+        assert_eq!(d.usd_per_btc(), Some(100_000.0));
+        assert_eq!(
+            p.calls.load(Ordering::SeqCst),
+            1,
+            "second call uses the cache"
+        );
+        assert_eq!(UsdDisplay::off().usd_per_btc(), None);
+    }
+
+    #[test]
+    fn a_failed_lookup_hides_dollars_and_is_not_retried_every_time() {
+        let p = Arc::new(Counting {
+            calls: AtomicUsize::new(0),
+            fail: std::sync::atomic::AtomicBool::new(true),
+        });
+        let d = UsdDisplay::from_provider(p.clone());
+        assert_eq!(d.usd_per_btc(), None);
+        assert_eq!(d.usd_per_btc(), None);
+        assert_eq!(
+            p.calls.load(Ordering::SeqCst),
+            1,
+            "failure is remembered briefly"
+        );
+    }
+
+    #[test]
+    fn a_recent_good_price_survives_a_failing_lookup() {
+        let p = Arc::new(Counting {
+            calls: AtomicUsize::new(0),
+            fail: Default::default(),
+        });
+        let d = UsdDisplay::from_provider(p.clone());
+        assert_eq!(d.usd_per_btc(), Some(100_000.0));
+        p.fail.store(true, Ordering::SeqCst);
+        d.state.lock().unwrap().last_try -= USD_OK_SECS + 1; // time passes
+        assert_eq!(
+            d.usd_per_btc(),
+            Some(100_000.0),
+            "stale-but-recent price is kept"
+        );
+        assert_eq!(p.calls.load(Ordering::SeqCst), 2);
+    }
+}

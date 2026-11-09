@@ -178,6 +178,24 @@ def main():
             if a["page"].is_visible("#tab-ln"): pr.append("no Lightning tab without an invoice")
             if a["page"].is_visible("#ln-fee"): pr.append("no fee note without Lightning")
 
+        def c_usd_sats(a, pr):
+            pg = a["page"]
+            has(a, pr, "amount shows dollars", "1,000 sats ($0.40)", pg.inner_text("#amount"))
+            has(a, pr, "sats line shows dollars", "1,000 sats ($0.40)", pg.inner_text("#sats"))
+            has(a, pr, "fee note shows dollars", "3 sats (<$0.01)", pg.inner_text("#ln-fee"))
+
+        def c_usd_shop_in_dollars(a, pr):
+            pg = a["page"]
+            has(a, pr, "dollar shop heading", "USD 1.00", pg.inner_text("#amount"))
+            if "$" in pg.inner_text("#sats"): pr.append("a shop that prices in dollars needs no second dollar figure")
+
+        def c_usd_euro_shop(a, pr):
+            has(a, pr, "euro shop sats line", "about 1,500 sats ($1.32)", a["page"].inner_text("#sats"))
+
+        def c_usd_unknown(a, pr):
+            pg = a["page"]
+            if "$" in pg.inner_text("#amount") or "(" in pg.inner_text("#sats"): pr.append("no dollars when the price is unknown")
+
         cases = [
             ("pending: waiting message, pay details shown", invoice(), [{"status": "pending", "onchain_confirmations": None}], c_pending),
             ("paid: thank-you, pay details hidden, 'Done' link", invoice(), [{"status": "paid"}], c_paid),
@@ -196,6 +214,14 @@ def main():
              invoice(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}, onchain_enabled=True, onchain_address="tb1qfakefakefakefakefake"),
              [{"status": "pending"}], c_ln_first),
             ("no Lightning invoice: the combined code is the default", invoice(), [{"status": "pending"}], c_no_ln),
+        ]
+        cases += [
+            ("sats-only payment shows dollars next to sats (and in the fee note)",
+             invoice(fiat_currency=None, fiat_amount=None, amount_sats=1000, usd_per_btc=40000.0, lightning={"bolt11": BOLT, "fee_estimate_sat": 3}),
+             [{"status": "pending"}], c_usd_sats),
+            ("a shop pricing in dollars does not repeat dollars", invoice(usd_per_btc=40000.0), [{"status": "pending"}], c_usd_shop_in_dollars),
+            ("a euro shop still gets the dollar figure", invoice(fiat_currency="EUR", fiat_amount="1.20", amount_sats=1500, usd_per_btc=88000.0), [{"status": "pending"}], c_usd_euro_shop),
+            ("no price known: no dollars, nothing broken", invoice(fiat_currency=None, fiat_amount=None, usd_per_btc=None), [{"status": "pending"}], c_usd_unknown),
         ]
         for name, j, st, chk in cases:
             ok &= run_case(pw, name, j, st, chk)

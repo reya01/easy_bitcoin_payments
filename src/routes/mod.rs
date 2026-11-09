@@ -34,8 +34,21 @@ pub struct AppState {
     pub db: Db,
     pub config: Arc<Config>,
     pub rates: Arc<dyn RateProvider>,
+    /// Dollar price for display next to sats (never used to price invoices).
+    pub usd: Arc<crate::rates::UsdDisplay>,
     pub wallet: Arc<dyn WalletAdapter>,
     pub webhooks: Arc<WebhookEmitter>,
+}
+
+impl AppState {
+    /// Dollars per bitcoin for display, or `None` (turned off, or no price right now).
+    pub async fn usd_per_btc(&self) -> Option<f64> {
+        let usd = self.usd.clone();
+        tokio::task::spawn_blocking(move || usd.usd_per_btc())
+            .await
+            .ok()
+            .flatten()
+    }
 }
 
 pub fn router(state: AppState) -> Router {

@@ -259,6 +259,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_INVOICE_RATE_LIMIT_PER_MIN` | `60` | New payment requests one shop key may make per minute; over it the server answers 429 `rate_limited` (`0` disables) |
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |
 | `EBP_TRUST_PROXY_HEADERS` | `false` | Use `X-Forwarded-For` as the rate-limit client key (only behind a proxy that overwrites it) |
+| `EBP_SHOW_USD` | `true` | Show a dollar value next to sats on the admin and checkout pages ("1,000 sats ($0.40)"). Uses its own cached lookup of public prices (separate from `EBP_RATES_PROVIDER`, which prices invoices); display only. `false` makes no lookup and shows sats only. The JSON gains `usd_per_btc` (null when unknown) |
 | `EBP_UPDATE_CHECK` | `true` | Let the admin page check the public releases page for a newer version (one anonymous cached request). EBP never updates itself |
 | `EBP_MANAGED_BARKD` | `false` (`true` in the default Docker image) | EBP runs the barkd wallet daemon itself, so setup needs no token copying or terminal commands. Use `docker-compose.managed.yml` |
 | `EBP_ALLOW_INSECURE_SETUP` | `false` | The setup wizard refuses to run over plain `http://` on a non-local address (your recovery words and keys would cross the network unprotected). Set `true` only on a trusted LAN or for throwaway testing |

@@ -16,8 +16,7 @@ do not need a terminal.
 - The plugin file `ebp-bitcoin-woocommerce.zip`, saved where your browser can reach
   it (from the project's **Releases** page; [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin)
   says which one).
-- A wallet for the payout address. The tested ones: **Arké** or **Noah** (Ark),
-  **Sparrow**, **Nunchuk** or **Liana** (on-chain). Use a signet wallet for play money.
+- A wallet for the payout address (Ark or on-chain).
 - Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
   5 to 10 minutes to arrive).
 - Pen and paper (for 12 recovery words) and a password manager, open and ready.

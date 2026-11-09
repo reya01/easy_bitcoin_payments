@@ -187,6 +187,12 @@ pub async fn status(
             .first()
             .map(|s| s["status"] == "failed")
             .unwrap_or(false),
+        // Consecutive failed renewals, newest first (other kinds are skipped).
+        renewals_failing: recent_settlements
+            .iter()
+            .filter(|s| s["kind"] == "renew")
+            .take_while(|s| s["status"] == "failed")
+            .count() as u32,
         ..Default::default()
     };
     facts.wallet_reachable = wallet.get("offchain_sats").is_some();

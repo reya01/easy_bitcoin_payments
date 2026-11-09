@@ -2,6 +2,8 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- Home warns in plain words when coin renewals keep failing (three in a row; red when coins are already due), with a matching section in "If something looks wrong".
+
 - **Check a backup from the admin page** (Settings → Check a backup): pick the downloaded file, type its password, and the server opens it and says it is good and what it holds (file names and sizes only; nothing is kept or changed). No terminal needed. Backups no longer include lock files or the wallet daemon's debug log, which a restore never needs.
 
 - Home (from the first droplet test): "Held on your server" is now one honest number that includes money that is still arriving or being renewed, with a short grey note when part of it cannot be moved for a few minutes (transfers to your own wallet still use only the spendable part). Routine upkeep moved out of "Recent transfers to your own wallet" into its own short "Routine upkeep" list with a one-line explanation. "Try a payment" now says what to do with the QR code and no longer hard-codes "while EBP is in testing".

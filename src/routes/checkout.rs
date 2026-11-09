@@ -53,6 +53,7 @@ pub async fn invoice_json(
         })
         .filter(|u| crate::routes::invoices::valid_return_url(u));
     let onchain_enabled = app.config.onchain_rail_enabled;
+    let usd_per_btc = app.usd_per_btc().await;
     Ok(Json(serde_json::json!({
         "return_url": return_url,
         "store_name": store_name, "status": inv.status.as_str(), "amount_sats": inv.amount_sats,
@@ -65,6 +66,8 @@ pub async fn invoice_json(
         "bip321": uri::combined(inv.amount_sats, onchain_enabled.then_some(inv.onchain_address.as_str()), bolt11.as_deref(), Some(&inv.ark_address)),
         "lightning": bolt11.map(|b| serde_json::json!({ "bolt11": b, "fee_estimate_sat": fee })),
         "test_mode": app.config.mode == "test",
+        // For showing "(about $0.40)" next to sats; null when unknown or turned off.
+        "usd_per_btc": usd_per_btc,
     })))
 }
 

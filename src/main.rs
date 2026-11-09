@@ -158,11 +158,21 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             return Err(format!("unknown rates_provider: {other} (use static or live)").into())
         }
     };
+    // Dollar amounts shown next to sats: its own price lookup, so a slow or
+    // failing one can never hold up creating an invoice.
+    let usd = Arc::new(if config.show_usd {
+        easy_bitcoin_payments::rates::UsdDisplay::from_provider(Arc::new(LiveRateProvider::new(
+            config.rates_timeout_secs,
+        )))
+    } else {
+        easy_bitcoin_payments::rates::UsdDisplay::off()
+    });
     let webhooks = Arc::new(WebhookEmitter::new(config.webhook_timeout_secs));
 
     let state = AppState {
         db: db.clone(),
         config: Arc::new(config.clone()),
+        usd,
         rates,
         wallet: wallet.clone(),
         webhooks: webhooks.clone(),

@@ -113,6 +113,11 @@ pub struct Config {
     /// Look up the newest release for the admin page's update notice (one
     /// anonymous request, cached). EBP never updates itself.
     pub update_check: bool,
+    /// Show a dollar amount next to sats on the admin page and the checkout
+    /// page. Needs an occasional lookup of the public Bitcoin price; turn it
+    /// off to make none. The price is for display only and never changes an
+    /// invoice.
+    pub show_usd: bool,
     /// PBKDF2 rounds for the admin password (default 600,000; minimum 1,000).
     /// Lowering it weakens the hash — it exists for tests only.
     pub password_hash_iterations: u32,
@@ -166,6 +171,7 @@ impl Default for Config {
             allow_insecure_setup: false,
             managed_barkd: false,
             update_check: true,
+            show_usd: true,
             password_hash_iterations: crate::admin_auth::DEFAULT_ITERATIONS,
             payout_change_delay_secs: crate::payout::DEFAULT_DELAY_SECS,
         }
@@ -261,6 +267,7 @@ struct FileConfig {
     allow_insecure_setup: Option<bool>,
     managed_barkd: Option<bool>,
     update_check: Option<bool>,
+    show_usd: Option<bool>,
 }
 
 impl Config {
@@ -423,6 +430,9 @@ impl Config {
         if let Some(v) = file.update_check {
             self.update_check = v;
         }
+        if let Some(v) = file.show_usd {
+            self.show_usd = v;
+        }
         if let Some(v) = file.managed_barkd {
             self.managed_barkd = v;
         }
@@ -569,6 +579,9 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
             self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
+        }
+        if let Some(v) = lookup("EBP_SHOW_USD") {
+            self.show_usd = parse_bool("EBP_SHOW_USD", &v)?;
         }
         if let Some(v) = lookup("EBP_UPDATE_CHECK") {
             self.update_check = parse_bool("EBP_UPDATE_CHECK", &v)?;

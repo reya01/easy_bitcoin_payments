@@ -41,6 +41,8 @@ pub struct Check {
 /// Facts the checklist is built from. `None` means "could not find out".
 #[derive(Debug, Default, Clone)]
 pub struct Facts {
+    /// Dollars per bitcoin, to write "($0.40)" next to sats; unknown or off = None.
+    pub usd_per_btc: Option<f64>,
     /// The public address starts with https://.
     pub https: bool,
     /// The public address is localhost (only reachable from this machine).
@@ -181,8 +183,8 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 Level::Warn,
                 "Safety reserve is low",
                 &format!(
-                    "Add about {} sats of regular on-chain bitcoin to the wallet so you could always withdraw on your own if the payment network stopped working. Payments and automatic withdrawals keep working without it; this only matters for the money held in the shop wallet at that moment.",
-                    f.exit_reserve_shortfall_sats.max(0)
+                    "Add about {} of regular on-chain bitcoin to the wallet so you could always withdraw on your own if the payment network stopped working. Payments and automatic withdrawals keep working without it; this only matters for the money held in the shop wallet at that moment.",
+                    crate::rates::sats_with_usd(f.exit_reserve_shortfall_sats.max(0), f.usd_per_btc)
                 ),
             );
         }
@@ -194,7 +196,8 @@ pub fn build(f: &Facts) -> Vec<Check> {
             Level::Warn,
             "Some coins are due for renewal",
             &format!(
-                "{n} sats are close to expiring. The server renews them automatically; if this stays here for more than an hour, check that the wallet is connected."
+                "{} are close to expiring. The server renews them automatically; if this stays here for more than an hour, check that the wallet is connected.",
+                crate::rates::sats_with_usd(n, f.usd_per_btc)
             ),
         ),
         Some(_) => push(
@@ -368,8 +371,16 @@ mod tests {
         f.needs_refresh_sats = Some(777);
         f.unmatched_open = 2;
         let c = build(&f);
-        assert!(find(&c, "reserve").detail.contains("12345"));
-        assert!(find(&c, "expiry").detail.contains("777"));
+        assert!(find(&c, "reserve").detail.contains("12,345 sats"));
+        assert!(find(&c, "expiry").detail.contains("777 sats"));
+        assert!(
+            !find(&c, "expiry").detail.contains('$'),
+            "no price known, no dollars"
+        );
+        f.usd_per_btc = Some(40_000.0);
+        let c = build(&f);
+        assert!(find(&c, "reserve").detail.contains("12,345 sats ($4.94)"));
+        assert!(find(&c, "expiry").detail.contains("777 sats ($0.31)"));
         assert!(find(&c, "late").title.starts_with('2'));
         assert!(["reserve", "expiry", "late"]
             .iter()

@@ -110,6 +110,15 @@ function drawQr(text) {
   }
 }
 // A link that opens the customer's wallet app, for the chosen way to pay.
+// "1,000 sats ($0.40)" when the server knows a dollar price (and the shop is not already pricing in dollars).
+function fmtSats(n) {
+  n = Number(n);
+  var out = n.toLocaleString("en-US") + " sats";
+  var rate = s.data && Number(s.data.usd_per_btc);
+  if (!(rate > 0) || !isFinite(n) || (s.data.fiat_currency || "").toUpperCase() === "USD") return out;
+  var usd = Math.abs(n) / 1e8 * rate;
+  return out + " (" + (usd > 0 && usd < 0.01 ? "<$0.01" : "$" + usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ")";
+}
 function walletLink(shown) {
   if (!shown) return "";
   if (s.tab === "bip321") return /^bitcoin:/i.test(shown) ? shown : "";
@@ -128,7 +137,7 @@ function render() {
   els.help.textContent = helpText[s.tab] || "";
   els.help.classList.toggle("hidden", !helpText[s.tab]);
   if (s.tab === "ln" && s.ln && typeof s.ln.fee_estimate_sat === "number") {
-    els.fee.textContent = "A small network fee of about " + s.ln.fee_estimate_sat.toLocaleString("en-US") + " sats applies. It goes to the network, not to this store.";
+    els.fee.textContent = "A small network fee of about " + fmtSats(s.ln.fee_estimate_sat) + " applies. It goes to the network, not to this store.";
     els.fee.classList.remove("hidden");
   } else { els.fee.classList.add("hidden"); }
 }
@@ -171,10 +180,9 @@ fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "applicat
       els.backLink.href = d.return_url;
       goBackLabel("Back to " + (d.store_name || "the shop"));
     }
-    var sats = Number(d.amount_sats).toLocaleString("en-US");
     var satTip = "sats are tiny pieces of a bitcoin: 100 million sats make one bitcoin.";
-    els.amount.textContent = d.fiat_amount ? d.fiat_currency + " " + d.fiat_amount : sats + " sats";
-    els.sats.textContent = (d.fiat_amount ? "about " : "") + sats + " sats";
+    els.amount.textContent = d.fiat_amount ? d.fiat_currency + " " + d.fiat_amount : fmtSats(d.amount_sats);
+    els.sats.textContent = (d.fiat_amount ? "about " : "") + fmtSats(d.amount_sats);
     els.sats.title = satTip;
     render();
   })

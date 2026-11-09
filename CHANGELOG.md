@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Dollar amounts next to sats** (asked for after the first droplet test): wherever the admin page or the checkout page shows sats, it now adds the dollar value, like "1,000 sats ($0.40)" (and "<$0.01" for tiny amounts). The price is for display only and never changes what an invoice costs; it comes from a small, cached lookup of public prices, and if the lookup fails the pages simply show sats. A shop that already prices in dollars does not get a second dollar figure on checkout. Two Home warnings that name sats get the same treatment. Phone alerts still never carry amounts. Turn it off with `EBP_SHOW_USD=false` (then no price lookup is made at all). Admin status and the checkout JSON gain `usd_per_btc` (null when unknown).
 - Checkout starts with **Lightning** (fast, a tiny fee, shown with its fee note) whenever the payment has a Lightning invoice. The combined all-in-one code moved under "Other ways to pay" as "One code, any wallet", next to Ark and regular Bitcoin; the page says which way it is showing, and Copy payment details always copies what is shown (checked for every choice; the regular Bitcoin choice is the plain address only). Without a Lightning invoice the combined code is still the default.
 - Home warns in plain words when coin renewals keep failing (three in a row; red when coins are already due), with a matching section in "If something looks wrong".
 

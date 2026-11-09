@@ -98,6 +98,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <div class="card">
     <p class="muted">Makes a payment request so you can see the checkout page. Pay it by scanning its QR code (or copying the payment details) with a wallet that can pay Lightning or Ark. Use the same kind of coins as this server: play-money coins on a test server. It shows up below once paid.</p>
     <label for="tp-sats">Amount in sats (a sat is one hundred-millionth of a bitcoin; 1000 is a tiny test amount)</label><input type="text" id="tp-sats" inputmode="numeric" value="1000">
+    <div class="muted" id="tp-usd"></div>
     <div class="btns"><button class="primary" id="tp-go" type="button">Create a test payment request</button></div>
     <p class="msg hidden" id="tp-msg"></p>
     <p class="hidden" id="tp-link-box"><a id="tp-link" target="_blank" rel="noopener">Open the checkout page</a></p>
@@ -340,14 +341,24 @@ function loadVersion() {
 }
 
 // ---- Weekly check against your own wallet ----
-function sats(n) { return Number(n).toLocaleString("en-US") + " sats"; }
+// Dollars per bitcoin, from the server (null = unknown or turned off: then only sats are shown).
+var USD = null;
+// "1,000 sats ($0.40)". Same wording rules as the checkout page and the server's messages.
+function fmtSats(n) {
+  n = Number(n);
+  var out = n.toLocaleString("en-US") + " sats";
+  if (!(USD > 0) || !isFinite(n)) return out;
+  var usd = Math.abs(n) / 1e8 * USD;
+  var txt = usd > 0 && usd < 0.01 ? "<$0.01" : "$" + usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return out + " (" + (n < 0 ? "-" : "") + txt + ")";
+}
 function loadRecon() {
   api("POST", "/admin/reconcile/status", {}).then(function (r) {
     var box = $("recon"); clear(box);
     if (!r.paid_orders && !r.swept_sats) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
     box.appendChild(el("strong", r.due ? "Time for your weekly wallet check" : "Weekly wallet check", r.due ? "bad" : ""));
-    box.appendChild(el("p", "In the last " + r.days + " days this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + sats(r.paid_sats) + ") and says it sent " + sats(r.swept_sats) + " on to your payout address.", "muted"));
+    box.appendChild(el("p", "In the last " + r.days + " days this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ") and says it sent " + fmtSats(r.swept_sats) + " on to your payout address.", "muted"));
     box.appendChild(el("p", "Open your own wallet and check that the payments you received match. This is the one check that does not depend on this server telling the truth.", "muted"));
     if (r.last_checked_at) box.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
     var btns = el("div", "", "btns");
@@ -460,6 +471,8 @@ function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
     loadVersion();
+    USD = s.usd_per_btc > 0 ? Number(s.usd_per_btc) : null;
+    tpPreview();
     var w = s.wallet || {};
     var go = { late: "alerts", webhooks: "hooks" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };
@@ -472,8 +485,8 @@ function loadHome() {
     });
     if (w.offchain_sats !== undefined) {
       var transit = Number(w.in_transit_sats || 0);
-      h.appendChild(row("Held on your server", (Number(w.offchain_sats) + transit).toLocaleString() + " sats"));
-      if (transit > 0) h.appendChild(el("div", transit.toLocaleString() + " sats of this is still arriving or being renewed. It is yours; it just cannot be moved for a few minutes.", "muted"));
+      h.appendChild(row("Held on your server", fmtSats(Number(w.offchain_sats) + transit)));
+      if (transit > 0) h.appendChild(el("div", fmtSats(transit) + " of this is still arriving or being renewed. It is yours; it just cannot be moved for a few minutes.", "muted"));
     }
     var c = s.counters || {}, a = $("attention"); clear(a);
     var n = 0;
@@ -485,7 +498,7 @@ function loadHome() {
     var b = $("alert-badge"); var open = c.unmatched_payments_open || 0; b.textContent = String(open); b.classList.toggle("hidden", !open);
     var sw = $("sweeps"), up = $("upkeep"); clear(sw); clear(up);
     var isUpkeep = function (x) { return x.kind === "renew" || x.kind === "consolidate"; };
-    var line = function (x) { return row(when(x.created_at) + " · " + (KIND[x.kind] || x.kind), Number(x.amount_sats).toLocaleString() + " sats · " + x.status); };
+    var line = function (x) { return row(when(x.created_at) + " · " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " · " + x.status); };
     var all = s.recent_settlements || [];
     all.filter(function (x) { return !isUpkeep(x); }).slice(0, 5).forEach(function (x) { sw.appendChild(line(x)); });
     all.filter(isUpkeep).slice(0, 3).forEach(function (x) { up.appendChild(line(x)); });
@@ -505,11 +518,18 @@ $("tp-go").addEventListener("click", function () {
   }).catch(function (e) { say("tp-msg", e.message, true); }).then(function () { b.disabled = false; });
 });
 
+// Under the test-payment amount: what it is worth in dollars (only when a price is known).
+function tpPreview() {
+  var n = parseInt($("tp-sats").value, 10);
+  $("tp-usd").textContent = n > 0 && USD > 0 ? "That is " + fmtSats(n) + "." : "";
+}
+$("tp-sats").addEventListener("input", tpPreview);
+
 function loadOrders() {
   api("GET", "/api/v1/invoices?limit=30").then(function (list) {
     var o = $("orders"); clear(o);
     list.forEach(function (i) {
-      var label = (i.fiat_amount ? i.fiat_currency + " " + i.fiat_amount : Number(i.amount_sats).toLocaleString() + " sats");
+      var label = (i.fiat_amount ? i.fiat_currency + " " + i.fiat_amount : fmtSats(i.amount_sats));
       o.appendChild(row(label + " · " + when(i.created_at), i.status, i.status === "paid" || i.status === "overpaid" ? "ok" : ""));
     });
     if (!list.length) o.appendChild(el("span", "No payments yet.", "muted"));
@@ -521,7 +541,7 @@ function loadAlerts() {
     var u = $("unmatched"); clear(u);
     list.forEach(function (p) {
       var c = el("div", "", "card");
-      c.appendChild(row(Number(p.amount_sats).toLocaleString() + " sats · " + ({ ark: "Ark", onchain: "regular Bitcoin", lightning: "Lightning" }[p.rail] || p.rail), p.resolved_at ? "handled" : "open", p.resolved_at ? "ok" : "bad"));
+      c.appendChild(row(fmtSats(p.amount_sats) + " · " + ({ ark: "Ark", onchain: "regular Bitcoin", lightning: "Lightning" }[p.rail] || p.rail), p.resolved_at ? "handled" : "open", p.resolved_at ? "ok" : "bad"));
       c.appendChild(el("div", "Why: " + String(p.reason).replace(/_/g, " ") + " · " + when(p.detected_at) + (p.order_id ? " · order " + p.order_id : ""), "muted"));
       if (!p.resolved_at) {
         var b = el("button", "Mark as handled", "small"); b.type = "button"; b.style.marginTop = "8px";
@@ -654,17 +674,17 @@ $("sweep-go").addEventListener("click", function () {
   if (!window.confirm("Move everything in the till to your payout address now?")) return;
   $("sweep-go").disabled = true;
   api("POST", "/admin/sweep", {}).then(function (r) {
-    say("sweep-msg", r.swept_sats ? "Sent " + Number(r.swept_sats).toLocaleString() + " sats to your payout address. It can take a few minutes to arrive." : (r.note || "Nothing to move right now."));
+    say("sweep-msg", r.swept_sats ? "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." : (r.note || "Nothing to move right now."));
   }).catch(function (e) { say("sweep-msg", e.message, true); }).then(function () { $("sweep-go").disabled = false; });
 });
 
 function loadPayout() {
   api("GET", "/api/v1/payout").then(function (p) {
     var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
-    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + Number(p.cap_sats).toLocaleString() + " sats." : "No payout address yet — money stays in the till until you add one.";
+    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + fmtSats(p.cap_sats) + "." : "No payout address yet — money stays in the till until you add one.";
     var kinds = $("po-kinds"); clear(kinds);
-    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + Number(p.ark_cap_sats).toLocaleString() + " sats, so only a small amount is ever held on this server."],
-     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + Number(p.onchain_cap_sats).toLocaleString() + " sats, and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
+    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + fmtSats(p.ark_cap_sats) + ", so only a small amount is ever held on this server."],
+     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + fmtSats(p.onchain_cap_sats) + ", and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);

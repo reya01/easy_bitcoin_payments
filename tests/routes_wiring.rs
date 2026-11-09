@@ -40,6 +40,7 @@ async fn test_state() -> AppState {
         db,
         config,
         rates: Arc::new(StaticRateProvider::new(HashMap::new())),
+        usd: Arc::new(easy_bitcoin_payments::rates::UsdDisplay::off()),
         wallet: Arc::new(StubWallet::new()),
         webhooks: Arc::new(WebhookEmitter::new(5)),
     }

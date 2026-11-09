@@ -58,6 +58,13 @@ async fn serve() -> (String, AppState, String, String) {
 }
 
 async fn serve_with(config: Config) -> (String, AppState, String, String) {
+    serve_with_usd(config, easy_bitcoin_payments::rates::UsdDisplay::off()).await
+}
+
+async fn serve_with_usd(
+    config: Config,
+    usd: easy_bitcoin_payments::rates::UsdDisplay,
+) -> (String, AppState, String, String) {
     let config = Arc::new(config);
     let db = Db::open(":memory:").unwrap();
     let (shop, api_key, _) = db
@@ -76,6 +83,7 @@ async fn serve_with(config: Config) -> (String, AppState, String, String) {
         db,
         config,
         rates: Arc::new(StaticRateProvider::new(HashMap::new())),
+        usd: Arc::new(usd),
         wallet: Arc::new(StubWallet::new()),
         webhooks: Arc::new(WebhookEmitter::new(5)),
     };
@@ -2375,4 +2383,67 @@ async fn malformed_requests_never_cause_server_errors() {
         code == 200 || code == 201,
         "normal invoice after garbage: {code}"
     );
+}
+
+#[tokio::test]
+async fn the_dollar_price_reaches_the_checkout_page_and_the_admin_status_only_when_known() {
+    let client = reqwest::Client::new();
+
+    // Known price: both carry it.
+    let mut table = HashMap::new();
+    table.insert("USD".to_string(), 40_000.0);
+    let usd = easy_bitcoin_payments::rates::UsdDisplay::from_provider(Arc::new(
+        StaticRateProvider::new(table),
+    ));
+    let (base, _s, _store, key) = serve_with_usd(
+        Config {
+            admin_token: Some("adm1n".to_string()),
+            ..Config::default()
+        },
+        usd,
+    )
+    .await;
+    let (_, inv) = create(&client, &base, &key, "wc-usd", 1_000).await;
+    let id = inv["id"].as_str().unwrap();
+    let co: serde_json::Value = client
+        .get(format!("{base}/i/{id}/json"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(co["usd_per_btc"], 40_000.0);
+    let st: serde_json::Value = client
+        .get(format!("{base}/api/v1/admin/status"))
+        .header("host", "localhost")
+        .bearer_auth("adm1n")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(st["usd_per_btc"], 40_000.0);
+
+    // Turned off (or no price): null, and nothing else changes.
+    let (base, _s, _store, key) = serve_with(Config {
+        admin_token: Some("adm1n".to_string()),
+        ..Config::default()
+    })
+    .await;
+    let (_, inv) = create(&client, &base, &key, "wc-nousd", 1_000).await;
+    let id = inv["id"].as_str().unwrap();
+    let co: serde_json::Value = client
+        .get(format!("{base}/i/{id}/json"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(co["usd_per_btc"].is_null());
+    assert_eq!(co["amount_sats"], 1_000);
 }

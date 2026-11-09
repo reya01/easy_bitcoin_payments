@@ -111,6 +111,7 @@ def start_ebp():
         # sign-in brake (10 tries a minute per visitor) does not trip a long run.
         "EBP_TRUST_PROXY_HEADERS": "true",
         "EBP_UPDATE_CHECK": "false",
+        "EBP_SHOW_USD": "false",
         "EBP_LOG_LEVEL": "info",
     }
     p = start("ebp", [EBP_BIN, "serve"], env)

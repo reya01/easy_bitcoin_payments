@@ -88,12 +88,15 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <div class="card" id="attention"></div>
   <h2>Recent transfers to your own wallet</h2>
   <div class="card" id="sweeps"></div>
+  <h2>Routine upkeep</h2>
+  <p class="muted">Coins are renewed shortly before they expire so they never become hard to spend. No action needed.</p>
+  <div class="card" id="upkeep"></div>
 </section>
 
 <section id="v-orders" class="hidden">
   <h2>Try a payment</h2>
   <div class="card">
-    <p class="muted">Makes a payment request so you can see the checkout page and pay it from your wallet. Use play money (signet) while EBP is in testing.</p>
+    <p class="muted">Makes a payment request so you can see the checkout page. Pay it by scanning its QR code (or copying the payment details) with a wallet that can pay Lightning or Ark. Use the same kind of coins as this server: play-money coins on a test server. It shows up below once paid.</p>
     <label for="tp-sats">Amount in sats (a sat is one hundred-millionth of a bitcoin; 1000 is a tiny test amount)</label><input type="text" id="tp-sats" inputmode="numeric" value="1000">
     <div class="btns"><button class="primary" id="tp-go" type="button">Create a test payment request</button></div>
     <p class="msg hidden" id="tp-msg"></p>
@@ -459,7 +462,11 @@ function loadHome() {
       if (go[k.id] && k.level !== "ok") { d.style.cursor = "pointer"; d.addEventListener("click", function () { show(go[k.id]); }); }
       h.appendChild(d);
     });
-    if (w.offchain_sats !== undefined) h.appendChild(row("Held on your server", Number(w.offchain_sats).toLocaleString() + " sats"));
+    if (w.offchain_sats !== undefined) {
+      var transit = Number(w.in_transit_sats || 0);
+      h.appendChild(row("Held on your server", (Number(w.offchain_sats) + transit).toLocaleString() + " sats"));
+      if (transit > 0) h.appendChild(el("div", transit.toLocaleString() + " sats of this is still arriving or being renewed. It is yours; it just cannot be moved for a few minutes.", "muted"));
+    }
     var c = s.counters || {}, a = $("attention"); clear(a);
     var n = 0;
     function add(label, count, view) { if (count > 0) { n++; var r = row(label, String(count), "bad"); r.style.cursor = "pointer"; r.addEventListener("click", function () { show(view); }); a.appendChild(r); } }
@@ -468,9 +475,14 @@ function loadHome() {
     if (!n) a.appendChild(el("span", "Nothing needs your attention.", "ok"));
     a.appendChild(row("Open orders", String(c.invoices_pending || 0)));
     var b = $("alert-badge"); var open = c.unmatched_payments_open || 0; b.textContent = String(open); b.classList.toggle("hidden", !open);
-    var sw = $("sweeps"); clear(sw);
-    (s.recent_settlements || []).slice(0, 5).forEach(function (x) { sw.appendChild(row(when(x.created_at) + " · " + (KIND[x.kind] || x.kind), Number(x.amount_sats).toLocaleString() + " sats · " + x.status)); });
+    var sw = $("sweeps"), up = $("upkeep"); clear(sw); clear(up);
+    var isUpkeep = function (x) { return x.kind === "renew" || x.kind === "consolidate"; };
+    var line = function (x) { return row(when(x.created_at) + " · " + (KIND[x.kind] || x.kind), Number(x.amount_sats).toLocaleString() + " sats · " + x.status); };
+    var all = s.recent_settlements || [];
+    all.filter(function (x) { return !isUpkeep(x); }).slice(0, 5).forEach(function (x) { sw.appendChild(line(x)); });
+    all.filter(isUpkeep).slice(0, 3).forEach(function (x) { up.appendChild(line(x)); });
     if (!sw.firstChild) sw.appendChild(el("span", "None yet.", "muted"));
+    if (!up.firstChild) up.appendChild(el("span", "None yet.", "muted"));
   }).catch(function (e) { var h = $("health"); clear(h); h.appendChild(el("span", e.message, "bad")); });
 }
 

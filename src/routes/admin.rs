@@ -94,7 +94,7 @@ pub async fn status(
             });
             let mut stmt = conn.prepare(
                 "SELECT kind, amount_sats, destination, status, detail, created_at
-                 FROM settlements ORDER BY created_at DESC LIMIT 10",
+                 FROM settlements ORDER BY created_at DESC LIMIT 40",
             )?;
             let rows = stmt
                 .query_map(params![], |row| {
@@ -127,6 +127,7 @@ pub async fn status(
                     out.insert("offchain_sats".into(), json!(b.offchain_sats));
                     out.insert("onchain_sats".into(), json!(b.onchain_sats));
                     out.insert("needs_refresh_sats".into(), json!(b.needs_refresh_sats));
+                    out.insert("in_transit_sats".into(), json!(b.in_transit_sats()));
                     out.insert(
                         "hot_wallet_cap_sats".into(),
                         json!(state.config.hot_wallet_cap_sats),

@@ -580,6 +580,12 @@ impl BarkdClient {
             offchain_sats: spendable,
             claimable_lightning_sats: claimable,
             needs_refresh_sats: flex::i64_field(&v, &["needs_refresh_sat"]).unwrap_or(0),
+            pending_in_round_sats: flex::i64_field(&v, &["pending_in_round_sat"])
+                .unwrap_or(0)
+                .max(0),
+            pending_board_sats: flex::i64_field(&v, &["pending_board_sat"])
+                .unwrap_or(0)
+                .max(0),
         })
     }
 
@@ -1261,12 +1267,24 @@ pub struct Balances {
     pub claimable_lightning_sats: i64,
     /// Coins the wallet says are due for renewal (`needs_refresh_sat`).
     pub needs_refresh_sats: i64,
+    /// Money in a refresh round that has not finished (`pending_in_round_sat`).
+    pub pending_in_round_sats: i64,
+    /// Money from an on-chain board waiting for confirmations (`pending_board_sat`).
+    pub pending_board_sats: i64,
 }
 
 impl Balances {
     /// Total till balance: off-chain spendable + on-chain reserve.
     pub fn total_sats(&self) -> i64 {
         self.onchain_sats + self.offchain_sats
+    }
+
+    /// Money that is the shop's but cannot be moved yet: being renewed,
+    /// waiting to be claimed (Lightning) or waiting for confirmations. It is
+    /// shown with the held balance so the number never reads 0 while money
+    /// is on its way; transfers still use only the spendable part.
+    pub fn in_transit_sats(&self) -> i64 {
+        self.pending_in_round_sats + self.pending_board_sats + self.claimable_lightning_sats
     }
 }
 
@@ -1854,6 +1872,28 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].authorization.as_deref(), Some("Bearer test-token"));
         assert_eq!(all[0].path, "/api/v1/wallet/balance");
+    }
+
+    #[tokio::test]
+    async fn money_in_a_refresh_counts_as_in_transit_not_spendable() {
+        // The balance captured from the signet droplet while three coins
+        // were being refreshed: spendable 0, 2,828 in a round.
+        let (base, _rec) = mock::spawn(|_| {
+            (
+                200,
+                r#"{"spendable_sat":0,"needs_refresh_sat":0,"pending_lightning_send_sat":0,
+                    "claimable_lightning_receive_sat":300,"pending_in_round_sat":2828,
+                    "pending_board_sat":0,"pending_arkoor_send_sat":0}"#
+                    .to_string(),
+            )
+        });
+        let b = client(&base).balances().await.expect("balances");
+        assert_eq!(
+            b.offchain_sats, 0,
+            "transfers still see only what is spendable"
+        );
+        assert_eq!(b.pending_in_round_sats, 2_828);
+        assert_eq!(b.in_transit_sats(), 3_128);
     }
 
     #[tokio::test]

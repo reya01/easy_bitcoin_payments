@@ -275,7 +275,7 @@ minutes, 4 seconds each, for USD, EUR, GBP, CHF, CAD, AUD and JPY, takes the med
 currency, and stores it in memory and in the `settings` table (`btc_price`) so a restart
 keeps it. Everything else only reads the stored value, so no page or API call ever waits on
 an outside website. The same price writes "1,000 sats ($0.40)" and converts orders priced in
-a currency into sats (an order can be a little cheaper or dearer than the very latest
+a currency into sats (an order can be a little cheaper or more expensive than the very latest
 price: accepted, in exchange for never failing because of a price site).
 
 - Any sources failing is fine; none answering keeps the last good price.

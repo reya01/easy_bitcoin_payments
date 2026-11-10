@@ -5,6 +5,13 @@ wallet **you** control, with no company in the middle. This page takes you from
 nothing to a first paid test order. It uses a small DigitalOcean server, and you
 do not need a terminal.
 
+> **These steps are a guide, not an exact script.** Websites and hosting services change their screens often, so what you see may differ a little from the words here.
+> If something does not match what you see, or you get stuck, copy this page
+> into an AI assistant (or give it this link: <https://github.com/reya01/easy_bitcoin_payments/blob/main/docs/START_HERE.md>), tell it which
+> service you use, and ask it to help you work out the equivalent steps.
+> **Never give an AI, or anyone, your passwords, API key, signing secret or
+> recovery words.** Describe what you see instead, or hide those values first.
+
 **This is a test version: play money (signet) only.** Do not use real bitcoin.
 
 **You need**

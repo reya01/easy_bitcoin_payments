@@ -9,6 +9,13 @@ that only work on your own network (`localhost`, `127.0.0.1`, `192.168.…`,
 `10.…`). A WordPress running only on your computer (for example "Local") will not
 get payment notices; use a shop with a public address.
 
+> **These steps are a guide, not an exact script.** Every hosting company shows WordPress a little differently: menu names, where plugins are uploaded, and what your plan allows can all vary. These steps use the standard WordPress and WooCommerce menus.
+> If something does not match what you see, or you get stuck, copy this page
+> into an AI assistant (or give it this link: <https://github.com/reya01/easy_bitcoin_payments/blob/main/docs/WOOCOMMERCE.md>), tell it which
+> service you use, and ask it to help you work out the equivalent steps.
+> **Never give an AI, or anyone, your passwords, API key, signing secret or
+> recovery words.** Describe what you see instead, or hide those values first.
+
 **Test version:** use play-money (signet) only for now. Do not take real
 bitcoin yet.
 

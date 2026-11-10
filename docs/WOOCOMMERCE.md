@@ -58,11 +58,37 @@ You will use two pages side by side, so open each in its own browser tab:
 | API key | The key you were shown during setup (you saved it in your password manager). Only if you lost it: step 2 on the Connect tab, **Make a new API key** (the old one stops working at once; shown once, copy it right away) |
 | Signing secret | Step 3: appears once when you save the notification address |
 
-The plugin shows **Your shop's notification address**. Copy it into step 3 of
-the Connect tab, press **Save address**, then copy the signing secret that
-appears back into the plugin. Tick **Enable** and press **Save changes** in WooCommerce. A green
-"connected to your payment server" message means it works; a red message says
-what to fix.
+### The signing secret, step by step
+
+The signing secret is how your shop knows a "payment received" message really
+came from your payment server. You get it by telling the server your shop's
+notification address. Do this in order, with both pages open:
+
+1. On the **plugin's settings page** (WordPress), find **Your shop's
+   notification address**. It is a web address under the boxes, for example
+   `https://myshop.com/?wc-api=ebp_bitcoin`. Select it and copy it.
+2. On your **payment server's Connect tab**, scroll to card **3. Payment
+   notifications to your shop**. Paste the address into the box **Your shop's
+   webhook address**.
+3. Tap **Save address**. A box appears that says **Signing secret, shown once**.
+   Tap **Copy** under it. (The box disappears when you leave the page, so do the
+   next step right away.)
+4. Back on the **plugin's settings page**, paste it into the **Signing secret**
+   box. It shows dots as you paste; that is normal.
+5. Tick **Enable** and press **Save changes** at the bottom of the plugin page.
+   Green "connected to your payment server" means it worked. A red message says
+   what to fix.
+
+**No secret box appeared in step 3?** The server only shows a secret the first
+time you save the address. If you saved the address before, tap **New signing
+secret** (next to Save address) instead. It makes a fresh secret and shows it
+once. Paste that one into the plugin.
+
+**Lost it, or it says the signature does not match?** Do the same thing: tap
+**New signing secret**, copy the new one, paste it into the plugin, and save.
+The old secret stops working at once.
+
+Never paste the signing secret anywhere except that one plugin box.
 
 ## 3. Try it
 

@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Tested on WooCommerce.com hosting** (9 November 2026): install, connect, a signet Lightning payment, and the order moving to Processing by itself all worked. The WooCommerce page now says so, and has a "paid on the server but On hold" checklist.
 - A notification address that answers with an ordinary web page (for example your shop's home page instead of the plugin's notification address) is no longer reported as "delivered" or "Your shop received the test". It shows as failed with a plain explanation and keeps retrying, so a wrong address cannot pass the test button.
 - Connect tab: **Resend** now also appears on notifications that were delivered, not only failed ones, so you can send a payment notice to your shop again (it is safe: an order that is already paid is left alone).
 - **WooCommerce plugin:** every payment notice now leaves one plain line in WooCommerce → Status → Logs (source `ebp-bitcoin`): refused (signature), could not confirm with the server, not matched to an order, or handled (with the order's new status). Before, several of these answered "OK" silently, so a notice that changed nothing left no trace. No keys or secrets are logged.

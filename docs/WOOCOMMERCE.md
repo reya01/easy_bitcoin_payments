@@ -19,6 +19,11 @@ get payment notices; use a shop with a public address.
 **Test version:** use play-money (signet) only for now. Do not take real
 bitcoin yet.
 
+**Tested on:** WooCommerce.com hosting (a WordPress.com site running WooCommerce
+11), on 9 November 2026, with a signet Lightning payment: the order moved from
+On hold to Processing by itself. Other hosts should work the same way, but have
+not been tried yet.
+
 ## Two places, kept apart in these steps
 
 You will flip between two different websites, and some names look alike. Every
@@ -101,6 +106,25 @@ once. Paste that one into the plugin.
 The old secret stops working at once.
 
 Never paste the signing secret anywhere except that one plugin box.
+
+### The payment server shows Paid, but the order stays On hold
+
+This almost always means the payment notice did not reach the plugin. Check, in
+this order:
+
+1. **On your payment server**, **Connect** tab, card 3: the **Your shop's webhook
+   address** must be exactly the address the plugin shows under **Your shop's
+   notification address** (on your WooCommerce site), ending in `?wc-api=ebp_bitcoin`.
+   A different address, such as your shop's home page, gets an "OK" web page
+   back and nothing happens. Copy it again from the plugin and press **Save
+   address**.
+2. If you made a new signing secret, paste the new one into the plugin on your
+   WooCommerce site and press **Save changes**. An old secret makes your shop
+   refuse every notice.
+3. **On your WooCommerce site**, open **WooCommerce → Status → Logs** and pick the
+   log starting with `ebp-bitcoin`. It has one line per notice, such as
+   "refused: signature did not match" or "handled: order 22 is now
+   processing". Send those lines (they hold no secrets) if you need help.
 
 ## 3. Try it
 

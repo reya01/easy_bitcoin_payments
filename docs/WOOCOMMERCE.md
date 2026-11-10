@@ -40,11 +40,12 @@ step below says which one it means:
 
 1. Get `ebp-bitcoin-woocommerce.zip`.
    - **While testing (no release has the plugin yet):** the project owner sends
-     you the zip, or you download it from GitHub: **Actions**, open the newest
-     green **CI** run, scroll to **Artifacts** at the bottom and download
-     **plugin-zip** (you need to be signed in to GitHub; the download is a zip
-     that contains the plugin zip, so unzip it once first). Artifacts are kept
-     for 14 days.
+     you the zip, or you download it from GitHub: open
+     [the project's build page](https://github.com/reya01/easy_bitcoin_payments/actions/workflows/ci.yml?query=branch%3Amain) (it lists runs on the `main` branch only), click the
+     newest run with a green tick, scroll to **Artifacts** at the bottom and download
+     **plugin-zip**. You need to be signed in to GitHub. The download is a zip that
+     contains `ebp-bitcoin-woocommerce.zip`, so unzip it once first; upload the inner
+     zip to WordPress. Artifacts are kept for 14 days, so a very old run has none.
    - **From the first release candidate on:** open the release you are testing
      (for example `v0.1.0-rc1`) on the project's **Releases** page and look
      under **Assets**. Do not use the "latest release" shortcut: GitHub skips

@@ -82,8 +82,9 @@ notification address. Do this in order, with both pages open:
    notifications to your shop**. Paste the address into the box **Your shop's
    webhook address**.
 3. **On your payment server:** tap **Save address**. A box appears that says **Signing secret, shown once**.
-   Tap **Copy** under it. (The box disappears when you leave the page, so do the
-   next step right away.)
+   Tap **Copy** under it, and also save it in your password manager (the same
+   place as your API key). The box disappears when you leave the page, so do this
+   and the next step right away.
 4. **On your WooCommerce site**, on the plugin's settings page, paste it into the **Signing secret**
    box. It shows dots as you paste; that is normal.
 5. **On your WooCommerce site:** tick **Enable** and press **Save changes** at the bottom of the plugin's settings page.

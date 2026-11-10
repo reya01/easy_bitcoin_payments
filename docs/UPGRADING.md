@@ -14,6 +14,14 @@ anything. Read the release notes first, and update **one release at a time**.
 Restarting is always safe: pending payments and shop notifications are stored and
 resume.
 
+## While testing (before the first release candidate)
+
+The "Update available" notice only looks at full releases, so during testing it
+will not appear. There is nothing to wait for: to get the newest test build, use the
+same steps below (`git pull` fetches the newest code). Read the
+[CHANGELOG](../CHANGELOG.md) first to see what changed. Your wallet, settings, orders
+and shop connection are kept.
+
 ## Update a DigitalOcean server (the usual way)
 
 In the DigitalOcean website open your server, then **Console**, log in as `root`
@@ -25,7 +33,7 @@ git pull
 ./scripts/start.sh
 ```
 
-Wait a few minutes (it rebuilds), then check that the admin **Home** page says the
+Wait a few minutes (it rebuilds; on a small server this can take 10 minutes or more), then check that the admin **Home** page says the
 wallet is connected before you take payments again. Nothing is lost: your data lives
 in a separate volume, and a copy is taken before any database change. If you turned
 on https with `start.sh`, that choice is remembered.
@@ -42,6 +50,17 @@ docker compose up -d
 On Render (paid plan required, see [OTHER_HOSTS.md](OTHER_HOSTS.md)), `render.yaml`
 sets `autoDeploy: false`: update with **Manual Deploy → Deploy latest commit** and
 leave auto-deploy off.
+
+## Update the WooCommerce plugin (separate from the server)
+
+The server and the plugin are updated separately. When a release says the plugin
+changed, **on your WooCommerce site** go to **Plugins → Add New → Upload Plugin**,
+choose the new `ebp-bitcoin-woocommerce.zip` and, when WordPress says the plugin is
+already installed, choose **Replace current with uploaded**. Your settings (server
+address, API key, signing secret) are kept; open **WooCommerce → Settings →
+Payments → Manage** next to **Bitcoin (Easy Bitcoin Payments)** and press **Save
+changes** to confirm the green "connected" message. While testing, get the zip as
+described in [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin).
 
 ## The safety net
 

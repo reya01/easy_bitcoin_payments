@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Docs:** UPGRADING.md now says how to get the newest build while only test builds exist (the "Update available" notice cannot see them) and how to update the WooCommerce plugin separately.
 - **Removed the "Safety reserve" warning** from Home, and its `exit_reserve` and `reserve_funding_address` fields from the operator status. It asked you to put more bitcoin on the server (15,000 sats per coin), against the design of keeping little on the server and sweeping the rest to your own wallet, and it could warn for more than the money at risk. Nothing else changed: it never blocked payments or sweeps.
 
 - **Tested on WooCommerce.com hosting** (9 November 2026): install, connect, a signet Lightning payment, and the order moving to Processing by itself all worked. The WooCommerce page now says so, and has a "paid on the server but On hold" checklist.

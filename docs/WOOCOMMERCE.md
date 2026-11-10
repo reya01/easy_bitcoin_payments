@@ -34,8 +34,11 @@ bitcoin yet.
      pre-releases such as `rc1` there.
 2. In WordPress: **Plugins → Add New → Upload Plugin**, choose the zip, then
    **Install Now** and **Activate**.
-3. Go to **WooCommerce → Settings → Payments → Bitcoin (Easy Bitcoin
-   Payments)** and tick **Enable**.
+3. Go to **WooCommerce → Settings → Payments**. Newer WooCommerce shows a list
+   of payment methods: press **Manage** next to **Bitcoin (Easy Bitcoin
+   Payments)** (older versions open it by clicking its name). Its settings page
+   is where you fill in everything below. Leave **Enable** unticked until
+   section 2 is done.
 
 ## 2. Fill in three things
 
@@ -46,8 +49,8 @@ You will use two pages side by side, so open each in its own browser tab:
   The tabs **Home, Payments, Alerts, Connect, Settings** are in a bar at the
   **very bottom of the screen**; tap **Connect**. Its heading says "Connect your shop".
 - **The plugin's settings page in WordPress:** **WooCommerce → Settings →
-  Payments → Bitcoin (Easy Bitcoin Payments)**. The same three steps are listed
-  at the top of it.
+  Payments**, then **Manage** next to **Bitcoin (Easy Bitcoin Payments)**. The
+  same three steps are listed at the top of it.
 
 | In the plugin | Where to get it |
 | --- | --- |

@@ -38,7 +38,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				'title'       => __( 'Connect your shop in 3 steps', 'ebp-bitcoin' ),
 				'type'        => 'title',
 				'description' => '<ol style="list-style:decimal;margin-left:1.5em">'
-					. '<li>' . esc_html__( 'Open your payment server\'s admin page and go to the Connect tab ("Connect your shop"). Copy its step 1 address into the box below. For the API key, use the one you saved during setup; only if you lost it, make a new one in step 2.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'Open your payment server\'s admin page and go to the Connect tab in the bar at the bottom of the screen ("Connect your shop"). Copy its step 1 address into the box below. For the API key, use the one you saved during setup; only if you lost it, make a new one in step 2.', 'ebp-bitcoin' ) . '</li>'
 					. '<li>' . esc_html__( 'Copy "Your shop\'s notification address" shown further down this page into step 3 on the Connect tab and press Save address. A signing secret appears there once. Copy it into the Signing secret box below.', 'ebp-bitcoin' ) . '</li>'
 					. '<li>' . esc_html__( 'Tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
 					. '</ol>'
@@ -61,7 +61,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'api_key'        => array(
 				'title'       => __( 'API key', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => __( 'Make one in the dashboard: Connect your shop, step 2.', 'ebp-bitcoin' ),
+				'description' => __( 'The key you saved during setup. Lost it? Make a new one in the dashboard: Connect tab, step 2.', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_secret' => array(

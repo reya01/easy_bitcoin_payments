@@ -39,7 +39,15 @@ bitcoin yet.
 
 ## 2. Fill in three things
 
-Open your payment server's admin page and go to the **Connect** tab (its heading says "Connect your shop"). The same three steps are shown at the top of the plugin's settings page.
+You will use two pages side by side, so open each in its own browser tab:
+
+- **Your payment server's admin page:** your server's address followed by `/admin`
+  (for example `https://pay.myshop.com/admin`). Sign in with your admin password.
+  The tabs **Home, Payments, Alerts, Connect, Settings** are in a bar at the
+  **very bottom of the screen**; tap **Connect**. Its heading says "Connect your shop".
+- **The plugin's settings page in WordPress:** **WooCommerce → Settings →
+  Payments → Bitcoin (Easy Bitcoin Payments)**. The same three steps are listed
+  at the top of it.
 
 | In the plugin | Where to get it |
 | --- | --- |

@@ -60,7 +60,7 @@ You will use two pages side by side, so open each in its own browser tab:
 
 The plugin shows **Your shop's notification address**. Copy it into step 3 of
 the Connect tab, press **Save address**, then copy the signing secret that
-appears back into the plugin. Press **Save changes** in WooCommerce. A green
+appears back into the plugin. Tick **Enable** and press **Save changes** in WooCommerce. A green
 "connected to your payment server" message means it works; a red message says
 what to fix.
 

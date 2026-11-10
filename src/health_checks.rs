@@ -53,9 +53,6 @@ pub struct Facts {
     pub wallet_reachable: bool,
     /// The wallet is connected to its payment server (ASP).
     pub asp_connected: Option<bool>,
-    /// Emergency-exit reserve is funded.
-    pub exit_reserve_ok: Option<bool>,
-    pub exit_reserve_shortfall_sats: i64,
     /// Coins the wallet says need renewing (`needs_refresh_sat`).
     pub needs_refresh_sats: Option<i64>,
     /// Offline-spendable balance and the configured safety cap.
@@ -193,27 +190,6 @@ pub fn build(f: &Facts) -> Vec<Check> {
         );
     }
 
-    if let Some(ok) = f.exit_reserve_ok {
-        if ok {
-            push(
-                "reserve",
-                Level::Ok,
-                "Safety reserve is funded",
-                "You hold enough on-chain bitcoin to rescue your funds if the payment network ever stops cooperating.",
-            );
-        } else {
-            push(
-                "reserve",
-                Level::Warn,
-                "Safety reserve is low",
-                &format!(
-                    "Add about {} of regular on-chain bitcoin to the wallet so you could always withdraw on your own if the payment network stopped working. Payments and automatic withdrawals keep working without it; this only matters for the money held in the shop wallet at that moment.",
-                    crate::rates::sats_with_usd(f.exit_reserve_shortfall_sats.max(0), f.usd_per_btc)
-                ),
-            );
-        }
-    }
-
     match f.needs_refresh_sats {
         Some(n) if n > 0 => push(
             "expiry",
@@ -309,7 +285,6 @@ mod tests {
             https: true,
             wallet_reachable: true,
             asp_connected: Some(true),
-            exit_reserve_ok: Some(true),
             needs_refresh_sats: Some(0),
             offchain_sats: Some(1_000),
             hot_wallet_cap_sats: 500_000,
@@ -411,14 +386,11 @@ mod tests {
     }
 
     #[test]
-    fn low_reserve_expiry_and_late_payments_warn_with_numbers() {
+    fn expiry_and_late_payments_warn_with_numbers() {
         let mut f = healthy();
-        f.exit_reserve_ok = Some(false);
-        f.exit_reserve_shortfall_sats = 12_345;
         f.needs_refresh_sats = Some(777);
         f.unmatched_open = 2;
         let c = build(&f);
-        assert!(find(&c, "reserve").detail.contains("12,345 sats"));
         assert!(find(&c, "expiry").detail.contains("777 sats"));
         assert!(
             !find(&c, "expiry").detail.contains('$'),
@@ -426,10 +398,9 @@ mod tests {
         );
         f.usd_per_btc = Some(40_000.0);
         let c = build(&f);
-        assert!(find(&c, "reserve").detail.contains("12,345 sats ($4.94)"));
         assert!(find(&c, "expiry").detail.contains("777 sats ($0.31)"));
         assert!(find(&c, "late").title.starts_with('2'));
-        assert!(["reserve", "expiry", "late"]
+        assert!(["expiry", "late"]
             .iter()
             .all(|id| find(&c, id).level == Level::Warn));
     }
@@ -449,11 +420,10 @@ mod tests {
     #[test]
     fn unknown_facts_do_not_invent_problems() {
         let mut f = healthy();
-        f.exit_reserve_ok = None;
         f.needs_refresh_sats = None;
         f.offchain_sats = None;
         let c = build(&f);
-        assert!(c.iter().all(|x| x.id != "reserve" && x.id != "expiry"));
+        assert!(c.iter().all(|x| x.id != "expiry"));
         assert!(c.iter().all(|x| x.level == Level::Ok));
     }
 

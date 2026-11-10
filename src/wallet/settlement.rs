@@ -1,6 +1,6 @@
 //! Settlement engine (Phase 1, Custody Level 0).
 //!
-//! Three jobs, in priority order:
+//! Two jobs, in priority order:
 //!
 //! 1. **Renewal** — refresh spendable VTXOs inside the renewal window,
 //!    before their per-VTXO expiry (learn_lifetime.md). Renewal never moves
@@ -11,11 +11,6 @@
 //!    same ASP (e.g. their Arké wallet), or a cooperative offboard of the
 //!    whole till when it is an on-chain address (learn_offboard.md).
 //!    Emergency exits are never automated — they are a documented runbook.
-//! 3. **Exit reserve (advisory)** — the Home page warns when the till holds
-//!    less confirmed on-chain bitcoin than [`ONCHAIN_RESERVE_PER_VTXO_SATS`]
-//!    per spendable VTXO (so an emergency exit could be funded). It does NOT
-//!    block sweeps: a sweep moves coins out of the till, which is the safe
-//!    direction, and a new merchant has no on-chain reserve to begin with.
 //!
 //! An automatic ON-CHAIN sweep also waits until the network fee rate is at or
 //! below `onchain_sweep_max_fee_sat_vb`; the merchant can always sweep by hand.
@@ -29,32 +24,7 @@ use crate::config::Config;
 use crate::db::Db;
 use crate::error::AppError;
 use crate::util::{new_id, now_unix};
-use crate::wallet::barkd::{vtxo_expiry_unix, BarkdClient, ONCHAIN_RESERVE_PER_VTXO_SATS};
-
-/// The on-chain emergency-exit reserve for the VTXOs the till holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExitReserve {
-    pub onchain_sats: i64,
-    pub vtxo_count: usize,
-    pub required_sats: i64,
-    pub ok: bool,
-    pub shortfall_sats: i64,
-}
-
-/// Compute the exit reserve for `onchain_sats` of confirmed on-chain coins
-/// and `vtxo_count` spendable VTXOs. Emergency exits need on-chain funds to
-/// CPFP their way out (learn_exit.md: >= 15,000 sats per VTXO, 1-2 hours),
-/// so the till must always hold this much on-chain.
-pub fn exit_reserve(onchain_sats: i64, vtxo_count: usize) -> ExitReserve {
-    let required_sats = ONCHAIN_RESERVE_PER_VTXO_SATS * vtxo_count as i64;
-    ExitReserve {
-        onchain_sats,
-        vtxo_count,
-        required_sats,
-        ok: onchain_sats >= required_sats,
-        shortfall_sats: (required_sats - onchain_sats).max(0),
-    }
-}
+use crate::wallet::barkd::{vtxo_expiry_unix, BarkdClient};
 
 /// What one settlement tick did, for logs and tests.
 #[derive(Debug, Default)]
@@ -558,32 +528,6 @@ mod tests {
             renewal_lead_time_secs: 604_800,
             ..Config::default()
         })
-    }
-
-    #[test]
-    fn exit_reserve_math() {
-        let exact = exit_reserve(15_000, 1);
-        assert!(exact.ok);
-        assert_eq!(exact.shortfall_sats, 0);
-
-        let short = exit_reserve(14_999, 1);
-        assert!(!short.ok);
-        assert_eq!(short.shortfall_sats, 1);
-
-        let none = exit_reserve(0, 0);
-        assert!(none.ok, "no vtxos, no reserve needed");
-
-        let two = exit_reserve(29_999, 2);
-        assert!(!two.ok);
-        assert_eq!(two.shortfall_sats, 1);
-    }
-
-    #[test]
-    fn sweepable_onchain_sats_keeps_the_reserve() {
-        use crate::wallet::barkd::sweepable_onchain_sats;
-        assert_eq!(sweepable_onchain_sats(50_000, 2), 20_000);
-        assert_eq!(sweepable_onchain_sats(10_000, 2), 0);
-        assert_eq!(sweepable_onchain_sats(30_000, 2), 0);
     }
 
     #[tokio::test]

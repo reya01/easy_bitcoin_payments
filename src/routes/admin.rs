@@ -4,35 +4,23 @@
 //! (`Authorization: Bearer <admin token>`), NOT a store API key. When no admin
 //! token is configured the endpoint does not exist (404). It answers the
 //! questions an operator has that the public `/health` deliberately must not:
-//! how much is in the till, is the on-chain exit reserve funded, is anything
-//! waiting for the merchant (late payments, failed webhooks).
-//!
-//! `?funding_address=1` additionally asks barkd for a FRESH on-chain address
-//! to top up the exit reserve. It is opt-in because every call consumes an
-//! address from the wallet.
+//! how much is in the till, is anything waiting for the merchant (late
+//! payments, failed webhooks).
 //!
 //! Wallet figures come from barkd on a best-effort basis: any failure is
 //! reported in `wallet.error` and the DB-derived counters are still returned.
 
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
 use axum::Json;
 use rusqlite::params;
-use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
 use crate::routes::AppState;
 use crate::util::to_rfc3339;
 use crate::wallet::barkd::BarkdClient;
-use crate::wallet::settlement::exit_reserve;
-
-#[derive(Debug, Deserialize)]
-pub struct StatusQuery {
-    #[serde(default)]
-    pub funding_address: Option<String>,
-}
 
 async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {
     // A signed-in browser session may read the status (GET only).
@@ -73,7 +61,6 @@ async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AppError
 pub async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(query): Query<StatusQuery>,
 ) -> Result<Json<Value>, AppError> {
     authorize(&state, &headers).await?;
 
@@ -115,8 +102,7 @@ pub async fn status(
         })
         .await?;
 
-    // Wallet / exit-reserve figures straight from barkd (best effort).
-    let want_address = query.funding_address.as_deref() == Some("1");
+    // Wallet figures straight from barkd (best effort).
     let wallet = match BarkdClient::from_app_config(&state.config) {
         Err(err) => json!({ "error": err.to_string() }),
         Ok(client) => {
@@ -138,30 +124,6 @@ pub async fn status(
             if let Ok(c) = client.connected().await {
                 if let Some(v) = c.connected {
                     out.insert("asp_connected".into(), json!(v));
-                }
-            }
-            match (client.vtxos().await, client.onchain_balance().await) {
-                (Ok(vtxos), Ok(onchain)) => {
-                    let reserve = exit_reserve(onchain.confirmed_sats, vtxos.spendable.len());
-                    out.insert(
-                        "exit_reserve".into(),
-                        json!({
-                            "ok": reserve.ok,
-                            "confirmed_onchain_sats": reserve.onchain_sats,
-                            "required_sats": reserve.required_sats,
-                            "shortfall_sats": reserve.shortfall_sats,
-                            "spendable_vtxos": reserve.vtxo_count,
-                        }),
-                    );
-                }
-                (Err(e), _) | (_, Err(e)) => errors.push(format!("exit reserve: {e}")),
-            }
-            if want_address {
-                match client.onchain_address().await {
-                    Ok(addr) => {
-                        out.insert("reserve_funding_address".into(), json!(addr));
-                    }
-                    Err(e) => errors.push(format!("funding address: {e}")),
                 }
             }
             if !errors.is_empty() {
@@ -201,10 +163,6 @@ pub async fn status(
     facts.wallet_reachable = wallet.get("offchain_sats").is_some();
     facts.offchain_sats = wallet.get("offchain_sats").and_then(Value::as_i64);
     facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
-    if let Some(r) = wallet.get("exit_reserve") {
-        facts.exit_reserve_ok = r["ok"].as_bool();
-        facts.exit_reserve_shortfall_sats = r["shortfall_sats"].as_i64().unwrap_or(0);
-    }
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
     {
         let cfg = state.config.settlement_destination.clone();

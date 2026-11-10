@@ -55,7 +55,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
   (`EBP_HOT_WALLET_CAP_SATS`, default 20,000 sats for an Ark payout address; `EBP_ONCHAIN_SWEEP_CAP_SATS`, default 1,000,000, for an on-chain one) and sweeps excess to the
   merchant’s own wallet. WHY: passive Ark receive needs a server-side wallet,
   but the honest custody story is “minimize, cap, sweep home, document exactly.”
-  The 15,000 sat/VTXO on-chain reserve keeps emergency exits fundable.
+  (The on-chain exit-reserve warning was removed: it asked for more money on the server, against that principle.)
 - **No upstream assumptions.** EBP works with Bark/barkd/Arké as they exist
   today. WHY: the spec explicitly assumes no upstream contributions and no
   upstream roadmap; missing capabilities are designed around inside EBP.

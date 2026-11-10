@@ -69,7 +69,7 @@ notification** to check it still works.
 
 - If your payment server shows **Paid** but the order on your WooCommerce site
   stays On hold with no note at all, the notice probably did not reach the
-  plugin. Follow [the WooCommerce page](WOOCOMMERCE.md#the-payment-server-shows-paid-but-the-order-stays-on-hold):
+  plugin. Follow [the WooCommerce page](WOOCOMMERCE.md#if-the-test-order-stays-on-hold):
   the webhook address on your payment server (Connect tab, card 3) must be exactly the
   notification address your WooCommerce site's plugin shows, and the plugin's
   `ebp-bitcoin` log (WooCommerce → Status → Logs) says what happened to each notice.

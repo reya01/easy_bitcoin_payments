@@ -25,9 +25,10 @@ check, and a day of running unattended. The new things are in
 - [ ] A WordPress + WooCommerce shop with a **public** address (not
       "localhost" or a site only on your own computer), where you are an admin.
 - [ ] The plugin zip `ebp-bitcoin-woocommerce.zip` saved where your browser
-      can reach it. No release exists yet, so it comes from the project owner's
-      assistant (sent in the chat) or from the **plugin-zip** download at the bottom
-      of any green run on GitHub: Actions, open the latest "CI" run, Artifacts.
+      can reach it. No release exists yet, so download it from
+      [the project's build page](https://github.com/reya01/easy_bitcoin_payments/actions/workflows/ci.yml?query=branch%3Amain):
+      click the newest run with a green tick, scroll to **Artifacts**, download
+      **plugin-zip**, and unzip it once. Full steps: `docs/WOOCOMMERCE.md`, section 1.
 - [ ] Your shop's currency is one of USD, EUR, GBP, CHF, CAD, AUD or JPY (other
       currencies are refused for now).
 - [ ] Your shop's PHP is up to date (WordPress: Tools, Site Health, Info, Server;

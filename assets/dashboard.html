@@ -559,7 +559,7 @@ function loadDeliveries() {
     var d = $("deliveries"); clear(d);
     list.forEach(function (x) {
       var r = row(x.event + " · " + when(x.created_at), x.status, x.status === "delivered" ? "ok" : x.status === "failed" ? "bad" : "");
-      if (x.status === "failed") {
+      if (x.status === "failed" || x.status === "delivered") {
         var b = el("button", "Resend", "small"); b.type = "button"; b.style.marginLeft = "8px";
         b.addEventListener("click", function () { b.disabled = true; api("POST", "/api/v1/webhook-deliveries/" + encodeURIComponent(x.id) + "/resend", {}).then(loadDeliveries); });
         r.appendChild(b);

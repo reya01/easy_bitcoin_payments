@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- Connect tab: **Resend** now also appears on notifications that were delivered, not only failed ones, so you can send a payment notice to your shop again (it is safe: an order that is already paid is left alone).
 - **WooCommerce plugin:** every payment notice now leaves one plain line in WooCommerce → Status → Logs (source `ebp-bitcoin`): refused (signature), could not confirm with the server, not matched to an order, or handled (with the order's new status). Before, several of these answered "OK" silently, so a notice that changed nothing left no trace. No keys or secrets are logged.
 - **Docs:** the signing secret, like the API key, is now shown with "save it in your password manager" (WooCommerce page, dashboard, plugin text).
 - **Docs:** every WooCommerce step, the plugin's settings text and related docs now say whether it is on "your payment server" or "your WooCommerce site" (new design principle in CONTRIBUTING.md).

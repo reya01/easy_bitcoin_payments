@@ -44,7 +44,7 @@ Open your payment server's admin page and go to the **Connect** tab (its heading
 | In the plugin | Where to get it |
 | --- | --- |
 | Server address | Step 1 on the Connect tab (your padlock address) |
-| API key | Step 2: **Make a new API key** (shown once, copy it right away) |
+| API key | The key you were shown during setup (you saved it in your password manager). Only if you lost it: step 2 on the Connect tab, **Make a new API key** (the old one stops working at once; shown once, copy it right away) |
 | Signing secret | Step 3: appears once when you save the notification address |
 
 The plugin shows **Your shop's notification address**. Copy it into step 3 of

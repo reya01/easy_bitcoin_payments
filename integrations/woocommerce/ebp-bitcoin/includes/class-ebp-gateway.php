@@ -192,6 +192,11 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		}
 	}
 
+	/** One line in WooCommerce -> Status -> Logs (source: ebp-bitcoin). Never contains keys or secrets. */
+	private function log( $level, $message ) {
+		wc_get_logger()->log( $level, $message, array( 'source' => 'ebp-bitcoin' ) );
+	}
+
 	private function reply( $code, $message ) {
 		status_header( $code );
 		header( 'Content-Type: application/json; charset=utf-8' );
@@ -205,6 +210,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		$header = isset( $_SERVER['HTTP_X_EBP_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_EBP_SIGNATURE'] ) ) : '';
 
 		if ( ! EBP_Core::verify_signature( $this->get_option( 'webhook_secret' ), $header, $body, time() ) ) {
+			$this->log( 'warning', 'Payment notice refused: its signature did not match the Signing secret saved here.' );
 			$this->reply( 401, 'bad signature' );
 		}
 		$event = json_decode( $body, true );
@@ -222,6 +228,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			)
 		);
 		if ( empty( $orders ) ) {
+			$this->log( 'warning', 'Payment notice for invoice ' . $invoice_id . ' ignored: no order here has that invoice.' );
 			$this->reply( 200, 'unknown invoice' );
 		}
 		$order = $orders[0];
@@ -229,9 +236,11 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		// Source of truth: ask the server, do not trust the notification alone.
 		$invoice = $this->client()->get_invoice( $invoice_id );
 		if ( is_wp_error( $invoice ) ) {
+			$this->log( 'warning', 'Payment notice for order ' . $order->get_id() . ': could not confirm with the payment server (' . $invoice->get_error_message() . ').' );
 			$this->reply( 503, 'could not confirm with the payment server' );
 		}
 		if ( EBP_Core::order_id_from_ref( isset( $invoice['order_id'] ) ? $invoice['order_id'] : '' ) !== $order->get_id() ) {
+			$this->log( 'warning', 'Payment notice for order ' . $order->get_id() . ' ignored: the invoice belongs to order reference "' . ( isset( $invoice['order_id'] ) ? (string) $invoice['order_id'] : '' ) . '".' );
 			$this->reply( 200, 'invoice does not belong to this order' );
 		}
 
@@ -284,6 +293,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				}
 				break;
 		}
+		$this->log( 'info', 'Payment notice handled: order ' . $order->get_id() . ', server says "' . $status . '", order is now "' . $order->get_status() . '".' );
 		$this->reply( 200, 'ok' );
 	}
 }

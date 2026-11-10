@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **WooCommerce plugin:** every payment notice now leaves one plain line in WooCommerce → Status → Logs (source `ebp-bitcoin`): refused (signature), could not confirm with the server, not matched to an order, or handled (with the order's new status). Before, several of these answered "OK" silently, so a notice that changed nothing left no trace. No keys or secrets are logged.
 - **Docs:** the signing secret, like the API key, is now shown with "save it in your password manager" (WooCommerce page, dashboard, plugin text).
 - **Docs:** every WooCommerce step, the plugin's settings text and related docs now say whether it is on "your payment server" or "your WooCommerce site" (new design principle in CONTRIBUTING.md).
 - **Docs:** the WooCommerce page and the plugin's own instructions no longer tell people to make a new API key; they use the one saved during setup (a new one only if it was lost), because a new key stops the old one working at once. The WooCommerce page and Start here now say the steps are a guide (every host differs) and suggest asking an AI assistant for help adapting them, with a warning never to share passwords, keys, signing secrets or recovery words. The plugin zip's real location before the first release is also stated.

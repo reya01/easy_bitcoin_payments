@@ -14,10 +14,10 @@ do not need a terminal.
   Make sure your host runs a current PHP version (WordPress: **Tools → Site
   Health → Info → Server**); see [Keep your shop patched](WOOCOMMERCE.md#keep-your-shop-patched).
 - The plugin file `ebp-bitcoin-woocommerce.zip`, saved where your browser can reach
-  it. Get it from the project's
-  [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases): open the
-  newest release and download the zip under **Assets** (see
-  [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin) if you cannot find it).
+  it. Until the first release candidate is published, ask the project owner for it
+  or see [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin) for where to
+  download it; after that it is under **Assets** on the project's
+  [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases).
 - A wallet for the payout address (Ark or on-chain).
 - Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
   5 to 10 minutes to arrive).

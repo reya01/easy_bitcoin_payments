@@ -38,17 +38,7 @@ step below says which one it means:
 
 ## 1. Install the plugin
 
-1. Get `ebp-bitcoin-woocommerce.zip`.
-   - **While testing (no release has the plugin yet):** the project owner sends
-     you the zip, or you download it from GitHub: **Actions**, open the newest
-     green **CI** run, scroll to **Artifacts** at the bottom and download
-     **plugin-zip** (you need to be signed in to GitHub; the download is a zip
-     that contains the plugin zip, so unzip it once first). Artifacts are kept
-     for 14 days.
-   - **From the first release candidate on:** open the release you are testing
-     (for example `v0.1.0-rc1`) on the project's **Releases** page and look
-     under **Assets**. Do not use the "latest release" shortcut: GitHub skips
-     pre-releases such as `rc1` there.
+1. Download `ebp-bitcoin-woocommerce.zip` from the [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases): open the top release and look under **Assets**.
 2. **On your WooCommerce site:** **Plugins → Add New → Upload Plugin**, choose the zip, then
    **Install Now** and **Activate**.
 3. **On your WooCommerce site:** go to **WooCommerce → Settings → Payments**. Newer WooCommerce shows a list
@@ -107,10 +97,24 @@ The old secret stops working at once.
 
 Never paste the signing secret anywhere except that one plugin box.
 
-### The payment server shows Paid, but the order stays On hold
+## 3. Try it
 
-This almost always means the payment notice did not reach the plugin. Check, in
-this order:
+**On your payment server:** on the **Connect** tab press **Send a test notification**
+(nothing is charged). Then **on your WooCommerce site** place a small test order on your own shop and pay it with a signet wallet.
+The order should move from **On hold** to **Processing** by itself within a few
+seconds of the payment.
+
+Always do this small test payment before you take real orders, and again after any
+change to the connection settings. If the order moved to Processing, you are done.
+
+### If the test order stays On hold
+
+If your payment server shows the payment as **Paid** but the order on your
+WooCommerce site stays **On hold**, the connection from your payment server to
+your shop is not working yet. The payment is not lost: the money is safe on your
+payment server, and the order only needs the "payment received" notice to reach
+your shop. This most often happens when the notification address or the signing
+secret was copied wrongly. Check, in this order:
 
 1. **On your payment server**, **Connect** tab, card 3: the **Your shop's webhook
    address** must be exactly the address the plugin shows under **Your shop's
@@ -126,12 +130,8 @@ this order:
    "refused: signature did not match" or "handled: order 22 is now
    processing". Send those lines (they hold no secrets) if you need help.
 
-## 3. Try it
-
-**On your payment server:** on the **Connect** tab press **Send a test notification**
-(nothing is charged). Then **on your WooCommerce site** place a small test order on your own shop and pay it with a signet wallet.
-The order should move from **On hold** to **Processing** by itself within a few
-seconds of the payment.
+Then place another small test order. Orders that were already paid on your payment
+server but stayed On hold can be marked **Processing** by hand in WooCommerce.
 
 ## What your customers see
 

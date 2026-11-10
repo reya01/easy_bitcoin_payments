@@ -38,18 +38,7 @@ step below says which one it means:
 
 ## 1. Install the plugin
 
-1. Get `ebp-bitcoin-woocommerce.zip`.
-   - **While testing (no release has the plugin yet):** download it from GitHub. Open
-     [the project's build page](https://github.com/reya01/easy_bitcoin_payments/actions/workflows/ci.yml?query=branch%3Amain) (it lists runs on the `main` branch only), click the
-     newest run with a green tick, scroll to **Artifacts** at the bottom and download
-     **plugin-zip**. You need to be signed in to GitHub. The download is a zip that
-     contains `ebp-bitcoin-woocommerce.zip`, so unzip it once first (on a computer, double-click it; on a phone,
-     tap the downloaded file in your Files app) and upload the inner zip to WordPress.
-     Artifacts are kept for 14 days, so always pick the newest run.
-   - **From the first release candidate on:** open the release you are testing
-     (for example `v0.1.0-rc1`) on the project's **Releases** page and look
-     under **Assets**. Do not use the "latest release" shortcut: GitHub skips
-     pre-releases such as `rc1` there.
+1. Download `ebp-bitcoin-woocommerce.zip` from the [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases): open the top release and look under **Assets**.
 2. **On your WooCommerce site:** **Plugins → Add New → Upload Plugin**, choose the zip, then
    **Install Now** and **Activate**.
 3. **On your WooCommerce site:** go to **WooCommerce → Settings → Payments**. Newer WooCommerce shows a list

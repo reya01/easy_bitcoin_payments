@@ -14,13 +14,12 @@ anything. Read the release notes first, and update **one release at a time**.
 Restarting is always safe: pending payments and shop notifications are stored and
 resume.
 
-## While testing (before the first release candidate)
+## While only release candidates exist
 
-The "Update available" notice only looks at full releases, so during testing it
-will not appear. There is nothing to wait for: to get the newest test build, use the
-same steps below (`git pull` fetches the newest code). Read the
-[CHANGELOG](../CHANGELOG.md) first to see what changed. Your wallet, settings, orders
-and shop connection are kept.
+The "Update available" notice only looks at full releases, so it will not appear for
+a release candidate. To get the newest one, use the same steps below (`git pull`
+fetches the newest code). Read the [CHANGELOG](../CHANGELOG.md) first to see what
+changed. Your wallet, settings, orders and shop connection are kept.
 
 ## Update a DigitalOcean server (the usual way)
 
@@ -59,8 +58,8 @@ choose the new `ebp-bitcoin-woocommerce.zip` and, when WordPress says the plugin
 already installed, choose **Replace current with uploaded**. Your settings (server
 address, API key, signing secret) are kept; open **WooCommerce → Settings →
 Payments → Manage** next to **Bitcoin (Easy Bitcoin Payments)** and press **Save
-changes** to confirm the green "connected" message. While testing, get the zip as
-described in [WOOCOMMERCE.md](WOOCOMMERCE.md#1-install-the-plugin).
+changes** to confirm the green "connected" message. The zip is under **Assets** on the
+[Releases page](https://github.com/reya01/easy_bitcoin_payments/releases).
 
 ## The safety net
 

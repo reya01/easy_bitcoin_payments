@@ -157,8 +157,7 @@ curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
 With the sidecar running, invoices get real Ark + on-chain addresses and a
 Lightning invoice (best effort, via the ASP gateway), the watcher polls
 `/history` (barkd's current history endpoint) with a persisted cursor, and the settlement engine sweeps
-the till to `EBP_SETTLEMENT_DESTINATION` while keeping a 15,000 sat/VTXO
-on-chain emergency-exit reserve.
+the till to `EBP_SETTLEMENT_DESTINATION`.
 
 ---
 
@@ -181,7 +180,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/admin/version` | Current version, whether a newer release exists, open-order count |
 | `POST` | `/api/v1/stores/webhook/test` | (**admin session only**) Send a harmless `webhook.test` notification to the store's webhook |
 | `POST` | `/api/v1/stores/rotate-key` | (**admin session only**) Revoke all API keys for the store and issue a new one (shown once) |
-| `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till + exit-reserve (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
+| `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |
 | `GET` | `/i/{id}/json` | Full invoice JSON (fetched once by the checkout page) |
@@ -333,8 +332,7 @@ conversion, database migrations, and the watcher's payment application path.
 - **Custody, Phase 1 (Level 0).** barkd holds the keys on the server; the
   server's bearer token can spend the capped hot float but cannot touch
   anything already swept to your wallet. Sweeps go out automatically on the
-  hot cap and ahead of VTXO expiry, and the engine refuses any sweep that
-  would breach the 15,000 sat/VTXO on-chain emergency-exit reserve. A
+  hot cap and ahead of VTXO expiry. A
   compromised server can steal at most the float.
 
 ---

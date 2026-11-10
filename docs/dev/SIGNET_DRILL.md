@@ -132,7 +132,6 @@ bug to fix before enabling the rail.
 | # | Do | Expect |
 |---|----|--------|
 | 6.1 | Trigger a sweep to your own Ark wallet (small amount) | Sent once; record the real response body (its shape is unpinned) |
-| 6.2 | Check the exit reserve warning by lowering funds | Warning shows; a sweep that would breach it is refused |
 | 6.3 | Renew expiring coins (VTXO refresh) | Succeeds; the request body matches the pinned OpenAPI |
 
 ## Result table

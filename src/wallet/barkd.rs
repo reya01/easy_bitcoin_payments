@@ -150,15 +150,6 @@ const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// TCP connect timeout against the sidecar.
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// On-chain sats kept per VTXO so an emergency exit can always be CPFP'd
-/// (learn_exit.md: unilateral exits cost >= 15,000 sats per VTXO in fees).
-pub const ONCHAIN_RESERVE_PER_VTXO_SATS: i64 = 15_000;
-
-/// On-chain sats a settlement sweep may move while preserving the reserve.
-pub fn sweepable_onchain_sats(onchain_sats: i64, vtxo_count: usize) -> i64 {
-    (onchain_sats - ONCHAIN_RESERVE_PER_VTXO_SATS * vtxo_count as i64).max(0)
-}
-
 /// The verbatim live-captured response bodies (barkd 0.8.0, signet,
 /// 2026-11-01) that completed shape verification — canonical fixtures
 /// for the mock server and the shape tests. See barkd/live_shapes.rs.

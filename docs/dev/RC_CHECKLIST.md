@@ -143,5 +143,6 @@ done differently.
 - [ ] **Sign-in flooding.** Enough machines sending junk sign-ins can still make a new
       sign-in slow or refused for a while (signed-in owners are not affected). Accepted
       for now; revisit with real traffic.
-- [ ] **Safety reserve size.** 15,000 sats per coin grows fast with many small Lightning
-      payments; revisit with real mainnet coin counts.
+- [ ] **Emergency exit costs (the reserve warning was removed on 10 November).** Pulling
+      coins out alone, if the Ark server ever stops, costs on-chain fees per coin. On
+      mainnet, measure what that costs and check the runbook says so plainly.

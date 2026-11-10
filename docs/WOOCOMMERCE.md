@@ -19,6 +19,18 @@ get payment notices; use a shop with a public address.
 **Test version:** use play-money (signet) only for now. Do not take real
 bitcoin yet.
 
+## Two places, kept apart in these steps
+
+You will flip between two different websites, and some names look alike. Every
+step below says which one it means:
+
+- **Your payment server** is the Easy Bitcoin Payments admin page, at your server's
+  address followed by `/admin` (for example `https://pay.myshop.com/admin`).
+  Its tabs (Home, Payments, Alerts, Connect, Settings) are in a bar at the very
+  bottom of the screen.
+- **Your WooCommerce site** is the WordPress admin of your shop (the
+  WooCommerce.com or WordPress dashboard where you installed the plugin).
+
 ## 1. Install the plugin
 
 1. Get `ebp-bitcoin-woocommerce.zip`.
@@ -32,9 +44,9 @@ bitcoin yet.
      (for example `v0.1.0-rc1`) on the project's **Releases** page and look
      under **Assets**. Do not use the "latest release" shortcut: GitHub skips
      pre-releases such as `rc1` there.
-2. In WordPress: **Plugins → Add New → Upload Plugin**, choose the zip, then
+2. **On your WooCommerce site:** **Plugins → Add New → Upload Plugin**, choose the zip, then
    **Install Now** and **Activate**.
-3. Go to **WooCommerce → Settings → Payments**. Newer WooCommerce shows a list
+3. **On your WooCommerce site:** go to **WooCommerce → Settings → Payments**. Newer WooCommerce shows a list
    of payment methods: press **Manage** next to **Bitcoin (Easy Bitcoin
    Payments)** (older versions open it by clicking its name). Its settings page
    is where you fill in everything below. Leave **Enable** unticked until
@@ -42,21 +54,20 @@ bitcoin yet.
 
 ## 2. Fill in three things
 
-You will use two pages side by side, so open each in its own browser tab:
+Open both in their own browser tabs and keep them side by side:
 
-- **Your payment server's admin page:** your server's address followed by `/admin`
-  (for example `https://pay.myshop.com/admin`). Sign in with your admin password.
-  The tabs **Home, Payments, Alerts, Connect, Settings** are in a bar at the
-  **very bottom of the screen**; tap **Connect**. Its heading says "Connect your shop".
-- **The plugin's settings page in WordPress:** **WooCommerce → Settings →
-  Payments**, then **Manage** next to **Bitcoin (Easy Bitcoin Payments)**. The
-  same three steps are listed at the top of it.
+- **Your payment server:** your server's address followed by `/admin`. Sign in with
+  your admin password, then tap **Connect** in the bar at the very bottom of the
+  screen. Its heading says "Connect your shop".
+- **Your WooCommerce site:** **WooCommerce → Settings → Payments**, then **Manage**
+  next to **Bitcoin (Easy Bitcoin Payments)**. The same three steps are listed at
+  the top of it.
 
-| In the plugin | Where to get it |
+| Box on your WooCommerce site (plugin settings) | Where to get it, on your payment server |
 | --- | --- |
-| Server address | Step 1 on the Connect tab (your padlock address) |
-| API key | The key you were shown during setup (you saved it in your password manager). Only if you lost it: step 2 on the Connect tab, **Make a new API key** (the old one stops working at once; shown once, copy it right away) |
-| Signing secret | Step 3: appears once when you save the notification address |
+| Server address | Card 1 on your payment server's **Connect** tab (your padlock address) |
+| API key | The key you were shown during setup (you saved it in your password manager). Only if you lost it: card 2 on your payment server's **Connect** tab, **Make a new API key** (the old one stops working at once; shown once, copy it right away) |
+| Signing secret | Card 3 on your payment server's **Connect** tab: appears once when you save the notification address |
 
 ### The signing secret, step by step
 
@@ -64,36 +75,36 @@ The signing secret is how your shop knows a "payment received" message really
 came from your payment server. You get it by telling the server your shop's
 notification address. Do this in order, with both pages open:
 
-1. On the **plugin's settings page** (WordPress), find **Your shop's
+1. **On your WooCommerce site**, on the plugin's settings page, find **Your shop's
    notification address**. It is a web address under the boxes, for example
    `https://myshop.com/?wc-api=ebp_bitcoin`. Select it and copy it.
-2. On your **payment server's Connect tab**, scroll to card **3. Payment
+2. **On your payment server**, on the **Connect** tab, scroll to card **3. Payment
    notifications to your shop**. Paste the address into the box **Your shop's
    webhook address**.
-3. Tap **Save address**. A box appears that says **Signing secret, shown once**.
+3. **On your payment server:** tap **Save address**. A box appears that says **Signing secret, shown once**.
    Tap **Copy** under it. (The box disappears when you leave the page, so do the
    next step right away.)
-4. Back on the **plugin's settings page**, paste it into the **Signing secret**
+4. **On your WooCommerce site**, on the plugin's settings page, paste it into the **Signing secret**
    box. It shows dots as you paste; that is normal.
-5. Tick **Enable** and press **Save changes** at the bottom of the plugin page.
+5. **On your WooCommerce site:** tick **Enable** and press **Save changes** at the bottom of the plugin's settings page.
    Green "connected to your payment server" means it worked. A red message says
    what to fix.
 
-**No secret box appeared in step 3?** The server only shows a secret the first
-time you save the address. If you saved the address before, tap **New signing
-secret** (next to Save address) instead. It makes a fresh secret and shows it
+**No secret box appeared in step 3?** Your payment server only shows a secret the
+first time you save the address. If you saved the address before, tap **New
+signing secret** (next to Save address, on your payment server) instead. It makes a fresh secret and shows it
 once. Paste that one into the plugin.
 
 **Lost it, or it says the signature does not match?** Do the same thing: tap
-**New signing secret**, copy the new one, paste it into the plugin, and save.
+**New signing secret** on your payment server, copy the new one, paste it into the plugin on your WooCommerce site, and save.
 The old secret stops working at once.
 
 Never paste the signing secret anywhere except that one plugin box.
 
 ## 3. Try it
 
-On the Connect tab press **Send a test notification** (nothing is charged),
-then place a small test order on your own shop and pay it with a signet wallet.
+**On your payment server:** on the **Connect** tab press **Send a test notification**
+(nothing is charged). Then **on your WooCommerce site** place a small test order on your own shop and pay it with a signet wallet.
 The order should move from **On hold** to **Processing** by itself within a few
 seconds of the payment.
 
@@ -105,7 +116,7 @@ turned it on). Underpaying keeps the order on hold for a
 short top-up window; if the invoice expires unpaid, the order is cancelled and
 stock is released. If a payment arrives after the order was cancelled, the
 order notes say so, so you can decide what to do (see **Payments that need
-you** on the dashboard).
+you** on your payment server's dashboard).
 
 ## Warnings the plugin gives you
 
@@ -130,7 +141,8 @@ refund it by hand.
 - The plugin only talks to the server address you typed in. No third party is
   involved.
 - Keep the API key and signing secret private. If either leaks, make a new one
-  on the Connect tab and paste it in.
+  on your payment server's **Connect** tab and paste it into the plugin on your
+  WooCommerce site.
 
 ## Keep your shop patched
 
@@ -145,7 +157,7 @@ or show customers a wrong address. So:
 - Turn on automatic updates for WordPress, WooCommerce and plugins; remove plugins
   you do not use; use two-step sign-in on WordPress admin accounts.
 - Never install WordPress or other PHP on the payment server.
-- Optional: in the admin page's **Connect** tab, limit the API key to your shop's
+- Optional: on your payment server's **Connect** tab, limit the API key to your shop's
   server address; and in Settings you can pause new payments instantly.
 - A longer checklist for shop owners: [KEEPING_WORDPRESS_SAFE.md](KEEPING_WORDPRESS_SAFE.md).
 - If the shop may have been exposed: [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md), section 6.

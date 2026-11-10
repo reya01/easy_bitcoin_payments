@@ -139,7 +139,9 @@ and use a password only, which is less secure, and turn it on later in
 
 ## 6. Connect your shop
 
-Follow [WOOCOMMERCE.md](WOOCOMMERCE.md) (about 10 minutes). The admin page's
+Follow [WOOCOMMERCE.md](WOOCOMMERCE.md) (about 10 minutes). It uses two places and
+says which one each step is in: **your payment server** (the admin page you just set up) and
+**your WooCommerce site** (your shop's WordPress admin). Your payment server's
 **Connect** tab gives you what the plugin asks for, one numbered step at a time.
 Finish by sending a test notification and placing a small test order.
 
@@ -157,8 +159,8 @@ file, type the password. It tells you whether the backup opens and what it holds
 - [ ] `/admin` opens after you sign in, and **Home** says everything is OK.
 - [ ] Two-step sign-in is on (Settings), with your backup codes saved, or you chose password only.
 - [ ] A test payment shows **Paid** and appears under **Payments**.
-- [ ] On the **Connect** tab, **Send a test notification** says "Your shop received the test."
-- [ ] A small test order in your shop moved to Processing by itself.
+- [ ] On your payment server's **Connect** tab, **Send a test notification** says "Your shop received the test."
+- [ ] A small test order on your WooCommerce site moved to Processing by itself.
 - [ ] You downloaded a backup, checked that it opens, and stored it away from the server.
 - [ ] Your recovery words are on paper in two places.
 

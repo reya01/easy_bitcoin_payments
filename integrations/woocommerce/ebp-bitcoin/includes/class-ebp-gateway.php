@@ -38,9 +38,9 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				'title'       => __( 'Connect your shop in 3 steps', 'ebp-bitcoin' ),
 				'type'        => 'title',
 				'description' => '<ol style="list-style:decimal;margin-left:1.5em">'
-					. '<li>' . esc_html__( 'Open your payment server\'s admin page and go to the Connect tab in the bar at the bottom of the screen ("Connect your shop"). Copy its step 1 address into the box below. For the API key, use the one you saved during setup; only if you lost it, make a new one in step 2.', 'ebp-bitcoin' ) . '</li>'
-					. '<li>' . esc_html__( 'Copy "Your shop\'s notification address" shown further down this page. On the Connect tab, paste it into card 3 ("Your shop\'s webhook address") and press Save address. A box labelled "Signing secret" appears once: press Copy, then paste it into the Signing secret box below. No box? Press "New signing secret" instead.', 'ebp-bitcoin' ) . '</li>'
-					. '<li>' . esc_html__( 'Tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'ON YOUR PAYMENT SERVER (a different website from this one): open its admin page, your server address followed by /admin, and tap Connect in the bar at the bottom of the screen. Copy the address from card 1 into the Server address box below. For the API key, use the one you saved during setup; only if you lost it, make a new one in card 2.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'ON YOUR WOOCOMMERCE SITE (this page): copy "Your shop\'s notification address" shown further down this page. ON YOUR PAYMENT SERVER: paste it into card 3 ("Your shop\'s webhook address") and press Save address. A box labelled "Signing secret" appears once: press Copy. ON YOUR WOOCOMMERCE SITE: paste it into the Signing secret box below. No box? On your payment server press "New signing secret" instead.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'ON YOUR WOOCOMMERCE SITE: tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then ON YOUR PAYMENT SERVER press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
 					. '</ol>'
 					. '<p><strong>' . esc_html__( 'Test version: use play-money (signet) coins only.', 'ebp-bitcoin' ) . '</strong></p>',
 			),
@@ -53,7 +53,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'server_url'     => array(
 				'title'       => __( 'Server address', 'ebp-bitcoin' ),
 				'type'        => 'text',
-				'description' => __( 'Your payment server, from step 1 on the Connect tab of its admin page. Example: https://pay.myshop.com', 'ebp-bitcoin' ),
+				'description' => __( 'Your payment server, from card 1 on the Connect tab of its admin page (a different website from this one). Example: https://pay.myshop.com', 'ebp-bitcoin' ),
 				'desc_tip'    => false,
 				'default'     => '',
 				'placeholder' => 'https://',
@@ -61,19 +61,19 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'api_key'        => array(
 				'title'       => __( 'API key', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => __( 'The key you saved during setup. Lost it? Make a new one in the dashboard: Connect tab, step 2.', 'ebp-bitcoin' ),
+				'description' => __( 'The key you saved during setup. Lost it? On your payment server, make a new one: Connect tab, card 2.', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_secret' => array(
 				'title'       => __( 'Signing secret', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => __( 'From the dashboard: Connect your shop, step 3 (shown once when you save the address).', 'ebp-bitcoin' ),
+				'description' => __( 'From your payment server: Connect tab, card 3 (shown once when you save the address).', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_info'   => array(
 				'title'       => __( 'Your shop\'s notification address', 'ebp-bitcoin' ),
 				'type'        => 'title',
-				'description' => __( 'Paste this into the dashboard (Connect your shop, step 3):', 'ebp-bitcoin' ) . '<br><code>' . esc_html( $this->webhook_url() ) . '</code>',
+				'description' => __( 'Paste this into your payment server (Connect tab, card 3):', 'ebp-bitcoin' ) . '<br><code>' . esc_html( $this->webhook_url() ) . '</code>',
 			),
 			'title'          => array(
 				'title'   => __( 'Name shown to customers', 'ebp-bitcoin' ),

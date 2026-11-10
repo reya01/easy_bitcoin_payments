@@ -18,6 +18,16 @@ Technical detail is welcome, but it is never the default:
   Bitcoin", not "on-chain"), with opinionated defaults, without ever weakening
   security or sovereignty (the merchant still holds the keys).
 
+## Design principle: always say which place a step happens in
+
+Setting up involves flipping between two different websites with similar
+names: **your payment server** (the Easy Bitcoin Payments admin page) and **your
+WooCommerce site** (the shop's WordPress admin). Every step in the docs, the
+plugin's settings text and the dashboard that names a screen, tab, button or
+box must say which of the two it is on, every time. Never write only
+"the Connect tab" or "the settings page" and assume the reader knows which one.
+Use those two names consistently, and say that they are different websites.
+
 ## Design principle: a beginner on a cheap server must never be stranded
 
 Assume the person running EBP is a beginner on a small, cheap VPS with little or

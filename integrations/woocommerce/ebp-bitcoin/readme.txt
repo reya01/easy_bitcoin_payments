@@ -45,7 +45,7 @@ Stored in your WordPress database (in the plugin's settings): the server address
 
 1. Upload the plugin zip (Plugins > Add New > Upload Plugin) and activate it.
 2. Go to WooCommerce > Settings > Payments > Bitcoin (Easy Bitcoin Payments) and tick Enable.
-3. Fill in the server address, API key and signing secret from your payment server's dashboard (Connect your shop tab). Paste the "notification address" shown here into that tab.
+3. Fill in the server address, API key and signing secret from your payment server's admin page (a different website from your shop: the Connect tab, at the bottom of the screen). Paste the "notification address" shown here into that tab.
 4. Press Save changes. A green message says the connection works; a red one says what to fix.
 5. Place a small test order with a signet wallet.
 

@@ -2,6 +2,13 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Tested on WooCommerce.com hosting** (9 November 2026): install, connect, a signet Lightning payment, and the order moving to Processing by itself all worked. The WooCommerce page now says so, and has a "paid on the server but On hold" checklist.
+- A notification address that answers with an ordinary web page (for example your shop's home page instead of the plugin's notification address) is no longer reported as "delivered" or "Your shop received the test". It shows as failed with a plain explanation and keeps retrying, so a wrong address cannot pass the test button.
+- Connect tab: **Resend** now also appears on notifications that were delivered, not only failed ones, so you can send a payment notice to your shop again (it is safe: an order that is already paid is left alone).
+- **WooCommerce plugin:** every payment notice now leaves one plain line in WooCommerce → Status → Logs (source `ebp-bitcoin`): refused (signature), could not confirm with the server, not matched to an order, or handled (with the order's new status). Before, several of these answered "OK" silently, so a notice that changed nothing left no trace. No keys or secrets are logged.
+- **Docs:** the signing secret, like the API key, is now shown with "save it in your password manager" (WooCommerce page, dashboard, plugin text).
+- **Docs:** every WooCommerce step, the plugin's settings text and related docs now say whether it is on "your payment server" or "your WooCommerce site" (new design principle in CONTRIBUTING.md).
+- **Docs:** the WooCommerce page and the plugin's own instructions no longer tell people to make a new API key; they use the one saved during setup (a new one only if it was lost), because a new key stops the old one working at once. The WooCommerce page and Start here now say the steps are a guide (every host differs) and suggest asking an AI assistant for help adapting them, with a warning never to share passwords, keys, signing secrets or recovery words. The plugin zip's real location before the first release is also stated.
 - **Fixes from the second pre-release review (9 November):**
   - "Check a backup" verified the sign-in only after the whole upload had been read into memory, so anyone could make the server hold hundreds of megabytes. The sign-in is now checked before any of the upload is read.
   - A renewal that failed no longer holds withdrawals back, and "Move my money now" always goes ahead (it reads the wallet again after a renewal). Before, while renewals kept failing, nothing was withdrawn and the button only said to try again later.

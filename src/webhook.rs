@@ -174,6 +174,12 @@ pub enum WebhookError {
     Transport(String),
     #[error("webhook endpoint returned HTTP {0}")]
     Status(u16),
+    /// The address answered "OK", but with an ordinary web page, so nothing
+    /// that understands payment notices is listening there. Without this check
+    /// a wrong address (for example a shop's home page) would show as
+    /// "delivered" while no notice was ever handled.
+    #[error("that address answered with a web page, not a payment-notice receiver; check the address is exactly the one your shop shows")]
+    WebPage,
 }
 
 /// Delivers signed webhook events to a store.
@@ -229,6 +235,15 @@ impl WebhookEmitter {
             .map_err(|e| WebhookError::Transport(e.to_string()))?;
 
         if response.status().is_success() {
+            let is_web_page = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.to_ascii_lowercase().starts_with("text/html"))
+                .unwrap_or(false);
+            if is_web_page {
+                return Err(WebhookError::WebPage);
+            }
             Ok(())
         } else {
             Err(WebhookError::Status(response.status().as_u16()))

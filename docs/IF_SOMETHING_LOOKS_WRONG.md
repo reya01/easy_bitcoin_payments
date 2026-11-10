@@ -36,8 +36,8 @@ Do these in order. Each one is quick and none destroys anything.
 
 Only after that, decide whether to rebuild: make a **new server**, restore your
 encrypted backup (see [RECIPE_BACKUP.md](RECIPE_BACKUP.md)), then create a new
-API key and a new signing secret on the Connect tab and paste them into the
-plugin. Do not reuse the old server.
+API key and a new signing secret on your payment server's Connect tab and paste them into the
+plugin on your WooCommerce site. Do not reuse the old server.
 
 ## 2. You think someone saw your recovery words, or your admin password
 
@@ -60,13 +60,19 @@ plugin. Do not reuse the old server.
 
 ## 3. Your API key or signing secret may have leaked
 
-On the dashboard, **Connect** tab: **Make a new API key** (the old key stops
+On your payment server's dashboard, **Connect** tab: **Make a new API key** (the old key stops
 working immediately), and **New signing secret** (it is shown once). Paste both
-into the WooCommerce plugin and press **Save changes**. Then use **Send a test
+into the plugin on your WooCommerce site and press **Save changes**. Then use **Send a test
 notification** to check it still works.
 
 ## 4. A customer paid but the order did not update
 
+- If your payment server shows **Paid** but the order on your WooCommerce site
+  stays On hold with no note at all, the notice probably did not reach the
+  plugin. Follow [the WooCommerce page](WOOCOMMERCE.md#the-payment-server-shows-paid-but-the-order-stays-on-hold):
+  the webhook address on your payment server (Connect tab, card 3) must be exactly the
+  notification address your WooCommerce site's plugin shows, and the plugin's
+  `ebp-bitcoin` log (WooCommerce → Status → Logs) says what happened to each notice.
 - Check the order's notes in WooCommerce. Notes say when a payment arrived late
   or for a different amount (in which case the order is left for you to decide).
 - Check the dashboard **Payments** and **Alerts** tabs. A payment that arrived
@@ -99,7 +105,7 @@ or if you see odd files, new admin users, unexplained orders or errors.
    method off in WooCommerce.
 2. **Look at your own wallet** and compare it with your paid orders since the
    problem may have started. This is the check that cannot be faked.
-3. **Make a new API key** and **New signing secret** on the **Connect** tab, and keep
+3. **Make a new API key** and **New signing secret** on your payment server's **Connect** tab, and keep
    them out of the shop until the shop is clean.
 4. **Clean the shop:** ask your host to restore a backup from before the problem
    and update PHP, WordPress and plugins, or rebuild it fresh. Change the passwords

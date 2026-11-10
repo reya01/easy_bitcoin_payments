@@ -80,7 +80,11 @@ fn read_one_request(stream: &mut std::net::TcpStream, status: &str) -> CapturedR
     }
     body.truncate(content_length);
 
-    let response = format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+    let response = if let Some((code, content_type)) = status.split_once('|') {
+        format!("HTTP/1.1 {code}\r\ncontent-type: {content_type}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+    } else {
+        format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+    };
     stream
         .write_all(response.as_bytes())
         .expect("write response");
@@ -196,4 +200,26 @@ async fn emitter_surfaces_http_failures() {
         WebhookError::Status(code) => assert_eq!(code, 500),
         other => panic!("expected an HTTP status error, got: {other}"),
     }
+}
+
+#[tokio::test]
+async fn a_web_page_answer_is_not_counted_as_delivered() {
+    // A wrong address (say a shop's home page) answers 200 with HTML. That is
+    // not a receiver of payment notices, so it must not read as "delivered".
+    let (url, _store) = spawn_store("200 OK|text/html; charset=UTF-8");
+    let emitter = WebhookEmitter::new(5);
+    let payload = serde_json::json!({"event": "invoice.paid"});
+
+    let err = emitter
+        .emit(&url, "whsec_e2e_test", "invoice.paid", "key", &payload)
+        .await
+        .expect_err("an HTML 200 must surface as an error");
+    assert!(matches!(err, WebhookError::WebPage), "got: {err}");
+
+    // A JSON answer (what the WooCommerce plugin sends) is delivered.
+    let (url, _store) = spawn_store("200 OK|application/json");
+    emitter
+        .emit(&url, "whsec_e2e_test", "invoice.paid", "key", &payload)
+        .await
+        .expect("a JSON 200 is delivered");
 }

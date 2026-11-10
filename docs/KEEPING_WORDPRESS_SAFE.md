@@ -46,7 +46,7 @@ and a few minutes a month.
   on).
 - You can stop new payment requests with one switch (**Settings → Pause new
   payments**). Payments already started finish. The shop cannot undo the pause.
-- Optional: limit the API key to your shop's address (**Connect** tab, "Extra
+- Optional: limit the API key to your shop's address (on your payment server's **Connect** tab, "Extra
   protection"), so a stolen key is useless from anywhere else.
 
 ## What it cannot do

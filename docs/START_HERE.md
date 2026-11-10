@@ -5,6 +5,13 @@ wallet **you** control, with no company in the middle. This page takes you from
 nothing to a first paid test order. It uses a small DigitalOcean server, and you
 do not need a terminal.
 
+> **These steps are a guide, not an exact script.** Websites and hosting services change their screens often, so what you see may differ a little from the words here.
+> If something does not match what you see, or you get stuck, copy this page
+> into an AI assistant (or give it this link: <https://github.com/reya01/easy_bitcoin_payments/blob/main/docs/START_HERE.md>), tell it which
+> service you use, and ask it to help you work out the equivalent steps.
+> **Never give an AI, or anyone, your passwords, API key, signing secret or
+> recovery words.** Describe what you see instead, or hide those values first.
+
 **This is a test version: play money (signet) only.** Do not use real bitcoin.
 
 **You need**
@@ -132,7 +139,9 @@ and use a password only, which is less secure, and turn it on later in
 
 ## 6. Connect your shop
 
-Follow [WOOCOMMERCE.md](WOOCOMMERCE.md) (about 10 minutes). The admin page's
+Follow [WOOCOMMERCE.md](WOOCOMMERCE.md) (about 10 minutes). It uses two places and
+says which one each step is in: **your payment server** (the admin page you just set up) and
+**your WooCommerce site** (your shop's WordPress admin). Your payment server's
 **Connect** tab gives you what the plugin asks for, one numbered step at a time.
 Finish by sending a test notification and placing a small test order.
 
@@ -150,8 +159,8 @@ file, type the password. It tells you whether the backup opens and what it holds
 - [ ] `/admin` opens after you sign in, and **Home** says everything is OK.
 - [ ] Two-step sign-in is on (Settings), with your backup codes saved, or you chose password only.
 - [ ] A test payment shows **Paid** and appears under **Payments**.
-- [ ] On the **Connect** tab, **Send a test notification** says "Your shop received the test."
-- [ ] A small test order in your shop moved to Processing by itself.
+- [ ] On your payment server's **Connect** tab, **Send a test notification** says "Your shop received the test."
+- [ ] A small test order on your WooCommerce site moved to Processing by itself.
 - [ ] You downloaded a backup, checked that it opens, and stored it away from the server.
 - [ ] Your recovery words are on paper in two places.
 

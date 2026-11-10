@@ -109,8 +109,8 @@ wallet, so losing the phone must not mean losing the business.
    `/admin`, then sign in with your password and an authenticator code. No phone and
    no backup codes? See [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md).
 4. **If the phone may have been stolen**, not just lost: change the admin password in
-   Settings (this signs every device out), make a new API key on the **Connect** tab
-   and paste it into your shop plugin, and download a fresh backup. With a separate
+   Settings (this signs every device out), make a new API key on your payment server's **Connect** tab
+   and paste it into the plugin on your WooCommerce site, and download a fresh backup. With a separate
    wallet container, also rotate its token (`barkd secret refresh` on the server,
    update `EBP_BARKD_TOKEN`, restart).
 
@@ -145,4 +145,4 @@ live, and note the date and what differed next to your paper copies.
   of a running wallet can catch the database mid-write. Keep such copies encrypted
   and off-site: they hold everything needed to spend the money in the server wallet.
 - **If you lose the encryption key** with no backup, the stored shop secrets cannot
-  be read and must be re-issued from the **Connect** tab.
+  be read and must be re-issued from your payment server's **Connect** tab.

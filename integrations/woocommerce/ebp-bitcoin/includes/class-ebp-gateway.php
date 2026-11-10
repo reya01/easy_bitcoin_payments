@@ -38,9 +38,9 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				'title'       => __( 'Connect your shop in 3 steps', 'ebp-bitcoin' ),
 				'type'        => 'title',
 				'description' => '<ol style="list-style:decimal;margin-left:1.5em">'
-					. '<li>' . esc_html__( 'Open your payment server\'s admin page and go to the Connect tab ("Connect your shop"). Copy its step 1 address and its step 2 API key into the boxes below.', 'ebp-bitcoin' ) . '</li>'
-					. '<li>' . esc_html__( 'Copy "Your shop\'s notification address" shown further down this page into step 3 on the Connect tab and press Save address. A signing secret appears there once. Copy it into the Signing secret box below.', 'ebp-bitcoin' ) . '</li>'
-					. '<li>' . esc_html__( 'Tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'ON YOUR PAYMENT SERVER (a different website from this one): open its admin page, your server address followed by /admin, and tap Connect in the bar at the bottom of the screen. Copy the address from card 1 into the Server address box below. For the API key, use the one you saved during setup; only if you lost it, make a new one in card 2.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'ON YOUR WOOCOMMERCE SITE (this page): copy "Your shop\'s notification address" shown further down this page. ON YOUR PAYMENT SERVER: paste it into card 3 ("Your shop\'s webhook address") and press Save address. A box labelled "Signing secret" appears once: press Copy, and save it in your password manager too. ON YOUR WOOCOMMERCE SITE: paste it into the Signing secret box below. No box? On your payment server press "New signing secret" instead.', 'ebp-bitcoin' ) . '</li>'
+					. '<li>' . esc_html__( 'ON YOUR WOOCOMMERCE SITE: tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then ON YOUR PAYMENT SERVER press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
 					. '</ol>'
 					. '<p><strong>' . esc_html__( 'Test version: use play-money (signet) coins only.', 'ebp-bitcoin' ) . '</strong></p>',
 			),
@@ -53,7 +53,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'server_url'     => array(
 				'title'       => __( 'Server address', 'ebp-bitcoin' ),
 				'type'        => 'text',
-				'description' => __( 'Your payment server, from step 1 on the Connect tab of its admin page. Example: https://pay.myshop.com', 'ebp-bitcoin' ),
+				'description' => __( 'Your payment server, from card 1 on the Connect tab of its admin page (a different website from this one). Example: https://pay.myshop.com', 'ebp-bitcoin' ),
 				'desc_tip'    => false,
 				'default'     => '',
 				'placeholder' => 'https://',
@@ -61,19 +61,19 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			'api_key'        => array(
 				'title'       => __( 'API key', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => __( 'Make one in the dashboard: Connect your shop, step 2.', 'ebp-bitcoin' ),
+				'description' => __( 'The key you saved during setup. Lost it? On your payment server, make a new one: Connect tab, card 2.', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_secret' => array(
 				'title'       => __( 'Signing secret', 'ebp-bitcoin' ),
 				'type'        => 'password',
-				'description' => __( 'From the dashboard: Connect your shop, step 3 (shown once when you save the address).', 'ebp-bitcoin' ),
+				'description' => __( 'From your payment server: Connect tab, card 3 (shown once when you save the address).', 'ebp-bitcoin' ),
 				'default'     => '',
 			),
 			'webhook_info'   => array(
 				'title'       => __( 'Your shop\'s notification address', 'ebp-bitcoin' ),
 				'type'        => 'title',
-				'description' => __( 'Paste this into the dashboard (Connect your shop, step 3):', 'ebp-bitcoin' ) . '<br><code>' . esc_html( $this->webhook_url() ) . '</code>',
+				'description' => __( 'Paste this into your payment server (Connect tab, card 3):', 'ebp-bitcoin' ) . '<br><code>' . esc_html( $this->webhook_url() ) . '</code>',
 			),
 			'title'          => array(
 				'title'   => __( 'Name shown to customers', 'ebp-bitcoin' ),
@@ -192,6 +192,11 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		}
 	}
 
+	/** One line in WooCommerce -> Status -> Logs (source: ebp-bitcoin). Never contains keys or secrets. */
+	private function log( $level, $message ) {
+		wc_get_logger()->log( $level, $message, array( 'source' => 'ebp-bitcoin' ) );
+	}
+
 	private function reply( $code, $message ) {
 		status_header( $code );
 		header( 'Content-Type: application/json; charset=utf-8' );
@@ -205,6 +210,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		$header = isset( $_SERVER['HTTP_X_EBP_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_EBP_SIGNATURE'] ) ) : '';
 
 		if ( ! EBP_Core::verify_signature( $this->get_option( 'webhook_secret' ), $header, $body, time() ) ) {
+			$this->log( 'warning', 'Payment notice refused: its signature did not match the Signing secret saved here.' );
 			$this->reply( 401, 'bad signature' );
 		}
 		$event = json_decode( $body, true );
@@ -222,6 +228,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			)
 		);
 		if ( empty( $orders ) ) {
+			$this->log( 'warning', 'Payment notice for invoice ' . $invoice_id . ' ignored: no order here has that invoice.' );
 			$this->reply( 200, 'unknown invoice' );
 		}
 		$order = $orders[0];
@@ -229,9 +236,11 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		// Source of truth: ask the server, do not trust the notification alone.
 		$invoice = $this->client()->get_invoice( $invoice_id );
 		if ( is_wp_error( $invoice ) ) {
+			$this->log( 'warning', 'Payment notice for order ' . $order->get_id() . ': could not confirm with the payment server (' . $invoice->get_error_message() . ').' );
 			$this->reply( 503, 'could not confirm with the payment server' );
 		}
 		if ( EBP_Core::order_id_from_ref( isset( $invoice['order_id'] ) ? $invoice['order_id'] : '' ) !== $order->get_id() ) {
+			$this->log( 'warning', 'Payment notice for order ' . $order->get_id() . ' ignored: the invoice belongs to order reference "' . ( isset( $invoice['order_id'] ) ? (string) $invoice['order_id'] : '' ) . '".' );
 			$this->reply( 200, 'invoice does not belong to this order' );
 		}
 
@@ -284,6 +293,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				}
 				break;
 		}
+		$this->log( 'info', 'Payment notice handled: order ' . $order->get_id() . ', server says "' . $status . '", order is now "' . $order->get_status() . '".' );
 		$this->reply( 200, 'ok' );
 	}
 }

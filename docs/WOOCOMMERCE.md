@@ -203,7 +203,7 @@ or show customers a wrong address. So:
 - Refunds are done by hand from your own wallet.
 - Prices are converted at the moment the order is placed, using the Bitcoin price your
   server looks up every ten minutes (a median of five public sources). An order can
-  therefore be a little cheaper or dearer than the very latest price; the customer sees
+  therefore be a little cheaper or more expensive than the very latest price; the customer sees
   a fixed amount in sats with a countdown.
 - Your shop's currency must be one of **USD, EUR, GBP, CHF, CAD, AUD or JPY**. With
   another currency the server refuses the order (the customer is told to use another

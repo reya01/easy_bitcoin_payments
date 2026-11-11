@@ -8,7 +8,7 @@
 //!
 //! The same price serves both jobs: writing "1,000 sats ($0.40)" and turning
 //! an order priced in dollars, euros and so on into sats. A price up to ten
-//! minutes old can make an order a little cheaper or dearer than the very
+//! minutes old can make an order a little cheaper or more expensive than the very
 //! latest price; that is a small, accepted cost. What is not acceptable is
 //! the server failing, so:
 //!

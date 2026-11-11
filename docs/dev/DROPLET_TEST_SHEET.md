@@ -55,6 +55,26 @@ check, and a day of running unattended. The new things are in
 | 13 | Place a small test order and pay it | WOOCOMMERCE | | | |
 | 14 | Order moves to Processing by itself | WOOCOMMERCE | | | |
 
+## Money safety (do these first)
+
+These are the most important checks in this round: they prove money reaches **your
+own wallet**. No earlier round has tested this.
+
+- [ ] **Move money out by hand.** On your payment server's Home, press **Move my
+      money to my payout address now**. Check the money arrives in the wallet whose
+      address you gave as the payout address, and that it shows under **Recent
+      transfers to your own wallet**. Write down how long it took and the amount
+      that arrived compared to what Home showed (any fee).
+- [ ] **Money moves out by itself.** On your payment server's Home, use the test
+      payment box to make one test payment of **21000** sats and pay it (this passes
+      the 20,000-sat limit the server keeps). Within about 10 minutes, without
+      pressing anything, a transfer to your payout wallet should appear under
+      **Recent transfers to your own wallet**, and the money should arrive there.
+- [ ] **Which build is running.** On your payment server's Home, the **Version** line
+      says `0.1.0-rc1`. (After any later update, check it changed.)
+- [ ] **Restoring from the 12 words:** not testable yet. There is no restore screen or
+      written restore steps yet; see the release checklist. Keep your words safe anyway.
+
 ## New since round 1 (please check each one)
 
 - [ ] **Lightning is there at all.** Do this one first: create a test payment and check the checkout page opens on Lightning. If it opens on "One code, any wallet" instead, Lightning invoices are failing: write it down and send the last lines of the server log (`cd /opt/ebp && docker compose logs --tail 50 ebp`), with nothing secret in them.
@@ -68,6 +88,13 @@ check, and a day of running unattended. The new things are in
 - [ ] **Lightning fee.** On a Lightning checkout, if a fee note shows, it says what your wallet will show (order plus fee); pay it and check the order shows Paid, not "part of your payment". Write down the amounts your wallet showed.
 - [ ] **No false coin alerts.** With phone alerts on, leave the server a day: there should be no "Some coins are close to expiring" alert while Home is green.
 - [ ] **Payout change alert.** With phone alerts on, start a payout address change in Settings (any valid test address), check your phone gets "Your payout address is being changed" within a minute, then cancel the change.
+- [ ] **A lost notice still finishes the order.** (Optional, after step 14.) On your
+      payment server's Connect tab, note the webhook address in card 3, then change
+      one letter in it and press Save address. Place and pay a small test order: it
+      stays On hold. Within about an hour it should move to Processing by itself, with
+      a note "Found by the hourly check". Then put the correct address back (copy it
+      from the plugin on your WooCommerce site), press Save address, paste the new
+      signing secret into the plugin and press Save changes.
 - [ ] **A shop order priced in your currency.** (WooCommerce, step 13.) The amount in sats on the checkout page matches your shop total at roughly the current Bitcoin price.
 
 ## Extra checks only a real server can answer (if time allows)

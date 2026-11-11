@@ -131,7 +131,9 @@ secret was copied wrongly. Check, in this order:
    processing". Send those lines (they hold no secrets) if you need help.
 
 Then place another small test order. Orders that were already paid on your payment
-server but stayed On hold can be marked **Processing** by hand in WooCommerce.
+server but stayed On hold are found by the plugin's hourly check and moved to
+**Processing** within about an hour, with a note saying the notice had not arrived.
+Still fix the address: until you do, every order waits up to an hour.
 
 ## What your customers see
 
@@ -146,12 +148,18 @@ you** on your payment server's dashboard).
 ## Warnings the plugin gives you
 
 The plugin checks on its own, from your shop, every hour, even if your payment
-server is down or wrong. It never changes orders; it only warns you with a red
-notice in the WordPress admin and one email a day per problem:
+server is down or wrong.
 
-- **The payment server has not answered for three checks in a row.**
-- **Five or more Bitcoin orders in the last 7 days and none paid.** Check that
-  the server is up and your notification address is right.
+- **It finishes orders whose notice got lost.** For Bitcoin orders from the last 7
+  days that are still On hold, it asks your payment server whether they were paid
+  (the same check a notice uses). A paid one moves to Processing, with a note
+  saying the notice had not arrived.
+- **It warns you** with a red notice in the WordPress admin and one email a day per
+  problem:
+
+  - **The payment server has not answered for three checks in a row.**
+  - **Five or more Bitcoin orders in the last 7 days and none paid.** Check that
+    the server is up and your notification address is right.
 
 If a customer pays but the order total changed after checkout (for example you
 edited the order), the order is **not** marked paid. It gets a note saying a

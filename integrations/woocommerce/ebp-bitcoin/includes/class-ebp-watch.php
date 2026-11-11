@@ -1,9 +1,11 @@
 <?php
 /**
  * Shop-side tripwire. Runs from the shop's own WordPress cron, so it keeps
- * working even if the payment server is down or misbehaving. It only warns
- * (a notice in the WordPress admin plus one email a day per problem); it never
- * changes orders or settings.
+ * working even if the payment server is down or misbehaving. It warns (a
+ * notice in the WordPress admin plus one email a day per problem), and it asks
+ * the payment server about Bitcoin orders still On hold, so a payment whose
+ * notice never arrived still completes its order (the same server check a
+ * notice uses). It never changes settings.
  *
  * @package EBP_Bitcoin
  */
@@ -18,6 +20,8 @@ class EBP_Watch {
 	const ISSUES    = 'ebp_bitcoin_issues';
 	const FAILURES  = 'ebp_bitcoin_health_failures';
 	const MAX_ORDERS = 500;
+	/** At most this many On-hold orders are checked with the server per hour. */
+	const MAX_RECHECK = 25;
 
 	public static function init() {
 		add_action( self::HOOK, array( __CLASS__, 'run' ) );
@@ -62,6 +66,29 @@ class EBP_Watch {
 		);
 	}
 
+	/** Ask the payment server about recent Bitcoin orders that are still On hold. */
+	public static function recheck_on_hold( $now ) {
+		$gateways = WC()->payment_gateways() ? WC()->payment_gateways()->payment_gateways() : array();
+		if ( empty( $gateways['ebp_bitcoin'] ) || ! method_exists( $gateways['ebp_bitcoin'], 'check_with_server' ) ) {
+			return;
+		}
+		$ids = wc_get_orders(
+			array(
+				'limit'          => self::MAX_RECHECK,
+				'return'         => 'ids',
+				'payment_method' => 'ebp_bitcoin',
+				'status'         => array( 'on-hold' ),
+				'date_created'   => '>' . ( $now - 7 * DAY_IN_SECONDS ),
+			)
+		);
+		foreach ( $ids as $id ) {
+			$order = wc_get_order( $id );
+			if ( $order && ! $gateways['ebp_bitcoin']->check_with_server( $order ) ) {
+				return; // The server did not answer; try again next hour.
+			}
+		}
+	}
+
 	/** One check. Returns the list of current problems (also stored for the notice). */
 	public static function run( $now = null ) {
 		$now = $now ? (int) $now : time();
@@ -70,6 +97,8 @@ class EBP_Watch {
 			delete_option( self::ISSUES );
 			return array();
 		}
+
+		self::recheck_on_hold( $now );
 
 		$client = new EBP_Client( isset( $s['server_url'] ) ? $s['server_url'] : '', isset( $s['api_key'] ) ? $s['api_key'] : '' );
 		$health = $client->health();

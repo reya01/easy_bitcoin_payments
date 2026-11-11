@@ -358,8 +358,14 @@ function loadRecon() {
     if (!r.paid_orders && !r.swept_sats) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
     box.appendChild(el("strong", r.due ? "Time for your weekly wallet check" : "Weekly wallet check", r.due ? "bad" : ""));
-    box.appendChild(el("p", "In the last " + r.days + " days this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ") and says it sent " + fmtSats(r.swept_sats) + " on to your payout address.", "muted"));
-    box.appendChild(el("p", "Open your own wallet and check that the payments you received match. This is the one check that does not depend on this server telling the truth.", "muted"));
+    var days = r.days + " days";
+    if (r.swept_sats > 0) {
+      box.appendChild(el("p", "Open your own wallet. Does it show about " + fmtSats(r.swept_sats) + " received from this server in the last " + days + "?"));
+    } else {
+      box.appendChild(el("p", "This server says it has not sent anything on to your wallet in the last " + days + ". Open your own wallet and check that nothing arrived from it either."));
+    }
+    box.appendChild(el("p", "This is the one check that does not depend on this server telling the truth. Payments are sent on in batches, so the amount in your wallet can lag a little behind your orders.", "muted"));
+    box.appendChild(el("p", "For reference: in the last " + days + " this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ").", "muted"));
     if (r.last_checked_at) box.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
     var btns = el("div", "", "btns");
     var ok = el("button", "I checked: it matches"); ok.type = "button"; ok.className = r.due ? "primary" : "";

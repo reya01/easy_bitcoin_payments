@@ -71,7 +71,10 @@ open box.
    workflow, on `main`) is green. Download the `dry-run-release-files` artifact
    and look at it: two `ebp-*.tar.gz`, the plugin zip, `SHA256SUMS`.
    The image job takes well over half an hour (arm64 under emulation).
-2. Move the `Unreleased` section of `CHANGELOG.md` under a `0.1.0-rc1` heading.
+2. Move the `Unreleased` section of `CHANGELOG.md` under a `0.1.0-rc1` heading,
+   and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
+   plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
+   so Home and the Plugins page show which build is running.
 3. Tag `v0.1.0-rc1` on `main` and push it. The `-rc1` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.
@@ -127,6 +130,11 @@ done differently.
 - [ ] **Renewal fees.** Extra renewals of coins the wallet flags now stay inside the free
       window. Confirm the mainnet fee table and coin lifetime parse as expected, whether
       renewing merges small coins, and show renewal fees paid on Home.
+- [ ] **Restore from the 12 words (top priority before real money).** There is no
+      restore screen and no written restore steps. barkd can create a wallet from
+      existing words (`POST /api/v1/wallet/create` takes a mnemonic), but EBP never
+      offers it, so a beginner who loses the server cannot get their money back
+      without help. Add a restore path, then drill it on signet.
 - [ ] **Backup restore drill.** Write the exact wallet restore command from the words
       into RECIPE_BACKUP.md after doing it once.
 - [ ] **Ark payments made with nearly expired coins.** A coin paid over Ark keeps the

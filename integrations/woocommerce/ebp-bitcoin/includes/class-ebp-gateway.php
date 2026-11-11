@@ -244,6 +244,17 @@ class EBP_Gateway extends WC_Payment_Gateway {
 			$this->reply( 200, 'invoice does not belong to this order' );
 		}
 
+		$status = $this->apply_invoice( $order, $invoice_id, $invoice );
+		$this->log( 'info', 'Payment notice handled: order ' . $order->get_id() . ', server says "' . $status . '", order is now "' . $order->get_status() . '".' );
+		$this->reply( 200, 'ok' );
+	}
+
+	/**
+	 * Bring an order in line with what the payment server says about its invoice.
+	 * Safe to call more than once: every branch checks the order first. Returns
+	 * the invoice status the server reported.
+	 */
+	private function apply_invoice( $order, $invoice_id, $invoice ) {
 		$status = isset( $invoice['status'] ) ? (string) $invoice['status'] : '';
 		$sats   = isset( $invoice['paid_sats'] ) ? (int) $invoice['paid_sats'] : 0;
 		$total  = isset( $invoice['amount_sats'] ) ? (int) $invoice['amount_sats'] : 0;
@@ -293,7 +304,34 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				}
 				break;
 		}
-		$this->log( 'info', 'Payment notice handled: order ' . $order->get_id() . ', server says "' . $status . '", order is now "' . $order->get_status() . '".' );
-		$this->reply( 200, 'ok' );
+		return $status;
+	}
+
+	/**
+	 * Hourly safety net (called from EBP_Watch): ask the payment server about an
+	 * order that is still On hold, so a payment whose notice never arrived still
+	 * completes the order. Uses the same server check as a notice. Returns false
+	 * when the server could not be asked, so the caller can stop for this hour.
+	 */
+	public function check_with_server( $order ) {
+		$invoice_id = (string) $order->get_meta( '_ebp_invoice_id' );
+		if ( '' === $invoice_id ) {
+			return true;
+		}
+		$invoice = $this->client()->get_invoice( $invoice_id );
+		if ( is_wp_error( $invoice ) ) {
+			$this->log( 'warning', 'Hourly check for order ' . $order->get_id() . ': could not reach the payment server (' . $invoice->get_error_message() . ').' );
+			return false;
+		}
+		if ( EBP_Core::order_id_from_ref( isset( $invoice['order_id'] ) ? $invoice['order_id'] : '' ) !== $order->get_id() ) {
+			return true;
+		}
+		$before = $order->get_status();
+		$status = $this->apply_invoice( $order, $invoice_id, $invoice );
+		if ( $order->get_status() !== $before ) {
+			$order->add_order_note( __( 'Found by the hourly check: the notice from your payment server about this order had not arrived. Check the notification address on your payment server (Connect tab, card 3).', 'ebp-bitcoin' ) );
+			$this->log( 'info', 'Hourly check: order ' . $order->get_id() . ', server says "' . $status . '", order is now "' . $order->get_status() . '" (its notice had not arrived).' );
+		}
+		return true;
 	}
 }

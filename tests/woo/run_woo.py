@@ -329,6 +329,44 @@ def main():
         st = wpcli("eval", f"echo wc_get_order({order2})->get_status();")
         assert st == "on-hold", st
 
+    @step("an order whose payment notice never arrived is completed by the hourly check")
+    def _():
+        code, hdr, _c = jhttp("GET", f"{wp}/?rest_route=/wc/store/v1/cart")
+        h = {"Nonce": hdr.get("Nonce") or hdr.get("nonce"), "Cart-Token": hdr.get("Cart-Token") or hdr.get("cart-token")}
+        code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/cart/add-item", {"id": int(pid), "quantity": 1}, h)
+        assert code in (200, 201), (code, str(r)[:300])
+        addr = {"first_name": "Katherine", "last_name": "Johnson", "address_1": "3 Main St", "city": "Austin",
+                "state": "TX", "postcode": "78701", "country": "US", "email": "kj@example.com", "phone": ""}
+        code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/checkout", {
+            "billing_address": addr, "shipping_address": addr, "payment_method": "ebp_bitcoin", "payment_data": []}, h)
+        assert code == 200, (code, str(r)[:600])
+        order3 = r["order_id"]
+        inv_id = r["payment_result"]["redirect_url"].rsplit("/", 1)[1]
+        status3 = lambda: wpcli("eval", f"echo wc_get_order({order3})->get_status();")
+        set_secret = lambda v: wpcli("eval", "$s=get_option('woocommerce_ebp_bitcoin_settings'); "
+                                     f"$s['webhook_secret']='{v}'; update_option('woocommerce_ebp_bitcoin_settings',$s);")
+        # A wrong secret here makes the shop refuse the notice, as if it never arrived.
+        set_secret("wrong-secret-for-this-test")
+        try:
+            code, _, inv = jhttp("GET", f"{base}/api/v1/invoices/{inv_id}", headers=inv_auth)
+            assert code == 200, (code, inv)
+            fake(action="pay_ark", address=inv["ark_address"], sats=inv["amount_sats"])
+            wait_for(lambda: jhttp("GET", f"{base}/api/v1/invoices/{inv_id}", headers=inv_auth)[2].get("status") == "paid",
+                     "server to see the payment", timeout=90)
+            # The server sends queued notices every 5 seconds; give it time to try
+            # (and be refused) before the right secret goes back in. Its retry
+            # comes 30 seconds after that refusal.
+            time.sleep(10)
+            assert status3() == "on-hold", "the refused notice must not have marked the order paid"
+        finally:
+            set_secret(secret)
+        # The server retries a refused notice after 30 seconds; run the hourly
+        # check straight away so it is the check, not the retry, that completes it.
+        wpcli("--user=admin", "eval", "EBP_Watch::run();")
+        assert status3() in ("processing", "completed"), status3()
+        notes = wpcli("eval", f"foreach (wc_get_order_notes(['order_id'=>{order3}]) as $n) echo $n->content.'|';")
+        assert "Found by the hourly check" in notes, notes[:500]
+
     @step("deleting the plugin removes the API key and signing secret from the database")
     def _():
         has = lambda: wpcli("eval", "echo false === get_option('woocommerce_ebp_bitcoin_settings', false) ? 'gone' : 'present';")

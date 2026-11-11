@@ -70,6 +70,10 @@ own wallet**. No earlier round has tested this.
       the 20,000-sat limit the server keeps). Within about 10 minutes, without
       pressing anything, a transfer to your payout wallet should appear under
       **Recent transfers to your own wallet**, and the money should arrive there.
+- [ ] **Coins you received keep their expiry.** In your own wallet, list the coins that
+      the transfer delivered (for `bark`: `bark vtxos`) and write down their expiry
+      heights. Come back after two weeks and check your wallet renewed them (new
+      expiry heights, or the wallet's own refresh message). If not, tell me.
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line
       says `0.1.0-rc1`. (After any later update, check it changed.)
 - [ ] **Restoring from the 12 words:** not testable yet. There is no restore screen or

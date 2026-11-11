@@ -106,6 +106,22 @@ but was never the cause of the loop.
 - **Alert summaries can very rarely count a payment twice** (one that lands in the same second a summary is cut). Counts only, never amounts.
 - **A session (the signed-in browser) can change the shop-address lock, pause payments and change the alert server without a code.** That matches the existing webhook and key actions; a code for these is being considered.
 
+## Ark coins in your own wallet also expire (keep your wallet app renewing them)
+
+Coins held over Ark have a limited lifetime: **28 days** on the Ark test server
+(Second's server; the real server decides its own value). The payment server
+renews its own coins automatically. The coins it sends you over Ark **keep the
+same expiry date** (they are not renewed on the way), so **your own Ark wallet
+must renew them**. A wallet app normally does this by itself in the background;
+a wallet you leave closed for weeks may not. Once a coin expires, the Ark server
+can take it back, and getting your money out then needs the server's
+cooperation. Until the real network has been tested:
+
+- Use a wallet app that renews coins automatically, and open it at least every
+  two weeks.
+- If you want money to sit untouched for months, use an **on-chain** payout
+  address instead: bitcoin on-chain never expires.
+
 ## On-chain payouts reuse one address (privacy trade-off)
 
 An on-chain payout address is a single fixed address: every withdrawal goes

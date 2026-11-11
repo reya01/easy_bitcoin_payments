@@ -353,6 +353,10 @@ def main():
             fake(action="pay_ark", address=inv["ark_address"], sats=inv["amount_sats"])
             wait_for(lambda: jhttp("GET", f"{base}/api/v1/invoices/{inv_id}", headers=inv_auth)[2].get("status") == "paid",
                      "server to see the payment", timeout=90)
+            # The server sends queued notices every 5 seconds; give it time to try
+            # (and be refused) before the right secret goes back in. Its retry
+            # comes 30 seconds after that refusal.
+            time.sleep(10)
             assert status3() == "on-hold", "the refused notice must not have marked the order paid"
         finally:
             set_secret(secret)

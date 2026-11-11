@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Docs: the plan for mainnet** (`docs/dev/MAINNET_PLAN.md`): restore from the 12 recovery words plus the backup file, mainnet wallet and addresses, three renewal changes, and a test with small real money. The release checklist, known issues and handoff notes point to it. No code changes.
 - **WooCommerce plugin: lost notices no longer leave orders stuck.** Its hourly check now asks your payment server about Bitcoin orders from the last 7 days that are still On hold (at most 25 per hour, stopping if the server does not answer) and moves paid ones to Processing, with a note that the notice had not arrived. It uses the same server check a notice does; nothing new is trusted.
 - **The version now says which build is running:** `0.1.0-rc1` on Home and on the WordPress Plugins page.
 - **Round-2 test sheet:** new "Money safety" section first (money out by hand and by itself, version check), and a check that a lost notice still finishes the order.

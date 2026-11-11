@@ -137,10 +137,10 @@ done differently.
       without help. Add a restore path, then drill it on signet.
 - [ ] **Ark payout coins expire in the owner's wallet (28 days on Second's server).**
       Sweeps send existing coins whole (a 9 Nov signet sweep delivered three coins that
-      kept their original expiry heights), so the owner's wallet must renew them. Tell the
-      owner plainly in the payout step of setup ("open your wallet at least every two
-      weeks, or choose an on-chain address for long-term storage"), and check on signet
-      after two weeks that the owner's wallet really renewed them.
+      kept their original expiry heights), so the owner's wallet app must renew them (EBP cannot
+      see or control it). Tell the owner plainly in the payout step of setup ("check your wallet
+      app renews coins by itself, or choose an on-chain address for long-term storage"), and
+      check on signet after two weeks that the owner's wallet really renewed them.
 - [ ] **Backup restore drill.** Write the exact wallet restore command from the words
       into RECIPE_BACKUP.md after doing it once.
 - [ ] **Ark payments made with nearly expired coins.** A coin paid over Ark keeps the

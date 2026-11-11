@@ -38,7 +38,7 @@ step below says which one it means:
 
 ## 1. Install the plugin
 
-1. Download `ebp-bitcoin-woocommerce.zip` from the [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases): open the top release and look under **Assets**.
+1. Download `ebp-bitcoin-woocommerce.zip` from the [v0.1.0-rc1 release page](https://github.com/reya01/easy_bitcoin_payments/releases/tag/v0.1.0-rc1): scroll down to **Assets**. (Not the release marked "Latest"; the zip is only on the newest one.)
 2. **On your WooCommerce site:** **Plugins → Add New → Upload Plugin**, choose the zip, then
    **Install Now** and **Activate**.
 3. **On your WooCommerce site:** go to **WooCommerce → Settings → Payments**. Newer WooCommerce shows a list

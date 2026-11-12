@@ -706,18 +706,17 @@ $("sweep-go").addEventListener("click", function () {
 function loadPayout() {
   api("GET", "/api/v1/payout").then(function (p) {
     var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
-    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + fmtSats(p.cap_sats) + "." : "No payout address yet — money stays in the till until you add one.";
+    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + "." : "No payout address yet — money stays in the till until you add one.";
     var kinds = $("po-kinds"); clear(kinds);
-    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + fmtSats(p.ark_cap_sats) + ", so only a small amount is ever held on this server."],
-     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + fmtSats(p.onchain_cap_sats) + ", and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
+    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free, so only a small amount is ever held on this server."],
+     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Withdrawals wait for network fees to be low. Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("cap-box").classList.toggle("hidden", !p.address);
     if (p.address) {
-      var dflt = p.kind === "ark" ? p.ark_default_cap_sats : p.onchain_default_cap_sats;
-      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends everything above that to your payout address" + (p.cap_is_custom ? " (your setting; the default is " + fmtSats(dflt) + ")" : " (the default)") + ". A smaller amount keeps less money on this server, but means more and smaller payouts. Changing it needs your admin password" + " and takes effect right away; it cannot send money anywhere new.";
-      $("cap-new").placeholder = "between " + p.cap_min_sats + " and " + p.cap_max_sats;
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends everything above that to your payout address" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("cap-new").placeholder = "number of sats";
       $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
     }
     var pend = p.pending_address;

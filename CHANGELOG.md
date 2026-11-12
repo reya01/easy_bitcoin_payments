@@ -3,6 +3,9 @@
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
 - **Fix: the weekly wallet check said "0 orders paid" on a test server.** A test-mode server flags every invoice as a test, and the check skipped those while still counting the money sent on. It now counts every paid order. The card also now leads with the one question that matters ("does your wallet show about X sats received?") and shows the paid-orders count as a reference line. Once you have checked, it folds down to a single line ("Weekly wallet check: done …") so it stops taking room on Home, and opens by itself again when the next check is due. Phone "payment received" alerts had the same blind spot and are fixed too.
+- **CI: the browser download for the end-to-end tests now retries** (up to 4 times) instead of failing the whole run when Ubuntu's mirrors cannot be reached.
+- **CI: a manual `mainnet-compat-check` workflow** that starts the pinned barkd 0.8.0, creates a throwaway empty mainnet wallet against `https://ark.second.tech`, and prints the server's public terms. No money, no secrets, nothing published.
+- **Docs: the signature-check command in `UPGRADING.md` now names this repository** and matches the `v0.1.0-rc1` signature, which was checked by hand (see `KNOWN_ISSUES.md`).
 - **WooCommerce plugin: lost notices no longer leave orders stuck.** Its hourly check now asks your payment server about Bitcoin orders from the last 7 days that are still On hold (at most 25 per hour, stopping if the server does not answer) and moves paid ones to Processing, with a note that the notice had not arrived. It uses the same server check a notice does; nothing new is trusted.
 - **The version now says which build is running:** `0.1.0-rc1` on Home and on the WordPress Plugins page.
 - **Round-2 test sheet:** new "Money safety" section first (money out by hand and by itself, version check), and a check that a lost notice still finishes the order.

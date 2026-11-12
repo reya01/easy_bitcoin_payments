@@ -74,7 +74,7 @@ pub async fn check(
 }
 
 /// Split the check body into (backup password, backup file).
-fn split_check_body(body: &[u8]) -> Result<(&str, &[u8]), AppError> {
+pub(crate) fn split_check_body(body: &[u8]) -> Result<(&str, &[u8]), AppError> {
     let bad = || AppError::BadRequest("that upload was not understood; try again".into());
     if body.len() < 4 {
         return Err(bad());

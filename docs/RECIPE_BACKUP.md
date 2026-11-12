@@ -53,22 +53,67 @@ docker compose exec ebp ebp backup verify /tmp/b.ebpbackup
 
 (Without Docker: `ebp backup verify my-backup.ebpbackup`.) It asks for the password.
 
-### Restore on a new machine
+### Restore on a new server (the 12 words plus your backup file)
 
-**Which restores what.** The **recovery words** restore the money: the wallet
-rebuilds its balance from them with the Ark server's help. The **backup file**
-restores your order history, settings and shop connection. The wallet folder inside
-the file is a snapshot from the moment you downloaded it; if money moved after that,
-it is out of date, so do not rely on it for the money. When in doubt, restore the
-wallet from the words. (The exact wallet restore command is added after the restore
-drill; see "Practice a restore once" below.)
+You need two things: your **12 recovery words** (paper) and your **latest backup
+file** (ends in `.ebpbackup`) with the **admin password you had when you downloaded
+it**.
 
-Stop EBP, run `ebp backup restore my-backup.ebpbackup ./restored` (it refuses to
-write into a folder that already has files), copy the files into the data folder,
-and start EBP. The restored `ebp.key` goes next to the database (it is used when
-`EBP_KEY_ENCRYPTION_KEY` is not set); if you set that variable yourself, put the
-same value back. Your admin password, payout address and shop API keys are in the
-restored database, so you sign in as before (with your password only: turn two-step sign-in back on afterwards).
+**What each one brings back.**
+
+| | Brings back | Does not bring back |
+| --- | --- | --- |
+| **The 12 words** | The money still in the server's wallet | Order history, settings |
+| **The backup file** | Order history, your payout address, your admin password, your shop connection (API key and signing secret) | Money that moved after the download; two-step sign-in (it comes back **off**, turn it on again) |
+
+The money always comes back from the words. The wallet folder inside the backup file
+is never used, because it may be out of date.
+
+**The steps.** Each one says where you do it.
+
+1. **On your host's website:** make a fresh server the same way as the first time
+   ([START_HERE.md](START_HERE.md)), in the same mode (play money or real money).
+   Stop when it shows you the setup page and the setup code.
+2. **In your browser, on the new server's setup page:** type the setup code.
+3. On the **Create your wallet** step, do **not** press Create. Press **Restore the
+   wallet I already have, from my 12 words**.
+4. Type your 12 words in order, tick that your paper copy exists, and press
+   **Restore my wallet**. Only the setup page ever sees them. If it says the words
+   were not accepted, check each word and its order on your paper copy.
+5. On the next step, **Bring back your orders and settings**, choose your newest
+   `.ebpbackup` file, type its password, and press **Restore from this backup**. The
+   server restarts by itself; this takes about a minute. (No backup file? Press
+   **I don't have a backup file** and set up a new store instead.)
+6. **In your browser:** open your new server's address followed by `/admin`. Sign in
+   with the admin password you had when you downloaded the backup.
+7. In **Settings**, turn **two-step sign-in** back on.
+8. On **Home**, check the balance, the payout address and your orders. Coins can take
+   a round or two (a few minutes on play money, up to about an hour on real money) to
+   appear after a restore.
+9. If the new server has a different web address, on your **WooCommerce site** open
+   the plugin's settings and change the server address. The API key and the signing
+   secret are unchanged, because they came back with the backup.
+10. **In Settings, download a fresh backup** and keep it off the server.
+
+**What can be missing, and what to do.**
+
+- **Orders paid after your last backup download** are not on the payment server's
+  list, but WooCommerce still has them. Download backups regularly.
+- **A payment that arrived while the old server was down** may not match an order
+  automatically. Compare WooCommerce's **On hold** orders with the money on Home.
+- **A restore never overwrites a working server.** If the new server already holds
+  orders or finished setup, it refuses and keeps your files. Use a fresh server.
+- **The words need the Ark server to cooperate.** If the Ark server itself is gone,
+  getting Ark coins back is a different, emergency path that this page does not cover.
+- **Without the backup file's password**, the file cannot be opened. Without the
+  words, the money cannot be recovered from the file alone.
+- **If the wizard's backup step does not work for you**, the older manual way is:
+  stop EBP, run `ebp backup restore my-backup.ebpbackup ./restored`, copy only
+  `ebp.sqlite3` and `ebp.key` (**not** the `barkd` folder) into the data folder, and
+  start EBP again. Restore the wallet from the words first, either way.
+
+After a restore the old files the server replaced are kept in a folder called
+`restore-previous-<number>` inside the data folder, so nothing is ever thrown away.
 
 ## The recovery words
 
@@ -121,18 +166,17 @@ balances.
 
 Proves the backup is real. Allow an hour, and use play money first.
 
-1. Note the balance the admin page shows.
-2. On a fresh server, install as in [START_HERE.md](START_HERE.md).
-3. Restore the wallet from the recovery words with the wallet's own restore command.
-   You type the words, nobody else. **The exact command is not written down here
-   yet**; it will be added after the live signet drill
-   ([SIGNET_DRILL.md](dev/SIGNET_DRILL.md)). Do not guess it.
-4. Point EBP at it, start it, open the admin page.
-5. The balance from step 1 should reappear. Some coins can take a round or two to
-   show up after a restore; that is normal.
+1. On your current server, note the balance, the number of orders and the payout
+   address on Home and in Settings. Leave a few hundred sats on the server. **Download
+   a backup** (Settings) and keep the file.
+2. Make a **second, new server** the same way you made the first (leave the first one
+   running until the practice has passed).
+3. Follow **Restore on a new server** above, exactly as written.
+4. **Pass:** the balance, the orders, the payout address and the shop connection match
+   what you noted in step 1; a new test order completes; **Move my money now** works.
+5. Write down the date and anything that differed next to your paper copies.
 
-If the practice fails, the backup is a story, not a backup. Fix it before going
-live, and note the date and what differed next to your paper copies.
+If the practice fails, the backup is a story, not a backup. Fix it before going live.
 
 ## Advanced
 

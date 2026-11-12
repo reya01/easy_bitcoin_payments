@@ -2208,6 +2208,7 @@ async fn malformed_requests_never_cause_server_errors() {
         "/admin/keylock/status",
         "/admin/keylock/save",
         "/setup/wallet",
+        "/setup/restore-backup",
         "/setup/wallet/confirm-backup",
         "/setup/wallet/mnemonic",
         "/setup/wallet/verify-backup",
@@ -2512,4 +2513,92 @@ async fn an_order_priced_in_a_currency_uses_the_stored_price_and_is_refused_with
         .as_str()
         .unwrap()
         .contains("not available right now"));
+}
+
+/// The wizard's "bring back my backup file" step: it only works on an
+/// unfinished server whose wallet was restored from the 12 words, and a bad
+/// file or password changes nothing. (The success path restarts the server,
+/// so it is covered by the unit tests of `backup::stage_restore` and
+/// `backup::apply_pending_restore` instead.)
+#[tokio::test]
+async fn wizard_backup_restore_needs_the_words_first_and_refuses_bad_files() {
+    use easy_bitcoin_payments::backup::{seal_with, Entry};
+
+    let dir = std::env::temp_dir().join(format!(
+        "ebp-api-restore-{}",
+        easy_bitcoin_payments::util::random_hex(6)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = Config {
+        database_path: dir.join("ebp.sqlite3").to_string_lossy().to_string(),
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let client = reqwest::Client::new();
+    let pw = "a good long password";
+    let body_for = |password: &str, file: &[u8]| {
+        let mut b = (password.len() as u32).to_be_bytes().to_vec();
+        b.extend_from_slice(password.as_bytes());
+        b.extend_from_slice(file);
+        b
+    };
+    let post = |body: Vec<u8>| {
+        client
+            .post(format!("{base}/setup/restore-backup"))
+            .header("host", "localhost")
+            .header("content-type", "application/octet-stream")
+            .body(body)
+            .send()
+    };
+    let junk_backup = seal_with(
+        &[
+            Entry {
+                name: "ebp.sqlite3".into(),
+                data: b"this is not a database".to_vec(),
+            },
+            Entry {
+                name: "ebp.key".into(),
+                data: "a".repeat(64).into_bytes(),
+            },
+        ],
+        pw,
+        1_000,
+    )
+    .unwrap();
+
+    // 1. A finished server never takes a restore.
+    let r = post(body_for(pw, &junk_backup)).await.unwrap();
+    assert_eq!(r.status().as_u16(), 409);
+
+    // 2. Unfinished, but the wallet was not restored from the words: refused.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_complete", "false"))
+        .await
+        .unwrap();
+    let r = post(body_for(pw, &junk_backup)).await.unwrap();
+    assert_eq!(r.status().as_u16(), 409);
+    let text = r.text().await.unwrap();
+    assert!(text.contains("12 recovery words"), "{text}");
+
+    // 3. Wallet restored from the words: a wrong password and a file that is
+    //    not a backup are refused, and nothing is staged.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_wallet_restored", "true"))
+        .await
+        .unwrap();
+    let r = post(body_for("not the password at all", &junk_backup))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = post(body_for(pw, b"this is not a backup file at all, just text"))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = post(body_for(pw, &junk_backup)).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400, "a backup with no usable database");
+    assert!(!dir.join("restore-pending").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
 }

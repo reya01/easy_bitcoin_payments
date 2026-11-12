@@ -20,6 +20,12 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0011_admin_totp.sql"),
 ];
 
+/// The newest schema version this build understands (what `PRAGMA user_version`
+/// holds after all migrations have run).
+pub fn schema_version() -> i64 {
+    MIGRATIONS.len() as i64
+}
+
 /// A tiny SQLite handle.
 ///
 /// Phase 0 uses a single connection behind a mutex, accessed only from

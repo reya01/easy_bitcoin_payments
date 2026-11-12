@@ -73,6 +73,14 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&config.log_level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    // A backup staged by the setup wizard is put in place now, before the key
+    // or the database is opened. Nothing is deleted; a refusal only logs.
+    match easy_bitcoin_payments::backup::apply_pending_restore(&config.database_path) {
+        Ok(Some(done)) => tracing::warn!("{done}"),
+        Ok(None) => {}
+        Err(why) => tracing::error!("{why}"),
+    }
+
     // R10: webhook secrets are encrypted at rest. A malformed configured key
     // aborts startup rather than silently falling back to another key.
     easy_bitcoin_payments::secrets::init(

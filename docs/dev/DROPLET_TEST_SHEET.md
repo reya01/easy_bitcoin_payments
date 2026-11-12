@@ -70,6 +70,7 @@ own wallet**. No earlier round has tested this.
       the 1,000-sat limit the server keeps). Within about 10 minutes, without
       pressing anything, a transfer to your payout wallet should appear under
       **Recent transfers to your own wallet**, and the money should arrive there.
+- [ ] **Restore drill (new server).** Follow `docs/RECIPE_BACKUP.md` → "Practice a restore once": on your current server note the balance, orders count and payout address, download a backup, then make a second server and restore it from the 12 words and the backup file on its setup page. Write down anything that did not match the page, and whether the balance, orders, payout address and shop connection all came back.
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line
       says `0.1.0-rc1`. (After any later update, check it changed.)
 - [ ] **Restoring from the 12 words:** not testable yet. There is no restore screen or

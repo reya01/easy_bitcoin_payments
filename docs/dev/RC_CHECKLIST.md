@@ -118,6 +118,31 @@ play-money wording until live mode is supported. The version written for real us
 rebase it first, and drop its note in `DROPLET_TEST_SHEET.md` if testing is then
 done differently.
 
+**The agreed plan for getting to mainnet is [MAINNET_PLAN.md](MAINNET_PLAN.md)** (11 November
+2026): restore from the 12 words first, then the mainnet changes, then a test with small
+real money. Its items, in order:
+
+- [ ] **Sweep threshold of 1,000 sats tested on signet**, including a 200-sat and a
+      500-sat order (one below and one above the wallet's 330-sat minimum).
+- [ ] **Restore from the 12 words plus the backup file**, built and drilled on signet
+      (the plan's Part B). The words bring back the money; the backup file brings back
+      orders, settings and the shop connection.
+- [ ] **Wizard can create a mainnet wallet in live mode** (`https://ark.second.tech`), and
+      an install can choose live mode (`EBP_MODE=live`).
+- [ ] **Mainnet addresses.** Hints and messages name `ark1…` / `bc1…` in live mode; legacy
+      `1…` and `3…` payout addresses accepted if barkd can pay to them; tests with
+      mainnet-shaped addresses.
+- [ ] **Renewal: skip amounts below the 330-sat minimum.** barkd refuses to refresh less
+      than the dust limit. Merge with the server's other coins when that gets over the
+      minimum; otherwise skip quietly, record no failure, raise no alert, and say so on Home.
+- [ ] **Renewal: show "requested" until the round is done.** barkd registers a refresh
+      for the next round and answers at once; today that is recorded as done.
+- [ ] **Renewal: renew earlier if rounds are very slow** (fewer than 4 rounds between the
+      renewal point and expiry), even though it costs the fee.
+- [ ] **Docs sweep for both modes**, then the mainnet test sheet with small real money.
+
+barkd stays on 0.8.0 during alpha; moving to the latest Bark is its own piece of work at beta.
+
 ### Follow-ups from the 9 November review (need mainnet or a later test)
 
 - [ ] **Lightning receive fee on a server that charges one.** Checkout now asks the

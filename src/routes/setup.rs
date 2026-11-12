@@ -863,8 +863,14 @@ async fn create_till_wallet(
     restore_words: Option<&str>,
     token: Option<&str>,
 ) -> Result<CreateWalletOutcome, AppError> {
+    // A restore may have to scan the chain for the wallet's coins, so it is
+    // allowed far longer than making a new, empty wallet.
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(if restore_words.is_some() {
+            300
+        } else {
+            60
+        }))
         .build()
         .map_err(|err| AppError::Internal(format!("could not build the barkd client: {err}")))?;
 

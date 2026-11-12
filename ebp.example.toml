@@ -38,7 +38,7 @@ rates_timeout_secs = 4
 
 # The till: the server's capped hot wallet. When the off-chain balance
 # passes this, the settlement engine sweeps to settlement_destination.
-hot_wallet_cap_sats = 20000
+hot_wallet_cap_sats = 1000
 
 # Same, when your payout address is an on-chain Bitcoin address. Higher,
 # because each on-chain withdrawal pays a network fee.

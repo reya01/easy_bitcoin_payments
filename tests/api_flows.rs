@@ -2654,10 +2654,15 @@ async fn wizard_backup_restore_needs_the_words_first_and_refuses_bad_files() {
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 400);
-    let r = post(body_for(pw, b"this is not a backup file at all, just text"))
-        .await
-        .unwrap();
+    // Bigger than the 64 KB limit other requests have: the upload must still be
+    // read (real backups are megabytes) and refused only for what it is.
+    let r = post(body_for(pw, &vec![b'x'; 200 * 1024])).await.unwrap();
     assert_eq!(r.status().as_u16(), 400);
+    let text = r.text().await.unwrap();
+    assert!(
+        text.contains("not an Easy Bitcoin Payments backup"),
+        "{text}"
+    );
     let r = post(body_for(pw, &junk_backup)).await.unwrap();
     assert_eq!(r.status().as_u16(), 400, "a backup with no usable database");
     assert!(!dir.join("restore-pending").exists());

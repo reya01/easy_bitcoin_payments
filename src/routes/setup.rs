@@ -181,6 +181,9 @@ pub struct SetupStatus {
     /// The wallet was restored from its recovery words (not newly made). Only
     /// then does the wizard offer to bring back a backup file.
     pub wallet_restored: bool,
+    /// A backup file staged by the wizard was NOT applied at this start (the
+    /// plain reason). Nothing was deleted; the files were set aside.
+    pub restore_refused: Option<String>,
     /// The wizard needs a setup code (generated at boot, or EBP_SETUP_TOKEN)
     /// before any action; the page asks for it up front.
     pub setup_code_required: bool,
@@ -218,6 +221,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
     }
 
     snapshot.barkd_token_present = token.is_some();
+    snapshot.restore_refused = crate::backup::restore_refused_reason().map(str::to_string);
     snapshot.mode = state.config.mode.clone();
     snapshot.setup_code_required = state.config.setup_token.is_some() && !snapshot.setup_complete;
     snapshot.managed = crate::managed_barkd::get().is_some();
@@ -232,6 +236,7 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
     Ok(SetupStatus {
         wallet_created: settings::get_bool(conn, "setup_wallet_created")?,
         wallet_restored: settings::get_bool(conn, "setup_wallet_restored")?,
+        restore_refused: None,      // filled by the caller
         barkd_token_present: false, // filled by the caller (runtime token)
         config_written: settings::get_bool(conn, "setup_token_verified")?,
         backup_confirmed: settings::get_bool(conn, "setup_backup_confirmed")?,
@@ -1367,6 +1372,28 @@ pub async fn restore_backup(
     // Every check that needs no upload comes first, so a refused request never
     // makes the server read a large body.
     ensure_wizard_open(&state).await?;
+    // One restore at a time: two uploads at once could otherwise mix one
+    // file's database with the other's key. Once one has been staged the
+    // server is about to restart, so the guard simply stays set.
+    if RESTORE_IN_PROGRESS.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err(AppError::Conflict(
+            "A restore is already under way. Wait about a minute for the server to restart, then reload this page.".into(),
+        ));
+    }
+    let result = restore_backup_inner(&state, request).await;
+    if result.is_err() {
+        RESTORE_IN_PROGRESS.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    result
+}
+
+static RESTORE_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+async fn restore_backup_inner(
+    state: &AppState,
+    request: axum::extract::Request,
+) -> Result<Json<serde_json::Value>, AppError> {
     let restored = state
         .db
         .call(|conn| settings::get_bool(conn, "setup_wallet_restored"))

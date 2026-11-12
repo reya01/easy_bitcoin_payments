@@ -71,6 +71,10 @@ is never used, because it may be out of date.
 
 **The steps.** Each one says where you do it.
 
+0. **If the old server still exists, turn it off first** (on your host's website,
+   power it off; do not delete it yet). **Never run the old and the new server at
+   the same time:** both would use the same wallet and the same shop connection, and
+   could get in each other's way, including with the money.
 1. **On your host's website:** make a fresh server the same way as the first time
    ([START_HERE.md](START_HERE.md)), in the same mode (play money or real money).
    Stop when it shows you the setup page and the setup code.
@@ -169,12 +173,16 @@ Proves the backup is real. Allow an hour, and use play money first.
 1. On your current server, note the balance, the number of orders and the payout
    address on Home and in Settings. Leave a few hundred sats on the server. **Download
    a backup** (Settings) and keep the file.
-2. Make a **second, new server** the same way you made the first (leave the first one
-   running until the practice has passed).
+2. **Power off the first server** on your host's website (do not delete it: it is
+   your way back if the practice fails). Then make a **second, new server** the same
+   way you made the first. Never have both running at once.
 3. Follow **Restore on a new server** above, exactly as written.
 4. **Pass:** the balance, the orders, the payout address and the shop connection match
    what you noted in step 1; a new test order completes; **Move my money now** works.
 5. Write down the date and anything that differed next to your paper copies.
+6. Keep only one server: delete the one you no longer use (if you keep the new one,
+   delete the old one; if the practice failed, delete the new one and power the old
+   one back on).
 
 If the practice fails, the backup is a story, not a backup. Fix it before going live.
 

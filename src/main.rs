@@ -78,7 +78,10 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     match easy_bitcoin_payments::backup::apply_pending_restore(&config.database_path) {
         Ok(Some(done)) => tracing::warn!("{done}"),
         Ok(None) => {}
-        Err(why) => tracing::error!("{why}"),
+        Err(why) => {
+            tracing::error!("{why}");
+            easy_bitcoin_payments::backup::note_restore_refused(why);
+        }
     }
 
     // R10: webhook secrets are encrypted at rest. A malformed configured key

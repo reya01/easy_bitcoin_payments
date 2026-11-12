@@ -116,7 +116,10 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/status", get(setup::status))
         .route("/setup/wallet", post(setup::create_wallet))
         // The backup file is read inside the handler, after its own checks.
-        .route("/setup/restore-backup", post(setup::restore_backup))
+        .route(
+            "/setup/restore-backup",
+            post(setup::restore_backup).layer(DefaultBodyLimit::max(backup::MAX_CHECK_BYTES)),
+        )
         .route("/setup/wallet/confirm-backup", post(setup::confirm_backup))
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
         .route("/setup/wallet/verify-backup", post(setup::verify_backup))

@@ -431,6 +431,20 @@ pub fn restore_to(entries: &[Entry], dest: &Path) -> Result<(), AppError> {
 // into `restore-previous-<time>/`, and the wallet folder inside the backup is
 // never used (the money comes from the recovery words).
 
+/// Why the last staged restore was not applied at this start, if it was not,
+/// so the setup page can say so instead of waiting forever.
+static RESTORE_REFUSED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Record why a staged restore was refused (called once, at startup).
+pub fn note_restore_refused(why: String) {
+    let _ = RESTORE_REFUSED.set(why);
+}
+
+/// The reason a staged restore was refused at this start (`None` when none was).
+pub fn restore_refused_reason() -> Option<&'static str> {
+    RESTORE_REFUSED.get().map(String::as_str)
+}
+
 /// Folder beside the database where a staged restore waits for the next start.
 pub const PENDING_DIR: &str = "restore-pending";
 const READY_MARKER: &str = "ready";

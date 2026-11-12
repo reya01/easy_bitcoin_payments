@@ -467,7 +467,9 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       els.wordsManual.classList.remove("hidden");
       return;
     }
-    if (status.wallet_restored && !skipRestoreFile) { markStep(2); show("restorefile"); return; }
+    // (A separate wallet container needs its token step first: the backup
+    // marks setup as finished, so that step would never come round again.)
+    if (status.wallet_restored && !skipRestoreFile && (status.managed || status.config_written)) { markStep(2); show("restorefile"); return; }
     if (!status.config_written && status.managed && !autoTokenTried) {
       // Managed install: the server already holds the wallet token; no
       // copying needed. Fall back to the manual step if this fails.
@@ -610,7 +612,11 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       fetch("/setup/status", { headers: { "accept": "application/json" } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (s) {
-          if (s && s.setup_complete) {
+          if (s && s.restore_refused) {
+            clearInterval(timer);
+            rfWorking.classList.add("hidden");
+            fail(rfError, "The server restarted but did not use your backup: " + s.restore_refused + ". Nothing was deleted. To try again, reload this page; you will need the new setup code shown where the server runs.");
+          } else if (s && s.setup_complete) {
             clearInterval(timer);
             document.getElementById("done-restored").classList.remove("hidden");
             markStep(4); show("done");

@@ -1,0 +1,63 @@
+# Does the barkd we ship (0.8.0, the checksum-pinned build from the Dockerfile) work
+# against Second's real MAINNET Ark server? Run by hand:
+# Actions -> mainnet-compat-check -> Run workflow.
+#
+# Safe by design: it creates a throwaway EMPTY wallet in the runner's temp folder, asks
+# the server for its public terms, and deletes everything. No money, no secrets, no
+# recovery words (barkd is not started with --expose-mnemonic and the create answer is
+# never printed). The result is shown in the run's summary.
+name: mainnet-compat-check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: barkd 0.8.0 against the mainnet Ark server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ARK_SERVER: https://ark.second.tech
+      BARK_VERSION: "0.8.0"
+      BARK_SHA_X86_64: e78bb35dbfb4c9b639a505e12e8cf3c3ab0a730c0fa4d42032b053a7b9db2a14
+    steps:
+      - name: Download barkd (checksum-pinned, same build as the Dockerfile)
+        run: |
+          curl -fsSL "https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-${BARK_VERSION}/barkd-${BARK_VERSION}-linux-x86_64" -o "$RUNNER_TEMP/barkd"
+          echo "${BARK_SHA_X86_64}  $RUNNER_TEMP/barkd" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/barkd"
+          "$RUNNER_TEMP/barkd" --version | tee -a "$RUNNER_TEMP/result.txt"
+      - name: Is the mainnet server reachable from here?
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$ARK_SERVER" || true)
+          echo "GET $ARK_SERVER -> HTTP $code (any answer means the host is reachable; the Ark API itself is not plain HTTP)" | tee -a "$RUNNER_TEMP/result.txt"
+      - name: Start barkd, create an empty mainnet wallet, read the server's terms
+        run: |
+          set -u
+          D="$RUNNER_TEMP/bark-mainnet-check"; mkdir -p "$D"
+          "$RUNNER_TEMP/barkd" --datadir "$D" --host 127.0.0.1 --port 3999 > "$RUNNER_TEMP/barkd.log" 2>&1 &
+          for i in $(seq 1 30); do [ -f "$D/auth_token" ] && curl -sS -o /dev/null "http://127.0.0.1:3999/" && break; sleep 1; done
+          TOKEN=$(cat "$D/auth_token" 2>/dev/null || true)
+          H="Authorization: Bearer $TOKEN"
+          code=$(curl -sS -o "$RUNNER_TEMP/create.json" -w '%{http_code}' -X POST -H "$H" -H 'content-type: application/json' \
+            -d "{\"network\":\"mainnet\",\"ark_server\":\"$ARK_SERVER\"}" http://127.0.0.1:3999/api/v1/wallet/create || true)
+          echo "wallet create (network=mainnet, empty wallet) -> HTTP $code" | tee -a "$RUNNER_TEMP/result.txt"
+          if [ "$code" != "200" ]; then
+            echo "create answer (error text only, no words are returned without --expose-mnemonic):" | tee -a "$RUNNER_TEMP/result.txt"
+            head -c 600 "$RUNNER_TEMP/create.json" | tee -a "$RUNNER_TEMP/result.txt"; echo | tee -a "$RUNNER_TEMP/result.txt"
+          fi
+          rm -f "$RUNNER_TEMP/create.json"
+          for p in wallet/connected wallet/ark-info wallet/next-round bitcoin/tip fees/lightning/receive; do
+            c=$(curl -sS -o "$RUNNER_TEMP/out.json" -w '%{http_code}' -H "$H" "http://127.0.0.1:3999/api/v1/$p" || true)
+            echo "" | tee -a "$RUNNER_TEMP/result.txt"
+            echo "GET /api/v1/$p -> HTTP $c" | tee -a "$RUNNER_TEMP/result.txt"
+            head -c 2500 "$RUNNER_TEMP/out.json" | tee -a "$RUNNER_TEMP/result.txt"; echo | tee -a "$RUNNER_TEMP/result.txt"
+          done
+      - name: Show the result
+        if: always()
+        run: |
+          { echo '### barkd 0.8.0 against the mainnet Ark server'; echo; echo '```'; cat "$RUNNER_TEMP/result.txt" 2>/dev/null; echo '```'; echo; echo 'barkd log (last lines; contains no words):'; echo '```'; tail -n 25 "$RUNNER_TEMP/barkd.log" 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          rm -rf "$RUNNER_TEMP/bark-mainnet-check"

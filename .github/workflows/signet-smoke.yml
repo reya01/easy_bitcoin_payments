@@ -23,7 +23,13 @@ jobs:
       - name: Install the browser driver
         run: |
           python3 -m pip install --user playwright
-          python3 -m playwright install --with-deps chromium
+          for attempt in 1 2 3 4; do
+            sudo apt-get update -qq || true
+            python3 -m playwright install --with-deps chromium && exit 0
+            echo "browser download failed (attempt $attempt of 4); waiting before trying again"
+            sleep $((attempt * 30))
+          done
+          exit 1
       - name: Run the smoke checks
         run: python3 tests/signet/smoke.py
       - name: Server log (for failures; the log never contains the words, keys or password)

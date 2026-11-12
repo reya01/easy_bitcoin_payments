@@ -41,10 +41,18 @@ jobs:
       # Browser end-to-end: this exact binary, a fake barkd that validates
       # every request/response against the pinned OpenAPI spec, and desktop
       # Chromium driving the setup wizard, admin page and payment flows.
+      # Retries: the browser's system packages come from Ubuntu's mirrors, which
+      # sometimes cannot be reached for a few minutes; that is not a code failure.
       - name: Install end-to-end test dependencies
         run: |
           python3 -m pip install --user playwright jsonschema
-          python3 -m playwright install --with-deps chromium
+          for attempt in 1 2 3 4; do
+            sudo apt-get update -qq || true
+            python3 -m playwright install --with-deps chromium && exit 0
+            echo "browser download failed (attempt $attempt of 4); waiting before trying again"
+            sleep $((attempt * 30))
+          done
+          exit 1
 
       # The customer's payment page in every state the server can report
       # (server mocked; also needs the browser installed above).

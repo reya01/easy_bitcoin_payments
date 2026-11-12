@@ -233,7 +233,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_PUBLIC_BASE_URL` | `http://localhost:8080` | Used to build checkout links |
 | `EBP_DEFAULT_EXPIRY_MINUTES` | `20` | Rate-lock lifetime |
 | `EBP_DEFAULT_CURRENCY` | `EUR` | Fallback currency |
-| `EBP_HOT_WALLET_CAP_SATS` | `20000` | Till cap when your payout address is an Ark address (low: Ark transfers are almost free) |
+| `EBP_HOT_WALLET_CAP_SATS` | `1000` | Till cap when your payout address is an Ark address (low: Ark transfers are almost free) |
 | `EBP_ONCHAIN_SWEEP_CAP_SATS` | `1000000` | Till cap when your payout address is an on-chain address (higher: each withdrawal pays a network fee) |
 | `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB` | `50` | An automatic on-chain withdrawal waits until network fees are at or below this (sat/vB). The manual "move my money now" button ignores it |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
@@ -393,7 +393,7 @@ If you are a trust-minimization purist, use BTCPay.
   health alerts are designed to be handled from a phone. If a flow cannot
   be completed on a phone, it does not ship.
 - **Smaller breach blast radius.** The server holds a capped till (default
-  20,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is swept to your own wallet automatically — the UI
+  1,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is swept to your own wallet automatically — the UI
   calls it "cash in a till; we empty it into your vault automatically." A
   compromised server can steal the float, not a full Lightning node's hot
   wallet.
@@ -424,7 +424,7 @@ a high-value signing credential reachable through the web tier, guarding a
 hot wallet whose size is a *requirement* of Lightning (channels must hold
 liquidity). EBP is designed against that failure class:
 
-- The server-side wallet is a **capped till** (default 20,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is
+- The server-side wallet is a **capped till** (default 1,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is
   swept automatically to your own wallet. A compromised server exposes the
   float, not the vault.
 - **You do not have to trust the ASP with your funds — only for liveness.**

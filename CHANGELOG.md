@@ -3,6 +3,7 @@
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
 - **Docs: the plan for mainnet** (`docs/dev/MAINNET_PLAN.md`): restore from the 12 recovery words plus the backup file, mainnet wallet and addresses, three renewal changes, and a test with small real money. The release checklist, known issues and handoff notes point to it. No code changes.
+- **Fix: the weekly wallet check said "0 orders paid" on a test server.** A test-mode server flags every invoice as a test, and the check skipped those while still counting the money sent on. It now counts every paid order. The card also now leads with the one question that matters ("does your wallet show about X sats received?") and shows the paid-orders count as a reference line. Once you have checked, it folds down to a single line ("Weekly wallet check: done …") so it stops taking room on Home, and opens by itself again when the next check is due. Phone "payment received" alerts had the same blind spot and are fixed too.
 - **CI: the browser download for the end-to-end tests now retries** (up to 4 times) instead of failing the whole run when Ubuntu's mirrors cannot be reached.
 - **CI: a manual `mainnet-compat-check` workflow** that starts the pinned barkd 0.8.0, creates a throwaway empty mainnet wallet against `https://ark.second.tech`, and prints the server's public terms. No money, no secrets, nothing published.
 - **Docs: the signature-check command in `UPGRADING.md` now names this repository** and matches the `v0.1.0-rc1` signature, which was checked by hand (see `KNOWN_ISSUES.md`).

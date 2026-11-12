@@ -357,21 +357,37 @@ function loadRecon() {
     var box = $("recon"); clear(box);
     if (!r.paid_orders && !r.swept_sats) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
-    box.appendChild(el("strong", r.due ? "Time for your weekly wallet check" : "Weekly wallet check", r.due ? "bad" : ""));
-    box.appendChild(el("p", "In the last " + r.days + " days this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ") and says it sent " + fmtSats(r.swept_sats) + " on to your payout address.", "muted"));
-    box.appendChild(el("p", "Open your own wallet and check that the payments you received match. This is the one check that does not depend on this server telling the truth.", "muted"));
-    if (r.last_checked_at) box.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
+    // Checked within the last week: fold it away to one line so it does not take
+    // up room on the Home page. It opens out again on a tap, and by itself when due.
+    var host = box;
+    if (r.due) {
+      box.appendChild(el("strong", "Time for your weekly wallet check", "bad"));
+    } else {
+      host = document.createElement("details");
+      host.style.margin = "0";
+      host.appendChild(el("summary", "Weekly wallet check: done" + (r.last_checked_at ? " " + when(r.last_checked_at * 1000) : "") + ". Tap to check again."));
+      box.appendChild(host);
+    }
+    var days = r.days + " days";
+    if (r.swept_sats > 0) {
+      host.appendChild(el("p", "Open your own wallet. Does it show about " + fmtSats(r.swept_sats) + " received from this server in the last " + days + "?"));
+    } else {
+      host.appendChild(el("p", "This server says it has not sent anything on to your wallet in the last " + days + ". Open your own wallet and check that nothing arrived from it either."));
+    }
+    host.appendChild(el("p", "This is the one check that does not depend on this server telling the truth. Payments are sent on in batches, so the amount in your wallet can lag a little behind your orders.", "muted"));
+    host.appendChild(el("p", "For reference: in the last " + days + " this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ").", "muted"));
+    if (r.last_checked_at) host.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
     var btns = el("div", "", "btns");
     var ok = el("button", "I checked: it matches"); ok.type = "button"; ok.className = r.due ? "primary" : "";
     ok.addEventListener("click", function () { ok.disabled = true; api("POST", "/admin/reconcile/done", {}).then(loadRecon).catch(function () { ok.disabled = false; }); });
     btns.appendChild(ok);
-    box.appendChild(btns);
+    host.appendChild(btns);
     var d = document.createElement("details");
     d.appendChild(el("summary", "It doesn't match"));
     d.appendChild(el("p", "1. In Settings, press \"Pause new payments\". Then in your shop, turn off the Bitcoin payment method (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
     d.appendChild(el("p", "2. Do not delete anything on the server; it may help work out what happened.", "muted"));
     d.appendChild(el("p", "3. Turn the server off at your hosting company, then follow \"If something looks wrong\" in the docs (IF_SOMETHING_LOOKS_WRONG.md) before you do anything else. Never type your recovery words anywhere while fixing this.", "muted"));
-    box.appendChild(d);
+    host.appendChild(d);
   }).catch(function () {});
 }
 

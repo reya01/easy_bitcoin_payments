@@ -234,6 +234,7 @@ pub fn router(state: AppState) -> Router {
                 )
                 // Also checks the admin password.
                 .route("/admin/payout", post(payout::change))
+                .route("/admin/payout/cap", post(payout::change_cap))
                 // These check the admin password or a code, so they share the brake.
                 .route("/admin/2fa/start", post(twofa::start))
                 .route("/admin/2fa/confirm", post(twofa::confirm))

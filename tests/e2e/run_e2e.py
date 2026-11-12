@@ -772,6 +772,34 @@ def main():
             page.click('#tabs button[data-v="home"]')
             wait_for(lambda: "Payout address is set" in page.inner_text("#health"), "home says the payout address is set")
 
+        @step("sweep amount: Settings shows the current amount and the owner can change it and reset it")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.wait_for_selector("#cap-go")
+            wait_for(lambda: "(the default)" in page.inner_text("#cap-now"), "default amount shown")
+            assert not page.is_visible("#cap-reset"), "no reset button while on the default"
+            # Nonsense is refused before anything is sent.
+            page.fill("#cap-new", "0")
+            page.click("#cap-go")
+            wait_for(lambda: "whole number" in page.inner_text("#cap-msg"), "zero refused")
+            # A wrong password is refused by the server.
+            page.fill("#cap-new", "3000")
+            page.fill("#cap-pw", "not the password at all")
+            page.click("#cap-go")
+            wait_for(lambda: "isn't right" in page.inner_text("#cap-msg"), "wrong password refused")
+            # The right one saves, and the box then shows the owner's number.
+            page.fill("#cap-new", "3000")
+            page.fill("#cap-pw", ADMIN_PW)
+            page.click("#cap-go")
+            wait_for(lambda: "your setting" in page.inner_text("#cap-now") and "3,000" in page.inner_text("#cap-now"), "new amount shown")
+            wait_for(lambda: page.is_visible("#cap-reset"), "reset button appears")
+            # Back to the default.
+            page.fill("#cap-pw", ADMIN_PW)
+            page.click("#cap-reset")
+            wait_for(lambda: "(the default)" in page.inner_text("#cap-now"), "default again")
+
         @step("pause + key limit: pausing refuses new payments, the shop key can be limited to an address, both undone")
         def _():
             page.goto(f"{BASE}/admin")

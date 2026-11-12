@@ -189,6 +189,15 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
     </div>
+    <div id="cap-box" class="hidden">
+      <h3>How much to keep on this server</h3>
+      <p class="muted" id="cap-now"></p>
+      <label for="cap-new">New amount to keep (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
+      <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
+      <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+      <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
+      <p class="msg hidden" id="cap-msg"></p>
+    </div>
     <div id="sweep-box" class="hidden">
       <p class="muted">Don't want to wait? You can move everything in the till to your payout address right now. This ignores the amount and fee limits above, and on-chain withdrawals then pay whatever the network fee is today.</p>
       <div class="btns"><button id="sweep-go" type="button">Move my money to my payout address now</button></div>
@@ -697,13 +706,19 @@ $("sweep-go").addEventListener("click", function () {
 function loadPayout() {
   api("GET", "/api/v1/payout").then(function (p) {
     var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
-    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + fmtSats(p.cap_sats) + "." : "No payout address yet — money stays in the till until you add one.";
+    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + "." : "No payout address yet — money stays in the till until you add one.";
     var kinds = $("po-kinds"); clear(kinds);
-    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + fmtSats(p.ark_cap_sats) + ", so only a small amount is ever held on this server."],
-     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + fmtSats(p.onchain_cap_sats) + ", and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
+    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free, so only a small amount is ever held on this server."],
+     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Withdrawals wait for network fees to be low. Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
+    $("cap-box").classList.toggle("hidden", !p.address);
+    if (p.address) {
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends everything above that to your payout address" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("cap-new").placeholder = "number of sats";
+      $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
+    }
     var pend = p.pending_address;
     $("po-pending").classList.toggle("hidden", !pend);
     $("po-cancel-box").classList.toggle("hidden", !pend);
@@ -720,6 +735,21 @@ $("po-go").addEventListener("click", function () {
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
 });
+function saveCap(value, btn) {
+  btn.disabled = true;
+  api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
+    $("cap-new").value = ""; $("cap-pw").value = ""; $("cap-code").value = "";
+    say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + ".");
+    loadPayout();
+  }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
+}
+$("cap-go").addEventListener("click", function () {
+  var raw = $("cap-new").value.trim();
+  var n = Number(raw);
+  if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 1000.", true); return; }
+  saveCap(n, $("cap-go"));
+});
+$("cap-reset").addEventListener("click", function () { saveCap(null, $("cap-reset")); });
 $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });

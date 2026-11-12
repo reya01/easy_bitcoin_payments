@@ -43,6 +43,7 @@ Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main`
 | Restore through barkd | the same call with `mnemonic` set (also optional `birthday_height`, `gap_limit`) | pinned `docs/barkd-openapi.json` |
 | What the words recover | the Ark balance (with the Ark server's cooperation) and the on-chain balance; **not** payment history or in-progress exits | bark-cli/mainnet, backups |
 | What a wallet-folder backup adds | history and in-progress exits, without the server's help | backups |
+| Emergency (unilateral) exit | several on-chain transactions per coin; fees paid from the wallet's confirmed on-chain balance; final claim after the exit delta; must start before the coin expires | barkd OpenAPI `/exits/*`, learn/lifetime |
 | Coin lifetime | 28 days for boards and refreshes; 1 to 3 days for coins from Lightning receives | learn/lifetime |
 | Refresh fee | free in the last 2 days before expiry, then 0.2% / 0.4% / 0.5% | second.tech/pricing, learn/fees |
 | Lightning receive, Ark send, Ark receive | 0% | second.tech/pricing |
@@ -238,6 +239,33 @@ EBP's renewal step picks due coins from the spendable list every 5 minutes. If c
 - `src/lib.rs:7` ("never mainnet"), `docs/dev/TECHNICAL.md:251`.
 - `integrations/woocommerce/ebp-bitcoin/includes/class-ebp-gateway.php:45`: "Test version: use play-money (signet) coins only" is fixed text and the plugin cannot see the server's mode. Reword so it is true in both modes.
 - The test banner must stay hidden in live mode (`assets/setup.html:403`, `assets/checkout.html:39`, and the dashboard). In live mode show one line in the same spot: "REAL MONEY. Experimental: keep amounts small."
+
+### PR G: emergency withdrawal without the Ark server (owner request, 12 November)
+
+**Why.** Today EBP has no way to get coins out if Second's Ark server goes offline or refuses to cooperate. The code says "emergency exits are never automated — they are a documented runbook", but no runbook exists. Ark's promise is that the owner always holds the keys and can leave alone (a unilateral exit); EBP should make that possible from the dashboard, as a last resort.
+
+**What barkd 0.8.0 already offers** (pinned `docs/barkd-openapi.json`, no new dependency): `GET /api/v1/exits/fee` (estimate, read-only), `POST /api/v1/exits/start/all` (register every coin for exit; barkd then broadcasts the exit transactions by itself, in order, over time), `GET /api/v1/exits/status/live` and `/finished`, `POST /api/v1/exits/cancel/{vtxo_id}` (allowed until the last transaction is broadcast), `POST /api/v1/exits/claim/all` (manual last step: one on-chain transaction to an address). The fees for each step are paid from the server's **confirmed on-chain balance** (fee bumping), not from the coins being exited.
+
+**Facts the owner must know before using it** (and the page must say):
+- It is several on-chain transactions per coin, each paying network fees, then a wait of at least the exit delta (144 blocks, about a day, on mainnet) before the final claim. Expect a day or more, and fees that can be large when the network is busy.
+- **With the 1,000-sat keep amount the server holds very little, so an exit will usually cost more in fees than it rescues.** The money that matters is in the owner's own payout wallet, whose own app is responsible for its exits. The page must show the estimate next to the amount and say plainly when the fees are larger than the money.
+- **It must start before the coins expire** (minus the exit delta). Lightning-received coins live only 1 to 3 days, refreshed ones 28 days. After that the Ark server can take them back (barkd reports `vtxo-swept`). So the page shows the deadline.
+- The server must stay on for the whole exit. An exit in progress is not restored from the 12 words; the wallet folder (in the backup file) carries it.
+
+**Where and how (one PR, plus a signet drill before it is offered on mainnet):**
+1. **Settings → "Emergency: withdraw without the Ark server"**, folded away by default under a red heading. Never on Home as a button.
+2. **The warning**, at the top, in plain words: "You always hold the keys to this money, so you can take it out on your own even if the Ark server is gone or refuses to help. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use **Move my money now** instead: it is cheaper and faster."
+3. **Before anything can start, the page shows:** the Ark balance on the server; the fee estimate from `exits/fee` at the current network fee rate; the server's confirmed on-chain balance (which pays those fees); the deadline (earliest coin expiry minus the exit delta); and whether the Ark server answers right now (`wallet/connected`).
+4. **Paying the fees.** If the confirmed on-chain balance is below the estimate, the page shows the server's own on-chain address (`onchain/addresses/next`) and says how much to send to it, and the start button stays disabled until enough has confirmed. Check in the PR that the sweep never touches that on-chain balance (today the sweep only moves Ark coins: `src/wallet/settlement.rs` test `ark_sweep_does_not_need_the_exit_reserve`).
+5. **Destination.** An on-chain address the owner controls: the payout address if it is an on-chain one, otherwise typed in and checked with the same rules as the payout address (mainnet `bc1…`, plus `1…`/`3…` if PR C lands). Never an Ark address.
+6. **Confirmation.** A tick-box "I understand this is for emergencies, costs network fees and takes at least a day", the admin password, **and** the two-step code. Two-step sign-in must be on; if it is off, the page says to turn it on first and the start button stays disabled. Same server-side checks as changing the payout address (`check_second_step`), audit-logged (`exit.started`).
+7. **While it runs.** The settlement engine pauses renewals and sweeps while any exit is live (they would fight over the same coins). Home shows a red line "Emergency withdrawal in progress since <time>" with a link to Settings. Settings lists each coin's exit state from `exits/status/live`. A **Stop** button (password and two-step code again) calls `exits/cancel` for coins where barkd still allows it. The page tells the owner to download a fresh backup now, because the backup carries the exit and the words do not.
+8. **Claiming.** When barkd reports the outputs are claimable, a phone alert and a Home line say so, and a **Send to my address** button (password and two-step code) calls `exits/claim/all` with the destination. Claiming is never automatic.
+9. **Never automatic, never on a timer.** Nothing starts an exit except the owner pressing the button.
+10. **Tests.** Unit and API tests with the mock wallet: refused without the password, without the two-step code, with two-step off, with too little on-chain balance, with an Ark destination; settlement pauses while an exit is live; claim and stop need the second step; the warning text is on the page. Browser e2e: the section is folded away and the button stays disabled until the tick-box, password and code are given.
+11. **Signet drill (owner, before the option is enabled on mainnet).** With a few thousand play-money sats: fund the on-chain fee balance from a faucet, start an exit, watch it progress, claim to a signet address, and write down how long each step took and what it cost. Capture the `exits/status` shapes with `scripts/drill_capture.sh` (it already reads exits). Mainnet stays read-only: Stage 5 records a fee estimate only, no real exit.
+
+**Order.** After PR D (renewal) and before Stage 3. If it is not ready by then, the release notes and `KNOWN_ISSUES.md` must say plainly that there is no emergency withdrawal yet, and the amounts kept on the server stay small (the 1,000 default) until it ships.
 
 ### PR F: turn off barkd's built-in wallet page (added 12 November)
 Add `--no-ui` to the barkd start command (`src/managed_barkd.rs`, `spawn`) and to `.github/workflows/mainnet-compat-check.yml`. Run that workflow first: if the pinned 0.8.0 binary refuses the flag, drop this PR and note it (the page is only on `127.0.0.1` inside the container). Test: the managed start command includes the flag.

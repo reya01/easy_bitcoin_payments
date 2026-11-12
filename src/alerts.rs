@@ -273,21 +273,19 @@ pub fn set_activity(conn: &Connection, mode: &str) -> Result<(), AppError> {
     settings::set(conn, "alerts_activity_digest_at", &now)
 }
 
-/// Orders this server marked paid at or after `since` (test payments
-/// excluded). "At or after" so a payment landing in the very second a summary
-/// was cut is never lost; the worst case is one rare repeat count.
+/// Orders this server marked paid at or after `since`. Test-mode orders count
+/// too: a test-mode server marks every invoice as a test, so leaving them out
+/// would silence the alerts exactly when the owner is trying them. "At or
+/// after" so a payment landing in the very second a summary was cut is never
+/// lost; the worst case is one rare repeat count.
 pub fn paid_since(conn: &Connection, since: i64) -> Result<i64, AppError> {
-    let mut stmt = conn.prepare(
-        "SELECT metadata_json FROM invoices
+    conn.query_row(
+        "SELECT COUNT(*) FROM invoices
          WHERE status IN ('paid','overpaid') AND paid_at IS NOT NULL AND paid_at >= ?1",
-    )?;
-    let metas = stmt
-        .query_map([since], |r| r.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(metas
-        .iter()
-        .filter(|m| !crate::invoice::is_test_invoice(m))
-        .count() as i64)
+        [since],
+        |r| r.get(0),
+    )
+    .map_err(Into::into)
 }
 
 /// A message about payments, or nothing. Pure.

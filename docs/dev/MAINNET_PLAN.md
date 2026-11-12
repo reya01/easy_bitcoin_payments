@@ -1,6 +1,6 @@
 # Mainnet migration and wallet-restore plan
 
-Revised 11 November 2026 (fourth revision) against `main` at `d3197c3` (`v0.1.0-rc1`). This is a plan, agreed with the owner on 11 November 2026. Nothing in it is built yet except the sweep threshold of 1,000 sats (PR #151). Whoever does the work follows it in order and stops to report when reality differs from it.
+Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main` at `d3197c3` (`v0.1.0-rc1`). This is a plan, agreed with the owner on 11 November 2026. Nothing in it is built yet except the sweep threshold of 1,000 sats. Whoever does the work follows it in order and stops to report when reality differs from it.
 
 **Goal:** the same features that work on signet today, working on Bitcoin mainnet with very small amounts of real money, plus a documented and tested way to get everything back after losing the server. No other new features and no new dependencies.
 
@@ -45,11 +45,26 @@ Revised 11 November 2026 (fourth revision) against `main` at `d3197c3` (`v0.1.0-
 | Coin lifetime | 28 days for boards and refreshes; 1 to 3 days for coins from Lightning receives | learn/lifetime |
 | Refresh fee | free in the last 2 days before expiry, then 0.2% / 0.4% / 0.5% | second.tech/pricing, learn/fees |
 | Lightning receive, Ark send, Ark receive | 0% | second.tech/pricing |
-| Rounds | much less often on mainnet than signet; a refresh waits for the next round; exact interval not documented | bark-cli/mainnet |
+| Rounds | **every 1 hour on mainnet** (signet: 5 minutes); a refresh waits for the next round | measured 11 Nov (below), bark-cli/mainnet |
 | Second's advice for mainnet | start with small amounts; save the seed phrase; back up the wallet data folder continuously; only store what you can afford to lose | bark-cli/mainnet |
 | Mainnet support | chat.second.tech, contact Neil (982572) | bark-cli/mainnet |
 
-Not documented, so they must be measured in Stage 4 or asked of Second's support: the mainnet round interval, the smallest Ark send (dust limit), and whether mainnet sets `ln_receive_anti_dos_required`.
+**Measured on 11 November 2026** by running the project's `mainnet-compat-check` workflow (the exact checksum-pinned barkd 0.8.0 build, a throwaway empty mainnet wallet, no money; run 43126312755):
+
+| Measured | Value |
+|---|---|
+| barkd 0.8.0 against `ark.second.tech` | **connects and creates a mainnet wallet** (`connected: true`). No upgrade to 0.8.1 is needed for this. |
+| Round interval | `1h` |
+| Coin lifetime / exit delta | 4032 blocks (28 days) / 144 blocks (1 day) |
+| Refresh fee | 0% when under 288 blocks (2 days) to expiry; 0.2% from 288; 0.4% from 1008; 0.5% from 2016 |
+| `ln_receive_anti_dos_required` | `false`: Lightning receive should work into an empty wallet |
+| Lightning receive fee | 0 |
+| Largest single coin | 10,000,000 sats |
+| Smallest on-chain board | 50,000 sats (EBP does not board; the on-chain rail stays off) |
+| On-chain payout (offboard) fee | 0.2% to 0.5% of the amount, plus about 389 vbytes at the current feerate (124 sat/kvb at the time, about 48 sats) |
+| Server terms of service | https://second.tech/terms |
+
+Still not known: the smallest Ark send (dust limit, expected 330 sats, to be confirmed in Stage 1 and 4).
 
 ### How this plan follows Second's "Test on mainnet" page
 
@@ -182,11 +197,11 @@ With a 1,000-sat threshold the server will often hold a small remainder. If the 
 EBP records a renewal as done the moment barkd accepts the registration. On mainnet the round may be hours later. Record it as requested, and mark it done when the coin's expiry has actually moved (the coin list already shows this on the next cycles). This changes what Home and the transfers list say, not when renewals happen. It also makes the mainnet observations in Stage 4 trustworthy.
 
 **Change 3 (small, should have): check the round timing leaves room.**
-Read `round_interval` from the server terms (already in the answer; signet reports `5m`). If fewer than 4 rounds fit between the renewal point and expiry, renew earlier even though it costs the fee: not expiring matters more than the fee. With a 2-day free window this only bites if rounds are more than 12 hours apart, so it is a safety net, with a unit test table for 5 minutes, 1 hour, 6 hours and 24 hours.
+Read `round_interval` from the server terms (the answer includes it as text such as `1h`; EBP does not read it today). If fewer than 4 rounds fit between the renewal point and expiry, renew earlier even though it costs the fee: not expiring matters more than the fee. Mainnet measured `1h` rounds, so the 2-day free window holds about 48 rounds and this will not trigger today. It is a safety net in case Second changes the interval, with a unit test table for 5 minutes, 1 hour, 6 hours and 24 hours.
 
 **No change:** the 7-day fallback when terms cannot be read, the 12-block floor, the "wallet says it needs refresh" top-up.
 
-**Still observed on mainnet with small funds (Stage 4 steps 5, 11 and 14):** the real round interval and how long a registered renewal takes to complete; that short-lived Lightning coins (1 to 3 days) are renewed once and free; that the 28-day coin is renewed inside the free window near day 26; the real fee table parsed as expected, then added as a verified test next to the signet one (`src/wallet/barkd.rs:2717`). Any surprise there becomes a separate owner-approved fix.
+**Still observed on mainnet with small funds (Stage 4 steps 5, 11 and 14):** how long a registered renewal takes to complete (rounds are hourly); that short-lived Lightning coins (1 to 3 days) are renewed once and free; that the 28-day coin is renewed inside the free window near day 26; the real fee table parsed as expected, then added as a verified test next to the signet one (`src/wallet/barkd.rs:2717`). Any surprise there becomes a separate owner-approved fix.
 
 ### PR E: wording that is wrong on mainnet
 - `src/lib.rs:7` ("never mainnet"), `docs/dev/TECHNICAL.md:251`.
@@ -232,10 +247,10 @@ Dated records (`REVIEW_*`, `DROPLET_TEST_RESULTS_*`, phase and beta plans) are l
 2. **Phone wallet first.** A mainnet wallet in the owner's own Ark wallet on `https://ark.second.tech`; copy its `ark1…` address.
 3. **Setup wizard.** Create the wallet (12 words), confirm the three words, admin password, 2FA. Save the `ark1…` payout address.
 4. **Address checks on the payment server.** Each of these must be refused with a clear message: a `tark1…` address, a `tb1…` address, an `ark1…` address with one character changed, a `1…` address with one character changed. Each of these must be accepted in Settings (then change back): `bc1q…`, `bc1p…`, `1…`, `3…`.
-5. **Capture the server's real terms** with `scripts/drill_capture.sh` before any payment: fee table, coin lifetime, round interval, `ln_receive_anti_dos_required`, minimums. Confirm Home's renewal point is about 2 days before expiry.
-6. **First payment, Lightning, about 500 sats, into the empty wallet.** If no Lightning invoice can be made, record the error (the anti-DoS question), pay the first order over Ark, then retry Lightning.
+5. **Capture the server's real terms** again with `scripts/drill_capture.sh` before any payment and compare with the 11 November measurements (1-hour rounds, 28-day coins, free renewal under 288 blocks, anti-DoS off). Confirm Home's renewal point is about 2 days before expiry.
+6. **First payment, Lightning, about 500 sats, into the empty wallet.** The mainnet server reports `ln_receive_anti_dos_required: false`, so this should work. If no Lightning invoice can be made, record the error, pay the first order over Ark, then retry Lightning.
 7. **Checkout addresses.** On the checkout page the Ark address starts `ark1`, the Lightning invoice starts `lnbc`, and (if the on-chain rail is on) the Bitcoin address starts `bc1`. The combined QR code is accepted by the phone wallet.
-8. **Sweep at 1,000.** Pay about 2,000 sats. Within one settlement interval plus one mainnet round, about 1,000 arrives in the phone wallet and about 1,000 stays. Compare amounts exactly and note any fee and how long the round took.
+8. **Sweep at 1,000.** Pay about 2,000 sats. An Ark payout should arrive within one settlement interval (5 minutes); an on-chain payout waits for the next round, up to about an hour more (rounds are hourly). About 1,000 arrives in the phone wallet and about 1,000 stays. Compare amounts exactly and note any fee and how long it took.
 9. **Overpay by a few sats, underpay once, let one invoice expire.** Same results as on signet.
 10. **WooCommerce.** New plugin zip on the test shop, pointed at the mainnet server; buy a product priced under one dollar; order goes to Processing. Then the lost-notice check.
 11. **Renewal on a real mainnet round.** The first Lightning payment leaves a coin with 1 to 3 days of life on the server. Watch it get renewed (Home, transfers list) and record how long the request waited for a round and whether any false failure was recorded.

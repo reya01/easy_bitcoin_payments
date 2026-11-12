@@ -17,7 +17,7 @@ const KEY: &str = "reconcile_checked_at";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub since: i64,
-    /// Orders this server marked paid in the window (test payments excluded).
+    /// Orders this server marked paid in the window (test-mode ones included).
     pub paid_orders: i64,
     pub paid_sats: i64,
     /// Sats this server says it sent on to the payout address in the window.
@@ -40,23 +40,15 @@ pub fn is_due(last_checked: Option<i64>, now: i64, paid_orders: i64, swept_sats:
 
 pub fn summary(conn: &Connection, now: i64) -> Result<Summary, AppError> {
     let since = now - WINDOW_SECS;
-    let mut stmt = conn.prepare(
-        "SELECT paid_sats, metadata_json FROM invoices
+    // Every paid invoice counts, including ones made in test mode: a test-mode
+    // server marks ALL its invoices as test, and its sweeps are counted too, so
+    // leaving them out showed "0 orders paid" next to real sweeps.
+    let (paid_orders, paid_sats): (i64, i64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(paid_sats), 0) FROM invoices
          WHERE status IN ('paid','overpaid') AND paid_at IS NOT NULL AND paid_at >= ?1",
+        params![since],
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let rows = stmt
-        .query_map(params![since], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    let (mut paid_orders, mut paid_sats) = (0i64, 0i64);
-    for (sats, meta) in rows {
-        if crate::invoice::is_test_invoice(&meta) {
-            continue;
-        }
-        paid_orders += 1;
-        paid_sats += sats;
-    }
     let swept_sats: i64 = conn.query_row(
         "SELECT COALESCE(SUM(amount_sats), 0) FROM settlements
          WHERE kind IN ('sweep_ark','sweep_onchain') AND status = 'broadcast' AND created_at >= ?1",
@@ -97,7 +89,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn summary_counts_real_paid_orders_and_sweeps_in_the_window_only() {
+    async fn summary_counts_paid_orders_including_test_mode_and_sweeps_in_the_window_only() {
         let db = Db::open(":memory:").unwrap();
         db.call(|c| {
             let now = crate::util::now_unix();
@@ -128,7 +120,7 @@ mod tests {
                 )?;
             }
             let s = summary(c, now)?;
-            assert_eq!((s.paid_orders, s.paid_sats, s.swept_sats), (2, 5000, 4000));
+            assert_eq!((s.paid_orders, s.paid_sats, s.swept_sats), (3, 12777, 4000));
             assert!(s.due && s.last_checked_at.is_none());
             mark_checked(c, now)?;
             let s = summary(c, now)?;

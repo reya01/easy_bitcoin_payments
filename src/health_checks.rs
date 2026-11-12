@@ -67,6 +67,10 @@ pub struct Facts {
     pub payout: Payout,
 }
 
+/// The "large balance" warning never fires below this many sats, whatever the
+/// amount the server keeps is set to.
+const LARGE_BALANCE_FLOOR_SATS: i64 = 100_000;
+
 pub fn build(f: &Facts) -> Vec<Check> {
     let mut out = Vec::new();
     let mut push = |id, level, title: &str, detail: &str| {
@@ -257,12 +261,24 @@ pub fn build(f: &Facts) -> Vec<Check> {
     }
 
     if let Some(offchain) = f.offchain_sats {
-        if f.hot_wallet_cap_sats > 0 && offchain > f.hot_wallet_cap_sats.saturating_mul(2) {
+        // Both tests must pass: more than twice the amount the server keeps, AND
+        // a real sum. With a small kept amount (1,000 sats) "twice" alone would
+        // warn about a couple of thousand sats, which is not worth a warning.
+        let limit = f
+            .hot_wallet_cap_sats
+            .saturating_mul(2)
+            .max(LARGE_BALANCE_FLOOR_SATS);
+        if f.hot_wallet_cap_sats > 0 && offchain > limit {
+            let detail = if f.payout == Payout::Set {
+                "More is held here than usual. Money is normally sent on to your own wallet by itself; look under Recent transfers on Home, or press Move my money now."
+            } else {
+                "Move some to your own wallet. Set a withdrawal address in Settings so this happens automatically."
+            };
             push(
                 "balance",
                 Level::Warn,
                 "A large balance is sitting in the shop wallet",
-                "Move some to your own wallet. Set a withdrawal address in Settings so this happens automatically.",
+                detail,
             );
         }
     }
@@ -435,5 +451,22 @@ mod tests {
         let c = build(&f);
         assert_eq!(find(&c, "balance").level, Level::Warn);
         assert_eq!(find(&c, "withdrawals").level, Level::Warn);
+    }
+
+    #[test]
+    fn a_small_kept_amount_does_not_make_a_small_balance_a_large_one() {
+        let mut f = healthy();
+        f.hot_wallet_cap_sats = 1_000;
+        // Above twice the kept amount, but only a couple of thousand sats.
+        f.offchain_sats = Some(2_195);
+        assert!(build(&f).iter().all(|x| x.id != "balance"));
+        f.offchain_sats = Some(100_000);
+        assert!(build(&f).iter().all(|x| x.id != "balance"));
+        f.offchain_sats = Some(100_001);
+        assert_eq!(find(&build(&f), "balance").level, Level::Warn);
+        // A large kept amount still uses twice that amount.
+        f.hot_wallet_cap_sats = 500_000;
+        f.offchain_sats = Some(900_000);
+        assert!(build(&f).iter().all(|x| x.id != "balance"));
     }
 }

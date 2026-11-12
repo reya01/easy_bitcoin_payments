@@ -375,7 +375,11 @@ impl SettlementEngine {
         let cap = if manual {
             0
         } else {
-            self.config.sweep_cap_for(&destination)
+            let config = self.config.clone();
+            let dest = destination.clone();
+            self.db
+                .call(move |conn| crate::payout::cap_for(conn, &config, &dest))
+                .await?
         };
         let excess = offchain.saturating_sub(cap);
         if excess <= 0 {

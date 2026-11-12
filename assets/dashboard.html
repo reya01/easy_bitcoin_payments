@@ -715,7 +715,7 @@ function loadPayout() {
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("cap-box").classList.toggle("hidden", !p.address);
     if (p.address) {
-      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends everything above that to your payout address" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once enough has built up" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
       $("cap-new").placeholder = "number of sats";
       $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
     }

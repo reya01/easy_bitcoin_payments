@@ -1,6 +1,13 @@
 # Handoff — Easy Bitcoin Payments (EBP)
 
-## Update 2026-11-06 (read this first)
+## Update 2026-11-11 (read this first)
+
+`v0.1.0-rc1` is published (signet only). The next piece of work is the move to mainnet with
+small real money, and the agreed plan is [MAINNET_PLAN.md](MAINNET_PLAN.md): restore from
+the 12 words, mainnet wallet and addresses, three renewal changes, a docs sweep, then a
+mainnet test sheet. Follow it in order. barkd stays on 0.8.0 during alpha.
+
+## Update 2026-11-06
 
 Since the notes below were written, these were added and are on `main` with CI
 green: phone alerts (ntfy), a working WooCommerce plugin (real WordPress +

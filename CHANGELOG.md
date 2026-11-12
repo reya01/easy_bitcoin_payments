@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **Fix: updating a server by `git pull` then `./scripts/start.sh` did not actually update it.** `start.sh` only started the existing program and never rebuilt it, so the server kept running the old version (Home still showed the old version number). `start.sh` now builds from the files in the folder first (cached, so quick when nothing changed). If you already ran an update that did not take effect, run `./scripts/start.sh` again after this change.
 - **Fix: the weekly wallet check said "0 orders paid" on a test server.** A test-mode server flags every invoice as a test, and the check skipped those while still counting the money sent on. It now counts every paid order. The card also now leads with the one question that matters ("does your wallet show about X sats received?") and shows the paid-orders count as a reference line. Once you have checked, it folds down to a single line ("Weekly wallet check: done …") so it stops taking room on Home, and opens by itself again when the next check is due. Phone "payment received" alerts had the same blind spot and are fixed too.
 - **CI: the browser download for the end-to-end tests now retries** (up to 4 times) instead of failing the whole run when Ubuntu's mirrors cannot be reached.
 - **CI: a manual `mainnet-compat-check` workflow** that starts the pinned barkd 0.8.0, creates a throwaway empty mainnet wallet against `https://ark.second.tech`, and prints the server's public terms. No money, no secrets, nothing published.

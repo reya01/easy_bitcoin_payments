@@ -74,8 +74,21 @@ fi
 
 # Optional prebuilt image (EBP_IMAGE=ghcr.io/...@sha256:...). If the pull
 # fails we say so and fall back to building from source.
+build_from_source=1
 if [ -n "${EBP_IMAGE:-}" ]; then
-  docker compose pull ebp || echo "(could not pull $EBP_IMAGE - building from source instead)"
+  if docker compose pull ebp; then
+    build_from_source=0
+  else
+    echo "(could not pull $EBP_IMAGE - building from source instead)"
+  fi
+fi
+
+# Building from source: always build first. `docker compose up -d` alone reuses an
+# image that already exists, so after `git pull` an update would silently keep
+# running the OLD program. The build is cached, so it is quick when nothing changed.
+if [ "$build_from_source" = 1 ]; then
+  echo "==> building the server from the files in this folder (the first time, or after an update, this can take several minutes)"
+  docker compose build ebp
 fi
 
 docker compose up -d ${passthru[@]+"${passthru[@]}"}

@@ -36,6 +36,8 @@ for path in \
   /api/v1/wallet/balance \
   /api/v1/wallet/ark-info \
   /api/v1/wallet/vtxos \
+  /api/v1/wallet/rounds \
+  /api/v1/wallet/next-round \
   /api/v1/wallet/history \
   /api/v1/history \
   /api/v1/wallet/movements \

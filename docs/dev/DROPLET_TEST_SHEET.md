@@ -73,8 +73,8 @@ own wallet**. No earlier round has tested this.
       that much on the server. Press **Go back to the default** and check it shows
       "(the default)" again.
 - [ ] **Money moves out by itself.** On your payment server's Home, use the test
-      payment box to make one test payment of **21000** sats and pay it (this passes
-      the 20,000-sat limit the server keeps). Within about 10 minutes, without
+      payment box to make one test payment of **2000** sats and pay it (this passes
+      the 1,000-sat limit the server keeps). Within about 10 minutes, without
       pressing anything, a transfer to your payout wallet should appear under
       **Recent transfers to your own wallet**, and the money should arrive there.
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line

@@ -99,7 +99,7 @@ purpose**: the server only ever holds a small amount of money, so less is in har
 way. A smaller prize is not a stronger vault; it is a different bet.
 
 For example, set your payout address to an Ark wallet on your phone. Every payment
-is swept off the server within minutes, so even at the default limit of 20,000
+is swept off the server within minutes, so even at the default limit of 1,000
 sats, that is the most the server holds at any moment. Then, if your wallet
 supports it, have the phone wallet move funds to regular on-chain Bitcoin once they
 pass a threshold you choose. You hold the keys the whole way, and as your balance

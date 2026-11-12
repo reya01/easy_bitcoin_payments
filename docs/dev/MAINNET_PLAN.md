@@ -137,7 +137,7 @@ A beginner who loses the server can, with the 12 words and their latest `.ebpbac
 ### Signet restore drill (owner runs, before mainnet)
 
 1. On the signet droplet note the balance, order count and payout address. Leave a few hundred sats on the server. Download a backup.
-2. Destroy the droplet (or make a second one and leave the first off).
+2. Power off the droplet (or make a second one and keep the first powered off). Never run both at once: same wallet words, same shop connection.
 3. Follow the documented steps above exactly as written.
 4. Pass: balance, orders, settings and payout address match; a new WooCommerce test order completes; "move my money now" works.
 5. Then replace the "exact command is not written down here yet" passages in `docs/RECIPE_BACKUP.md` with the tested steps, update `docs/IF_SOMETHING_LOOKS_WRONG.md` and `docs/KNOWN_ISSUES.md`, and tick the two restore items in `docs/dev/RC_CHECKLIST.md`.

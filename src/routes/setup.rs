@@ -178,6 +178,12 @@ pub struct SetupStatus {
     /// token is verified, and at least one store exists. Invoice and
     /// checkout routes stay closed (503 SetupIncomplete) until then.
     pub setup_complete: bool,
+    /// The wallet was restored from its recovery words (not newly made). Only
+    /// then does the wizard offer to bring back a backup file.
+    pub wallet_restored: bool,
+    /// A backup file staged by the wizard was NOT applied at this start (the
+    /// plain reason). Nothing was deleted; the files were set aside.
+    pub restore_refused: Option<String>,
     /// The wizard needs a setup code (generated at boot, or EBP_SETUP_TOKEN)
     /// before any action; the page asks for it up front.
     pub setup_code_required: bool,
@@ -215,6 +221,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
     }
 
     snapshot.barkd_token_present = token.is_some();
+    snapshot.restore_refused = crate::backup::restore_refused_reason().map(str::to_string);
     snapshot.mode = state.config.mode.clone();
     snapshot.setup_code_required = state.config.setup_token.is_some() && !snapshot.setup_complete;
     snapshot.managed = crate::managed_barkd::get().is_some();
@@ -228,6 +235,8 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
 fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError> {
     Ok(SetupStatus {
         wallet_created: settings::get_bool(conn, "setup_wallet_created")?,
+        wallet_restored: settings::get_bool(conn, "setup_wallet_restored")?,
+        restore_refused: None,      // filled by the caller
         barkd_token_present: false, // filled by the caller (runtime token)
         config_written: settings::get_bool(conn, "setup_token_verified")?,
         backup_confirmed: settings::get_bool(conn, "setup_backup_confirmed")?,
@@ -244,7 +253,7 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
 // POST /setup/wallet — create the till wallet, show the mnemonic once
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct CreateWalletRequest {
     /// Bitcoin network. Defaults per `mode`: "signet" in test, "mainnet" in
     /// live.
@@ -252,6 +261,47 @@ pub struct CreateWalletRequest {
     /// Ark Service Provider URL. Defaults to Second's public signet ASP in
     /// test mode; required in live mode.
     pub asp_url: Option<String>,
+    /// RESTORE an existing wallet from its recovery words instead of making a
+    /// new one. Typed by the owner; passed straight to barkd; never stored,
+    /// never logged, never echoed back (see the manual `Debug` below).
+    #[serde(default)]
+    pub mnemonic: Option<String>,
+    /// Restore only: the owner says the paper copies of the words still
+    /// exist (this stands in for the "I wrote the words down" step).
+    #[serde(default)]
+    pub paper_copies_exist: bool,
+}
+
+// Manual Debug: the words must never reach a log line, panic message or `{:?}`.
+impl std::fmt::Debug for CreateWalletRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateWalletRequest")
+            .field("network", &self.network)
+            .field("asp_url", &self.asp_url)
+            .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED]"))
+            .field("paper_copies_exist", &self.paper_copies_exist)
+            .finish()
+    }
+}
+
+/// Tidy typed recovery words: lower case, single spaces. Only the shape is
+/// checked here (12 or 24 words, letters only); barkd checks the words
+/// themselves. Errors never repeat what was typed.
+fn clean_recovery_words(raw: &str) -> Result<String, AppError> {
+    let words: Vec<String> = raw
+        .split_whitespace()
+        .map(|w| w.to_ascii_lowercase())
+        .collect();
+    let shape_ok = (words.len() == 12 || words.len() == 24)
+        && words
+            .iter()
+            .all(|w| (3..=8).contains(&w.len()) && w.chars().all(|c| c.is_ascii_lowercase()));
+    if !shape_ok {
+        return Err(AppError::BadRequest(
+            "The recovery words should be 12 words (or 24), separated by spaces, using letters only. Check your paper copy and type them again. Nothing was changed.".into(),
+        ));
+    }
+    Ok(words.join(" "))
 }
 
 // ---------------------------------------------------------------------------
@@ -627,6 +677,8 @@ mod mnemonic_ceremony_tests {
 #[derive(Serialize)]
 pub struct WalletCreatedResponse {
     pub created: bool,
+    /// True when the wallet was restored from the owner's recovery words.
+    pub restored: bool,
     /// True when a wallet already existed (barkd refuses a second one).
     pub already_exists: bool,
     /// Recovery words (mnemonic), shown exactly once, never stored. `Some`
@@ -653,6 +705,7 @@ impl std::fmt::Debug for WalletCreatedResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WalletCreatedResponse")
             .field("created", &self.created)
+            .field("restored", &self.restored)
             .field("already_exists", &self.already_exists)
             .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED]"))
             .field("mnemonic_source", &self.mnemonic_source)
@@ -702,6 +755,19 @@ pub async fn create_wallet(
         None => DEFAULT_SIGNET_ASP.to_string(),
     };
 
+    // Restoring: tidy and shape-check the words BEFORE anything is sent.
+    let restore_words = match req.mnemonic.as_deref().map(str::trim) {
+        Some(raw) if !raw.is_empty() => {
+            if !req.paper_copies_exist {
+                return Err(AppError::BadRequest(
+                    "Tick the box to confirm your paper copy of the recovery words still exists, in a safe place. It is your real backup.".into(),
+                ));
+            }
+            Some(clean_recovery_words(raw)?)
+        }
+        _ => None,
+    };
+
     let Some(base_url) = barkd_base_url(&state.config) else {
         return Err(AppError::Internal(
             "barkd_url is not configured; the wizard cannot reach the wallet sidecar".into(),
@@ -709,24 +775,44 @@ pub async fn create_wallet(
     };
 
     let token = effective_barkd_token(&state.config);
-    let outcome = create_till_wallet(&base_url, &network, &asp_url, token.as_deref()).await?;
+    let outcome = create_till_wallet(
+        &base_url,
+        &network,
+        &asp_url,
+        restore_words.as_deref(),
+        token.as_deref(),
+    )
+    .await?;
 
     // Record progress. The mnemonic is NOT stored — it exists only in the
-    // response below, once.
+    // response below, once. A restore also records that the owner typed the
+    // words (so they hold them) and said the paper copies exist; that stands
+    // in for the "write the words down" step, which has nothing to show.
+    let restored = restore_words.is_some();
+    drop(restore_words);
     state
         .db
-        .call(|conn| {
+        .call(move |conn| {
             settings::set(conn, "setup_wallet_created", "true")?;
+            if restored {
+                settings::set(conn, "setup_wallet_restored", "true")?;
+                settings::set(conn, "setup_backup_verified", "true")?;
+                settings::set(conn, "setup_backup_confirmed", "true")?;
+            }
             recompute_setup_complete(conn)
         })
         .await?;
 
-    let mnemonic_source = if outcome.mnemonic.is_some() {
+    let mnemonic_source = if restored {
+        "restored"
+    } else if outcome.mnemonic.is_some() {
         "create-response"
     } else {
         "not-exposed"
     };
-    let manual_instructions = if outcome.mnemonic.is_none() {
+    let manual_instructions = if restored {
+        None
+    } else if outcome.mnemonic.is_none() {
         Some(
             "barkd did not return the recovery words in the create response. \
              Continue to the recovery-words step: it runs the one-time \
@@ -741,6 +827,7 @@ pub async fn create_wallet(
 
     let response = WalletCreatedResponse {
         created: outcome.created,
+        restored,
         already_exists: outcome.already_exists,
         mnemonic: outcome.mnemonic,
         mnemonic_source,
@@ -778,10 +865,17 @@ async fn create_till_wallet(
     base_url: &str,
     network: &str,
     asp_url: &str,
+    restore_words: Option<&str>,
     token: Option<&str>,
 ) -> Result<CreateWalletOutcome, AppError> {
+    // A restore may have to scan the chain for the wallet's coins, so it is
+    // allowed far longer than making a new, empty wallet.
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(if restore_words.is_some() {
+            300
+        } else {
+            60
+        }))
         .build()
         .map_err(|err| AppError::Internal(format!("could not build the barkd client: {err}")))?;
 
@@ -789,7 +883,14 @@ async fn create_till_wallet(
         .post(format!("{base_url}{PATH_WALLET_CREATE}"))
         // Pinned OpenAPI CreateWalletRequest: the field is `ark_server`.
         // (`ark` was silently ignored by barkd, so a custom ASP never applied.)
-        .json(&serde_json::json!({ "network": network, "ark_server": asp_url }));
+        .json(&match restore_words {
+            // Restoring: the words go to barkd and nowhere else. `force` is
+            // never sent, so barkd refuses rather than overwrite anything.
+            Some(words) => {
+                serde_json::json!({ "network": network, "ark_server": asp_url, "mnemonic": words })
+            }
+            None => serde_json::json!({ "network": network, "ark_server": asp_url }),
+        });
     // FOUND BY THE LIVE SIGNET CHECK: a barkd that already has a token (the
     // single-container install reads it at boot) answers 401 to an
     // unauthenticated create. Send the token whenever we have one; a barkd
@@ -829,6 +930,24 @@ async fn create_till_wallet(
     // or a wizard re-run) — confirm with the authenticated probe before
     // saying so.
     let status = response.status();
+    if restore_words.is_some() {
+        // A restore never adopts or replaces a wallet that is already there,
+        // and never repeats what barkd said (it could echo the words back).
+        let exists = matches!(
+            barkd_get(base_url, PATH_WALLET_BALANCE, token).await,
+            Some(probe) if probe.is_success()
+        );
+        tracing::warn!(%status, wallet_exists = exists, "setup: restore from recovery words was refused");
+        return Err(if exists {
+            AppError::Conflict(
+                "This server already has a wallet, so it cannot restore a different one. Restore onto a fresh server with an empty data folder.".into(),
+            )
+        } else {
+            AppError::BadRequest(
+                "The wallet service did not accept those words. Check every word and its order against your paper copy, then try again. Nothing was changed.".into(),
+            )
+        });
+    }
     if let Some(probe) = barkd_get(base_url, PATH_WALLET_BALANCE, token).await {
         if probe.is_success() {
             return Ok(CreateWalletOutcome {
@@ -1227,6 +1346,116 @@ pub async fn create_store(
         header::HeaderValue::from_static("no-store"),
     );
     Ok((StatusCode::OK, headers, Json(response)).into_response())
+}
+
+// ---------------------------------------------------------------------------
+// POST /setup/restore-backup — bring a backup file's orders and settings back
+// ---------------------------------------------------------------------------
+
+/// `POST /setup/restore-backup` — the owner's backup file (and its password)
+/// on a NEW server whose wallet was just restored from the 12 words.
+///
+/// Body: 4 bytes (big-endian) = length of the backup password, then the
+/// password (UTF-8), then the backup file (the same shape as "Check a backup").
+///
+/// It only STAGES the backup's database and key and then restarts the server;
+/// the swap happens at the next start, before anything is opened (see
+/// `backup::apply_pending_restore`). The wallet folder inside the backup is
+/// never used: the money comes from the words. Needs the setup code (the
+/// wizard guard), an unfinished setup and a wallet that was restored from its
+/// words, and refuses when this server keeps its encryption key in
+/// `EBP_KEY_ENCRYPTION_KEY` (the backup's key could not take effect).
+pub async fn restore_backup(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Every check that needs no upload comes first, so a refused request never
+    // makes the server read a large body.
+    ensure_wizard_open(&state).await?;
+    // One restore at a time: two uploads at once could otherwise mix one
+    // file's database with the other's key. Once one has been staged the
+    // server is about to restart, so the guard simply stays set.
+    if RESTORE_IN_PROGRESS.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err(AppError::Conflict(
+            "A restore is already under way. Wait about a minute for the server to restart, then reload this page.".into(),
+        ));
+    }
+    let result = restore_backup_inner(&state, request).await;
+    if result.is_err() {
+        RESTORE_IN_PROGRESS.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    result
+}
+
+static RESTORE_IN_PROGRESS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+async fn restore_backup_inner(
+    state: &AppState,
+    request: axum::extract::Request,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let restored = state
+        .db
+        .call(|conn| settings::get_bool(conn, "setup_wallet_restored"))
+        .await?;
+    if !restored {
+        return Err(AppError::Conflict(
+            "Restore your wallet from its 12 recovery words first (the step before this one). The backup file brings back orders and settings; the money always comes back from the words.".into(),
+        ));
+    }
+    if state
+        .config
+        .key_encryption_key
+        .as_deref()
+        .is_some_and(|k| !k.trim().is_empty())
+    {
+        return Err(AppError::BadRequest(
+            "This server keeps its encryption key in EBP_KEY_ENCRYPTION_KEY, so the key inside the backup could not take effect. Remove that setting (or set it to the key you used before) and try again.".into(),
+        ));
+    }
+    if state.config.database_path == ":memory:" {
+        return Err(AppError::BadRequest(
+            "This server keeps its data in memory only, so there is nothing to restore into."
+                .into(),
+        ));
+    }
+    let orders_here: i64 = state
+        .db
+        .call(|conn| Ok(conn.query_row("SELECT COUNT(*) FROM invoices", [], |r| r.get(0))?))
+        .await?;
+    if orders_here > 0 {
+        return Err(AppError::Conflict(
+            "This server already holds orders, and a restore never overwrites a working server."
+                .into(),
+        ));
+    }
+
+    let body = axum::body::to_bytes(request.into_body(), crate::routes::backup::MAX_CHECK_BYTES)
+        .await
+        .map_err(|_| {
+            AppError::BadRequest("that backup file is too large or the upload was cut off".into())
+        })?;
+    crate::routes::backup::split_check_body(&body)?;
+    let data_dir = crate::backup::data_dir_of(&state.config.database_path);
+    let staged = crate::admin_auth::run_slow(move || {
+        let (password, file) = crate::routes::backup::split_check_body(&body)?;
+        let entries = crate::backup::open(file, password)?;
+        crate::backup::stage_restore(&entries, &data_dir)
+    })
+    .await??;
+
+    tracing::info!(
+        orders = staged.orders,
+        stores = staged.stores,
+        "setup: backup staged; restarting to apply it"
+    );
+    schedule_restart();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "orders": staged.orders,
+        "stores": staged.stores,
+        "restarting": true,
+    })))
 }
 
 pub struct CreatedStore {
@@ -1669,6 +1898,7 @@ mod tests {
             "signet",
             DEFAULT_SIGNET_ASP,
             None,
+            None,
         ))
         .unwrap();
         assert!(outcome.created);
@@ -1686,6 +1916,7 @@ mod tests {
             &base_url,
             "signet",
             DEFAULT_SIGNET_ASP,
+            None,
             None,
         ))
         .unwrap();
@@ -1733,12 +1964,215 @@ mod tests {
             &base_url,
             "signet",
             DEFAULT_SIGNET_ASP,
+            None,
             Some("token"),
         ))
         .unwrap();
         assert!(outcome.already_exists);
         assert!(!outcome.created);
         assert!(outcome.mnemonic.is_none());
+    }
+
+    // -- restoring the wallet from the recovery words ----------------------
+
+    const WORDS12: &str =
+        "abandon ability able about above absent absorb abstract absurd abuse access accident";
+
+    /// A mock barkd that records the whole first request (headers and body)
+    /// and answers every request with the given status line and body.
+    fn spawn_recording_barkd(
+        status_line: &str,
+        body: &str,
+    ) -> (String, std::sync::mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let status_line = status_line.to_string();
+        let body = body.to_string();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut request = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&request).to_string();
+                    if let Some(head_end) = text.find("\r\n\r\n") {
+                        let len = text[..head_end]
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= head_end + 4 + len {
+                            break;
+                        }
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&request).to_string());
+                let response = format!(
+                    "HTTP/1.1 {status_line}\r\ncontent-type: application/json\r\ncontent-length: \
+                     {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (format!("http://127.0.0.1:{port}/api/v1"), rx)
+    }
+
+    #[test]
+    fn recovery_words_are_tidied_and_shape_checked_without_echoing_them() {
+        assert_eq!(
+            clean_recovery_words("  Abandon   ABILITY able\nabout above absent absorb abstract absurd abuse access accident ")
+                .unwrap(),
+            WORDS12
+        );
+        for bad in [
+            "",
+            "abandon ability able",
+            "abandon ability able about above absent absorb abstract absurd abuse access",
+            "abandon ability able about above absent absorb abstract absurd abuse access acc1dent",
+            "abandon ability able about above absent absorb abstract absurd abuse access accident extra",
+        ] {
+            let msg = format!("{:?}", clean_recovery_words(bad).unwrap_err());
+            assert!(msg.contains("12 words"), "{msg}");
+            assert!(!msg.contains("abandon"), "the error must not repeat the words");
+        }
+    }
+
+    #[test]
+    fn the_request_never_shows_the_words_in_debug_output() {
+        let req = CreateWalletRequest {
+            network: None,
+            asp_url: None,
+            mnemonic: Some(WORDS12.to_string()),
+            paper_copies_exist: true,
+        };
+        let shown = format!("{req:?}");
+        assert!(shown.contains("REDACTED"));
+        assert!(!shown.contains("abandon") && !shown.contains("accident"));
+    }
+
+    #[test]
+    fn restoring_sends_the_words_to_barkd_and_never_force() {
+        let (base_url, rx) = spawn_recording_barkd("200 OK", r#"{"fingerprint": "abcd1234"}"#);
+        let outcome = block_on(create_till_wallet(
+            &base_url,
+            "signet",
+            DEFAULT_SIGNET_ASP,
+            Some(WORDS12),
+            Some("tok"),
+        ))
+        .unwrap();
+        assert!(outcome.created);
+        assert!(
+            outcome.mnemonic.is_none(),
+            "restoring never hands words back"
+        );
+        let request = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/v1/wallet/create"));
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(json["mnemonic"], WORDS12);
+        assert_eq!(json["network"], "signet");
+        assert!(json.get("force").is_none(), "force must never be sent");
+    }
+
+    #[test]
+    fn a_new_wallet_request_carries_no_words() {
+        let (base_url, rx) = spawn_recording_barkd("200 OK", r#"{"fingerprint": "abcd1234"}"#);
+        block_on(create_till_wallet(
+            &base_url,
+            "signet",
+            DEFAULT_SIGNET_ASP,
+            None,
+            None,
+        ))
+        .unwrap();
+        let request = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert!(json.get("mnemonic").is_none());
+    }
+
+    #[test]
+    fn a_refused_restore_is_a_plain_message_that_does_not_repeat_barkd() {
+        // barkd refuses and then also refuses the balance probe (no wallet):
+        // the words were not accepted.
+        let (base_url, _rx) = spawn_recording_barkd(
+            "500 Internal Server Error",
+            r#"{"message": "invalid mnemonic: abandon ability able"}"#,
+        );
+        let err = block_on(create_till_wallet(
+            &base_url,
+            "signet",
+            DEFAULT_SIGNET_ASP,
+            Some(WORDS12),
+            Some("tok"),
+        ))
+        .err()
+        .expect("must fail");
+        let msg = format!("{err:?}");
+        assert!(msg.contains("did not accept those words"), "{msg}");
+        assert!(
+            !msg.contains("invalid mnemonic") && !msg.contains("abandon"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn restoring_onto_a_server_that_already_has_a_wallet_is_refused() {
+        // create refused (409), but the balance probe answers: a wallet exists.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for expected in ["POST /api/v1/wallet/create", "GET /api/v1/wallet/balance"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                let mut buf = [0u8; 4096];
+                while !request.contains("\r\n\r\n") {
+                    let n = stream.read(&mut buf).unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    request.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+                assert!(
+                    request.starts_with(expected),
+                    "expected {expected}: {request}"
+                );
+                let (status, body) = if expected.starts_with("POST") {
+                    ("409 Conflict", "{}")
+                } else {
+                    ("200 OK", r#"{"offchain": 0}"#)
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: \
+                     {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        let base_url = format!("http://127.0.0.1:{port}/api/v1");
+        let err = block_on(create_till_wallet(
+            &base_url,
+            "signet",
+            DEFAULT_SIGNET_ASP,
+            Some(WORDS12),
+            Some("tok"),
+        ))
+        .err()
+        .expect("must fail");
+        let msg = format!("{err:?}");
+        assert!(msg.contains("already has a wallet"), "{msg}");
     }
 
     // -- the runtime token override ----------------------------------------

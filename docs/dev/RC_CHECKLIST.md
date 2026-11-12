@@ -155,13 +155,12 @@ barkd stays on 0.8.0 during alpha; moving to the latest Bark is its own piece of
 - [ ] **Renewal fees.** Extra renewals of coins the wallet flags now stay inside the free
       window. Confirm the mainnet fee table and coin lifetime parse as expected, whether
       renewing merges small coins, and show renewal fees paid on Home.
-- [ ] **Restore from the 12 words (top priority before real money).** There is no
-      restore screen and no written restore steps. barkd can create a wallet from
-      existing words (`POST /api/v1/wallet/create` takes a mnemonic), but EBP never
-      offers it, so a beginner who loses the server cannot get their money back
-      without help. Add a restore path, then drill it on signet.
-- [ ] **Backup restore drill.** Write the exact wallet restore command from the words
-      into RECIPE_BACKUP.md after doing it once.
+- [ ] **Restore from the 12 words (top priority before real money).** The setup page
+      now has "Restore the wallet I already have" and a backup-file step (built, covered
+      by automated tests). Still to do: drill it once for real on signet (second server),
+      then tick this and the next item.
+- [ ] **Backup restore drill.** Follow RECIPE_BACKUP.md "Practice a restore once" on a
+      second signet server and fix any step that does not match the page.
 - [ ] **Ark payments made with nearly expired coins.** A coin paid over Ark keeps the
       sender's expiry and the order is marked Paid when it arrives. Decide a minimum
       time left (or wait for the renewal on larger amounts) before marking Paid; needs

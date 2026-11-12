@@ -419,6 +419,263 @@ pub fn restore_to(entries: &[Entry], dest: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Restoring a backup onto a NEW server (setup wizard)
+// ---------------------------------------------------------------------------
+//
+// The running server holds its database open and has its encryption key in
+// memory, so a restore cannot swap them under it. The wizard therefore only
+// STAGES the two files (`stage_restore`) and restarts the server; on the next
+// start, before anything is opened, `apply_pending_restore` puts them in
+// place. Nothing is ever deleted: the new server's own files are moved aside
+// into `restore-previous-<time>/`, and the wallet folder inside the backup is
+// never used (the money comes from the recovery words).
+
+/// Why the last staged restore was not applied at this start, if it was not,
+/// so the setup page can say so instead of waiting forever.
+static RESTORE_REFUSED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Record why a staged restore was refused (called once, at startup).
+pub fn note_restore_refused(why: String) {
+    let _ = RESTORE_REFUSED.set(why);
+}
+
+/// The reason a staged restore was refused at this start (`None` when none was).
+pub fn restore_refused_reason() -> Option<&'static str> {
+    RESTORE_REFUSED.get().map(String::as_str)
+}
+
+/// Folder beside the database where a staged restore waits for the next start.
+pub const PENDING_DIR: &str = "restore-pending";
+const READY_MARKER: &str = "ready";
+
+/// What a staged backup holds, for the wizard to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Staged {
+    pub orders: i64,
+    pub stores: i64,
+}
+
+/// The folder the database lives in (and the key file, and the staging folder).
+pub fn data_dir_of(database_path: &str) -> PathBuf {
+    Path::new(database_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Open database bytes read-only and say what is inside. Refuses a file that
+/// is damaged, is not an EBP database, or was written by a newer version.
+fn check_database(bytes: &[u8], scratch_dir: &Path) -> Result<Staged, AppError> {
+    let not_ours = || {
+        AppError::BadRequest(
+            "that backup does not hold an Easy Bitcoin Payments database; nothing was changed"
+                .into(),
+        )
+    };
+    let tmp = scratch_dir.join(format!(
+        ".ebp-restore-check-{}.tmp",
+        crate::util::random_hex(8)
+    ));
+    let result = (|| -> Result<Staged, AppError> {
+        write_private(&tmp, bytes)
+            .map_err(|e| AppError::Internal(format!("could not check the backup: {e}")))?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &tmp,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .map_err(|_| not_ours())?;
+        let check: String = conn
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .map_err(|_| not_ours())?;
+        if check != "ok" {
+            return Err(AppError::BadRequest(
+                "the database inside that backup is damaged; nothing was changed".into(),
+            ));
+        }
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(|_| not_ours())?;
+        if version > crate::db::schema_version() {
+            return Err(AppError::BadRequest(
+                "that backup was made by a NEWER version of Easy Bitcoin Payments than this server runs. Update this server first, then try again; nothing was changed".into(),
+            ));
+        }
+        let count = |table: &str| -> Result<i64, AppError> {
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .map_err(|_| not_ours())
+        };
+        Ok(Staged {
+            stores: count("stores")?,
+            orders: count("invoices")?,
+        })
+    })();
+    // Our private copy (never the real database), with any side files SQLite
+    // made while looking at it.
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", tmp.display()));
+    }
+    result
+}
+
+/// Check a backup's database and key and leave them in the staging folder
+/// beside the database for the next start. Never touches the live database,
+/// key or wallet. Any wallet files in the bundle are ignored on purpose.
+pub fn stage_restore(entries: &[Entry], data_dir: &Path) -> Result<Staged, AppError> {
+    let find = |name: &str| entries.iter().find(|e| e.name == name);
+    let Some(db) = find("ebp.sqlite3") else {
+        return Err(AppError::BadRequest(
+            "that backup has no order history and settings inside it; nothing was changed".into(),
+        ));
+    };
+    let Some(key) = find("ebp.key") else {
+        return Err(AppError::BadRequest(
+            "that backup has no encryption key inside it, so your stored secrets could not be read back; nothing was changed".into(),
+        ));
+    };
+    let key_text = String::from_utf8(key.data.clone()).unwrap_or_default();
+    crate::secrets::parse_key_hex(&key_text).map_err(|_| {
+        AppError::BadRequest(
+            "the encryption key inside that backup is damaged; nothing was changed".into(),
+        )
+    })?;
+    let io = |e: std::io::Error| AppError::Internal(format!("could not stage the restore: {e}"));
+    crate::db::create_private_dir(data_dir).map_err(io)?;
+    let staged = check_database(&db.data, data_dir)?;
+
+    let pending = data_dir.join(PENDING_DIR);
+    if pending.exists() {
+        std::fs::remove_dir_all(&pending).map_err(io)?;
+    }
+    crate::db::create_private_dir(&pending).map_err(io)?;
+    write_private(&pending.join("ebp.sqlite3"), &db.data).map_err(io)?;
+    write_private(&pending.join("ebp.key"), key_text.trim().as_bytes()).map_err(io)?;
+    // Written last: a half-staged folder is never applied.
+    write_private(&pending.join(READY_MARKER), b"ok").map_err(io)?;
+    Ok(staged)
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Run once at startup, BEFORE the key or the database is opened. If a staged
+/// restore is waiting, put its database and key in place and move the files
+/// they replace into `restore-previous-<time>/` (never deleted). Refuses, and
+/// sets the staged files aside as `restore-refused-<time>/`, when the staging
+/// is incomplete or damaged, or when this server already finished setup or
+/// already holds orders: a restore never overwrites a working server.
+///
+/// Returns a plain sentence about what happened, `Ok(None)` when nothing was
+/// waiting.
+pub fn apply_pending_restore(database_path: &str) -> Result<Option<String>, String> {
+    if database_path == ":memory:" {
+        return Ok(None);
+    }
+    let dir = data_dir_of(database_path);
+    let pending = dir.join(PENDING_DIR);
+    if !pending.is_dir() {
+        return Ok(None);
+    }
+    let refuse = |why: String| -> Result<Option<String>, String> {
+        let aside = dir.join(format!("restore-refused-{}", unix_now()));
+        let _ = std::fs::rename(&pending, &aside);
+        Err(format!(
+            "a staged restore was NOT applied ({why}); its files were set aside in {}",
+            aside.display()
+        ))
+    };
+
+    let staged_db = pending.join("ebp.sqlite3");
+    let staged_key = pending.join("ebp.key");
+    if !pending.join(READY_MARKER).is_file() || !staged_db.is_file() || !staged_key.is_file() {
+        return refuse("the staged files were incomplete".into());
+    }
+    let db_bytes = std::fs::read(&staged_db)
+        .map_err(|e| format!("could not read the staged database: {e}"))?;
+    if let Err(e) = check_database(&db_bytes, &dir) {
+        return refuse(format!("the staged database failed its check: {e}"));
+    }
+    drop(db_bytes);
+
+    let live_db = Path::new(database_path);
+    if live_db.exists() {
+        // A look at what is there now. Anything that cannot be read
+        // counts as "nothing of value", but a finished setup or any order
+        // means a real server: never replace that.
+        let mut finished = false;
+        let mut orders = 0i64;
+        // (Opened read-write only so SQLite can read a leftover write-ahead
+        // log; nothing is written.)
+        if let Ok(conn) = rusqlite::Connection::open_with_flags(
+            live_db,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+        ) {
+            finished = conn
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'setup_complete'",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )
+                .map(|v| v == "true")
+                .unwrap_or(false);
+            orders = conn
+                .query_row("SELECT COUNT(*) FROM invoices", [], |r| r.get(0))
+                .unwrap_or(0);
+        }
+        if finished || orders > 0 {
+            return refuse("this server has already finished setup or holds orders".into());
+        }
+    }
+
+    // Move what is there aside, then move the staged files in. If anything
+    // fails halfway, put the originals back.
+    let aside = dir.join(format!("restore-previous-{}", unix_now()));
+    crate::db::create_private_dir(&aside)
+        .map_err(|e| format!("could not make {}: {e}", aside.display()))?;
+    let wal = PathBuf::from(format!("{database_path}-wal"));
+    let shm = PathBuf::from(format!("{database_path}-shm"));
+    let live_key = dir.join("ebp.key");
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let undo = |moved: &[(PathBuf, PathBuf)]| {
+        for (from, to) in moved.iter().rev() {
+            let _ = std::fs::rename(to, from);
+        }
+    };
+    for original in [live_db.to_path_buf(), wal, shm, live_key.clone()] {
+        if !original.exists() {
+            continue;
+        }
+        let Some(name) = original.file_name() else {
+            continue;
+        };
+        let target = aside.join(name);
+        if let Err(e) = std::fs::rename(&original, &target) {
+            undo(&moved);
+            return Err(format!("could not move {} aside: {e}", original.display()));
+        }
+        moved.push((original, target));
+    }
+    if let Err(e) = std::fs::rename(&staged_db, live_db) {
+        undo(&moved);
+        return Err(format!("could not put the restored database in place: {e}"));
+    }
+    if let Err(e) = std::fs::rename(&staged_key, &live_key) {
+        let _ = std::fs::rename(live_db, &staged_db);
+        undo(&moved);
+        return Err(format!("could not put the restored key in place: {e}"));
+    }
+    let _ = std::fs::remove_dir_all(&pending);
+    Ok(Some(format!(
+        "restored your order history, settings and encryption key from the backup; the files they replaced are kept in {}",
+        aside.display()
+    )))
+}
+
 fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
@@ -544,6 +801,236 @@ mod tests {
         let d = std::env::temp_dir().join(format!("ebp-bk-{tag}-{}", crate::util::random_hex(6)));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// A real EBP database file (all migrations run) with a setup flag, a
+    /// store and `orders` orders, for the restore tests.
+    fn real_db(path: &Path, setup_complete: bool, orders: i64, store: &str) {
+        drop(crate::db::Db::open(&path.to_string_lossy()).unwrap());
+        let c = rusqlite::Connection::open(path).unwrap();
+        c.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('setup_complete', ?1, 0)",
+            [if setup_complete { "true" } else { "false" }],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO stores (id, name, created_at) VALUES ('s1', ?1, 1)",
+            [store],
+        )
+        .unwrap();
+        for n in 0..orders {
+            c.execute(
+                "INSERT INTO invoices (id, store_id, status, amount_sats, ark_address, onchain_address, expires_at, created_at) \
+                 VALUES (?1, 's1', 'paid', 1000, 'a', 'b', 9, 1)",
+                [format!("inv{n}")],
+            )
+            .unwrap();
+        }
+    }
+
+    const KEY_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const KEY_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    /// The entries of a backup made on an "old server": a database with 3
+    /// orders, a key, and a wallet file that a restore must ignore.
+    fn old_server_backup(tag: &str) -> Vec<Entry> {
+        let d = tmpdir(tag);
+        let db = d.join("old.sqlite3");
+        real_db(&db, true, 3, "Old Shop");
+        vec![
+            Entry {
+                name: "ebp.sqlite3".into(),
+                data: std::fs::read(&db).unwrap(),
+            },
+            Entry {
+                name: "ebp.key".into(),
+                data: KEY_A.as_bytes().to_vec(),
+            },
+            Entry {
+                name: "barkd/wallet/state.db".into(),
+                data: vec![7u8; 10],
+            },
+        ]
+    }
+
+    #[test]
+    fn a_staged_backup_replaces_a_fresh_server_and_keeps_what_it_replaced() {
+        let dir = tmpdir("apply");
+        let live = dir.join("ebp.sqlite3");
+        // The new server's own state: first boot made a database and a key.
+        real_db(&live, false, 0, "Fresh Shop");
+        std::fs::write(dir.join("ebp.key"), KEY_B).unwrap();
+
+        let staged = stage_restore(&old_server_backup("apply-src"), &dir).unwrap();
+        assert_eq!(
+            staged,
+            Staged {
+                orders: 3,
+                stores: 1
+            }
+        );
+        // Staging alone changes nothing live, and ignores the wallet files.
+        assert_eq!(std::fs::read_to_string(dir.join("ebp.key")).unwrap(), KEY_B);
+        assert!(!dir.join(PENDING_DIR).join("barkd").exists());
+
+        let said = apply_pending_restore(&live.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        assert!(said.contains("restore-previous-"));
+
+        // The old server's database and key are in place...
+        assert_eq!(std::fs::read_to_string(dir.join("ebp.key")).unwrap(), KEY_A);
+        let c = rusqlite::Connection::open(&live).unwrap();
+        let name: String = c
+            .query_row("SELECT name FROM stores", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Old Shop");
+        let orders: i64 = c
+            .query_row("SELECT COUNT(*) FROM invoices", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orders, 3);
+        // ...the staging folder is gone, and nothing was deleted.
+        assert!(!dir.join(PENDING_DIR).exists());
+        let aside: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("restore-previous-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1);
+        let kept_key = std::fs::read_to_string(aside[0].path().join("ebp.key")).unwrap();
+        assert_eq!(kept_key, KEY_B);
+        assert!(aside[0].path().join("ebp.sqlite3").is_file());
+        // Nothing waiting any more.
+        assert_eq!(
+            apply_pending_restore(&live.to_string_lossy()).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_staged_backup_never_replaces_a_finished_or_busy_server() {
+        for (complete, orders) in [(true, 0), (false, 2)] {
+            let dir = tmpdir("busy");
+            let live = dir.join("ebp.sqlite3");
+            real_db(&live, complete, orders, "Working Shop");
+            std::fs::write(dir.join("ebp.key"), KEY_B).unwrap();
+            stage_restore(&old_server_backup("busy-src"), &dir).unwrap();
+
+            let err = apply_pending_restore(&live.to_string_lossy()).unwrap_err();
+            assert!(err.contains("NOT applied"), "{err}");
+            // The working server is untouched and the staged files are kept aside.
+            assert_eq!(std::fs::read_to_string(dir.join("ebp.key")).unwrap(), KEY_B);
+            let c = rusqlite::Connection::open(&live).unwrap();
+            let name: String = c
+                .query_row("SELECT name FROM stores", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(name, "Working Shop");
+            assert!(!dir.join(PENDING_DIR).exists());
+            assert!(std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .any(|e| e
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("restore-refused-")));
+        }
+    }
+
+    #[test]
+    fn a_restore_onto_an_empty_data_folder_works() {
+        // No database or key yet at all (nothing has booted).
+        let dir = tmpdir("empty");
+        let live = dir.join("ebp.sqlite3");
+        stage_restore(&old_server_backup("empty-src"), &dir).unwrap();
+        assert!(apply_pending_restore(&live.to_string_lossy())
+            .unwrap()
+            .is_some());
+        assert!(live.is_file());
+        assert_eq!(std::fs::read_to_string(dir.join("ebp.key")).unwrap(), KEY_A);
+    }
+
+    #[test]
+    fn staging_refuses_a_backup_that_cannot_be_used() {
+        let dir = tmpdir("junk");
+        let good = old_server_backup("junk-src");
+        let with = |name: &str, data: &[u8]| -> Vec<Entry> {
+            good.iter()
+                .map(|e| {
+                    if e.name == name {
+                        Entry {
+                            name: e.name.clone(),
+                            data: data.to_vec(),
+                        }
+                    } else {
+                        e.clone()
+                    }
+                })
+                .collect()
+        };
+        // Not a database; a damaged key; no database; no key.
+        assert!(stage_restore(&with("ebp.sqlite3", b"not a database at all"), &dir).is_err());
+        assert!(stage_restore(&with("ebp.key", b"too short"), &dir).is_err());
+        let no_db: Vec<Entry> = good
+            .iter()
+            .filter(|e| e.name != "ebp.sqlite3")
+            .cloned()
+            .collect();
+        assert!(stage_restore(&no_db, &dir).is_err());
+        let no_key: Vec<Entry> = good
+            .iter()
+            .filter(|e| e.name != "ebp.key")
+            .cloned()
+            .collect();
+        assert!(stage_restore(&no_key, &dir).is_err());
+        // A refused backup leaves no staging folder behind.
+        assert!(!dir.join(PENDING_DIR).exists());
+    }
+
+    #[test]
+    fn a_database_from_a_newer_version_is_refused() {
+        let dir = tmpdir("newer");
+        let db = dir.join("newer.sqlite3");
+        real_db(&db, true, 0, "Shop");
+        {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            c.pragma_update(None, "user_version", crate::db::schema_version() + 1)
+                .unwrap();
+        }
+        let entries = vec![
+            Entry {
+                name: "ebp.sqlite3".into(),
+                data: std::fs::read(&db).unwrap(),
+            },
+            Entry {
+                name: "ebp.key".into(),
+                data: KEY_A.as_bytes().to_vec(),
+            },
+        ];
+        let err = stage_restore(&entries, &dir).unwrap_err();
+        assert!(format!("{err:?}").contains("NEWER"), "{err:?}");
+        assert!(!dir.join(PENDING_DIR).exists());
+    }
+
+    #[test]
+    fn a_half_staged_folder_is_set_aside_not_applied() {
+        let dir = tmpdir("half");
+        let live = dir.join("ebp.sqlite3");
+        real_db(&live, false, 0, "Fresh Shop");
+        let pending = dir.join(PENDING_DIR);
+        std::fs::create_dir_all(&pending).unwrap();
+        std::fs::write(pending.join("ebp.sqlite3"), b"partial").unwrap();
+        // No key and no ready marker: never applied.
+        assert!(apply_pending_restore(&live.to_string_lossy()).is_err());
+        assert!(!pending.exists());
+        let c = rusqlite::Connection::open(&live).unwrap();
+        let name: String = c
+            .query_row("SELECT name FROM stores", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Fresh Shop");
     }
 
     #[test]

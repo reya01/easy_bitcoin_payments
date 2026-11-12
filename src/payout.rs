@@ -445,8 +445,14 @@ mod tests {
         let cfg = crate::config::Config::default();
         // Nothing saved: the server's default for each kind of address.
         assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), cfg.hot_wallet_cap_sats);
-        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), cfg.onchain_sweep_cap_sats);
+        assert_eq!(
+            cap_for(&c, &cfg, "ark1abc").unwrap(),
+            cfg.hot_wallet_cap_sats
+        );
+        assert_eq!(
+            cap_for(&c, &cfg, "bc1qabc").unwrap(),
+            cfg.onchain_sweep_cap_sats
+        );
         // The owner's number wins for both kinds.
         set_cap(&c, 5_000).unwrap();
         assert_eq!(cap_override(&c).unwrap(), Some(5_000));
@@ -457,7 +463,10 @@ mod tests {
         // Reset goes back to the defaults.
         clear_cap(&c).unwrap();
         assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), cfg.hot_wallet_cap_sats);
+        assert_eq!(
+            cap_for(&c, &cfg, "ark1abc").unwrap(),
+            cfg.hot_wallet_cap_sats
+        );
     }
 
     #[test]

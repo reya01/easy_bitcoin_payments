@@ -1384,6 +1384,9 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
 async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() {
     let config = Config {
         password_hash_iterations: 1_000,
+        // Each request below pretends to come from its own address so the
+        // password-guessing brake (10 a minute per client) does not interfere.
+        trust_proxy_headers: true,
         ..Config::default()
     };
     let (base, state, _store_id, _key) = serve_with(config).await;
@@ -1396,6 +1399,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let login = client
         .post(format!("{base}/admin/login"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.1")
         .json(&serde_json::json!({"password": "a good long password"}))
         .send()
         .await
@@ -1411,10 +1415,18 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .as_str()
         .unwrap()
         .to_string();
+    let n = std::sync::atomic::AtomicU32::new(1);
     let post = |path: &str, body: serde_json::Value| {
         client
             .post(format!("{base}{path}"))
             .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!(
+                    "10.2.0.{}",
+                    n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                ),
+            )
             .header("cookie", &cookie)
             .header("x-ebp-csrf", &csrf)
             .json(&body)
@@ -1491,7 +1503,57 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let r = client
         .post(format!("{base}/admin/payout"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.2")
         .json(&serde_json::json!({"address": a, "admin_password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
+
+    // The amount the till keeps: default shown, changeable with the password.
+    let g = get().await;
+    assert_eq!(g["cap_is_custom"], false);
+    assert_eq!(g["cap_sats"], g["ark_default_cap_sats"]);
+    // Wrong password, zero, negative and too large are all refused.
+    for body in [
+        serde_json::json!({"cap_sats": 5000, "admin_password": "nope nope nope"}),
+        serde_json::json!({"cap_sats": 0, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": -1, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": 10_000_001i64, "admin_password": "a good long password"}),
+    ] {
+        let r = post("/admin/payout/cap", body).await.unwrap();
+        assert_eq!(r.status().as_u16(), 400);
+    }
+    assert_eq!(get().await["cap_is_custom"], false);
+    // A good value applies at once (no waiting period, unlike the address).
+    let r: serde_json::Value = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": 2500, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["cap_sats"], 2500);
+    let g = get().await;
+    assert_eq!(g["cap_is_custom"], true);
+    assert_eq!(g["cap_sats"], 2500);
+    // Back to the default.
+    let r = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": null, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert_eq!(get().await["cap_is_custom"], false);
+    // Not signed in: refused.
+    let r = client
+        .post(format!("{base}/admin/payout/cap"))
+        .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.3")
+        .json(&serde_json::json!({"cap_sats": 5000, "admin_password": "a good long password"}))
         .send()
         .await
         .unwrap();

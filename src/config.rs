@@ -124,7 +124,7 @@ impl Default for Config {
             max_invoice_sats: 100_000_000,
             invoice_rate_limit_per_min: 60,
             default_currency: "EUR".to_string(),
-            hot_wallet_cap_sats: 20_000,
+            hot_wallet_cap_sats: 1_000,
             onchain_sweep_cap_sats: 1_000_000,
             onchain_sweep_max_fee_sat_vb: 50,
             watcher_interval_secs: 10,
@@ -734,7 +734,7 @@ mod tests {
     fn defaults_are_sane() {
         let c = Config::default();
         assert_eq!(c.default_expiry_minutes, 20);
-        assert_eq!(c.hot_wallet_cap_sats, 20_000);
+        assert_eq!(c.hot_wallet_cap_sats, 1_000);
         assert_eq!(c.onchain_sweep_cap_sats, 1_000_000);
         assert_eq!(c.onchain_sweep_max_fee_sat_vb, 50);
         c.validate().expect("defaults validate");

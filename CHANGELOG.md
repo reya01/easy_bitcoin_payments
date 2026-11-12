@@ -2,6 +2,7 @@
 
 ## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
 
+- **The server now waits until at least 1,000 sats are above what it keeps before sending money on automatically.** Before, every small payment was sent on at once (even 136 sats), leaving many tiny coins in your payout wallet. Now the server holds up to about 2,000 sats and sends one bigger transfer. "Move my money now" still sends everything, whatever the amount.
 - **Docs: the plan for mainnet** (`docs/dev/MAINNET_PLAN.md`): restore from the 12 recovery words plus the backup file, mainnet wallet and addresses, three renewal changes, and a test with small real money. The release checklist, known issues and handoff notes point to it. No code changes.
 - **Fix: updating a server by `git pull` then `./scripts/start.sh` did not actually update it.** `start.sh` only started the existing program and never rebuilt it, so the server kept running the old version (Home still showed the old version number). `start.sh` now builds from the files in the folder first (cached, so quick when nothing changed). If you already ran an update that did not take effect, run `./scripts/start.sh` again after this change.
 - **The server now keeps at most 1,000 sats before sending money on to an Ark payout address** (was 20,000). Less money sits on the server. `EBP_HOT_WALLET_CAP_SATS` still overrides it; an install whose `.env` sets that value keeps its own number. The on-chain limit (1,000,000) is unchanged.

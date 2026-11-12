@@ -66,10 +66,13 @@ own wallet**. No earlier round has tested this.
       transfers to your own wallet**. Write down how long it took and the amount
       that arrived compared to what Home showed (any fee).
 - [ ] **Money moves out by itself.** On your payment server's Home, use the test
-      payment box to make one test payment of **2000** sats and pay it (this passes
-      the 1,000-sat limit the server keeps). Within about 10 minutes, without
-      pressing anything, a transfer to your payout wallet should appear under
-      **Recent transfers to your own wallet**, and the money should arrive there.
+      payment box to make one test payment of **2000** sats and pay it (the server
+      keeps 1,000 and sends on what is above that, once at least 1,000 sats are
+      above it). Within about 10 minutes, without pressing anything, a transfer to
+      your payout wallet should appear under **Recent transfers to your own
+      wallet**, and the money should arrive there. Then pay a **300**-sat test
+      payment: nothing should be sent yet (the server just holds it). Pay another
+      **800**: now a transfer of about 1,100 should appear.
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line
       says `0.1.0-rc1`. (After any later update, check it changed.)
 - [ ] **Restoring from the 12 words:** not testable yet. There is no restore screen or

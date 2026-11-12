@@ -65,6 +65,13 @@ own wallet**. No earlier round has tested this.
       address you gave as the payout address, and that it shows under **Recent
       transfers to your own wallet**. Write down how long it took and the amount
       that arrived compared to what Home showed (any fee).
+- [ ] **Change how much the server keeps (Settings).** In Settings, under **Where your
+      money goes**, find **How much to keep on this server**. It should show the current
+      amount. Type a new amount (for example 2000), enter your admin password (and a
+      2FA code if asked) and save: it should say saved and show the new amount straight
+      away. Then pay a test payment above it and check the next transfer leaves exactly
+      that much on the server. Press **Go back to the default** and check it shows
+      "(the default)" again.
 - [ ] **Money moves out by itself.** On your payment server's Home, use the test
       payment box to make one test payment of **2000** sats and pay it (this passes
       the 1,000-sat limit the server keeps). Within about 10 minutes, without

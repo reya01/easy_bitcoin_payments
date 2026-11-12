@@ -83,11 +83,6 @@ own wallet**. No earlier round has tested this.
 - [ ] **Restore drill (new server).** Follow `docs/RECIPE_BACKUP.md` → "Practice a restore once": on your current server note the balance, orders count and payout address, download a backup, **power off the first droplet** (never run both at once: same wallet, same shop connection), then make a second server and restore it from the 12 words and the backup file on its setup page. Write down anything that did not match the page, and whether the balance, orders, payout address and shop connection all came back. Also check, in the first hour after the restore, that no old order suddenly shows as overpaid and no "payment can't be matched" item appears (the restored wallet re-reads its coins; this is the part automated tests cannot cover).
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line
       says `0.1.0-rc1`. (After any later update, check it changed.)
-- [ ] **Restoring from the 12 words:** not testable yet. There is no restore screen or
-      written restore steps yet; see the release checklist. Keep your words safe anyway.
-
-## New since round 1 (please check each one)
-
 - [ ] **Lightning is there at all.** Do this one first: create a test payment and check the checkout page opens on Lightning. If it opens on "One code, any wallet" instead, Lightning invoices are failing: write it down and send the last lines of the server log (`cd /opt/ebp && docker compose logs --tail 50 ebp`), with nothing secret in them.
 - [ ] **Lightning first.** The checkout page opens on a Lightning invoice, says "Paying with Lightning" and shows the small network fee in plain view.
 - [ ] **Other ways to pay.** Under it: "One code, any wallet", Ark, and Regular Bitcoin. Pick each one: the shown code changes, the **Copy** button copies exactly what is shown, and Regular Bitcoin shows just an address (starting `tb1`), not a long `bitcoin:` code. Paste any `bitcoin:` code into your terminal inside single quotes.

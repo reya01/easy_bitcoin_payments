@@ -39,6 +39,11 @@ const SECS_PER_BLOCK: i64 = 600;
 
 /// Never wait until fewer blocks than this are left (about two hours): room
 /// for a refresh to be retried.
+/// An automatic sweep only goes ahead when at least this many sats are above
+/// the amount the server keeps. Below it, the money stays and the next payment
+/// adds to it.
+pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_000;
+
 const MIN_TRIGGER_BLOCKS: i64 = 12;
 
 /// How many blocks before expiry a coin is refreshed.
@@ -378,6 +383,12 @@ impl SettlementEngine {
         };
         let excess = offchain.saturating_sub(cap);
         if excess <= 0 {
+            return Ok(report);
+        }
+        // An automatic sweep waits until the excess is worth sending, so the
+        // payout wallet receives a few bigger coins instead of many tiny ones.
+        // "Move my money now" always sends whatever is there.
+        if !manual && excess < MIN_SWEEP_EXCESS_SATS {
             return Ok(report);
         }
 
@@ -826,6 +837,40 @@ mod tests {
         )
         .unwrap();
         SettlementEngine::new(client, db.clone(), test_config(Some(destination), cap))
+    }
+
+    #[tokio::test]
+    async fn an_automatic_sweep_waits_for_a_minimum_excess_but_the_button_does_not() {
+        const ARK: &str =
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+        // The server keeps 1,000. With 1,999 held the excess is 999: not sent.
+        // With 2,000 held the excess is 1,000: sent. "Move my money now" always sends.
+        let engine_holding = |held: i64| async move {
+            let (base, _recorded) = mock::spawn(move |req| match req.route() {
+                "/api/v1/wallet/vtxos" => (
+                    200,
+                    format!(
+                        r#"[{{"id": "v1", "amount_sat": {held}, "expires_at": 9999999999, "state": {{"type": "spendable"}}}}]"#
+                    ),
+                ),
+                "/api/v1/onchain/balance" => (
+                    200,
+                    r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
+                ),
+                "/api/v1/wallet/balance" => (200, format!(r#"{{"spendable_sat": {held}}}"#)),
+                "/api/v1/wallet/send" => (200, r#"{"message": "ok"}"#.to_string()),
+                _ => (404, "{}".to_string()),
+            });
+            let db = Db::open(":memory:").unwrap();
+            (engine_for(&base, &db, ARK, 1_000), base)
+        };
+
+        let (engine, _base) = engine_holding(1_999).await;
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(1_999));
+
+        let (engine, _base) = engine_holding(2_000).await;
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_000));
     }
 
     #[tokio::test]

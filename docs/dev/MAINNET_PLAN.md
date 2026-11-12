@@ -7,6 +7,7 @@ Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main`
 ## Owner decisions already made
 
 - **Sweep threshold is 1,000 sats** for an Ark payout address, on signet and mainnet (was 20,000). Not near zero: that would create many tiny coins. PR #151.
+- **Minimum excess of 1,000 sats.** An automatic sweep sends only once at least 1,000 sats are above the amount kept, so the server holds up to about 2,000 and the payout wallet gets fewer, bigger coins. Chosen after the owner's signet test on 11 November showed sends of 136 and 1,195 sats were accepted but would leave many tiny coins. "Move my money now" ignores the minimum. `MIN_SWEEP_EXCESS_SATS` in `src/wallet/settlement.rs`.
 - **Restore from the 12 words will be built** before any real money (Part B). Sonnet does all coding.
 - **barkd stays on 0.8.0** during alpha. Updating to the latest Bark happens when moving to beta, as its own piece of work.
 - **Legacy mainnet payout addresses (`1…`, `3…`) will be accepted** if barkd can pay to them (Stage 2 PR C).
@@ -83,13 +84,13 @@ Still not known: the smallest Ark send (dust limit, expected 330 sats, to be con
 
 PR #151 changes the default. To test before it is merged and released, set `EBP_HOT_WALLET_CAP_SATS=1000` in `/opt/ebp/.env` on the signet droplet and restart with `./scripts/start.sh`.
 
-How the threshold behaves: the server keeps 1,000 sats and sends on everything above that (`src/wallet/settlement.rs:375`). So once the server holds 1,000, every later payment is sent on in full, however small.
+How the threshold behaves: the server keeps 1,000 sats and sends on what is above that, but only once at least 1,000 sats are above it (`MIN_SWEEP_EXCESS_SATS`). Result of the owner's test on 11 November, before the minimum was added: 19,000, 1,195 and 136 sats were all sent on and accepted by Ark (the 136-sat renewal attempted just before it failed, as expected for a coin that small), which is why the minimum was added.
 
-1. Pay a 2,000-sat order. Expect about 1,000 sent to the payout wallet within about 10 minutes and about 1,000 left on the server.
-2. Pay a 200-sat order, then a 500-sat order. Expect each sent on. 200 is below the wallet's 330-sat dust limit and 500 is above it, so this shows whether a small Ark send is accepted and how many small coins the payout wallet ends up with.
-3. Record any failed transfer row or alert, and what `bark vtxos` shows in the payout wallet.
+1. Done 11 November: a 20,000 balance went down to 1,000 within minutes of the update (19,000 sent).
+2. Done 11 November: 1,195- and 136-sat sends were accepted by Ark on signet. So Ark takes out-of-round sends below the believed 330-sat limit, at least on signet; confirm on mainnet in Stage 4.
+3. Still to watch: the 136-sat coin's renewal failed, and failed renewals feed the "renewing is not working" warning (see the renewal section).
 
-**If small sends fail or the pile of small coins is a problem:** stop and report. The fix would be a change to the sweep rule (for example only sending once the excess itself is above a minimum), which is a separate owner decision, not part of this plan.
+**Retest after the minimum is deployed:** with 1,000 held, pay 300 sats (nothing sent), then 800 sats (about 1,100 sent in one transfer).
 
 ## Part B: restore after losing the server (words plus backup file)
 
@@ -209,7 +210,7 @@ Read `round_interval` from the server terms (the answer includes it as text such
 - The test banner must stay hidden in live mode (`assets/setup.html:403`, `assets/checkout.html:39`, and the dashboard). In live mode show one line in the same spot: "REAL MONEY. Experimental: keep amounts small."
 
 ### Explicitly not changing
-The sweep rule (beyond the 1,000 default), the watcher, invoice states, webhook code, the barkd version, the on-chain rail (stays off by default), anything Shopify, and the signet CI workflows.
+The sweep rule (beyond the 1,000 default and the 1,000 minimum excess), the watcher, invoice states, webhook code, the barkd version, the on-chain rail (stays off by default), anything Shopify, and the signet CI workflows.
 
 ## Docs (owner concern 2)
 

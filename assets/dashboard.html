@@ -189,6 +189,15 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
     </div>
+    <div id="cap-box" class="hidden">
+      <h3>How much to keep on this server</h3>
+      <p class="muted" id="cap-now"></p>
+      <label for="cap-new">New amount to keep (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
+      <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
+      <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+      <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
+      <p class="msg hidden" id="cap-msg"></p>
+    </div>
     <div id="sweep-box" class="hidden">
       <p class="muted">Don't want to wait? You can move everything in the till to your payout address right now. This ignores the amount and fee limits above, and on-chain withdrawals then pay whatever the network fee is today.</p>
       <div class="btns"><button id="sweep-go" type="button">Move my money to my payout address now</button></div>
@@ -704,6 +713,13 @@ function loadPayout() {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
+    $("cap-box").classList.toggle("hidden", !p.address);
+    if (p.address) {
+      var dflt = p.kind === "ark" ? p.ark_default_cap_sats : p.onchain_default_cap_sats;
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends everything above that to your payout address" + (p.cap_is_custom ? " (your setting; the default is " + fmtSats(dflt) + ")" : " (the default)") + ". A smaller amount keeps less money on this server, but means more and smaller payouts. Changing it needs your admin password" + " and takes effect right away; it cannot send money anywhere new.";
+      $("cap-new").placeholder = "between " + p.cap_min_sats + " and " + p.cap_max_sats;
+      $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
+    }
     var pend = p.pending_address;
     $("po-pending").classList.toggle("hidden", !pend);
     $("po-cancel-box").classList.toggle("hidden", !pend);
@@ -720,6 +736,21 @@ $("po-go").addEventListener("click", function () {
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
 });
+function saveCap(value, btn) {
+  btn.disabled = true;
+  api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
+    $("cap-new").value = ""; $("cap-pw").value = ""; $("cap-code").value = "";
+    say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + ".");
+    loadPayout();
+  }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
+}
+$("cap-go").addEventListener("click", function () {
+  var raw = $("cap-new").value.trim();
+  var n = Number(raw);
+  if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 1000.", true); return; }
+  saveCap(n, $("cap-go"));
+});
+$("cap-reset").addEventListener("click", function () { saveCap(null, $("cap-reset")); });
 $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });

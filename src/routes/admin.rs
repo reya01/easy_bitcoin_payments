@@ -102,6 +102,14 @@ pub async fn status(
         })
         .await?;
 
+    // The amount the owner chose to keep on the server (Settings), if any.
+    let cap_override = state
+        .db
+        .call(|c| crate::payout::cap_override(c))
+        .await
+        .ok()
+        .flatten();
+
     // Wallet figures straight from barkd (best effort).
     let wallet = match BarkdClient::from_app_config(&state.config) {
         Err(err) => json!({ "error": err.to_string() }),
@@ -116,7 +124,7 @@ pub async fn status(
                     out.insert("in_transit_sats".into(), json!(b.in_transit_sats()));
                     out.insert(
                         "hot_wallet_cap_sats".into(),
-                        json!(state.config.hot_wallet_cap_sats),
+                        json!(cap_override.unwrap_or(state.config.hot_wallet_cap_sats)),
                     );
                 }
                 Err(e) => errors.push(format!("balances: {e}")),
@@ -173,7 +181,9 @@ pub async fn status(
         {
             use crate::health_checks::Payout;
             if let Some(active) = s.active.as_deref() {
-                facts.hot_wallet_cap_sats = state.config.sweep_cap_for(active);
+                facts.hot_wallet_cap_sats = s
+                    .cap_override
+                    .unwrap_or_else(|| state.config.sweep_cap_for(active));
             }
             let invalid = s
                 .active

@@ -20,6 +20,15 @@ const KEY_PENDING: &str = "payout_destination_pending";
 const KEY_EFFECTIVE_AT: &str = "payout_destination_effective_at";
 pub const DEFAULT_DELAY_SECS: i64 = 86_400;
 
+/// The amount the till keeps, when the owner has set one in Settings. Wins over
+/// the server's default (`hot_wallet_cap_sats` / `onchain_sweep_cap_sats`).
+const KEY_CAP: &str = "sweep_cap_sats";
+/// Bounds for that amount. The top is the largest single coin the Ark server
+/// accepts (10,000,000 sats): holding more than that on the server defeats the
+/// point of sweeping.
+pub const MIN_CAP_SATS: i64 = 1;
+pub const MAX_CAP_SATS: i64 = 10_000_000;
+
 const CHARSET: &str = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 /// Checksum constants: bech32 (BIP173) and bech32m (BIP350).
 const BECH32: u32 = 1;
@@ -209,6 +218,8 @@ pub struct Status {
     pub effective_at: Option<i64>,
     /// Set by the server's own configuration; cannot be changed here.
     pub from_server_config: bool,
+    /// The amount the till keeps, if the owner set one in Settings.
+    pub cap_override: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -271,6 +282,7 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             pending: None,
             effective_at: None,
             from_server_config: true,
+            cap_override: cap_override(conn)?,
         });
     }
     Ok(Status {
@@ -279,7 +291,64 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
         effective_at: crate::settings::get(conn, KEY_EFFECTIVE_AT)?
             .and_then(|v| v.parse::<i64>().ok()),
         from_server_config: false,
+        cap_override: cap_override(conn)?,
     })
+}
+
+/// The amount the owner chose in Settings, if any. A stored value that is out
+/// of range (it cannot be, but a hand-edited database might) is ignored, so
+/// the server's default applies instead of something odd.
+pub fn cap_override(conn: &Connection) -> Result<Option<i64>, AppError> {
+    Ok(crate::settings::get(conn, KEY_CAP)?
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|v| (MIN_CAP_SATS..=MAX_CAP_SATS).contains(v)))
+}
+
+/// How much the till keeps before the rest is sent on to `destination`: the
+/// owner's number from Settings, otherwise the server's default for that kind
+/// of address (low for Ark, higher for on-chain).
+pub fn cap_for(
+    conn: &Connection,
+    config: &crate::config::Config,
+    destination: &str,
+) -> Result<i64, AppError> {
+    Ok(cap_override(conn)?.unwrap_or_else(|| config.sweep_cap_for(destination)))
+}
+
+/// Settings: change the amount the till keeps (the caller has already
+/// verified the admin password and, when on, the second step). Takes effect
+/// at once: unlike the address it cannot send money anywhere new. Recorded in
+/// the security log.
+pub fn set_cap(conn: &Connection, cap_sats: i64) -> Result<(), AppError> {
+    if !(MIN_CAP_SATS..=MAX_CAP_SATS).contains(&cap_sats) {
+        return Err(AppError::BadRequest(format!(
+            "the amount must be a whole number of sats between {MIN_CAP_SATS} and {MAX_CAP_SATS}"
+        )));
+    }
+    let before = cap_override(conn)?;
+    crate::settings::set(conn, KEY_CAP, &cap_sats.to_string())?;
+    audit(
+        conn,
+        "payout.cap_changed",
+        &match before {
+            Some(b) => format!("amount kept on the server changed from {b} to {cap_sats} sats"),
+            None => format!("amount kept on the server set to {cap_sats} sats"),
+        },
+    );
+    Ok(())
+}
+
+/// Settings: go back to the server's default amount.
+pub fn clear_cap(conn: &Connection) -> Result<(), AppError> {
+    if cap_override(conn)?.is_some() {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [KEY_CAP])?;
+        audit(
+            conn,
+            "payout.cap_changed",
+            "amount kept on the server reset to the default",
+        );
+    }
+    Ok(())
 }
 
 /// The address sweeps should use right now, if any.
@@ -369,6 +438,43 @@ pub fn cancel(conn: &Connection) -> Result<bool, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_amount_kept_can_be_set_changed_and_reset() {
+        let c = conn();
+        let cfg = crate::config::Config::default();
+        // Nothing saved: the server's default for each kind of address.
+        assert_eq!(cap_override(&c).unwrap(), None);
+        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), cfg.hot_wallet_cap_sats);
+        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), cfg.onchain_sweep_cap_sats);
+        // The owner's number wins for both kinds.
+        set_cap(&c, 5_000).unwrap();
+        assert_eq!(cap_override(&c).unwrap(), Some(5_000));
+        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 5_000);
+        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), 5_000);
+        set_cap(&c, 2_500).unwrap();
+        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 2_500);
+        // Reset goes back to the defaults.
+        clear_cap(&c).unwrap();
+        assert_eq!(cap_override(&c).unwrap(), None);
+        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), cfg.hot_wallet_cap_sats);
+    }
+
+    #[test]
+    fn the_amount_kept_must_be_in_range_and_bad_stored_values_are_ignored() {
+        let c = conn();
+        for bad in [-5, 0, MAX_CAP_SATS + 1, i64::MAX] {
+            assert!(set_cap(&c, bad).is_err(), "{bad} must be refused");
+        }
+        assert_eq!(cap_override(&c).unwrap(), None);
+        set_cap(&c, MIN_CAP_SATS).unwrap();
+        set_cap(&c, MAX_CAP_SATS).unwrap();
+        // A hand-edited database cannot make the cap zero, negative or text.
+        for junk in ["0", "-1", "abc", "", "99999999999"] {
+            crate::settings::set(&c, KEY_CAP, junk).unwrap();
+            assert_eq!(cap_override(&c).unwrap(), None, "{junk:?} must be ignored");
+        }
+    }
 
     fn conn() -> Connection {
         let c = Connection::open_in_memory().unwrap();

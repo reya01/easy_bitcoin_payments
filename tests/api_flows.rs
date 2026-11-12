@@ -1496,6 +1496,54 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 401);
+
+    // The amount the till keeps: default shown, changeable with the password.
+    let g = get().await;
+    assert_eq!(g["cap_is_custom"], false);
+    assert_eq!(g["cap_sats"], g["ark_default_cap_sats"]);
+    // Wrong password, zero, negative and too large are all refused.
+    for body in [
+        serde_json::json!({"cap_sats": 5000, "admin_password": "nope nope nope"}),
+        serde_json::json!({"cap_sats": 0, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": -1, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": 10_000_001i64, "admin_password": "a good long password"}),
+    ] {
+        let r = post("/admin/payout/cap", body).await.unwrap();
+        assert_eq!(r.status().as_u16(), 400);
+    }
+    assert_eq!(get().await["cap_is_custom"], false);
+    // A good value applies at once (no waiting period, unlike the address).
+    let r: serde_json::Value = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": 2500, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["cap_sats"], 2500);
+    let g = get().await;
+    assert_eq!(g["cap_is_custom"], true);
+    assert_eq!(g["cap_sats"], 2500);
+    // Back to the default.
+    let r = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": null, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert_eq!(get().await["cap_is_custom"], false);
+    // Not signed in: refused.
+    let r = client
+        .post(format!("{base}/admin/payout/cap"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({"cap_sats": 5000, "admin_password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
 }
 
 /// The code an authenticator app would show for a stored secret at a 30-second step.

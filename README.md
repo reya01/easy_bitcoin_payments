@@ -40,7 +40,7 @@ Being honest about this matters more than sounding safe.
 
 **Built to hold up if these happen:**
 - *Your shop website is hacked.* The shop's key can create payment requests but cannot change where your money goes. You can pause new payments with one switch.
-- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in or change your payout address, and a changed address waits a day before it is used.
+- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in, change your payout address or change how much the server keeps, and a changed address waits a day before it is used.
 - *The payment server is attacked.* It holds only a small amount at a time (the rest is moved to your own wallet), and nobody but you holds your keys.
 
 **Not protected, so please plan for it:**

@@ -265,6 +265,8 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/dev/SIGNET_DRILL.md) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
 
+The two cap settings above are **defaults**. The owner can instead type one number in **Settings → Where your money goes → How much to keep on this server** (`POST /admin/payout/cap`: signed in, CSRF, admin password, second step when on; takes effect at once; recorded in the security log as `payout.cap_changed`). It is stored in the `settings` table as `sweep_cap_sats`, applies to either kind of payout address, must be 1 to 10,000,000 sats, and wins over the defaults until reset. The manual "move my money now" ignores it.
+
 ---
 
 ### The Bitcoin price

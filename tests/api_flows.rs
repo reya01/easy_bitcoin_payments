@@ -1384,6 +1384,9 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
 async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() {
     let config = Config {
         password_hash_iterations: 1_000,
+        // Each request below pretends to come from its own address so the
+        // password-guessing brake (10 a minute per client) does not interfere.
+        trust_proxy_headers: true,
         ..Config::default()
     };
     let (base, state, _store_id, _key) = serve_with(config).await;
@@ -1396,6 +1399,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let login = client
         .post(format!("{base}/admin/login"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.1")
         .json(&serde_json::json!({"password": "a good long password"}))
         .send()
         .await
@@ -1411,10 +1415,18 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .as_str()
         .unwrap()
         .to_string();
+    let n = std::sync::atomic::AtomicU32::new(1);
     let post = |path: &str, body: serde_json::Value| {
         client
             .post(format!("{base}{path}"))
             .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!(
+                    "10.2.0.{}",
+                    n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                ),
+            )
             .header("cookie", &cookie)
             .header("x-ebp-csrf", &csrf)
             .json(&body)
@@ -1491,6 +1503,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let r = client
         .post(format!("{base}/admin/payout"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.2")
         .json(&serde_json::json!({"address": a, "admin_password": "a good long password"}))
         .send()
         .await
@@ -1539,6 +1552,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let r = client
         .post(format!("{base}/admin/payout/cap"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.3")
         .json(&serde_json::json!({"cap_sats": 5000, "admin_password": "a good long password"}))
         .send()
         .await

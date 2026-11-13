@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
+## Unreleased
+
+## 0.1.0-rc2 — release candidate, play money only (12 November 2026)
 
 - **Docs: a step-by-step guide to practise a restore** (`docs/RESTORE_DRILL.md`): update and download a backup on the old server, turn it off, make a new server, restore from the 12 words plus the backup file, check balance, orders, payout address, shop connection, a test order and "Move my money now", then clean up. It says where each step happens and what to do if a step fails. Linked from `RECIPE_BACKUP.md` and the README. No code changes.
 - **New: restore on a new server from the 12 recovery words plus your backup file.** On the setup page, "Restore the wallet I already have, from my 12 words" rebuilds the wallet (the words go only to your own server, are used once and are never stored or logged; nothing is overwritten). The next step brings back your orders, settings, payout address, admin password and shop connection from the `.ebpbackup` file; the server restarts once to use it and keeps the files it replaced. It refuses on a server that already holds orders. Steps: `docs/RECIPE_BACKUP.md`.

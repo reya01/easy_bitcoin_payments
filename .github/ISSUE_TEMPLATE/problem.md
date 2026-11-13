@@ -23,7 +23,7 @@ leave it out.
 - [ ] Paying from my wallet
 
 ## Helpful details
-- Version (the release you downloaded, for example v0.1.0-rc1):
+- Version (the release you downloaded, for example v0.1.0-rc2):
 - Hosting (DigitalOcean / other / my own computer):
 - Play-money (signet) or real money:
 - The text of the **Home** tab (the green/orange/red lines):

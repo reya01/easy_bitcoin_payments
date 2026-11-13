@@ -264,6 +264,13 @@
         <label for="payout" id="payout-label">Your wallet's address</label>
         <input type="text" id="payout" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="">
         <p class="note" id="payout-hint"></p>
+        <p class="note hidden" id="payout-verdict" role="status"></p>
+        <div class="error hidden" id="payout-risk" role="alert">
+          <strong>Danger: money sent to this address could be lost for good.</strong>
+          <span id="payout-risk-why"></span> Bitcoin payments cannot be undone, and nobody can get lost money back.
+          If you are only testing with play money you can still go on.
+          <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-weight:600"><input type="checkbox" id="payout-risk-ok" style="margin-top:3px"> <span>I understand this address failed a check and money sent to it could be lost. Use it anyway.</span></label>
+        </div>
       </div>
       <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control. You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
@@ -404,6 +411,41 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     document.getElementById("payout-hint").textContent = h.hint;
     box.classList.remove("hidden");
   });
+
+  // Check the address with the server as soon as it is typed. The answer is
+  // advice, not a gate: "failed" shows a danger box with a tick-box, and
+  // ticking it lets the owner go on (for example while testing).
+  var payoutVerdict = null, payoutVerdictFor = "", payoutCheckSeq = 0;
+  function showVerdict(v) {
+    var line = document.getElementById("payout-verdict"), risk = document.getElementById("payout-risk");
+    line.classList.add("hidden"); risk.classList.add("hidden");
+    line.style.color = "";
+    if (!v) return;
+    if (v.verdict === "failed") {
+      document.getElementById("payout-risk-why").textContent = " " + v.message;
+      risk.classList.remove("hidden");
+    } else {
+      line.textContent = (v.verdict === "verified" ? "\u2714 " : "\u26A0 ") + v.message;
+      line.style.color = v.verdict === "verified" ? "var(--ok)" : "var(--warn)";
+      line.classList.remove("hidden");
+    }
+  }
+  function checkPayout() {
+    var addr = document.getElementById("payout").value.trim(), seq = ++payoutCheckSeq;
+    document.getElementById("payout-risk-ok").checked = false;
+    if (!payoutKind() || !addr) { payoutVerdict = null; payoutVerdictFor = ""; showVerdict(null); return Promise.resolve(null); }
+    return api("POST", "/setup/check-payout", { address: addr }).then(function (v) {
+      if (seq !== payoutCheckSeq) return payoutVerdict;
+      payoutVerdict = v; payoutVerdictFor = addr; showVerdict(v); return v;
+    }).catch(function () {
+      if (seq !== payoutCheckSeq) return payoutVerdict;
+      // Could not even ask: say so, never "verified".
+      payoutVerdict = { verdict: "unverified", message: "Could not verify: the check did not run, so we do not know whether this address is valid." };
+      payoutVerdictFor = addr; showVerdict(payoutVerdict); return payoutVerdict;
+    });
+  }
+  document.getElementById("payout").addEventListener("change", checkPayout);
+  document.getElementById("payout-kind").addEventListener("change", checkPayout);
 
   function fail(element, message) {
     element.textContent = message;
@@ -888,8 +930,17 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       return;
     }
     els.btnStore.disabled = true;
-    api("POST", "/setup/store", { name: name, admin_password: pw, payout_address: payoutValue() })
+    var checked = payoutVerdictFor === addr ? Promise.resolve(payoutVerdict) : checkPayout();
+    checked.then(function (v) {
+      if (v && v.verdict === "failed" && !document.getElementById("payout-risk-ok").checked) {
+        els.btnStore.disabled = false;
+        fail(els.storeError, "This address failed a check. Fix it, or tick the box under the address to use it anyway.");
+        return null;
+      }
+      return api("POST", "/setup/store", { name: name, admin_password: pw, payout_address: payoutValue(), accept_risky_payout: !!(v && v.verdict === "failed") });
+    })
       .then(function (result) {
+        if (!result) return;
         document.getElementById("admin-pw").value = "";
         document.getElementById("admin-pw").type = "password";
         document.getElementById("admin-pw-show").textContent = "Show";

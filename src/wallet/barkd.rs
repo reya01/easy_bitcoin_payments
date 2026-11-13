@@ -80,6 +80,7 @@ use super::{
 const PATH_CREATE_WALLET: &str = "/wallet/create";
 /// Fresh Ark receive address. POST.
 const PATH_ADDRESS_NEXT: &str = "/wallet/addresses/next";
+const PATH_ADDRESS_INDEX: &str = "/wallet/addresses/index";
 /// Fresh on-chain receive address. POST.
 const PATH_ONCHAIN_ADDRESS_NEXT: &str = "/onchain/addresses/next";
 /// On-chain and off-chain balances. GET. VERIFIED (barkd 0.8.0, signet,
@@ -537,6 +538,19 @@ impl BarkdClient {
             WalletError::Rejected(
                 "barkd address response had no address field (VERIFY: field shape)".to_string(),
             )
+        })
+    }
+
+    /// An Ark address this wallet already made, by its number (0 is the
+    /// first). Used to learn which Ark server the wallet is on; it does not
+    /// create a new address. Falls back to a fresh one if none exists yet.
+    pub async fn ark_address_at(&self, index: u32) -> Result<String, WalletError> {
+        let v: Json = match self.get(&format!("{PATH_ADDRESS_INDEX}/{index}")).await {
+            Ok(v) => v,
+            Err(_) => return self.ark_address().await,
+        };
+        flex::str_field(&v, &["address", "ark_address"]).ok_or_else(|| {
+            WalletError::Rejected("barkd address response had no address field".to_string())
         })
     }
 

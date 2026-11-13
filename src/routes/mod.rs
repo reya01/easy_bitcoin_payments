@@ -127,6 +127,7 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/verify-code", post(setup::verify_code))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
+        .route("/setup/check-payout", post(setup::check_payout))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             setup::setup_token_guard,

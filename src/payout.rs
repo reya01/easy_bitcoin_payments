@@ -281,6 +281,99 @@ fn check_legacy(a: &str, live: bool) -> Option<Result<String, String>> {
     })
 }
 
+/// The 4 bytes at the start of an Ark address (after the version) that name
+/// the Ark server it belongs to. Every address the same wallet makes starts
+/// with the same 4 bytes (confirmed on five real mainnet addresses from one
+/// server); an address from a different server has different ones. `None`
+/// when the address does not decode, so the caller says "could not verify"
+/// and never guesses.
+pub fn ark_server_tag(address: &str) -> Option<[u8; 4]> {
+    let d = decode_bech32(&address.trim().to_ascii_lowercase())?;
+    if !d.bech32m || !matches!(d.hrp.as_str(), "ark" | "tark") || d.data.len() < 8 {
+        return None;
+    }
+    // The first 5-bit value is the address version; the rest is the payload.
+    // Whole bytes only: padding at the end is not needed for the first four.
+    let bytes = {
+        let (mut acc, mut bits) = (0u32, 0u32);
+        let mut out = Vec::new();
+        for &v in &d.data[1..] {
+            acc = ((acc << 5) | u32::from(v)) & 0xfff;
+            bits += 5;
+            while bits >= 8 {
+                bits -= 8;
+                out.push(((acc >> bits) & 0xff) as u8);
+            }
+        }
+        out
+    };
+    bytes.get(..4)?.try_into().ok()
+}
+
+/// What we could find out about a payout address, for the setup page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    /// Passed every check we can run.
+    Verified(String),
+    /// Looks fine but a check could not run; we do not know.
+    Unverified(String),
+    /// Failed a check: sending money here could lose it.
+    Failed(String),
+}
+
+impl Verdict {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Verdict::Verified(_) => "verified",
+            Verdict::Unverified(_) => "unverified",
+            Verdict::Failed(_) => "failed",
+        }
+    }
+    pub fn message(&self) -> &str {
+        match self {
+            Verdict::Verified(m) | Verdict::Unverified(m) | Verdict::Failed(m) => m,
+        }
+    }
+}
+
+/// Judge a payout address. `wallet_ark_address` is an Ark address made by
+/// this server's own wallet (`None` when it could not be fetched); an Ark
+/// payout address must belong to the same Ark server. Nothing here can tell
+/// whether the owner controls the address: only that it is well formed and on
+/// the right network and server.
+pub fn assess(input: &str, mode: &str, wallet_ark_address: Option<&str>) -> Verdict {
+    let address = match check(input, mode) {
+        Ok(a) => a,
+        Err(why) => return Verdict::Failed(why),
+    };
+    if !(address.starts_with("ark1") || address.starts_with("tark1")) {
+        return Verdict::Verified(
+            "Verified: a well-formed Bitcoin address for this network. We cannot see whether you control it, so check it is yours."
+                .into(),
+        );
+    }
+    let (Some(theirs), Some(reference)) = (
+        ark_server_tag(&address),
+        wallet_ark_address.and_then(ark_server_tag),
+    ) else {
+        return Verdict::Unverified(
+            "Could not verify: the address is well formed, but we could not compare it with your wallet's Ark server, so we do not know that it works with this server."
+                .into(),
+        );
+    };
+    if theirs == reference {
+        Verdict::Verified(
+            "Verified: a well-formed Ark address on the same Ark server as this wallet. We cannot see whether you control it, so check it is yours."
+                .into(),
+        )
+    } else {
+        Verdict::Failed(
+            "This Ark address belongs to a different Ark server than this wallet uses. Money sent to it may not arrive, or may be lost."
+                .into(),
+        )
+    }
+}
+
 /// [`check`] as a request error, for the setup wizard and the admin page.
 pub fn validate(input: &str, mode: &str) -> Result<String, AppError> {
     check(input, mode).map_err(AppError::BadRequest)
@@ -443,6 +536,25 @@ pub fn set_initial(conn: &Connection, address: &str, mode: &str) -> Result<(), A
         conn,
         "payout.set",
         &format!("payout address set ({})", short(&a)),
+    );
+    Ok(())
+}
+
+/// Wizard, after the owner ticked "I understand money could be lost": save
+/// the address even though it failed a check. Sweeps still refuse an address
+/// that fails the format checks (see settlement), so this cannot send money
+/// anywhere on its own.
+pub fn set_initial_unchecked(conn: &Connection, address: &str) -> Result<(), AppError> {
+    let a = address.trim().to_string();
+    crate::settings::set(conn, KEY_ACTIVE, &a)?;
+    clear_pending(conn)?;
+    audit(
+        conn,
+        "payout.set_unverified",
+        &format!(
+            "payout address set although it failed a check ({}); the owner accepted the risk",
+            short(&a)
+        ),
     );
     Ok(())
 }
@@ -706,6 +818,57 @@ pub(crate) mod tests {
         assert!(check("tark1", "test").is_err());
         // A plain bech32 (not bech32m) string with an ark prefix is refused.
         assert!(check("tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k", "test").is_err());
+    }
+
+    // Two addresses made by throwaway mainnet test wallets on Second's server.
+    const SAME_SERVER_A: &str = "ark1pu6h30w3zqqp925mq7na5tp0g9e38dr0ehcm5knhn3t54nyn5vv96stcu993fkxpzqyp68xugqvak7kyzzpjeuwg8sa0083yvkts40sl0vah9wa9z9sl8ulcdexg9g";
+    const SAME_SERVER_B: &str = "ark1pu6h30w3zqqpsgvg9tfp333jaffnfye2q0lase00lkl4wg4h2c5x5hytk0jeycn3zqyp9kccnvcewvcznplaqzmurtq6sggy8zmxerejhdcpwcukycpfdf6sy0sp9h";
+
+    #[test]
+    fn addresses_of_one_ark_server_share_a_tag_and_others_do_not() {
+        assert_eq!(ark_server_tag(SAME_SERVER_A), ark_server_tag(SAME_SERVER_B));
+        assert!(ark_server_tag(SAME_SERVER_A).is_some());
+        assert_ne!(ark_server_tag(SAME_SERVER_A), ark_server_tag(ARK_A));
+        assert_eq!(ark_server_tag("tark1"), None);
+        assert_eq!(ark_server_tag("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), None);
+    }
+
+    #[test]
+    fn the_verdict_says_verified_unverified_or_failed() {
+        // Same server: verified.
+        let v = assess(SAME_SERVER_A, "live", Some(SAME_SERVER_B));
+        assert_eq!(v.name(), "verified");
+        // Wallet address unknown: could not verify, still allowed.
+        let v = assess(SAME_SERVER_A, "live", None);
+        assert_eq!(v.name(), "unverified");
+        assert!(v.message().starts_with("Could not verify"));
+        // A reference that does not decode: could not verify, never "verified".
+        assert_eq!(assess(SAME_SERVER_A, "live", Some("tark1qabc")).name(), "unverified");
+        // A different Ark server: failed.
+        assert_eq!(assess(ARK_A, "live", Some(SAME_SERVER_A)).name(), "failed");
+        // One character changed: the checksum fails.
+        let mut typo = SAME_SERVER_A.to_string();
+        let swap = if &typo[30..31] == "q" { "p" } else { "q" };
+        typo.replace_range(30..31, swap);
+        assert_eq!(assess(&typo, "live", Some(SAME_SERVER_B)).name(), "failed");
+        // A play-money address on a real-money server: failed.
+        assert_eq!(assess(TARK_A, "live", Some(SAME_SERVER_B)).name(), "failed");
+        // A good Bitcoin address: verified as well formed.
+        assert_eq!(
+            assess("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "live", None).name(),
+            "verified"
+        );
+    }
+
+    #[test]
+    fn an_address_that_failed_can_be_saved_only_on_purpose() {
+        let c = conn();
+        assert!(set_initial(&c, "tark1notanaddress", "test").is_err());
+        set_initial_unchecked(&c, " tark1notanaddress ").unwrap();
+        assert_eq!(
+            crate::settings::get(&c, KEY_ACTIVE).unwrap().as_deref(),
+            Some("tark1notanaddress")
+        );
     }
 
     #[test]

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The setup page now checks your payout address and tells you what it found.** As soon as you paste it, a line says **Verified** (well formed, right network and, for an Ark address, on the same Ark server as this wallet), **Could not verify** (the check could not run, so we do not know) or, if it failed, a red danger box saying money sent there could be lost. A failed address can still be used if you tick "I understand... use it anyway" (for example while testing); the choice is written to the audit log, and the server still refuses to send to an address that is malformed. Nobody can check that you control the address: the line says so. New endpoint `POST /setup/check-payout`; the wallet's first Ark address is read (not created) to learn its Ark server. Settings is not changed yet.
+
 ## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
 
 - **Choose signet or mainnet on the setup page.** The Create your wallet step has a Network box: Signet (play money) is the default, Mainnet (real bitcoin, experimental) is the other choice. Mainnet shows a real-money warning and needs a tick-box; the page says the choice is permanent and switching needs a new server. The choice is saved with the wallet and always wins over `EBP_MODE` (which now only sets the page's default); the server restarts once at the end of setup to apply it. A backup from a server on the other network is refused when restoring. No command line needed.

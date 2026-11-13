@@ -1313,6 +1313,55 @@ pub struct CreateStoreRequest {
     /// does not finish without a valid one (checked for the network mode).
     #[serde(default)]
     pub payout_address: Option<String>,
+    /// The owner saw that the address failed a check and chose to continue
+    /// anyway (for example on a test server). Only then is a failing
+    /// address saved; sweeps still refuse one that is malformed.
+    #[serde(default)]
+    pub accept_risky_payout: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckPayoutRequest {
+    pub address: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckPayoutResponse {
+    /// `verified`, `unverified` or `failed`.
+    pub verdict: &'static str,
+    pub message: String,
+}
+
+/// `POST /setup/check-payout` — judge a payout address while the wizard is
+/// open: well formed, right network, and (for Ark) the same Ark server as this
+/// wallet. Never blocks anything: the page decides what to do with the verdict.
+pub async fn check_payout(
+    State(state): State<AppState>,
+    Json(req): Json<CheckPayoutRequest>,
+) -> Result<Json<CheckPayoutResponse>, AppError> {
+    ensure_wizard_open(&state).await?;
+    let mode = wizard_mode(&state).await?;
+    // The wallet's own first Ark address names its Ark server. If the wallet
+    // cannot be reached we say "could not verify", never "verified".
+    let reference = match (crate::managed_barkd::get(), barkd_base_url(&state.config)) {
+        (Some(m), Some(base)) => match m.token().await {
+            Ok(token) => {
+                match crate::wallet::barkd::BarkdClient::new(
+                    crate::wallet::barkd::BarkdConfig::new(base, token),
+                ) {
+                    Ok(client) => client.ark_address_at(0).await.ok(),
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        },
+        _ => None,
+    };
+    let verdict = crate::payout::assess(&req.address, &mode, reference.as_deref());
+    Ok(Json(CheckPayoutResponse {
+        verdict: verdict.name(),
+        message: verdict.message().to_string(),
+    }))
 }
 
 #[derive(Debug, Serialize)]
@@ -1364,22 +1413,33 @@ pub async fn create_store(
     }
     // Validate the payout address BEFORE creating anything, so a typo does
     // not leave a half-finished setup behind.
-    let payout_address =
-        match req.payout_address.as_deref().map(str::trim) {
-            Some(a) if !a.is_empty() => crate::payout::validate(a, &wizard_mode(&state).await?)?,
-            _ => return Err(AppError::BadRequest(
+    let wizard = wizard_mode(&state).await?;
+    let (payout_address, risky) = match req.payout_address.as_deref().map(str::trim) {
+        Some(a) if !a.is_empty() => match crate::payout::check(a, &wizard) {
+            Ok(normalized) => (normalized, false),
+            // The owner was shown the warning and chose to go on.
+            Err(_) if req.accept_risky_payout => (a.to_string(), true),
+            Err(why) => return Err(AppError::BadRequest(why)),
+        },
+        _ => {
+            return Err(AppError::BadRequest(
                 "Add the address of a wallet you control (an Ark or Bitcoin address) to continue."
                     .into(),
-            )),
-        };
+            ))
+        }
+    };
     let admin_password = req.admin_password.clone();
-    let mode = wizard_mode(&state).await?;
+    let mode = wizard;
     let iterations = state.config.password_hash_iterations;
     let (created, setup_complete) = state
         .db
         .call(move |conn| {
             let created = insert_first_store(conn, &name)?;
-            crate::payout::set_initial(conn, &payout_address, &mode)?;
+            if risky {
+                crate::payout::set_initial_unchecked(conn, &payout_address)?;
+            } else {
+                crate::payout::set_initial(conn, &payout_address, &mode)?;
+            }
             if let Some(pw) = admin_password.as_deref() {
                 crate::admin_auth::set_password(conn, pw, iterations)?;
             }

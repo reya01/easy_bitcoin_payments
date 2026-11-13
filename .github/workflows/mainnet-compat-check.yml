@@ -38,7 +38,8 @@ jobs:
         run: |
           set -u
           D="$RUNNER_TEMP/bark-mainnet-check"; mkdir -p "$D"
-          "$RUNNER_TEMP/barkd" --datadir "$D" --host 127.0.0.1 --port 3999 > "$RUNNER_TEMP/barkd.log" 2>&1 &
+          # --no-ui: the same flag EBP starts barkd with (no built-in wallet page).
+          "$RUNNER_TEMP/barkd" --datadir "$D" --host 127.0.0.1 --port 3999 --no-ui > "$RUNNER_TEMP/barkd.log" 2>&1 &
           for i in $(seq 1 30); do [ -f "$D/auth_token" ] && curl -sS -o /dev/null "http://127.0.0.1:3999/" && break; sleep 1; done
           TOKEN=$(cat "$D/auth_token" 2>/dev/null || true)
           H="Authorization: Bearer $TOKEN"

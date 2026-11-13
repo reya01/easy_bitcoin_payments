@@ -161,6 +161,8 @@ Built as described below, with the backup file restored by the wizard itself: th
 
 ### Signet restore drill (owner runs, before mainnet)
 
+**Passed 12 November 2026** on a second droplet ([RESTORE_DRILL.md](../RESTORE_DRILL.md)): balance (1,000 sats), orders, transfers list, security log, payout address and shop connection all came back; a new 1,279-sat test order completed and "Move my money now" delivered it to the owner's Bark wallet; two-step sign-in turned back on; a fresh backup from the new server passed **Check a backup**. Restore took 30 to 40 minutes, 17 of them the new server's first start. One extra "Routine wallet upkeep" row appeared right after the restore (1,000 sats, broadcast; balance unchanged): the new server renewed its coin on its first cycle. Not explained yet; watch for it in the mainnet restore drill (Stage 4 step 13).
+
 1. On the signet droplet note the balance, order count and payout address. Leave a few hundred sats on the server. Download a backup.
 2. Power off the droplet (or make a second one and keep the first powered off). Never run both at once: same wallet words, same shop connection.
 3. Follow the documented steps above exactly as written.
@@ -168,6 +170,8 @@ Built as described below, with the backup file restored by the wizard itself: th
 5. Then replace the "exact command is not written down here yet" passages in `docs/RECIPE_BACKUP.md` with the tested steps, update `docs/IF_SOMETHING_LOOKS_WRONG.md` and `docs/KNOWN_ISSUES.md`, and tick the two restore items in `docs/dev/RC_CHECKLIST.md`.
 
 ## Stage 2: mainnet code changes (small PRs, in this order)
+
+**Status 13 November 2026:** all seven are built as a stack of draft PRs, not merged (owner cuts `v0.1.0-rc2` first): A #171, B #172, C #173, D #174, E #175, F #176, G #177. Merge in that order after #160. Where the build differs from this plan, the PR says so; the main points: B adds a red Home line when the wallet's network does not match the mode; D's `/wallet/rounds` parsing follows the pinned OpenAPI because the Stage 1 capture was not taken; G stays switched off on real-money servers until its signet drill; F was verified with the compat workflow (run 43372649041). Mainnet's ark-info says `"network": "bitcoin"` (captured by the compat run), now a test fixture.
 
 ### PR A: wizard may create or restore a mainnet wallet in live mode
 - `src/routes/setup.rs:680-693`: remove the "live mode is disabled" refusal. Allowed network is `"mainnet"` when `mode == "live"`, `"signet"` otherwise. Keep refusing any mismatch in both directions.

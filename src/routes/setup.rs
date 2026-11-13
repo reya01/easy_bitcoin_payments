@@ -2117,6 +2117,7 @@ mod tests {
             asp_url: None,
             mnemonic: Some(WORDS12.to_string()),
             paper_copies_exist: true,
+            mainnet_understood: false,
         };
         let shown = format!("{req:?}");
         assert!(shown.contains("REDACTED"));

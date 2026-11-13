@@ -42,7 +42,7 @@ class EBP_Gateway extends WC_Payment_Gateway {
 					. '<li>' . esc_html__( 'ON YOUR WOOCOMMERCE SITE (this page): copy "Your shop\'s notification address" shown further down this page. ON YOUR PAYMENT SERVER: paste it into card 3 ("Your shop\'s webhook address") and press Save address. A box labelled "Signing secret" appears once: press Copy, and save it in your password manager too. ON YOUR WOOCOMMERCE SITE: paste it into the Signing secret box below. No box? On your payment server press "New signing secret" instead.', 'ebp-bitcoin' ) . '</li>'
 					. '<li>' . esc_html__( 'ON YOUR WOOCOMMERCE SITE: tick Enable and press Save changes. A green message means it works; a red one says what to fix. Then ON YOUR PAYMENT SERVER press Send a test notification on the Connect tab.', 'ebp-bitcoin' ) . '</li>'
 					. '</ol>'
-					. '<p><strong>' . esc_html__( 'Test version: use play-money (signet) coins only.', 'ebp-bitcoin' ) . '</strong></p>',
+					. '<p><strong>' . esc_html__( 'Experimental software. A payment server in test mode takes play-money (signet) coins only; one set to real money takes real bitcoin: keep amounts small.', 'ebp-bitcoin' ) . '</strong></p>',
 			),
 			'enabled'        => array(
 				'title'   => __( 'Enable', 'ebp-bitcoin' ),

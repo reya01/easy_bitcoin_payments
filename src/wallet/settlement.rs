@@ -369,6 +369,11 @@ impl SettlementEngine {
         let over =
             started.is_some_and(|t| now - t > 120) && live.as_ref().is_some_and(Vec::is_empty);
         let known = live.is_some();
+        let running = live.as_ref().is_some_and(|l| !l.is_empty());
+        // barkd runs an exit nobody started from Settings (for example one
+        // carried over in a restored wallet folder): adopt it, so Home shows
+        // the red line while renewals and sweeps are paused.
+        let adopt = running && started.is_none();
         self.db
             .call(move |c| {
                 if known {
@@ -381,10 +386,12 @@ impl SettlementEngine {
                 if over {
                     delete_setting(c, ee::EXIT_STARTED_AT_KEY)?;
                 }
+                if adopt {
+                    crate::settings::set(c, ee::EXIT_STARTED_AT_KEY, &now.to_string())?;
+                }
                 Ok(())
             })
             .await?;
-        let running = live.as_ref().is_some_and(|l| !l.is_empty());
         let paused = (started.is_some() && !over) || running;
         Ok(paused.then(|| {
             "An emergency withdrawal is in progress, so normal transfers and renewals are paused.".to_string()

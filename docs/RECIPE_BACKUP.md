@@ -107,7 +107,7 @@ is never used, because it may be out of date.
   automatically. Compare WooCommerce's **On hold** orders with the money on Home.
 - **A restore never overwrites a working server.** If the new server already holds
   orders or finished setup, it refuses and keeps your files. Use a fresh server.
-- **The words need the Ark server to cooperate.** If the Ark server itself is gone,
+- **The words need the Ark server to cooperate.** An emergency withdrawal already in progress is carried by the backup file, not by the words. If the Ark server itself is gone,
   getting Ark coins back is a different, emergency path that this page does not cover.
 - **Without the backup file's password**, the file cannot be opened. Without the
   words, the money cannot be recovered from the file alone.

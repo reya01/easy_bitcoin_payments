@@ -6,7 +6,7 @@
     {"method": "POST", "path": "/wallet/addresses/next", "reads": ["address"]},
     {"method": "POST", "path": "/onchain/addresses/next", "reads": ["address"]},
     {"method": "GET",  "path": "/wallet/balance", "reads": ["spendable_sat", "needs_refresh_sat", "pending_lightning_send_sat", "claimable_lightning_receive_sat", "pending_in_round_sat", "pending_board_sat", "pending_arkoor_send_sat", "pending_offboard_sat", "pending_exit_sat"]},
-    {"method": "GET",  "path": "/onchain/balance", "reads": ["total_sat", "trusted_spendable_sat", "confirmed_sat"]},
+    {"method": "GET",  "path": "/onchain/balance", "reads": ["total_sat", "trusted_spendable_sat", "confirmed_sat", "trusted_pending_sat", "untrusted_pending_sat"]},
     {"method": "GET",  "path": "/wallet/connected", "reads": ["connected"]},
     {"method": "GET",  "path": "/bitcoin/tip", "reads": ["tip_height"]},
     {"method": "GET",  "path": "/wallet/vtxos", "reads": ["id", "amount_sat", "expiry_height", "state.type"]},
@@ -19,7 +19,14 @@
     {"method": "POST", "path": "/wallet/refresh/vtxos", "sends": ["vtxos"], "reads": []},
     {"method": "POST", "path": "/lightning/receives/invoice", "sends": ["amount_sat", "description"], "reads": ["invoice"]},
     {"method": "GET",  "path": "/fees/lightning/receive", "query": ["amount_sat"], "reads": ["fee_sat"]},
-    {"method": "GET",  "path": "/wallet/ark-info", "reads": ["vtxo_lifetime", "fees.refresh.base_fee_sat", "fees.refresh.ppm_expiry_table", "round_interval", "network"]},
-    {"method": "GET",  "path": "/wallet/rounds", "reads": ["state", "participation.inputs"]}
+    {"method": "GET",  "path": "/wallet/ark-info", "reads": ["vtxo_lifetime", "fees.refresh.base_fee_sat", "fees.refresh.ppm_expiry_table", "round_interval", "network", "vtxo_exit_delta"]},
+    {"method": "GET",  "path": "/wallet/rounds", "reads": ["state", "participation.inputs"]},
+    {"method": "GET",  "path": "/exits/fee", "query": ["destination"], "reads": ["exit_broadcast_fee_sat", "claim_fee_sat", "total_fee_sat", "txs_to_broadcast"]},
+    {"method": "POST", "path": "/exits/start/all", "sends": [], "reads": []},
+    {"method": "GET",  "path": "/exits/status/live", "reads": ["vtxo_id", "state.type"]},
+    {"method": "POST", "path": "/exits/cancel/{vtxo_id}", "sends": [], "reads": []},
+    {"method": "POST", "path": "/exits/claim/all", "sends": ["destination"], "reads": []},
+    {"method": "POST", "path": "/onchain/sync", "sends": [], "reads": []},
+    {"method": "POST", "path": "/onchain/drain", "sends": ["destination"], "reads": ["txid"]}
   ]
 }

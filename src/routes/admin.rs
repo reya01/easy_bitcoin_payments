@@ -176,6 +176,21 @@ pub async fn status(
     facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
     facts.live = state.config.mode == "live";
+    if let Ok((started, claimable)) = state
+        .db
+        .call(|c| {
+            Ok((
+                crate::settings::get(c, crate::emergency_exit::EXIT_STARTED_AT_KEY)?,
+                crate::settings::get(c, crate::emergency_exit::EXIT_CLAIMABLE_KEY)?,
+            ))
+        })
+        .await
+    {
+        facts.exit_running_for_secs = started
+            .and_then(|v| v.parse::<i64>().ok())
+            .map(|t| crate::util::now_unix() - t);
+        facts.exit_claimable = claimable.as_deref() == Some("true");
+    }
     if let Ok((small, lapse_at)) = state
         .db
         .call(|c| {

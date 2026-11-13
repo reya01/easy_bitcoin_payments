@@ -15,6 +15,7 @@ pub mod auth;
 pub mod backup;
 pub mod config;
 pub mod db;
+pub mod emergency_exit;
 pub mod error;
 pub mod health_checks;
 pub mod invoice;

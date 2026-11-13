@@ -10,7 +10,8 @@
 //!    merchant's own wallet: an Ark send when the destination is on the
 //!    same ASP (e.g. their Arké wallet), or a cooperative offboard of the
 //!    whole till when it is an on-chain address (learn_offboard.md).
-//!    Emergency exits are never automated — they are a documented runbook.
+//!    Emergency exits are never automated: the owner starts one from
+//!    Settings (`routes::exit`), and while it runs this engine pauses.
 //!
 //! An automatic ON-CHAIN sweep also waits until the network fee rate is at or
 //! below `onchain_sweep_max_fee_sat_vb`; the merchant can always sweep by hand.
@@ -342,9 +343,70 @@ impl SettlementEngine {
         Ok(held)
     }
 
+    /// While an emergency withdrawal runs, renewals and sweeps would fight
+    /// it over the same coins, so the whole cycle pauses. Also keeps the
+    /// "ready to claim" flag (Home, phone alert) up to date, and notices when
+    /// the withdrawal is over. `Some(reason)` = paused.
+    async fn exit_pause(&self) -> Result<Option<String>, AppError> {
+        use crate::emergency_exit as ee;
+        let started: Option<i64> = self
+            .db
+            .call(|c| crate::settings::get(c, ee::EXIT_STARTED_AT_KEY))
+            .await?
+            .and_then(|v| v.parse().ok());
+        let live = match self.client.exits_live().await {
+            Ok(v) => Some(ee::parse_live(&v)),
+            Err(err) => {
+                if started.is_some() {
+                    tracing::warn!(error = %err, "settlement: exit status unavailable; staying paused");
+                }
+                None
+            }
+        };
+        let now = now_unix();
+        let claimable = live.as_deref().is_some_and(ee::any_claimable);
+        // Over: started a while ago and barkd lists nothing still running.
+        let over =
+            started.is_some_and(|t| now - t > 120) && live.as_ref().is_some_and(Vec::is_empty);
+        let known = live.is_some();
+        let running = live.as_ref().is_some_and(|l| !l.is_empty());
+        // barkd runs an exit nobody started from Settings (for example one
+        // carried over in a restored wallet folder): adopt it, so Home shows
+        // the red line while renewals and sweeps are paused.
+        let adopt = running && started.is_none();
+        self.db
+            .call(move |c| {
+                if known {
+                    if claimable {
+                        crate::settings::set(c, ee::EXIT_CLAIMABLE_KEY, "true")?;
+                    } else {
+                        delete_setting(c, ee::EXIT_CLAIMABLE_KEY)?;
+                    }
+                }
+                if over {
+                    delete_setting(c, ee::EXIT_STARTED_AT_KEY)?;
+                }
+                if adopt {
+                    crate::settings::set(c, ee::EXIT_STARTED_AT_KEY, &now.to_string())?;
+                }
+                Ok(())
+            })
+            .await?;
+        let paused = (started.is_some() && !over) || running;
+        Ok(paused.then(|| {
+            "An emergency withdrawal is in progress, so normal transfers and renewals are paused.".to_string()
+        }))
+    }
+
     async fn cycle(&self, manual: bool) -> Result<TickReport, AppError> {
         let _one_at_a_time = CYCLE_LOCK.lock().await;
         let mut report = TickReport::default();
+        if let Some(reason) = self.exit_pause().await? {
+            if manual {
+                report.sweep_refused = Some(reason);
+            }
+            return Ok(report);
+        }
 
         // NOTE: the sweep destination guard lives right before the sweep
         // section, NOT here. A missing destination disables SWEEPING, never
@@ -2080,6 +2142,115 @@ mod tests {
                 ("failed".to_string(), 5_000),
                 ("requested".to_string(), 5_000)
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_emergency_withdrawal_pauses_renewals_and_sweeps() {
+        let soon = now_unix() + 86_400;
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/exits/status/live" => (
+                200,
+                r#"[{"vtxo_id": "v1", "state": {"type": "processing"}}]"#.to_string(),
+            ),
+            "/api/v1/wallet/vtxos" => (
+                200,
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": 150000, "expires_at": {soon}, "state": {{"type": "spendable"}}}}]"#
+                ),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 150000}"#.to_string()),
+            _ => (200, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(
+                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+                1_000,
+            ),
+        );
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.refreshed_vtxos, 0);
+        assert!(report.swept_sats.is_none());
+        let report = engine.sweep_now().await.unwrap();
+        assert!(report.swept_sats.is_none());
+        assert!(report
+            .sweep_refused
+            .unwrap()
+            .contains("emergency withdrawal"));
+        assert!(!recorded.lock().unwrap().iter().any(|r| {
+            r.route() == "/api/v1/wallet/refresh/vtxos" || r.route() == "/api/v1/wallet/send"
+        }));
+    }
+
+    #[tokio::test]
+    async fn a_started_withdrawal_stays_paused_when_barkd_cannot_say_and_flags_claimable() {
+        let state = Arc::new(std::sync::Mutex::new((404u16, "{}".to_string())));
+        let s2 = state.clone();
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/exits/status/live" => s2.lock().unwrap().clone(),
+            "/api/v1/wallet/vtxos" => (200, "[]".to_string()),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 0}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let started = (now_unix() - 600).to_string();
+        db.call(move |c| {
+            crate::settings::set(c, crate::emergency_exit::EXIT_STARTED_AT_KEY, &started)
+        })
+        .await
+        .unwrap();
+        let engine = SettlementEngine::new(client, db.clone(), test_config(None, 1_000));
+        engine.tick().await.unwrap();
+        assert!(
+            !recorded
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.route() == "/api/v1/wallet/vtxos"),
+            "paused before reading coins"
+        );
+        // Ready to claim: the flag Home and the phone alert read.
+        *state.lock().unwrap() = (
+            200,
+            r#"[{"vtxo_id": "v1", "state": {"type": "claimable"}}]"#.to_string(),
+        );
+        engine.tick().await.unwrap();
+        let flag = db
+            .call(|c| crate::settings::get(c, crate::emergency_exit::EXIT_CLAIMABLE_KEY))
+            .await
+            .unwrap();
+        assert_eq!(flag.as_deref(), Some("true"));
+        // Claimed and gone: the pause ends by itself.
+        *state.lock().unwrap() = (200, "[]".to_string());
+        engine.tick().await.unwrap();
+        let (started, flag) = db
+            .call(|c| {
+                Ok((
+                    crate::settings::get(c, crate::emergency_exit::EXIT_STARTED_AT_KEY)?,
+                    crate::settings::get(c, crate::emergency_exit::EXIT_CLAIMABLE_KEY)?,
+                ))
+            })
+            .await
+            .unwrap();
+        assert_eq!((started, flag), (None, None));
+        assert!(
+            recorded
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.route() == "/api/v1/wallet/vtxos"),
+            "running normally again"
         );
     }
 

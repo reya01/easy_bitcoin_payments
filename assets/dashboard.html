@@ -222,6 +222,45 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="ck-go" type="button">Check this backup</button></div>
     <p class="msg hidden" id="ck-msg"></p>
   </div>
+  <h2 class="bad">Emergency: withdraw without the Ark server</h2>
+  <div class="card">
+    <details id="ex-box">
+      <summary>Open only in an emergency</summary>
+      <div class="warnbox"><strong>For emergencies only.</strong> You always hold the keys to this money, so you can take it out on your own even if the Ark server is gone or refuses to help. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use <strong>Move my money now</strong> instead: it is cheaper and faster.</div>
+      <div id="ex-facts"></div>
+      <p class="msg hidden" id="ex-refusal"></p>
+      <div id="ex-deposit" class="hidden">
+        <h3>Step 1: put the fee money on the server</h3>
+        <p class="muted" id="ex-deposit-need"></p>
+        <div class="btns"><button id="ex-get-addr" type="button">Show the deposit address</button></div>
+        <div id="ex-addr-box" class="hidden">
+          <div class="secret" id="ex-addr"></div>
+          <div class="btns"><button class="small" type="button" data-copy="ex-addr">Copy</button></div>
+          <div class="qrbox" id="ex-qr"></div>
+        </div>
+      </div>
+      <div id="ex-auth" class="hidden">
+        <label for="ex-dest">Your Bitcoin address (on-chain) where the money goes</label><input type="text" id="ex-dest" autocomplete="off" spellcheck="false">
+        <label for="ex-pw">Admin password</label><input type="password" id="ex-pw" autocomplete="current-password">
+        <label for="ex-code">Code from your authenticator app</label><input type="text" id="ex-code" inputmode="numeric" autocomplete="off" placeholder="6 digits">
+      </div>
+      <div id="ex-start-box" class="hidden">
+        <h3>Step 2: start</h3>
+        <label><input type="checkbox" id="ex-ok"> I understand this is for emergencies, costs network fees and takes at least a day</label>
+        <div class="btns"><button id="ex-start" type="button" disabled>Start the emergency withdrawal</button></div>
+      </div>
+      <div id="ex-running" class="hidden">
+        <h3>In progress</h3>
+        <div id="ex-list"></div>
+        <p class="muted">Leave the server on. Download a fresh backup now (above): the backup carries this withdrawal, the 12 words do not.</p>
+        <div class="btns"><button id="ex-claim" type="button" class="hidden">Send to my address</button><button id="ex-stop" type="button">Stop</button></div>
+      </div>
+      <div id="ex-left-box" class="hidden">
+        <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
+      </div>
+      <p class="msg hidden" id="ex-msg"></p>
+    </details>
+  </div>
   <h2>Security activity</h2>
   <div class="card" id="audit"></div>
 </section>
@@ -939,8 +978,82 @@ function loadAudit() {
   }).catch(function (e) { $("audit").textContent = e.message; });
 }
 
+// ---- Emergency withdrawal (Settings). Folded away; nothing starts on its own.
+var exState = null, exTimer = null;
+function exReady() {
+  var s = exState;
+  $("ex-start").disabled = !(s && s.allowed && s.two_step_on && s.deposit_needed_sats === 0 && !s.in_progress_since && !(s.live || []).length &&
+    $("ex-ok").checked && $("ex-pw").value && $("ex-code").value.trim() && $("ex-dest").value.trim());
+}
+function loadExit() {
+  api("POST", "/admin/exit/status", {}).then(function (s) {
+    exState = s;
+    var f = $("ex-facts"); clear(f);
+    f.appendChild(row("Ark money on this server", s.ark_sats == null ? "unknown" : fmtSats(s.ark_sats)));
+    f.appendChild(row("Network fees to take it out (estimate)", s.fee ? fmtSats(s.fee.total_sat) : "unknown"));
+    f.appendChild(row("Fee money on the server (confirmed)", s.onchain_confirmed_sats == null ? "unknown" : fmtSats(s.onchain_confirmed_sats) + (s.onchain_pending_sats ? " (+" + fmtSats(s.onchain_pending_sats) + " waiting for a confirmation)" : "")));
+    f.appendChild(row("Must start before", s.deadline ? when(s.deadline * 1000) : "unknown"));
+    f.appendChild(row("Ark server answering right now", s.asp_connected === true ? "yes" : s.asp_connected === false ? "no" : "unknown"));
+    var live = s.live || [];
+    var running = !!s.in_progress_since || live.length > 0;
+    var r = $("ex-refusal");
+    if (!running && !s.two_step_on) { r.textContent = "Turn on two-step sign-in (above) first: an emergency withdrawal needs your password and a code from your authenticator app."; r.className = "msg bad"; }
+    else if (!running && s.refusal) { r.textContent = s.refusal; r.className = "msg bad"; }
+    else { r.className = "msg hidden"; }
+    var canGo = !running && s.allowed && s.two_step_on;
+    $("ex-deposit").classList.toggle("hidden", !canGo);
+    if (canGo && s.fee) {
+      $("ex-deposit-need").textContent = s.deposit_needed_sats > 0
+        ? "The fees are paid from the server's own Bitcoin balance, which is normally empty. Send at least " + fmtSats(s.deposit_needed_sats) + " to the address below from any wallet or exchange, then wait for 1 confirmation. This page checks again every minute. (The final step's fee, about " + fmtSats(s.fee.claim_sat) + ", comes out of the money itself.)"
+        : "Enough fee money is on the server and confirmed.";
+    }
+    $("ex-start-box").classList.toggle("hidden", !canGo);
+    $("ex-auth").classList.toggle("hidden", !(canGo || running || s.onchain_confirmed_sats > 0));
+    if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+    $("ex-running").classList.toggle("hidden", !running);
+    var list = $("ex-list"); clear(list);
+    if (s.in_progress_since) list.appendChild(row("Started", when(s.in_progress_since * 1000)));
+    live.forEach(function (e) { list.appendChild(row("Coin " + e.vtxo_id.slice(0, 10) + "…", e.words)); });
+    $("ex-claim").classList.toggle("hidden", !s.claimable);
+    $("ex-left-box").classList.toggle("hidden", running || !(s.onchain_confirmed_sats > 0));
+    exReady();
+  }).catch(function (e) { say("ex-msg", e.message, true); });
+}
+$("ex-box").addEventListener("toggle", function () {
+  if (exTimer) { clearInterval(exTimer); exTimer = null; }
+  if ($("ex-box").open) { loadExit(); exTimer = setInterval(loadExit, 60000); }
+});
+["ex-ok", "ex-pw", "ex-code", "ex-dest"].forEach(function (id) { $(id).addEventListener("input", exReady); $(id).addEventListener("change", exReady); });
+$("ex-get-addr").addEventListener("click", function () {
+  api("POST", "/admin/exit/deposit-address", {}).then(function (r) {
+    $("ex-addr").textContent = r.address;
+    var q = $("ex-qr"); clear(q);
+    try {
+      var img = document.createElement("img"); img.alt = "QR code for the deposit address";
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg("bitcoin:" + r.address));
+      q.appendChild(img);
+    } catch (e) {}
+    $("ex-addr-box").classList.remove("hidden");
+  }).catch(function (e) { say("ex-msg", e.message, true); });
+});
+function exAction(path, extra, button) {
+  var body = { admin_password: $("ex-pw").value, code: $("ex-code").value.trim(), destination: $("ex-dest").value.trim() };
+  for (var k in extra) body[k] = extra[k];
+  button.disabled = true;
+  return api("POST", path, body).then(function (r) {
+    $("ex-pw").value = ""; $("ex-code").value = "";
+    say("ex-msg", r.message || "Done.");
+    loadExit();
+  }).catch(function (e) { say("ex-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
+}
+$("ex-start").addEventListener("click", function () { exAction("/admin/exit/start", { understood: $("ex-ok").checked }, $("ex-start")); });
+$("ex-stop").addEventListener("click", function () { exAction("/admin/exit/cancel", {}, $("ex-stop")); });
+$("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
+$("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
+
 boot();
 })();
+
 </script>
 </body>
 </html>

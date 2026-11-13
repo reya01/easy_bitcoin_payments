@@ -116,6 +116,20 @@ const PATH_REFRESH_VTXOS: &str = "/wallet/refresh/vtxos";
 /// Active round participations (coins registered for a refresh and the
 /// round they wait for), kept until the round confirms. Read-only. GET.
 const PATH_ROUNDS: &str = "/wallet/rounds";
+/// Emergency-exit fee estimate (broadcast and claim legs). Read-only. GET.
+const PATH_EXITS_FEE: &str = "/exits/fee";
+/// Register every coin for an emergency (unilateral) exit. POST.
+const PATH_EXITS_START_ALL: &str = "/exits/start/all";
+/// Exits still progressing, with their state. GET.
+const PATH_EXITS_LIVE: &str = "/exits/status/live";
+/// Stop one coin's exit, allowed until its last transaction is broadcast. POST.
+const PATH_EXITS_CANCEL: &str = "/exits/cancel/{vtxo_id}";
+/// Claim every claimable exit output to one on-chain address. POST.
+const PATH_EXITS_CLAIM_ALL: &str = "/exits/claim/all";
+/// Sync the on-chain wallet with the chain. POST.
+const PATH_ONCHAIN_SYNC: &str = "/onchain/sync";
+/// Send the whole on-chain balance to one address. POST.
+const PATH_ONCHAIN_DRAIN: &str = "/onchain/drain";
 /// Lightning invoice via the ASP gateway. POST.
 const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// Whether the wallet is connected to its ASP. GET.
@@ -831,6 +845,73 @@ impl BarkdClient {
     pub async fn round_participations(&self) -> Result<Vec<RoundParticipation>, WalletError> {
         let v: Json = self.get(PATH_ROUNDS).await?;
         Ok(parse_round_participations(&v))
+    }
+
+    // -- Emergency exit (never automatic; see crate::emergency_exit) -------
+
+    /// Fee estimate for exiting every coin. `destination` (the claim
+    /// address) makes the claim leg exact; barkd's default fee margin (1.2)
+    /// applies to the broadcast leg.
+    pub async fn exit_fee(&self, destination: Option<&str>) -> Result<Json, WalletError> {
+        let query: Vec<(&str, String)> = destination
+            .map(|d| vec![("destination", d.to_string())])
+            .unwrap_or_default();
+        self.get_query(PATH_EXITS_FEE, &query).await
+    }
+
+    /// Register every coin for an emergency exit. barkd then broadcasts the
+    /// exit transactions by itself over time.
+    pub async fn start_exit_all(&self) -> Result<Json, WalletError> {
+        self.post(PATH_EXITS_START_ALL, &serde_json::json!({}))
+            .await
+    }
+
+    pub async fn exits_live(&self) -> Result<Json, WalletError> {
+        self.get(PATH_EXITS_LIVE).await
+    }
+
+    pub async fn cancel_exit(&self, vtxo_id: &str) -> Result<Json, WalletError> {
+        if vtxo_id.is_empty() || vtxo_id.contains(['/', '?', '#']) {
+            return Err(WalletError::Rejected("not a coin id".into()));
+        }
+        let path = PATH_EXITS_CANCEL.replace("{vtxo_id}", vtxo_id);
+        self.post(&path, &serde_json::json!({})).await
+    }
+
+    pub async fn claim_exits(&self, destination: &str) -> Result<Json, WalletError> {
+        self.post(
+            PATH_EXITS_CLAIM_ALL,
+            &serde_json::json!({ "destination": destination }),
+        )
+        .await
+    }
+
+    /// Ask the on-chain wallet to catch up with the chain (so a deposit
+    /// shows up). Its answer carries nothing we use.
+    pub async fn onchain_sync(&self) -> Result<(), WalletError> {
+        let _: Json = self.post(PATH_ONCHAIN_SYNC, &serde_json::json!({})).await?;
+        Ok(())
+    }
+
+    /// Send the whole on-chain balance (left-over exit fee money) to an
+    /// address. Returns barkd's answer (`txid`).
+    pub async fn onchain_drain(&self, destination: &str) -> Result<Json, WalletError> {
+        self.post(
+            PATH_ONCHAIN_DRAIN,
+            &serde_json::json!({ "destination": destination }),
+        )
+        .await
+    }
+
+    /// The raw on-chain balance answer (confirmed and pending split out).
+    pub async fn onchain_balance_raw(&self) -> Result<Json, WalletError> {
+        self.get(PATH_ONCHAIN_BALANCE).await
+    }
+
+    /// The server's exit delta in blocks (`vtxo_exit_delta` in ark-info).
+    pub async fn exit_delta_blocks(&self) -> Result<Option<i64>, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(flex::i64_field(&v, &["vtxo_exit_delta"]).filter(|n| *n >= 0))
     }
 
     // -- Lightning ----------------------------------------------------------

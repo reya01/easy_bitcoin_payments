@@ -71,6 +71,10 @@ pub struct Facts {
     /// and how long until they lapse; `None` = nothing too small.
     pub too_small_to_renew_sats: Option<i64>,
     pub too_small_lapse_in_secs: Option<i64>,
+    /// Seconds since the owner started an emergency withdrawal; `None` = none.
+    pub exit_running_for_secs: Option<i64>,
+    /// barkd reports emergency-withdrawal outputs ready to claim.
+    pub exit_claimable: bool,
     /// The network the wallet's Ark server reports (`"bitcoin"` for
     /// mainnet); `None` = could not find out (no check shown).
     pub wallet_network: Option<String>,
@@ -141,6 +145,29 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 "The wallet was made for real Bitcoin (mainnet). Set EBP_MODE back to live in the .env file and restart. Do not take payments until this line is gone.",
             );
         }
+    }
+
+    if f.exit_claimable {
+        push(
+            "exit",
+            Level::Bad,
+            "Your emergency withdrawal is ready to claim",
+            "Open Settings, Emergency, and press Send to my address. Nothing moves until you do.",
+        );
+    } else if let Some(secs) = f.exit_running_for_secs {
+        let ago = if secs < 3600 {
+            "less than an hour ago".to_string()
+        } else if secs < 2 * 86_400 {
+            format!("{} hours ago", secs / 3600)
+        } else {
+            format!("{} days ago", secs / 86_400)
+        };
+        push(
+            "exit",
+            Level::Bad,
+            "Emergency withdrawal in progress",
+            &format!("Started {ago}. Normal transfers and coin renewals are paused until it finishes. Leave the server on, and follow it in Settings, Emergency."),
+        );
     }
 
     if f.local_only {
@@ -358,6 +385,18 @@ mod tests {
             price_age_secs: Some(60),
             ..Facts::default()
         }
+    }
+
+    #[test]
+    fn an_emergency_withdrawal_is_a_red_line_until_it_is_claimed() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|c| c.id != "exit"));
+        f.exit_running_for_secs = Some(5 * 3600);
+        let c = build(&f);
+        assert_eq!(find(&c, "exit").level, Level::Bad);
+        assert!(find(&c, "exit").detail.contains("5 hours ago"));
+        f.exit_claimable = true;
+        assert!(find(&build(&f), "exit").title.contains("ready to claim"));
     }
 
     #[test]

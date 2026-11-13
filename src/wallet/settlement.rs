@@ -70,7 +70,110 @@ pub fn refresh_trigger_blocks(
     if let Some(lifetime) = terms.vtxo_lifetime_blocks {
         blocks = blocks.min(lifetime / 3);
     }
-    blocks.max(MIN_TRIGGER_BLOCKS)
+    let mut blocks = blocks.max(MIN_TRIGGER_BLOCKS);
+    // A refresh waits for the server's next round. If rounds are so slow
+    // that fewer than MIN_ROUNDS_BEFORE_EXPIRY fit between the renewal point
+    // and expiry, renew earlier, even if that costs a fee: not expiring
+    // matters more. Never past half a coin's life, so a fresh coin is not
+    // due again the moment it is made.
+    if let Some(interval) = terms.round_interval_secs.filter(|s| *s > 0) {
+        let mut needed =
+            (MIN_ROUNDS_BEFORE_EXPIRY * interval + SECS_PER_BLOCK - 1) / SECS_PER_BLOCK;
+        if let Some(lifetime) = terms.vtxo_lifetime_blocks {
+            needed = needed.min(lifetime / 2);
+        }
+        blocks = blocks.max(needed);
+    }
+    blocks
+}
+
+/// At least this many rounds must fit between the renewal point and expiry
+/// (room for a failed round to be retried).
+const MIN_ROUNDS_BEFORE_EXPIRY: i64 = 4;
+
+/// The smallest amount the wallet can renew: coins being refreshed must add
+/// up to at least Bitcoin's taproot dust limit (pinned OpenAPI, refresh and
+/// offboard requests: "must be >= P2TR_DUST"). The owner's signet test saw a
+/// 136-sat renewal refused.
+pub const MIN_RENEW_SATS: i64 = 330;
+
+/// Settings keys for coins too small to renew (Home shows one plain line).
+pub const TOO_SMALL_SATS_KEY: &str = "renewal_too_small_sats";
+pub const TOO_SMALL_LAPSE_AT_KEY: &str = "renewal_too_small_lapse_at";
+/// Settings key: renewals requested but not yet seen finished (JSON).
+const REQUESTED_RENEWALS_KEY: &str = "renewals_requested";
+/// A requested renewal whose coins are still there, with no round holding
+/// them, is counted as failed after this long (and its coins become eligible
+/// again). Long enough for an hourly mainnet round plus its confirmations, so
+/// a round list we misread can never turn a working renewal into a false
+/// "renewing is not working" warning.
+const REQUESTED_GIVE_UP_SECS: i64 = 2 * 3600;
+
+/// A renewal the wallet accepted, waiting for its round.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RequestedRenewal {
+    /// The `settlements` row that says "requested".
+    pub row: String,
+    /// The coins sent to the round.
+    pub inputs: Vec<String>,
+    /// When it was requested (unix seconds).
+    pub at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RenewalOutcome {
+    Waiting,
+    Renewed,
+    Failed(&'static str),
+}
+
+/// What happened to a requested renewal, from the coin list and the round
+/// list. `present`: coin ids still in the wallet (spendable or locked).
+/// `held` / `dead`: inputs of active / failed-or-canceled participations.
+/// `rounds_known`: the round list could be read this cycle.
+pub(crate) fn judge_requested(
+    r: &RequestedRenewal,
+    present: &std::collections::HashSet<&str>,
+    held: &std::collections::HashSet<&str>,
+    dead: &std::collections::HashSet<&str>,
+    rounds_known: bool,
+    now: i64,
+) -> RenewalOutcome {
+    let any =
+        |set: &std::collections::HashSet<&str>| r.inputs.iter().any(|i| set.contains(i.as_str()));
+    if any(held) {
+        return RenewalOutcome::Waiting;
+    }
+    if any(dead) {
+        return RenewalOutcome::Failed(
+            "the Ark server's round did not complete; the coins will be renewed again",
+        );
+    }
+    if !any(present) {
+        // The old coins are gone: the round replaced them with fresh ones.
+        return RenewalOutcome::Renewed;
+    }
+    if now - r.at >= REQUESTED_GIVE_UP_SECS {
+        return RenewalOutcome::Failed(if rounds_known {
+            "the coins were not taken into a round; they will be renewed again"
+        } else {
+            "no sign of the round finishing; the coins will be renewed again"
+        });
+    }
+    RenewalOutcome::Waiting
+}
+
+/// barkd (or Second's server) refused because the coins are already in a
+/// round: that is renewal in progress, not a failure. Matches the wording
+/// loosely on purpose; anything else is still counted as a failure.
+pub(crate) fn is_already_in_round(reason: &str) -> bool {
+    let r = reason.to_lowercase();
+    let about_coins = r.contains("round") || r.contains("participat") || r.contains("vtxo");
+    about_coins
+        && (r.contains("already")
+            || r.contains("held")
+            || r.contains("replace")
+            || r.contains("locked"))
 }
 
 /// One settlement cycle at a time, whoever starts it (the timer or the
@@ -174,6 +277,71 @@ impl SettlementEngine {
         self.cycle(true).await
     }
 
+    /// Bring "requested" renewals up to date (renewed, failed or still
+    /// waiting) and return the coin ids that must not be asked for again
+    /// this cycle: inputs of active round participations and of renewals
+    /// still waiting.
+    async fn settle_requested_renewals(
+        &self,
+        vtxos: &crate::wallet::barkd::VtxoSet,
+        participations: Option<&[crate::wallet::barkd::RoundParticipation]>,
+        now: i64,
+    ) -> Result<std::collections::HashSet<String>, AppError> {
+        use std::collections::HashSet;
+        let present: HashSet<String> = vtxos
+            .spendable
+            .iter()
+            .chain(vtxos.pending.iter())
+            .map(|v| v.id.clone())
+            .collect();
+        let mut held: HashSet<String> = HashSet::new();
+        let mut dead: HashSet<String> = HashSet::new();
+        for p in participations.unwrap_or(&[]) {
+            let into = if p.is_active() { &mut held } else { &mut dead };
+            into.extend(p.inputs.iter().cloned());
+        }
+        let rounds_known = participations.is_some();
+        let (held_c, present_c, dead_c) = (held.clone(), present, dead);
+        let waiting: HashSet<String> = self
+            .db
+            .call(move |conn| {
+                let list = load_requested(conn)?;
+                if list.is_empty() {
+                    return Ok(HashSet::new());
+                }
+                let p: HashSet<&str> = present_c.iter().map(String::as_str).collect();
+                let h: HashSet<&str> = held_c.iter().map(String::as_str).collect();
+                let d: HashSet<&str> = dead_c.iter().map(String::as_str).collect();
+                let mut keep = Vec::new();
+                let mut waiting = HashSet::new();
+                for r in list {
+                    match judge_requested(&r, &p, &h, &d, rounds_known, now) {
+                        RenewalOutcome::Waiting => {
+                            waiting.extend(r.inputs.iter().cloned());
+                            keep.push(r);
+                        }
+                        RenewalOutcome::Renewed => {
+                            conn.execute(
+                                "UPDATE settlements SET status = 'renewed', detail = ?2 WHERE id = ?1",
+                                params![r.row, "renewed in an Ark round"],
+                            )?;
+                        }
+                        RenewalOutcome::Failed(why) => {
+                            conn.execute(
+                                "UPDATE settlements SET status = 'failed', detail = ?2 WHERE id = ?1",
+                                params![r.row, why],
+                            )?;
+                        }
+                    }
+                }
+                save_requested(conn, &keep)?;
+                Ok(waiting)
+            })
+            .await?;
+        held.extend(waiting);
+        Ok(held)
+    }
+
     async fn cycle(&self, manual: bool) -> Result<TickReport, AppError> {
         let _one_at_a_time = CYCLE_LOCK.lock().await;
         let mut report = TickReport::default();
@@ -250,9 +418,24 @@ impl SettlementEngine {
         } else {
             None
         };
+        // Coins already waiting for a round are never asked for twice:
+        // barkd 0.8.0 can still list them as spendable until the round
+        // starts (up to an hour on mainnet), and Second's newer server
+        // refuses a second request for them.
+        let participations = match self.client.round_participations().await {
+            Ok(p) => Some(p),
+            Err(err) => {
+                tracing::debug!(error = %err, "settlement: round list unavailable");
+                None
+            }
+        };
+        let excluded = self
+            .settle_requested_renewals(&vtxos, participations.as_deref(), now)
+            .await?;
+
         let mut unknown_expiry = false;
         let mut due: Vec<_> = Vec::new();
-        for v in vtxos.spendable.iter() {
+        for v in vtxos.spendable.iter().filter(|v| !excluded.contains(&v.id)) {
             match vtxo_expiry_unix(v, tip.as_ref()) {
                 Some(t) if t - now <= lead => due.push(v),
                 Some(_) => {}
@@ -287,6 +470,7 @@ impl SettlementEngine {
                 .spendable
                 .iter()
                 .filter(|v| !due.iter().any(|d| d.id == v.id))
+                .filter(|v| !excluded.contains(&v.id))
                 .filter_map(|v| vtxo_expiry_unix(v, tip.as_ref()).map(|t| (v, t)))
                 .filter(|(_, t)| topup_horizon_secs.is_none_or(|h| t - now <= h))
                 .collect();
@@ -299,6 +483,60 @@ impl SettlementEngine {
                 due.push(v);
             }
         }
+        // Less than the wallet can renew: add the server's other coins (they
+        // are merged into one fresh coin) if that reaches the minimum;
+        // otherwise skip quietly. Nothing is recorded as failed and no alert
+        // is raised for an amount that cannot be renewed at all; Home says
+        // so in one plain line.
+        let mut too_small: Option<(i64, Option<i64>)> = None;
+        let due_total: i64 = due.iter().map(|v| v.amount_sats).sum();
+        if due_total > 0 && due_total < MIN_RENEW_SATS {
+            let mut extra: Vec<&crate::wallet::barkd::Vtxo> = vtxos
+                .spendable
+                .iter()
+                .filter(|v| !v.id.is_empty())
+                .filter(|v| !due.iter().any(|d| d.id == v.id))
+                .filter(|v| !excluded.contains(&v.id))
+                .collect();
+            extra.sort_by_key(|v| vtxo_expiry_unix(v, tip.as_ref()).unwrap_or(i64::MAX));
+            let mut total = due_total;
+            for v in extra {
+                if total >= MIN_RENEW_SATS {
+                    break;
+                }
+                total += v.amount_sats;
+                due.push(v);
+            }
+            if total < MIN_RENEW_SATS {
+                let lapse = due
+                    .iter()
+                    .filter_map(|v| vtxo_expiry_unix(v, tip.as_ref()))
+                    .min();
+                too_small = Some((total, lapse));
+                due.clear();
+            }
+        }
+        self.db
+            .call(move |conn| {
+                match too_small {
+                    Some((sats, lapse)) => {
+                        crate::settings::set(conn, TOO_SMALL_SATS_KEY, &sats.to_string())?;
+                        match lapse {
+                            Some(at) => {
+                                crate::settings::set(conn, TOO_SMALL_LAPSE_AT_KEY, &at.to_string())?
+                            }
+                            None => delete_setting(conn, TOO_SMALL_LAPSE_AT_KEY)?,
+                        }
+                    }
+                    None => {
+                        delete_setting(conn, TOO_SMALL_SATS_KEY)?;
+                        delete_setting(conn, TOO_SMALL_LAPSE_AT_KEY)?;
+                    }
+                }
+                Ok(())
+            })
+            .await?;
+
         let due_ids: Vec<String> = due
             .iter()
             .map(|v| v.id.clone())
@@ -308,22 +546,65 @@ impl SettlementEngine {
         if !due_ids.is_empty() {
             match self.client.refresh_vtxos(&due_ids).await {
                 Ok(_) => {
+                    // Accepted means registered for the next round, not done
+                    // yet: "requested" until the old coins are replaced
+                    // (checked on the following cycles).
                     let amount: i64 = due.iter().map(|v| v.amount_sats).sum();
                     let count = due_ids.len();
+                    let inputs = due_ids.clone();
                     self.db
                         .call(move |conn| {
-                            record(
+                            let row = record_id(
                                 conn,
                                 "renew",
                                 amount,
                                 "", // renewal does not send anywhere; no destination to record
-                                "broadcast",
-                                Some(&format!("refreshed {count} vtxos ahead of expiry")),
-                            )
+                                "requested",
+                                Some(&format!(
+                                    "asked to renew {count} coins in the Ark server's next round"
+                                )),
+                            )?;
+                            let mut list = load_requested(conn)?;
+                            list.push(RequestedRenewal {
+                                row,
+                                inputs,
+                                at: now_unix(),
+                            });
+                            save_requested(conn, &list)
                         })
                         .await?;
                     report.refreshed_vtxos = count;
                     renewal_accepted = true;
+                }
+                Err(err) if is_already_in_round(&err.to_string()) => {
+                    // Already being renewed: not a failure, no alert. One
+                    // row while it lasts, not one per cycle.
+                    let reason = err.to_string();
+                    tracing::info!(error = %reason, "vtxo refresh: coins already in a round");
+                    let amount: i64 = due.iter().map(|v| v.amount_sats).sum();
+                    self.db
+                        .call(move |conn| {
+                            let newest: Option<String> = conn
+                                .query_row(
+                                    "SELECT status FROM settlements WHERE kind = 'renew'
+                                     ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                                    [],
+                                    |r| r.get(0),
+                                )
+                                .ok();
+                            if newest.as_deref() != Some("waiting") {
+                                record(
+                                    conn,
+                                    "renew",
+                                    amount,
+                                    "",
+                                    "waiting",
+                                    Some("already being renewed in an Ark round"),
+                                )?;
+                            }
+                            Ok(())
+                        })
+                        .await?;
                 }
                 Err(err) => {
                     // Recorded (not only logged): Home warns after a few
@@ -514,11 +795,24 @@ fn record(
     status: &str,
     detail: Option<&str>,
 ) -> Result<(), AppError> {
+    record_id(conn, kind, amount_sats, destination, status, detail).map(|_| ())
+}
+
+/// [`record`], returning the new row's id.
+fn record_id(
+    conn: &Connection,
+    kind: &str,
+    amount_sats: i64,
+    destination: &str,
+    status: &str,
+    detail: Option<&str>,
+) -> Result<String, AppError> {
+    let id = new_id("stl");
     conn.execute(
         "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
-            new_id("stl"),
+            id,
             kind,
             amount_sats,
             destination,
@@ -527,7 +821,27 @@ fn record(
             now_unix()
         ],
     )?;
+    Ok(id)
+}
+
+fn delete_setting(conn: &Connection, key: &str) -> Result<(), AppError> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
     Ok(())
+}
+
+fn load_requested(conn: &Connection) -> Result<Vec<RequestedRenewal>, AppError> {
+    Ok(crate::settings::get(conn, REQUESTED_RENEWALS_KEY)?
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default())
+}
+
+fn save_requested(conn: &Connection, list: &[RequestedRenewal]) -> Result<(), AppError> {
+    if list.is_empty() {
+        return delete_setting(conn, REQUESTED_RENEWALS_KEY);
+    }
+    let text = serde_json::to_string(list)
+        .map_err(|e| AppError::Internal(format!("could not save requested renewals: {e}")))?;
+    crate::settings::set(conn, REQUESTED_RENEWALS_KEY, &text)
 }
 
 #[cfg(test)]
@@ -1187,6 +1501,7 @@ mod tests {
             Some(ArkTerms {
                 vtxo_lifetime_blocks: life,
                 free_refresh_below_blocks: free,
+                round_interval_secs: None,
             })
         };
         let week = 604_800; // the default lead time: 1_008 blocks
@@ -1221,6 +1536,40 @@ mod tests {
             refresh_trigger_blocks(60, terms(Some(4_320), Some(288))),
             12
         );
+    }
+
+    #[test]
+    fn slow_rounds_move_the_renewal_point_earlier() {
+        use crate::wallet::barkd::ArkTerms;
+        let week = 604_800;
+        let mainnet = |interval| {
+            Some(ArkTerms {
+                vtxo_lifetime_blocks: Some(4_032),
+                free_refresh_below_blocks: Some(288),
+                round_interval_secs: interval,
+            })
+        };
+        // Mainnet terms: renew at 287 blocks (~48 h). Rounds every 5 min,
+        // 1 h and 6 h all leave at least 4 rounds: no change.
+        for interval in [Some(300), Some(3_600), Some(21_600), None] {
+            assert_eq!(
+                refresh_trigger_blocks(week, mainnet(interval)),
+                287,
+                "{interval:?}"
+            );
+        }
+        // A round a day leaves under 2: renew 4 days (576 blocks) ahead.
+        assert_eq!(refresh_trigger_blocks(week, mainnet(Some(86_400))), 576);
+        // Never past half a coin's life (signet: 144-block coins).
+        let signet = |interval| {
+            Some(ArkTerms {
+                vtxo_lifetime_blocks: Some(144),
+                free_refresh_below_blocks: Some(288),
+                round_interval_secs: interval,
+            })
+        };
+        assert_eq!(refresh_trigger_blocks(week, signet(Some(300))), 48);
+        assert_eq!(refresh_trigger_blocks(week, signet(Some(86_400))), 72);
     }
 
     /// Mock barkd shaped like the signet drill: tip at 800, one 1_000-sat
@@ -1437,6 +1786,301 @@ mod tests {
             .unwrap()
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/refresh/vtxos"));
+    }
+
+    // -- Renewal on mainnet (MAINNET_PLAN PR D) ------------------------------
+
+    #[test]
+    fn a_requested_renewal_is_judged_from_the_coin_and_round_lists() {
+        use std::collections::HashSet;
+        let now = 10_000;
+        let r = RequestedRenewal {
+            row: "stl_1".into(),
+            inputs: vec!["a".into(), "b".into()],
+            at: now - 600,
+        };
+        let set = |ids: &[&'static str]| ids.iter().copied().collect::<HashSet<&str>>();
+        let none = set(&[]);
+        // Still in an active participation: waiting, whatever else is true.
+        assert_eq!(
+            judge_requested(&r, &set(&["a"]), &set(&["a"]), &none, true, now),
+            RenewalOutcome::Waiting
+        );
+        // The round failed or was canceled.
+        assert!(matches!(
+            judge_requested(&r, &set(&["a"]), &none, &set(&["b"]), true, now),
+            RenewalOutcome::Failed(_)
+        ));
+        // The old coins are gone: renewed.
+        assert_eq!(
+            judge_requested(&r, &set(&["z"]), &none, &none, true, now),
+            RenewalOutcome::Renewed
+        );
+        // Coins still there and no round holds them: wait (a round list we
+        // misread must never raise a false alarm), then give up after a while.
+        assert_eq!(
+            judge_requested(&r, &set(&["b"]), &none, &none, true, now),
+            RenewalOutcome::Waiting
+        );
+        let late = RequestedRenewal {
+            at: now - REQUESTED_GIVE_UP_SECS,
+            ..r.clone()
+        };
+        assert!(matches!(
+            judge_requested(&late, &set(&["b"]), &none, &none, true, now),
+            RenewalOutcome::Failed(_)
+        ));
+        // Round list unreadable: wait, then give up after a while.
+        assert_eq!(
+            judge_requested(&r, &set(&["b"]), &none, &none, false, now),
+            RenewalOutcome::Waiting
+        );
+        let old = RequestedRenewal {
+            at: now - REQUESTED_GIVE_UP_SECS,
+            ..r
+        };
+        assert!(matches!(
+            judge_requested(&old, &set(&["b"]), &none, &none, false, now),
+            RenewalOutcome::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn coins_already_in_a_round_are_not_a_failure() {
+        for msg in [
+            "barkd rejected the request (HTTP 400 Bad Request: {\"message\": \"inputs already held by a round attempt\"})",
+            "delegated round participation would replace one a round attempt holds",
+            "vtxo is locked",
+        ] {
+            assert!(is_already_in_round(msg), "{msg}");
+        }
+        for msg in [
+            "barkd returned HTTP 500: {\"message\": \"round failed\"}",
+            "wallet unavailable: connection refused",
+            "the wallet is locked", // not about coins or rounds
+            "",
+        ] {
+            assert!(!is_already_in_round(msg), "{msg}");
+        }
+    }
+
+    /// A mock wallet for renewal tests whose coin list and round list can be
+    /// changed between cycles. No payout address, so nothing is swept.
+    fn renewal_engine(
+        vtxos: Arc<std::sync::Mutex<String>>,
+        rounds: Arc<std::sync::Mutex<(u16, String)>>,
+        refresh: (u16, &'static str),
+    ) -> (
+        SettlementEngine,
+        Db,
+        Arc<std::sync::Mutex<Vec<mock::Recorded>>>,
+    ) {
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (200, vtxos.lock().unwrap().clone()),
+            "/api/v1/wallet/rounds" => rounds.lock().unwrap().clone(),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 0}"#.to_string()),
+            "/api/v1/wallet/refresh/vtxos" => (refresh.0, refresh.1.to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = SettlementEngine::new(client, db.clone(), test_config(None, 100_000));
+        (engine, db, recorded)
+    }
+
+    fn coins(list: &[(&str, i64, i64)]) -> String {
+        let items: Vec<String> = list
+            .iter()
+            .map(|(id, sats, expires_at)| {
+                format!(
+                    r#"{{"id": "{id}", "amount_sat": {sats}, "expires_at": {expires_at}, "state": {{"type": "spendable"}}}}"#
+                )
+            })
+            .collect();
+        format!("[{}]", items.join(","))
+    }
+
+    async fn renew_rows(db: &Db) -> Vec<(String, i64)> {
+        db.call(|c| {
+            let mut st = c.prepare(
+                "SELECT status, amount_sats FROM settlements WHERE kind = 'renew' ORDER BY rowid",
+            )?;
+            let rows = st
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await
+        .unwrap()
+    }
+
+    fn refresh_calls(rec: &Arc<std::sync::Mutex<Vec<mock::Recorded>>>) -> Vec<String> {
+        rec.lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.route() == "/api/v1/wallet/refresh/vtxos")
+            .map(|r| r.body.clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn coins_too_small_to_renew_are_skipped_quietly_and_shown_on_home() {
+        let soon = now_unix() + 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("tiny", 136, soon)])));
+        let rounds = Arc::new(std::sync::Mutex::new((200, "[]".to_string())));
+        let (engine, db, rec) = renewal_engine(vtxos, rounds, (200, "{}"));
+        for _ in 0..3 {
+            assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+        }
+        assert!(
+            refresh_calls(&rec).is_empty(),
+            "never asks for under 330 sats"
+        );
+        assert!(
+            renew_rows(&db).await.is_empty(),
+            "nothing recorded, so no warning"
+        );
+        let (sats, lapse) = db
+            .call(|c| {
+                Ok((
+                    crate::settings::get(c, TOO_SMALL_SATS_KEY)?,
+                    crate::settings::get(c, TOO_SMALL_LAPSE_AT_KEY)?,
+                ))
+            })
+            .await
+            .unwrap();
+        assert_eq!(sats.as_deref(), Some("136"));
+        assert_eq!(lapse, Some(soon.to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_small_due_coin_is_renewed_together_with_the_others() {
+        let soon = now_unix() + 86_400;
+        let later = now_unix() + 20 * 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[
+            ("tiny", 136, soon),
+            ("big", 1_000, later),
+        ])));
+        let rounds = Arc::new(std::sync::Mutex::new((200, "[]".to_string())));
+        let (engine, db, rec) = renewal_engine(vtxos, rounds, (200, "{}"));
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 2);
+        let calls = refresh_calls(&rec);
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("tiny") && calls[0].contains("big"),
+            "{}",
+            calls[0]
+        );
+        assert_eq!(
+            renew_rows(&db).await,
+            vec![("requested".to_string(), 1_136)]
+        );
+        let sats = db
+            .call(|c| crate::settings::get(c, TOO_SMALL_SATS_KEY))
+            .await
+            .unwrap();
+        assert_eq!(sats, None);
+    }
+
+    #[tokio::test]
+    async fn a_renewal_says_requested_until_the_old_coins_are_replaced() {
+        let soon = now_unix() + 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("c1", 5_000, soon)])));
+        let rounds = Arc::new(std::sync::Mutex::new((200, "[]".to_string())));
+        let (engine, db, rec) = renewal_engine(vtxos.clone(), rounds.clone(), (200, "{}"));
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        assert_eq!(
+            renew_rows(&db).await,
+            vec![("requested".to_string(), 5_000)]
+        );
+
+        // Next cycle: barkd still lists the coin as spendable while it waits
+        // for the round (0.8.0), and the round list holds it. Not asked again.
+        *rounds.lock().unwrap() = (
+            200,
+            r#"[{"id": 3, "state": "pending", "status": {"status": "pending"},
+                 "participation": {"inputs": ["c1"], "outputs": []},
+                 "unlock_hash": null, "funding_txid": null}]"#
+                .to_string(),
+        );
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+        assert_eq!(refresh_calls(&rec).len(), 1, "never asks twice for c1");
+        assert_eq!(
+            renew_rows(&db).await,
+            vec![("requested".to_string(), 5_000)]
+        );
+
+        // The round is done: c1 is replaced by a fresh 28-day coin.
+        let fresh = now_unix() + 28 * 86_400;
+        *vtxos.lock().unwrap() = coins(&[("c2", 5_000, fresh)]);
+        *rounds.lock().unwrap() = (200, "[]".to_string());
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+        assert_eq!(renew_rows(&db).await, vec![("renewed".to_string(), 5_000)]);
+    }
+
+    #[tokio::test]
+    async fn coins_held_by_a_round_attempt_are_never_requested_again() {
+        let soon = now_unix() + 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("c1", 5_000, soon)])));
+        // Requested earlier (another process, or before a restart).
+        let rounds = Arc::new(std::sync::Mutex::new((
+            200,
+            r#"[{"id": 9, "state": "ongoing", "participation": {"inputs": ["c1"], "outputs": []}}]"#
+                .to_string(),
+        )));
+        let (engine, db, rec) = renewal_engine(vtxos, rounds, (200, "{}"));
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+        assert!(refresh_calls(&rec).is_empty());
+        assert!(renew_rows(&db).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_already_in_a_round_refusal_is_recorded_once_and_is_not_a_failure() {
+        let soon = now_unix() + 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("c1", 5_000, soon)])));
+        // Round list unreadable, and the server says a round attempt holds
+        // the inputs.
+        let rounds = Arc::new(std::sync::Mutex::new((404, "{}".to_string())));
+        let (engine, db, _rec) = renewal_engine(
+            vtxos,
+            rounds,
+            (
+                400,
+                r#"{"message": "inputs are already held by a round attempt"}"#,
+            ),
+        );
+        for _ in 0..3 {
+            engine.tick().await.unwrap();
+        }
+        assert_eq!(renew_rows(&db).await, vec![("waiting".to_string(), 5_000)]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_round_counts_as_a_failed_renewal_and_is_retried() {
+        let soon = now_unix() + 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("c1", 5_000, soon)])));
+        let rounds = Arc::new(std::sync::Mutex::new((200, "[]".to_string())));
+        let (engine, db, rec) = renewal_engine(vtxos, rounds.clone(), (200, "{}"));
+        engine.tick().await.unwrap();
+        *rounds.lock().unwrap() = (
+            200,
+            r#"[{"id": 3, "state": "failed", "participation": {"inputs": ["c1"], "outputs": []}}]"#
+                .to_string(),
+        );
+        // The failed round is noticed; the coin is free again and asked for
+        // once more in the same cycle.
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        assert_eq!(refresh_calls(&rec).len(), 2);
+        assert_eq!(
+            renew_rows(&db).await,
+            vec![
+                ("failed".to_string(), 5_000),
+                ("requested".to_string(), 5_000)
+            ]
+        );
     }
 
     #[test]

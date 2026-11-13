@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Real-money banner.** A live-mode server shows "REAL MONEY. Experimental: keep amounts small." on the setup page, the checkout page and the dashboard (the dashboard now shows the mode in both cases). The WooCommerce plugin's fixed "signet only" line now reads true in both modes.
 - **Coin renewal is ready for mainnet.** Amounts under 330 sats are no longer retried every 5 minutes as failures: they are renewed together with other coins, or skipped with one yellow line on Home saying when they lapse. A renewal shows "requested" until the Ark server's round has replaced the coins, then "renewed" (or "failed", and it is tried again). Coins already waiting for a round are never asked for twice. If the Ark server's rounds ever became very slow, renewal starts earlier.
 - **Older Bitcoin payout addresses (`1…`, `3…`) are accepted on a real-money server**, with their checksum checked, and refused on a test server. The setup page and Settings now name only the address types this server accepts.
 - **Choose real money in `.env` with `EBP_MODE=live`** (before setup; default `test`). `docker-compose.yml` now passes `EBP_MODE` and `EBP_MAX_INVOICE_SATS` through. Home shows a red line if the wallet's network does not match the server's mode, for example a play-money server switched to live after setup.

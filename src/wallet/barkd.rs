@@ -872,6 +872,14 @@ impl BarkdClient {
         Ok(parse_ark_terms(&v))
     }
 
+    /// The Bitcoin network of the wallet's Ark server (`network` in
+    /// ark-info), lowercased. Mainnet answers `"bitcoin"` (captured from
+    /// `ark.second.tech` with barkd 0.8.0 on 12 Nov 2026), signet `"signet"`.
+    pub async fn ark_network(&self) -> Result<Option<String>, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(flex::str_field(&v, &["network"]).map(|n| n.to_lowercase()))
+    }
+
     /// Whether the wallet is connected to its ASP (health endpoint).
     // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn connected(&self) -> Result<ConnectedStatus, WalletError> {
@@ -1348,6 +1356,12 @@ pub fn vtxo_expiry_unix(v: &Vtxo, tip: Option<&Tip>) -> Option<i64> {
         }
         _ => None,
     }
+}
+
+/// Is this ark-info `network` name real Bitcoin? barkd says `"bitcoin"` for
+/// mainnet; `"mainnet"` is accepted too in case a later version renames it.
+pub fn is_mainnet_network(name: &str) -> bool {
+    matches!(name.trim().to_lowercase().as_str(), "bitcoin" | "mainnet")
 }
 
 /// The parts of `GET /wallet/ark-info` that decide when to refresh coins.
@@ -2734,6 +2748,31 @@ mod ark_terms_tests {
                 free_refresh_below_blocks: Some(288)
             }
         );
+    }
+
+    /// The full real answer from Second's MAINNET Ark server
+    /// (`ark.second.tech`), read by the pinned barkd 0.8.0 for a throwaway
+    /// empty wallet in the `mainnet-compat-check` workflow (run 43126312755,
+    /// 12 Nov 2026 UTC). Note `network` is `"bitcoin"`, not `"mainnet"`.
+    const MAINNET: &str = r#"{"network":"bitcoin","server_pubkey":"0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5","mailbox_pubkey":"037bb26bfe7a819c2285f4cfdba63e1d806cb37d04915f17447c76140c34cf73a9","round_interval":"1h","nb_round_nonces":10,"vtxo_exit_delta":144,"vtxo_lifetime":4032,"htlc_send_expiry_delta":1008,"htlc_expiry_delta":12,"max_vtxo_amount":10000000,"required_board_confirmations":2,"max_user_invoice_cltv_delta":250,"min_board_amount_sat":50000,"offboard_feerate_sat_per_kvb":124,"ln_receive_anti_dos_required":false,"fees":{"board":{"min_fee_sat":0,"base_fee_sat":0,"ppm":0},"offboard":{"base_fee_sat":0,"fixed_additional_vb":389,"ppm_expiry_table":[{"expiry_blocks_threshold":0,"ppm":2000},{"expiry_blocks_threshold":1008,"ppm":4000},{"expiry_blocks_threshold":2016,"ppm":5000}]},"refresh":{"base_fee_sat":0,"ppm_expiry_table":[{"expiry_blocks_threshold":0,"ppm":0},{"expiry_blocks_threshold":288,"ppm":2000},{"expiry_blocks_threshold":1008,"ppm":4000},{"expiry_blocks_threshold":2016,"ppm":5000}]},"lightning_receive":{"base_fee_sat":0,"ppm":0},"lightning_send":{"min_fee_sat":20,"base_fee_sat":0,"ppm_expiry_table":[{"expiry_blocks_threshold":0,"ppm":2000},{"expiry_blocks_threshold":1008,"ppm":4000},{"expiry_blocks_threshold":2016,"ppm":5000}]}},"max_vtxo_exit_depth":100,"tos_link":"https://second.tech/terms","max_offboard_inputs":100,"vtxo_expiry_delta":4032}"#;
+
+    #[test]
+    fn real_mainnet_answer_gives_28_day_coins_a_288_block_free_window_and_says_bitcoin() {
+        let v: Json = serde_json::from_str(MAINNET).unwrap();
+        assert_eq!(
+            parse_ark_terms(&v),
+            ArkTerms {
+                vtxo_lifetime_blocks: Some(4032),
+                free_refresh_below_blocks: Some(288)
+            }
+        );
+        let net = flex::str_field(&v, &["network"]).unwrap();
+        assert!(is_mainnet_network(&net));
+        let signet: Json = serde_json::from_str(SIGNET).unwrap();
+        assert!(!is_mainnet_network(
+            &flex::str_field(&signet, &["network"]).unwrap()
+        ));
+        assert!(!is_mainnet_network("regtest"));
     }
 
     #[test]

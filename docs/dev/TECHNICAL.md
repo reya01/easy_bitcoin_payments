@@ -248,7 +248,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_CONFIG` | unset | Path to an extra TOML config file (see `ebp.example.toml`) |
 | `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | The earliest EBP refreshes a coin before it expires. EBP also reads the Ark server's coin lifetime and its free-refresh window (`GET /wallet/ark-info`) and waits until the coin is inside the free window, but never later than a few hours before expiry; if the server's terms cannot be read this value is used as is |
 | `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
-| `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is accepted as a config value but is NOT supported in this EXPERIMENTAL release: never point it at real funds |
+| `EBP_MODE` | `test` | `test` (signet, play money) or `live` (Bitcoin mainnet, real money, experimental: keep amounts small). Set it in `.env` before setup: the wallet is created for that network and a server cannot be switched afterwards. Passed through by `docker-compose.yml` |
 | `EBP_RATES_TIMEOUT_SECS` | `4` | How long each Bitcoin-price source gets to answer. The price is fetched in the background (see "The Bitcoin price" below), so this never slows a page down |
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |

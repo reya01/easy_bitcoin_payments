@@ -708,8 +708,8 @@ function loadPayout() {
     var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
     $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + "." : "No payout address yet — money stays in the till until you add one.";
     var kinds = $("po-kinds"); clear(kinds);
-    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free, so only a small amount is ever held on this server."],
-     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Withdrawals wait for network fees to be low. Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
+    [["Ark address (recommended)", (p.live ? "starts with ark1… (your Ark wallet must use ark.second.tech)" : "starts with tark1… on this play-money server") + " — instant and almost free, so only a small amount is ever held on this server."],
+     ["On-chain Bitcoin address", (p.live ? "starts with bc1… (older wallets: 1… or 3…)" : "starts with tb1… on this play-money server") + " — the most widely understood option. Withdrawals wait for network fees to be low. Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);

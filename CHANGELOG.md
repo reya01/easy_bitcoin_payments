@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Docs sweep for real money (experimental):** START_HERE has a "Real money (experimental)" section (how to choose it before setup, with a 5,000-sat payment limit), the README notice allows tiny real-money tests instead of forbidding them, a new test-day sheet for the first mainnet test (`docs/dev/MAINNET_TEST_SHEET.md`), and the WooCommerce page, plugin readme, other-hosts page, technical notes, handoff and release-notes template now say "play money by default, real money experimental" instead of "play money only".
+
 - **New in Settings: emergency withdrawal without the Ark server**, folded away at the bottom with a warning. It shows the Ark money on the server, the estimated network fees and the deadline, and refuses unless there are at least 100,000 sats and at least twice the fees. It guides the fee deposit, needs the admin password and a two-step code (two-step sign-in must be on), pauses renewals and transfers while it runs, and tells you (Home and phone alert) when it is ready to claim; claiming is a button, never automatic. Switched off on real-money servers until it has been practised on signet.
 - **barkd now starts with `--no-ui`**, so its own built-in wallet web page is off. It was only reachable from inside the server.
 - **Real-money banner.** A live-mode server shows "REAL MONEY. Experimental: keep amounts small." on the setup page, the checkout page and the dashboard (the dashboard now shows the mode in both cases). The WooCommerce plugin's fixed "signet only" line now reads true in both modes.

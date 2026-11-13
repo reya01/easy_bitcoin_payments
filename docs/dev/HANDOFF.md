@@ -1,6 +1,16 @@
 # Handoff — Easy Bitcoin Payments (EBP)
 
-## Update 2026-11-11 (read this first)
+## Update 2026-11-13 (read this first)
+
+`v0.1.0-rc2` is published (signet only; restore on a new server, the 1,000-sat sweep
+minimum and the keep-amount setting). The signet restore drill passed on 12 November.
+The mainnet code (MAINNET_PLAN Stage 2, PRs A to H) is merged after rc2: live mode,
+legacy payout addresses, the renewal changes, `--no-ui`, the emergency withdrawal
+(switched off on mainnet until its signet drill) and the real-money docs. Next: a
+release candidate with these changes, its signet checks, then the first mainnet test
+([MAINNET_TEST_SHEET.md](MAINNET_TEST_SHEET.md)).
+
+## Update 2026-11-11
 
 `v0.1.0-rc1` is published (signet only). The next piece of work is the move to mainnet with
 small real money, and the agreed plan is [MAINNET_PLAN.md](MAINNET_PLAN.md): restore from

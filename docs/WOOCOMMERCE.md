@@ -16,8 +16,10 @@ get payment notices; use a shop with a public address.
 > **Never give an AI, or anyone, your passwords, API key, signing secret or
 > recovery words.** Describe what you see instead, or hide those values first.
 
-**Test version:** use play-money (signet) only for now. Do not take real
-bitcoin yet.
+**Test version:** a play-money (signet) payment server is the default and the
+safe way to try this. A real-money server is experimental and not yet tried
+with real bitcoin: if you use one, test with a product priced under one dollar
+and keep amounts tiny.
 
 **Tested on:** WooCommerce.com hosting (a WordPress.com site running WooCommerce
 11), on 9 November 2026, with a signet Lightning payment: the order moved from
@@ -100,7 +102,7 @@ Never paste the signing secret anywhere except that one plugin box.
 ## 3. Try it
 
 **On your payment server:** on the **Connect** tab press **Send a test notification**
-(nothing is charged). Then **on your WooCommerce site** place a small test order on your own shop and pay it with a signet wallet.
+(nothing is charged). Then **on your WooCommerce site** place a small test order on your own shop and pay it (with a signet wallet on a play-money server; on a real-money server, a product under one dollar).
 The order should move from **On hold** to **Processing** by itself within a few
 seconds of the payment.
 

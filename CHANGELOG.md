@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **New in Settings: emergency withdrawal without the Ark server**, folded away at the bottom with a warning. It shows the Ark money on the server, the estimated network fees and the deadline, and refuses unless there are at least 100,000 sats and at least twice the fees. It guides the fee deposit, needs the admin password and a two-step code (two-step sign-in must be on), pauses renewals and transfers while it runs, and tells you (Home and phone alert) when it is ready to claim; claiming is a button, never automatic. Switched off on real-money servers until it has been practised on signet.
 - **barkd now starts with `--no-ui`**, so its own built-in wallet web page is off. It was only reachable from inside the server.
 - **Real-money banner.** A live-mode server shows "REAL MONEY. Experimental: keep amounts small." on the setup page, the checkout page and the dashboard (the dashboard now shows the mode in both cases). The WooCommerce plugin's fixed "signet only" line now reads true in both modes.
 - **Coin renewal is ready for mainnet.** Amounts under 330 sats are no longer retried every 5 minutes as failures: they are renewed together with other coins, or skipped with one yellow line on Home saying when they lapse. A renewal shows "requested" until the Ark server's round has replaced the coins, then "renewed" (or "failed", and it is tried again). Coins already waiting for a round are never asked for twice. If the Ark server's rounds ever became very slow, renewal starts earlier.

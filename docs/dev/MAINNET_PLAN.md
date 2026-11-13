@@ -9,7 +9,7 @@ Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main`
 - **Sweep threshold is 1,000 sats** for an Ark payout address, on signet and mainnet (was 20,000). Not near zero: that would create many tiny coins. PR #151.
 - **Minimum excess of 1,000 sats.** An automatic sweep sends only once at least 1,000 sats are above the amount kept, so the server holds up to about 2,000 and the payout wallet gets fewer, bigger coins. Chosen after the owner's signet test on 11 November showed sends of 136 and 1,195 sats were accepted but would leave many tiny coins. "Move my money now" ignores the minimum. `MIN_SWEEP_EXCESS_SATS` in `src/wallet/settlement.rs`.
 - **Restore from the 12 words will be built** before any real money (Part B). Sonnet does all coding.
-- **barkd stays on 0.8.0** during alpha. Updating to the latest Bark happens when moving to beta, as its own piece of work.
+- **barkd stays on 0.8.0** during alpha. Updating to the latest Bark happens when moving to beta, as its own piece of work. The 0.8.1 changelog (reviewed 12 November, see **Bark 0.8.1 changelog review** below) does not change this: none of its client fixes touch what EBP uses on mainnet alpha, and one of its changes (`/wallet/send` now pays a bare bitcoin address on-chain) needs a code change before EBP can safely move to it.
 - **Legacy mainnet payout addresses (`1…`, `3…`) will be accepted** if barkd can pay to them (Stage 2 PR C).
 - **Renewal (approved 11 November):** build the three changes in Stage 2 PR D (skip amounts below the 330-sat minimum, show "requested" until the round is done, renew earlier if rounds are very slow), then observe the rest on mainnet with small funds.
 - Signet stays the default. Mainnet is opt-in through `EBP_MODE=live`.
@@ -43,6 +43,7 @@ Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main`
 | Restore through barkd | the same call with `mnemonic` set (also optional `birthday_height`, `gap_limit`) | pinned `docs/barkd-openapi.json` |
 | What the words recover | the Ark balance (with the Ark server's cooperation) and the on-chain balance; **not** payment history or in-progress exits | bark-cli/mainnet, backups |
 | What a wallet-folder backup adds | history and in-progress exits, without the server's help | backups |
+| Emergency (unilateral) exit | several on-chain transactions per coin; fees paid from the wallet's confirmed on-chain balance; final claim after the exit delta; must start before the coin expires | barkd OpenAPI `/exits/*`, learn/lifetime |
 | Coin lifetime | 28 days for boards and refreshes; 1 to 3 days for coins from Lightning receives | learn/lifetime |
 | Refresh fee | free in the last 2 days before expiry, then 0.2% / 0.4% / 0.5% | second.tech/pricing, learn/fees |
 | Lightning receive, Ark send, Ark receive | 0% | second.tech/pricing |
@@ -89,8 +90,29 @@ How the threshold behaves: the server keeps 1,000 sats and sends on what is abov
 1. Done 11 November: a 20,000 balance went down to 1,000 within minutes of the update (19,000 sent).
 2. Done 11 November: 1,195- and 136-sat sends were accepted by Ark on signet. So Ark takes out-of-round sends below the believed 330-sat limit, at least on signet; confirm on mainnet in Stage 4.
 3. Still to watch: the 136-sat coin's renewal failed, and failed renewals feed the "renewing is not working" warning (see the renewal section).
+4. Renewal while waiting for a round (for PR D Change 4): the next time a "Routine wallet upkeep" row appears, run `./scripts/drill_capture.sh` in `/opt/ebp` within a minute and again 5 minutes later, and keep both files.
 
 **Retest after the minimum is deployed:** with 1,000 held, pay 300 sats (nothing sent), then 800 sats (about 1,100 sent in one transfer).
+
+## Bark 0.8.1 changelog review (12 November 2026)
+
+Source: https://second.tech/docs/changelog (0.8.1 released 5 November 2026; nothing newer listed). Checked against the barkd calls EBP makes (`src/wallet/barkd.rs` paths, `src/managed_barkd.rs` start-up).
+
+**Matters now, while we stay on 0.8.0** (these are Ark-server changes, or 0.8.0 behaviour we had not accounted for):
+- **Round registration does not lock coins (0.8.0), and Second's server now refuses a participation that would replace one a round attempt holds (0.8.1 server).** This corrects PR D and adds Change 4 (never ask twice). Must be done before mainnet.
+- **barkd serves a wallet web page on its own port (0.8.0, `--no-ui` turns it off).** EBP starts barkd on `127.0.0.1` inside the container, so it is not reachable from outside today. Still, add `--no-ui` to the barkd start command in `src/managed_barkd.rs` and to the `mainnet-compat-check` workflow (which proves the pinned binary accepts the flag before it ships). Small hardening, its own PR (call it PR F), before mainnet.
+- **Restore from the words asks the Ark server for coins by key first (0.8.0), about 60 seconds instead of 210 in Second's measurement, and recovers round outputs that finished while the wallet was offline.** Good for Part B; the wizard allows 5 minutes. The owner's drill records how long it really takes.
+- **Second's mainnet server now refuses a zero `vtxo_exit_delta`.** No effect on us; mainnet measured 144 blocks.
+
+**Matters when moving to 0.8.1 (beta), not before:**
+- **`POST /wallet/send` now pays a bare bitcoin address on-chain** (before, it refused), and picks Ark, then Lightning, then on-chain when no `method` is given. EBP's Ark sweep calls `/wallet/send` (`src/wallet/barkd.rs` `PATH_ARK_SEND`) with only `destination` and `amount_sat`. Before upgrading, send `"method": "ark"` with every Ark sweep, so a mistake can never turn into an on-chain payment with fees. On 0.8.0 a bare address is refused, which is the safer behaviour for alpha.
+- **`GET /lightning/receives/{id}` answers 404 (not 500) for an unknown or cancelled receive.** EBP does not call it today; check again at upgrade time.
+- **Lightning `state` fields become enums in the OpenAPI** (same JSON values). The `barkd openapi drift check` in CI will flag the schema change; refresh `docs/barkd-openapi.json` as part of the upgrade.
+- **`GET /wallet/debug-info`** (network, mailbox ID, VTXO xpub): useful to prove a restored wallet is the same wallet as before (same xpub). Add to `scripts/drill_capture.sh` at upgrade time.
+- **Presigned emergency exits** (`POST /api/v1/exits/presign`, GitLab MR !2293; `GET /api/v1/exits/remaining`): signs the fee-bumping transactions in advance, paid from confirmed on-chain funds, into a plan anyone can broadcast later without the wallet keys. Could let an owner keep an exit plan off the server. Limits: it covers only the coins that exist when it is made (EBP's coins change with every payment, sweep and renewal, so it goes stale quickly), and it still needs on-chain funds set aside. Consider at beta on top of PR G; not needed for PR G itself, which uses the 0.8.0 exit calls.
+- Lightning invoice custom expiry: EBP already sends `expiry_secs` (pinned 0.8.0 API has it). 0.8.1 makes barkd fail the request if a server ignores it; Second's server supports it, so no change expected.
+
+**No effect on EBP:** Lightning *send* fixes (EBP never sends over Lightning), emergency-exit presigning and `exits/remaining` (exits stay manual), Bitcoin Core v32 mempool fix (EBP uses Esplora), the new `bark-cli`, BDK and Rust SDK breaking changes (EBP talks REST only), WebSocket tickets, WASM, gRPC compression, server operator items (Core Lightning version, `watchmand`, backfill commands).
 
 ## Part B: restore after losing the server (words plus backup file)
 
@@ -108,7 +130,10 @@ A beginner who loses the server can, with the 12 words and their latest `.ebpbac
 
 **Rule for the docs and the code:** the money always comes from the words. The wallet folder inside the backup file is a snapshot and may be out of date, so the restore never uses it when the words are available.
 
-### Build (Sonnet), smallest version that meets the goal
+### Build (done: PR #159, merged 12 November; owner drill still to do)
+
+Built as described below, with the backup file restored by the wizard itself: the server stages the backup's database and key, restarts, and swaps them in before anything is opened, keeping the files they replace in `restore-previous-<time>/`. Steps for owners: `docs/RECIPE_BACKUP.md`.
+
 
 1. **Wizard: "Restore a wallet I already have".** On a fresh server the wallet step offers two choices: make a new wallet (today's path) or restore. Restore asks for the 12 words and calls the existing `create_till_wallet` (`src/routes/setup.rs:777`) with `mnemonic` added to the same request. No new dependency: barkd checks the words; EBP shows barkd's refusal in plain language.
 2. **Handling the words.** Same care as when they are shown today: HTTPS and the setup code required (already enforced), `no-store`, never written to the database, never logged, scrubbed from any barkd error text before it is logged or shown. Input field with autocomplete, autocorrect, autocapitalise and spellcheck off.
@@ -136,6 +161,8 @@ A beginner who loses the server can, with the 12 words and their latest `.ebpbac
 
 ### Signet restore drill (owner runs, before mainnet)
 
+**Passed 12 November 2026** on a second droplet ([RESTORE_DRILL.md](../RESTORE_DRILL.md)): balance (1,000 sats), orders, transfers list, security log, payout address and shop connection all came back; a new 1,279-sat test order completed and "Move my money now" delivered it to the owner's Bark wallet; two-step sign-in turned back on; a fresh backup from the new server passed **Check a backup**. Restore took 30 to 40 minutes, 17 of them the new server's first start. One extra "Routine wallet upkeep" row appeared right after the restore (1,000 sats, broadcast; balance unchanged): the new server renewed its coin on its first cycle. Not explained yet; watch for it in the mainnet restore drill (Stage 4 step 13).
+
 1. On the signet droplet note the balance, order count and payout address. Leave a few hundred sats on the server. Download a backup.
 2. Power off the droplet (or make a second one and keep the first powered off). Never run both at once: same wallet words, same shop connection.
 3. Follow the documented steps above exactly as written.
@@ -143,6 +170,8 @@ A beginner who loses the server can, with the 12 words and their latest `.ebpbac
 5. Then replace the "exact command is not written down here yet" passages in `docs/RECIPE_BACKUP.md` with the tested steps, update `docs/IF_SOMETHING_LOOKS_WRONG.md` and `docs/KNOWN_ISSUES.md`, and tick the two restore items in `docs/dev/RC_CHECKLIST.md`.
 
 ## Stage 2: mainnet code changes (small PRs, in this order)
+
+**Status 13 November 2026:** all seven are built as a stack of draft PRs, not merged (owner cuts `v0.1.0-rc2` first): A #171, B #172, C #173, D #174, E #175, F #176, G #177. Merge in that order after #160. Where the build differs from this plan, the PR says so; the main points: B adds a red Home line when the wallet's network does not match the mode; D's `/wallet/rounds` parsing follows the pinned OpenAPI because the Stage 1 capture was not taken; G stays switched off on real-money servers until its signet drill; F was verified with the compat workflow (run 43372649041). Mainnet's ark-info says `"network": "bitcoin"` (captured by the compat run), now a test fixture.
 
 ### PR A: wizard may create or restore a mainnet wallet in live mode
 - `src/routes/setup.rs:680-693`: remove the "live mode is disabled" refusal. Allowed network is `"mainnet"` when `mode == "live"`, `"signet"` otherwise. Keep refusing any mismatch in both directions.
@@ -187,7 +216,7 @@ How renewal works today (`src/wallet/settlement.rs:42-68` and `:175-330`):
 
 What the pinned barkd 0.8.0 API says (`docs/barkd-openapi.json`, `/wallet/refresh/vtxos` and `/wallet/rounds`):
 - A refresh request **registers** the coins for the next round and answers at once. It does not wait for the round, so EBP's 30-second request limit is not a problem and slow mainnet rounds will not cause false failures. (An earlier version of this plan raised that worry; the API description settles it.)
-- The coins are locked straight away, so EBP will not ask again for the same coins while the round is pending. If the round fails, barkd drops it, the coins become spendable again, and EBP's next cycle re-registers them.
+- ~~The coins are locked straight away.~~ **Corrected 12 November:** the Bark 0.8.0 changelog says "joining a round no longer locks input VTXOs; locks apply only once a round attempt starts". So between the request and the start of the round the coins may still be listed as spendable. On signet (frequent rounds) the owner saw one renewal row and no repeats, so in practice they dropped out of the spendable list quickly; on mainnet (hourly rounds) that window can be up to an hour. See Change 4.
 - A round counts as finished after 2 confirmations on mainnet (1 on test networks).
 - **The coins being refreshed must add up to at least the dust limit (330 sats), and still be at least that after any fee.**
 
@@ -200,6 +229,13 @@ EBP records a renewal as done the moment barkd accepts the registration. On main
 **Change 3 (small, should have): check the round timing leaves room.**
 Read `round_interval` from the server terms (the answer includes it as text such as `1h`; EBP does not read it today). If fewer than 4 rounds fit between the renewal point and expiry, renew earlier even though it costs the fee: not expiring matters more than the fee. Mainnet measured `1h` rounds, so the 2-day free window holds about 48 rounds and this will not trigger today. It is a safety net in case Second changes the interval, with a unit test table for 5 minutes, 1 hour, 6 hours and 24 hours.
 
+**Change 4 (must have, added after the 0.8.1 changelog review): never ask twice for coins already waiting for a round.**
+EBP's renewal step picks due coins from the spendable list every 5 minutes. If coins already registered for the next round are still listed as spendable (see the correction above), EBP would register them again every cycle for up to an hour on mainnet. Each extra request adds a "Routine wallet upkeep" row, holds up the sweep (the sweep waits for the cycle after an accepted renewal), and, since Second's 0.8.1 server "refuses a delegated round participation that would replace one a round attempt already holds" and names those inputs, can come back as an error that EBP counts as a failed renewal, which after a few cycles shows the red "renewing is not working" warning and sends a phone alert for nothing. Fix in the renewal step:
+- Before asking, read `GET /api/v1/wallet/rounds` (already in the pinned 0.8.0 API, read-only) and leave out any coin that is an input of a round participation still in progress.
+- If barkd still refuses because a round attempt holds the inputs, record it as "already being renewed" (not a failure; no alert), and try again next cycle.
+- Unit tests: a pending participation holding a coin means no new request for that coin; the "inputs held" refusal does not count towards the failure warning.
+- **Measure first (Stage 1):** right after a renewal row appears on Home, run the rounds command (in `/opt/ebp`) once, then again 5 minutes later, and save both outputs: they show whether the coins are still listed as spendable while they wait, and the exact shape of `/wallet/rounds` to code against. `scripts/drill_capture.sh` already captures both.
+
 **No change:** the 7-day fallback when terms cannot be read, the 12-block floor, the "wallet says it needs refresh" top-up.
 
 **Still observed on mainnet with small funds (Stage 4 steps 5, 11 and 14):** how long a registered renewal takes to complete (rounds are hourly); that short-lived Lightning coins (1 to 3 days) are renewed once and free; that the 28-day coin is renewed inside the free window near day 26; the real fee table parsed as expected, then added as a verified test next to the signet one (`src/wallet/barkd.rs:2717`). Any surprise there becomes a separate owner-approved fix.
@@ -208,6 +244,43 @@ Read `round_interval` from the server terms (the answer includes it as text such
 - `src/lib.rs:7` ("never mainnet"), `docs/dev/TECHNICAL.md:251`.
 - `integrations/woocommerce/ebp-bitcoin/includes/class-ebp-gateway.php:45`: "Test version: use play-money (signet) coins only" is fixed text and the plugin cannot see the server's mode. Reword so it is true in both modes.
 - The test banner must stay hidden in live mode (`assets/setup.html:403`, `assets/checkout.html:39`, and the dashboard). In live mode show one line in the same spot: "REAL MONEY. Experimental: keep amounts small."
+
+### PR G: emergency withdrawal without the Ark server (owner request, 12 November)
+
+**Why.** Today EBP has no way to get coins out if Second's Ark server goes offline or refuses to cooperate. The code says "emergency exits are never automated — they are a documented runbook", but no runbook exists. Ark's promise is that the owner always holds the keys and can leave alone (a unilateral exit); EBP should make that possible from the dashboard, as a last resort.
+
+**What barkd 0.8.0 already offers** (pinned `docs/barkd-openapi.json`, no new dependency): `GET /api/v1/exits/fee` (estimate, read-only), `POST /api/v1/exits/start/all` (register every coin for exit; barkd then broadcasts the exit transactions by itself, in order, over time), `GET /api/v1/exits/status/live` and `/finished`, `POST /api/v1/exits/cancel/{vtxo_id}` (allowed until the last transaction is broadcast), `POST /api/v1/exits/claim/all` (manual last step: one on-chain transaction to an address). The fees for each step are paid from the server's **confirmed on-chain balance** (fee bumping), not from the coins being exited.
+
+**Facts the owner must know before using it** (and the page must say):
+- It is several on-chain transactions per coin, each paying network fees, then a wait of at least the exit delta (144 blocks, about a day, on mainnet) before the final claim. Expect a day or more, and fees that can be large when the network is busy.
+- **With the 1,000-sat keep amount the server holds very little, so an exit would usually cost more in fees than it rescues.** The money that matters is in the owner's own payout wallet, whose own app is responsible for its exits. So the server refuses an exit that is not worth it (step 3a below).
+- **It must start before the coins expire** (minus the exit delta). Lightning-received coins live only 1 to 3 days, refreshed ones 28 days. After that the Ark server can take them back (barkd reports `vtxo-swept`). So the page shows the deadline.
+- The server must stay on for the whole exit. An exit in progress is not restored from the 12 words; the wallet folder (in the backup file) carries it.
+
+**Where and how (one PR, plus a signet drill before it is offered on mainnet):**
+1. **Settings → "Emergency: withdraw without the Ark server"**, folded away by default under a red heading. Never on Home as a button.
+2. **The warning**, at the top, in plain words: "You always hold the keys to this money, so you can take it out on your own even if the Ark server is gone or refuses to help. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use **Move my money now** instead: it is cheaper and faster."
+3. **Before anything can start, the page shows:** the Ark balance on the server; the fee estimate from `exits/fee` at the current network fee rate; the server's confirmed on-chain balance (which pays those fees); the deadline (earliest coin expiry minus the exit delta); and whether the Ark server answers right now (`wallet/connected`).
+3a. **Refuse when it is not worth it (owner rule, 12 November).** The exit can only start when the Ark balance on the server is **at least 100,000 sats AND at least double the projected on-chain fees** (broadcast plus claim, from `GET /exits/fee` at the current rate, including barkd's margin). Both must hold. Otherwise the start button stays disabled and the page says: "Not worth it right now. The network fees to take this money out on your own (about X sats) are too high compared with what is on the server (Y sats). It is more economical to leave it, or to wait and hope the Ark server comes back online and cooperates. Fees change: check again later." If the fee estimate cannot be read, the exit is refused too ("Could not estimate the fees right now; try again later"). The check is made on the server (not only in the page) when the exit is started, with the fee estimate refreshed at that moment. With the default 1,000-sat keep amount this means the emergency withdrawal will normally be refused; it is there for owners who keep more on the server. Tests: 99,999 sats with tiny fees refused; 200,000 sats with fees of 100,001 refused; 200,000 with fees of 100,000 allowed; estimate unavailable refused.
+4. **Paying the fees: a guided step, not a dead end.** The fees are paid from the server's own on-chain wallet, which is normally empty, so the page walks the owner through filling it:
+   - **How much:** the broadcast cost from `GET /exits/fee` (no `vtxo_ids`, so the whole wallet; barkd's default `fee_margin` of 1.2 already adds 20% for fee rises), shown as "Send at least X sats". The claim cost is shown separately: it comes out of the exited coins at the end, not from this deposit.
+   - **Where:** the server's own on-chain address (`POST /onchain/addresses/next`) as text with a Copy button and a QR code, the same way the checkout page shows addresses. Any wallet or exchange can send to it.
+   - **Waiting:** the page re-checks every minute (`POST /onchain/sync`, then `GET /onchain/balance`) and shows "Received X of Y sats, waiting for 1 confirmation". Only confirmed coins can pay exit fees, so the start button unlocks only once the **confirmed** balance covers the estimate, and the estimate is refreshed at that moment (fees may have moved).
+   - **If fees rise mid-exit** and the deposit runs out, barkd stops bumping; the page shows "Add X sats to keep going" with the same address. The exit carries on once more has confirmed.
+   - **Leftover:** when the exit is claimed, any fee money left over is offered back with a **Send leftover to my address** button (`POST /onchain/drain` to the same destination, password and two-step code), so nothing is stranded on the server.
+   - Check in the PR that the sweep never touches this on-chain balance (today the sweep only moves Ark coins: `src/wallet/settlement.rs` test `ark_sweep_does_not_need_the_exit_reserve`).
+5. **Destination.** An on-chain address the owner controls: the payout address if it is an on-chain one, otherwise typed in and checked with the same rules as the payout address (mainnet `bc1…`, plus `1…`/`3…` if PR C lands). Never an Ark address.
+6. **Confirmation.** A tick-box "I understand this is for emergencies, costs network fees and takes at least a day", the admin password, **and** the two-step code. Two-step sign-in must be on; if it is off, the page says to turn it on first and the start button stays disabled. Same server-side checks as changing the payout address (`check_second_step`), audit-logged (`exit.started`).
+7. **While it runs.** The settlement engine pauses renewals and sweeps while any exit is live (they would fight over the same coins). Home shows a red line "Emergency withdrawal in progress since <time>" with a link to Settings. Settings lists each coin's exit state from `exits/status/live`. A **Stop** button (password and two-step code again) calls `exits/cancel` for coins where barkd still allows it. The page tells the owner to download a fresh backup now, because the backup carries the exit and the words do not.
+8. **Claiming.** When barkd reports the outputs are claimable, a phone alert and a Home line say so, and a **Send to my address** button (password and two-step code) calls `exits/claim/all` with the destination. Claiming is never automatic.
+9. **Never automatic, never on a timer.** Nothing starts an exit except the owner pressing the button.
+10. **Tests.** Unit and API tests with the mock wallet: refused below 100,000 sats or below twice the fees (step 3a), refused without the password, without the two-step code, with two-step off, with too little on-chain balance, with an Ark destination; settlement pauses while an exit is live; claim and stop need the second step; the warning text is on the page. Browser e2e: the section is folded away and the button stays disabled until the tick-box, password and code are given.
+11. **Signet drill (owner, before the option is enabled on mainnet).** With at least 150,000 play-money sats held on the server (raise the keep amount in Settings to 200,000 for the drill so the sweep leaves them there, and put it back afterwards; also try once below 100,000 to see the refusal): fund the on-chain fee balance from a faucet, start an exit, watch it progress, claim to a signet address, and write down how long each step took and what it cost. Capture the `exits/status` shapes with `scripts/drill_capture.sh` (it already reads exits). Mainnet stays read-only: Stage 5 records a fee estimate only, no real exit.
+
+**Order.** After PR D (renewal) and before Stage 3. If it is not ready by then, the release notes and `KNOWN_ISSUES.md` must say plainly that there is no emergency withdrawal yet, and the amounts kept on the server stay small (the 1,000 default) until it ships.
+
+### PR F: turn off barkd's built-in wallet page (added 12 November)
+Add `--no-ui` to the barkd start command (`src/managed_barkd.rs`, `spawn`) and to `.github/workflows/mainnet-compat-check.yml`. Run that workflow first: if the pinned 0.8.0 binary refuses the flag, drop this PR and note it (the page is only on `127.0.0.1` inside the container). Test: the managed start command includes the flag.
 
 ### Explicitly not changing
 The sweep rule (beyond the 1,000 default and the 1,000 minimum excess), the watcher, invoice states, webhook code, the barkd version, the on-chain rail (stays off by default), anything Shopify, and the signet CI workflows.
@@ -276,3 +349,4 @@ Update `docs/dev/RC_CHECKLIST.md` section 6 with measured answers: Lightning rec
 - https://second.tech/docs/learn/lifetime.md and https://second.tech/docs/learn/fees
 - https://second.tech/docs/backups.md
 - https://second.tech/pricing
+- https://second.tech/docs/changelog (0.8.0 and 0.8.1 reviewed 12 November 2026)

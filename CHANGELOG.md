@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
+## Unreleased
+
+## 0.1.0-rc2 — release candidate, play money only (12 November 2026)
 
 - **New: restore on a new server from the 12 recovery words plus your backup file.** On the setup page, "Restore the wallet I already have, from my 12 words" rebuilds the wallet (the words go only to your own server, are used once and are never stored or logged; nothing is overwritten). The next step brings back your orders, settings, payout address, admin password and shop connection from the `.ebpbackup` file; the server restarts once to use it and keeps the files it replaced. It refuses on a server that already holds orders. Steps: `docs/RECIPE_BACKUP.md`.
 - **Fix: the "A large balance is sitting in the shop wallet" warning appeared for a couple of thousand sats.** It fired above twice the amount the server keeps, which is only 2,000 sats now that the default is 1,000. It now needs more than twice that amount and more than 100,000 sats. When a payout address is already set, its text no longer tells you to set one.

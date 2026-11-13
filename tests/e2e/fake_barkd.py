@@ -275,6 +275,19 @@ def handle(method, path, query, body):
     if path == "/onchain/transactions":
         return 200, list(S["txs"])
     if path in ("/wallet/refresh/all", "/wallet/refresh/vtxos"):
+        # The round completes at once in the fake: the refreshed coins are
+        # replaced by fresh ones (new ids, new expiry), as after a real round.
+        wanted = body.get("vtxos") if path == "/wallet/refresh/vtxos" else None
+        inputs = []
+        for v in S["vtxos"]:
+            if v["state"]["type"] != "spendable":
+                continue
+            if wanted is not None and v["id"] not in wanted:
+                continue
+            inputs.append(v["id"])
+            S["n_vtxo"] += 1
+            v["id"] = f"{txid_for('vtxo%d' % S['n_vtxo'])}:0"
+            v["expiry_height"] = S["tip"] + 4000
         return 200, {
             "id": 1,
             "state": "pending",
@@ -283,8 +296,11 @@ def handle(method, path, query, body):
             "funding_tx_hex": None,
             "scheduled_height": None,
             "unlock_hash": None,
-            "participation": {"inputs": [], "outputs": []},
+            "participation": {"inputs": inputs, "outputs": []},
         }
+    if path == "/wallet/rounds":
+        # Rounds finish instantly in the fake, so none is ever in progress.
+        return 200, []
     if path == "/wallet/send":
         amt = body.get("amount_sat") or 0
         S["moves"].append(

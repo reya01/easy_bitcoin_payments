@@ -1414,20 +1414,19 @@ pub async fn create_store(
     // Validate the payout address BEFORE creating anything, so a typo does
     // not leave a half-finished setup behind.
     let wizard = wizard_mode(&state).await?;
-    let (payout_address, risky) = match req.payout_address.as_deref().map(str::trim) {
-        Some(a) if !a.is_empty() => match crate::payout::check(a, &wizard) {
-            Ok(normalized) => (normalized, false),
-            // The owner was shown the warning and chose to go on.
-            Err(_) if req.accept_risky_payout => (a.to_string(), true),
-            Err(why) => return Err(AppError::BadRequest(why)),
-        },
-        _ => {
-            return Err(AppError::BadRequest(
+    let (payout_address, risky) =
+        match req.payout_address.as_deref().map(str::trim) {
+            Some(a) if !a.is_empty() => match crate::payout::check(a, &wizard) {
+                Ok(normalized) => (normalized, false),
+                // The owner was shown the warning and chose to go on.
+                Err(_) if req.accept_risky_payout => (a.to_string(), true),
+                Err(why) => return Err(AppError::BadRequest(why)),
+            },
+            _ => return Err(AppError::BadRequest(
                 "Add the address of a wallet you control (an Ark or Bitcoin address) to continue."
                     .into(),
-            ))
-        }
-    };
+            )),
+        };
     let admin_password = req.admin_password.clone();
     let mode = wizard;
     let iterations = state.config.password_hash_iterations;

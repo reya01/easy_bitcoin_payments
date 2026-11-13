@@ -830,7 +830,10 @@ pub(crate) mod tests {
         assert!(ark_server_tag(SAME_SERVER_A).is_some());
         assert_ne!(ark_server_tag(SAME_SERVER_A), ark_server_tag(ARK_A));
         assert_eq!(ark_server_tag("tark1"), None);
-        assert_eq!(ark_server_tag("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), None);
+        assert_eq!(
+            ark_server_tag("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            None
+        );
     }
 
     #[test]
@@ -843,7 +846,10 @@ pub(crate) mod tests {
         assert_eq!(v.name(), "unverified");
         assert!(v.message().starts_with("Could not verify"));
         // A reference that does not decode: could not verify, never "verified".
-        assert_eq!(assess(SAME_SERVER_A, "live", Some("tark1qabc")).name(), "unverified");
+        assert_eq!(
+            assess(SAME_SERVER_A, "live", Some("tark1qabc")).name(),
+            "unverified"
+        );
         // A different Ark server: failed.
         assert_eq!(assess(ARK_A, "live", Some(SAME_SERVER_A)).name(), "failed");
         // One character changed: the checksum fails.

@@ -26,7 +26,8 @@ fn env(k: &str) -> String {
 
 fn wallet(which: &str) -> BarkdClient {
     BarkdClient::new(BarkdConfig::new(
-        env(&format!("LIVE_{which}_URL")),
+        // The client's base includes the API prefix, as EBP's config does.
+        format!("{}/api/v1", env(&format!("LIVE_{which}_URL"))),
         env(&format!("LIVE_{which}_TOKEN")),
     ))
     .unwrap()

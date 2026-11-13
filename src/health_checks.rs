@@ -67,6 +67,10 @@ pub struct Facts {
     pub payout: Payout,
     /// This server is in live (real money) mode.
     pub live: bool,
+    /// Sats on the server too small to renew (under the wallet's minimum),
+    /// and how long until they lapse; `None` = nothing too small.
+    pub too_small_to_renew_sats: Option<i64>,
+    pub too_small_lapse_in_secs: Option<i64>,
     /// The network the wallet's Ark server reports (`"bitcoin"` for
     /// mainnet); `None` = could not find out (no check shown).
     pub wallet_network: Option<String>,
@@ -255,6 +259,25 @@ pub fn build(f: &Facts) -> Vec<Check> {
         );
     }
 
+    if let Some(sats) = f.too_small_to_renew_sats.filter(|s| *s > 0) {
+        let when = match f.too_small_lapse_in_secs {
+            Some(s) if s <= 0 => "now".to_string(),
+            Some(s) if s < 2 * 3600 => "within the next couple of hours".to_string(),
+            Some(s) if s < 2 * 86_400 => format!("in about {} hours", s / 3600),
+            Some(s) => format!("in about {} days", s / 86_400),
+            None => "when they expire".to_string(),
+        };
+        push(
+            "renewal_small",
+            Level::Warn,
+            &format!("{sats} sats on the server are too small to renew"),
+            &format!(
+                "The Ark server cannot renew less than {} sats, so they will lapse {when} unless more payments arrive. Nothing to do: the amount is tiny, and new payments are not affected.",
+                crate::wallet::settlement::MIN_RENEW_SATS
+            ),
+        );
+    }
+
     if f.webhooks_failed > 0 {
         push(
             "webhooks",
@@ -335,6 +358,23 @@ mod tests {
             price_age_secs: Some(60),
             ..Facts::default()
         }
+    }
+
+    #[test]
+    fn coins_too_small_to_renew_get_one_plain_yellow_line() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|c| c.id != "renewal_small"));
+        f.too_small_to_renew_sats = Some(136);
+        f.too_small_lapse_in_secs = Some(30 * 3600);
+        let c = build(&f);
+        let line = find(&c, "renewal_small");
+        assert_eq!(line.level, Level::Warn);
+        assert!(line.title.contains("136 sats"), "{}", line.title);
+        assert!(line.detail.contains("in about 30 hours"), "{}", line.detail);
+        f.too_small_lapse_in_secs = Some(3 * 86_400);
+        assert!(find(&build(&f), "renewal_small")
+            .detail
+            .contains("about 3 days"));
     }
 
     #[test]

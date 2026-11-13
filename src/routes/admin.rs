@@ -176,6 +176,21 @@ pub async fn status(
     facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
     facts.live = state.config.mode == "live";
+    if let Ok((small, lapse_at)) = state
+        .db
+        .call(|c| {
+            Ok((
+                crate::settings::get(c, crate::wallet::settlement::TOO_SMALL_SATS_KEY)?,
+                crate::settings::get(c, crate::wallet::settlement::TOO_SMALL_LAPSE_AT_KEY)?,
+            ))
+        })
+        .await
+    {
+        facts.too_small_to_renew_sats = small.and_then(|v| v.parse().ok());
+        facts.too_small_lapse_in_secs = lapse_at
+            .and_then(|v| v.parse::<i64>().ok())
+            .map(|at| at - crate::util::now_unix());
+    }
     facts.wallet_network = wallet
         .get("network")
         .and_then(Value::as_str)

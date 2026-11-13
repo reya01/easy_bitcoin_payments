@@ -113,6 +113,9 @@ const PATH_OFFBOARD_VTXOS: &str = "/wallet/offboard/vtxos";
 const PATH_REFRESH_ALL: &str = "/wallet/refresh/all";
 /// Refresh specific VTXOs in the next round. POST.
 const PATH_REFRESH_VTXOS: &str = "/wallet/refresh/vtxos";
+/// Active round participations (coins registered for a refresh and the
+/// round they wait for), kept until the round confirms. Read-only. GET.
+const PATH_ROUNDS: &str = "/wallet/rounds";
 /// Lightning invoice via the ASP gateway. POST.
 const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// Whether the wallet is connected to its ASP. GET.
@@ -821,6 +824,15 @@ impl BarkdClient {
         self.post(PATH_REFRESH_VTXOS, &body).await
     }
 
+    /// Round participations barkd is still working on (pinned OpenAPI
+    /// `PendingRoundInfo`: `state` plus `participation.inputs`, the coins
+    /// being refreshed). Entries are removed once the round confirms or
+    /// fails. Odd entries are skipped, never an error.
+    pub async fn round_participations(&self) -> Result<Vec<RoundParticipation>, WalletError> {
+        let v: Json = self.get(PATH_ROUNDS).await?;
+        Ok(parse_round_participations(&v))
+    }
+
     // -- Lightning ----------------------------------------------------------
 
     /// Create a Lightning receive invoice through the ASP's gateway
@@ -1358,6 +1370,82 @@ pub fn vtxo_expiry_unix(v: &Vtxo, tip: Option<&Tip>) -> Option<i64> {
     }
 }
 
+/// One entry of `GET /wallet/rounds`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoundParticipation {
+    /// `delegated-pending`, `pending`, `ongoing`, `awaiting-confirmations`,
+    /// `failed` or `canceled` (pinned `RoundFlowState`).
+    pub state: String,
+    /// Ids of the coins this participation spends.
+    pub inputs: Vec<String>,
+}
+
+impl RoundParticipation {
+    /// Still holding its coins: everything except a failed or canceled
+    /// participation. An unknown state counts as active, so a coin is never
+    /// asked for twice because of a name we have not seen before.
+    pub fn is_active(&self) -> bool {
+        !matches!(self.state.as_str(), "failed" | "canceled" | "cancelled")
+    }
+}
+
+pub fn parse_round_participations(v: &Json) -> Vec<RoundParticipation> {
+    let Some(rows) = v.as_array() else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            let state = row.get("state")?.as_str()?.to_lowercase();
+            let inputs = row
+                .get("participation")
+                .and_then(|p| p.get("inputs"))
+                .and_then(Json::as_array)
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(Json::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(RoundParticipation { state, inputs })
+        })
+        .collect()
+}
+
+/// A duration as the Ark server writes it in ark-info (`"5m"`, `"1h"`,
+/// `"1h30m"`, `"30s"`, `"2d"`), or a bare number of seconds. `None` when it
+/// cannot be read.
+pub fn parse_duration_secs(text: &str) -> Option<i64> {
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if let Ok(n) = t.parse::<i64>() {
+        return (n > 0).then_some(n);
+    }
+    let (mut total, mut number) = (0i64, String::new());
+    for c in t.chars() {
+        if c.is_ascii_digit() {
+            number.push(c);
+            continue;
+        }
+        let unit = match c {
+            's' => 1,
+            'm' => 60,
+            'h' => 3_600,
+            'd' => 86_400,
+            _ => return None,
+        };
+        let n: i64 = number.parse().ok()?;
+        total = total.checked_add(n.checked_mul(unit)?)?;
+        number.clear();
+    }
+    if !number.is_empty() || total <= 0 {
+        return None;
+    }
+    Some(total)
+}
+
 /// Is this ark-info `network` name real Bitcoin? barkd says `"bitcoin"` for
 /// mainnet; `"mainnet"` is accepted too in case a later version renames it.
 pub fn is_mainnet_network(name: &str) -> bool {
@@ -1373,6 +1461,9 @@ pub struct ArkTerms {
     /// (the first tier of the server's refresh price table that costs
     /// something). `None`: no free tier is known, or everything is free.
     pub free_refresh_below_blocks: Option<i64>,
+    /// How often the server runs a round (`round_interval`), in seconds. A
+    /// refresh waits for the next round.
+    pub round_interval_secs: Option<i64>,
 }
 
 /// Read the terms out of the ark-info answer. Missing or odd fields give
@@ -1406,6 +1497,11 @@ pub fn parse_ark_terms(v: &Json) -> ArkTerms {
         } else {
             free_refresh_boundary(&table)
         },
+        round_interval_secs: v.get("round_interval").and_then(|r| match r {
+            Json::String(s) => parse_duration_secs(s),
+            Json::Number(n) => n.as_i64().filter(|n| *n > 0),
+            _ => None,
+        }),
     }
 }
 
@@ -2745,7 +2841,8 @@ mod ark_terms_tests {
             parse_ark_terms(&v),
             ArkTerms {
                 vtxo_lifetime_blocks: Some(144),
-                free_refresh_below_blocks: Some(288)
+                free_refresh_below_blocks: Some(288),
+                round_interval_secs: Some(300),
             }
         );
     }
@@ -2763,7 +2860,8 @@ mod ark_terms_tests {
             parse_ark_terms(&v),
             ArkTerms {
                 vtxo_lifetime_blocks: Some(4032),
-                free_refresh_below_blocks: Some(288)
+                free_refresh_below_blocks: Some(288),
+                round_interval_secs: Some(3600),
             }
         );
         let net = flex::str_field(&v, &["network"]).unwrap();
@@ -2773,6 +2871,44 @@ mod ark_terms_tests {
             &flex::str_field(&signet, &["network"]).unwrap()
         ));
         assert!(!is_mainnet_network("regtest"));
+    }
+
+    #[test]
+    fn round_intervals_are_read_in_the_servers_format() {
+        assert_eq!(parse_duration_secs("5m"), Some(300));
+        assert_eq!(parse_duration_secs("1h"), Some(3_600));
+        assert_eq!(parse_duration_secs("1h30m"), Some(5_400));
+        assert_eq!(parse_duration_secs("30s"), Some(30));
+        assert_eq!(parse_duration_secs("2d"), Some(172_800));
+        assert_eq!(parse_duration_secs("90"), Some(90));
+        for bad in ["", "h", "5x", "-5m", "0", "0m", "m5", "5m3"] {
+            assert_eq!(parse_duration_secs(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn round_participations_list_the_coins_they_hold() {
+        let v: Json = serde_json::from_str(
+            r#"[
+              {"id": 7, "status": {"status": "pending"}, "state": "pending",
+               "participation": {"inputs": ["a:0", "b:1"], "outputs": []},
+               "unlock_hash": null, "funding_txid": null},
+              {"id": 6, "status": {"status": "failed", "error": "x"}, "state": "failed",
+               "participation": {"inputs": ["c:0"], "outputs": []},
+               "unlock_hash": null, "funding_txid": null},
+              {"id": 5, "state": "awaiting-confirmations",
+               "participation": {"inputs": ["d:0"], "outputs": []}},
+              {"no": "state"}
+            ]"#,
+        )
+        .unwrap();
+        let r = parse_round_participations(&v);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].inputs, vec!["a:0", "b:1"]);
+        assert!(r[0].is_active());
+        assert!(!r[1].is_active());
+        assert!(r[2].is_active());
+        assert!(parse_round_participations(&serde_json::json!({"x": 1})).is_empty());
     }
 
     #[test]
@@ -2806,7 +2942,8 @@ mod ark_terms_tests {
             parse_ark_terms(&empty),
             ArkTerms {
                 vtxo_lifetime_blocks: None,
-                free_refresh_below_blocks: None
+                free_refresh_below_blocks: None,
+                round_interval_secs: None,
             }
         );
         // Garbage values are ignored, not trusted.

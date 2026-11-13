@@ -298,6 +298,18 @@ def handle(method, path, query, body):
             "unlock_hash": None,
             "participation": {"inputs": inputs, "outputs": []},
         }
+    if path == "/exits/status/live":
+        # No emergency withdrawal running.
+        return 200, []
+    if path == "/exits/fee":
+        return 200, {
+            "exit_broadcast_fee_sat": 4200,
+            "claim_fee_sat": 800,
+            "total_fee_sat": 5000,
+            "fee_rate_sat_per_vb": 2.0,
+            "txs_to_broadcast": 3,
+            "fundable": False,
+        }
     if path == "/wallet/rounds":
         # Rounds finish instantly in the fake, so none is ever in progress.
         return 200, []

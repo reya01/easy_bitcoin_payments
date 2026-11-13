@@ -112,6 +112,47 @@ const PATH_WALLET_MNEMONIC: &str = "/wallet/mnemonic";
 
 /// Default ASP in test mode: Second's public signet Ark server.
 const DEFAULT_SIGNET_ASP: &str = "https://ark.signet.2nd.dev";
+/// Default ASP in live mode: Second's mainnet Ark server
+/// (connection-details; measured with the pinned barkd 0.8.0 on
+/// 11 Nov 2026 by the `mainnet-compat-check` workflow).
+const DEFAULT_MAINNET_ASP: &str = "https://ark.second.tech";
+
+/// The network and Ark server a new (or restored) wallet gets, from this
+/// server's mode and what the wizard sent. Live mode means mainnet only and
+/// test mode means signet only: a mismatch in either direction is refused,
+/// because a barkd wallet belongs to one network for good. An empty or
+/// missing server address means Second's server for that network.
+fn resolve_wallet_network(
+    mode: &str,
+    network: Option<&str>,
+    asp_url: Option<&str>,
+) -> Result<(String, String), AppError> {
+    let live = mode == "live";
+    let (allowed, default_asp) = if live {
+        ("mainnet", DEFAULT_MAINNET_ASP)
+    } else {
+        ("signet", DEFAULT_SIGNET_ASP)
+    };
+    let network = match network.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(n) => n.to_lowercase(),
+        None => allowed.to_string(),
+    };
+    if network != allowed {
+        let why = if live {
+            "this server is set to real money (live mode), so its wallet must be on \"mainnet\""
+        } else {
+            "this server is set to play money (test mode), so its wallet must be on \"signet\""
+        };
+        return Err(AppError::BadRequest(format!(
+            "network \"{network}\" is not allowed: {why}"
+        )));
+    }
+    let asp_url = match asp_url.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(url) => url.trim_end_matches('/').to_string(),
+        None => default_asp.to_string(),
+    };
+    Ok((network, asp_url))
+}
 
 // ---------------------------------------------------------------------------
 // The runtime token override
@@ -255,11 +296,11 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
 
 #[derive(Deserialize)]
 pub struct CreateWalletRequest {
-    /// Bitcoin network. Defaults per `mode`: "signet" in test, "mainnet" in
-    /// live.
+    /// Bitcoin network. Must match `mode`: "signet" in test, "mainnet" in
+    /// live (the default for each); anything else is refused.
     pub network: Option<String>,
-    /// Ark Service Provider URL. Defaults to Second's public signet ASP in
-    /// test mode; required in live mode.
+    /// Ark Service Provider URL. Empty or missing means Second's server for
+    /// the network: `ark.signet.2nd.dev` in test, `ark.second.tech` in live.
     pub asp_url: Option<String>,
     /// RESTORE an existing wallet from its recovery words instead of making a
     /// new one. Typed by the owner; passed straight to barkd; never stored,
@@ -725,35 +766,11 @@ pub async fn create_wallet(
 ) -> Result<Response, AppError> {
     ensure_wizard_open(&state).await?;
 
-    let network = match req.network.as_deref() {
-        Some(network) => network.trim().to_lowercase(),
-        None if state.config.mode == "live" => "mainnet".to_string(),
-        None => "signet".to_string(),
-    };
-    // EXPERIMENTAL/signet-only posture: this build must never create a
-    // mainnet wallet. `mode = "live"` is reserved for a future audited
-    // release; until then the wizard only provisions signet.
-    if state.config.mode == "live" {
-        return Err(AppError::BadRequest(
-            "live mode is disabled in this experimental build — use signet or regtest only".into(),
-        ));
-    }
-    let allowed = "signet";
-    if network != allowed {
-        return Err(AppError::BadRequest(format!(
-            "network \"{network}\" is not supported in this experimental build — expected \"{allowed}\""
-        )));
-    }
-
-    let asp_url = match req.asp_url.as_deref() {
-        Some(url) => url.trim().trim_end_matches('/').to_string(),
-        None if state.config.mode == "live" => {
-            return Err(AppError::BadRequest(
-                "asp_url is required in live mode — the address of the Ark server this wallet will use".into(),
-            ));
-        }
-        None => DEFAULT_SIGNET_ASP.to_string(),
-    };
+    let (network, asp_url) = resolve_wallet_network(
+        &state.config.mode,
+        req.network.as_deref(),
+        req.asp_url.as_deref(),
+    )?;
 
     // Restoring: tidy and shape-check the words BEFORE anything is sent.
     let restore_words = match req.mnemonic.as_deref().map(str::trim) {
@@ -2176,6 +2193,44 @@ mod tests {
     }
 
     // -- the runtime token override ----------------------------------------
+
+    #[test]
+    fn live_mode_creates_a_mainnet_wallet_on_seconds_server_by_default() {
+        let (network, asp) = resolve_wallet_network("live", None, None).unwrap();
+        assert_eq!(network, "mainnet");
+        assert_eq!(asp, "https://ark.second.tech");
+        // What the wizard page sends in live mode, and an empty server box.
+        let (network, asp) = resolve_wallet_network("live", Some(" Mainnet "), Some("  ")).unwrap();
+        assert_eq!(network, "mainnet");
+        assert_eq!(asp, DEFAULT_MAINNET_ASP);
+        let (_, asp) =
+            resolve_wallet_network("live", Some("mainnet"), Some("https://ark.second.tech/"))
+                .unwrap();
+        assert_eq!(asp, "https://ark.second.tech");
+    }
+
+    #[test]
+    fn live_mode_refuses_every_test_network() {
+        for net in ["signet", "testnet", "regtest", "bitcoin-ish"] {
+            let err = resolve_wallet_network("live", Some(net), None).unwrap_err();
+            let AppError::BadRequest(msg) = err else {
+                panic!("expected a plain refusal for {net}");
+            };
+            assert!(msg.contains("real money"), "{msg}");
+        }
+    }
+
+    #[test]
+    fn test_mode_refuses_mainnet_and_defaults_to_signet() {
+        let err = resolve_wallet_network("test", Some("mainnet"), None).unwrap_err();
+        let AppError::BadRequest(msg) = err else {
+            panic!("expected a plain refusal");
+        };
+        assert!(msg.contains("play money"), "{msg}");
+        let (network, asp) = resolve_wallet_network("test", None, Some("")).unwrap();
+        assert_eq!(network, "signet");
+        assert_eq!(asp, DEFAULT_SIGNET_ASP);
+    }
 
     #[test]
     fn runtime_token_overrides_the_env_token() {

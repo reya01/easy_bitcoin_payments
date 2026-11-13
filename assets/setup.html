@@ -152,7 +152,7 @@
       <input type="text" id="asp" value="https://ark.signet.2nd.dev" autocomplete="off">
       <label for="network">Network</label>
       <input type="text" id="network" value="signet" autocomplete="off">
-      <p class="sub">Leave these two as they are while EBP is in testing (practice network, play money).</p>
+      <p class="sub" id="wallet-net-note">Leave these two as they are while EBP is in testing (practice network, play money).</p>
       <button class="primary" id="btn-wallet" type="button">Create the wallet</button>
       <p class="note">Moving to a new server? <button class="link" id="btn-go-restore" type="button">Restore the wallet I already have, from my 12 words</button></p>
     </div>
@@ -450,8 +450,9 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     if (status.mode === "test") els.testBanner.classList.remove("hidden");
     if (status.mode === "live") {
       els.network.value = "mainnet";
-      els.asp.value = "";
-      els.asp.placeholder = "https://your-asp.example";
+      els.asp.value = "https://ark.second.tech";
+      document.getElementById("wallet-net-note").textContent =
+        "This server is set to real money. Leave these two as they are: Second's Ark server and real Bitcoin (mainnet). Keep amounts small: this is experimental.";
     }
     if (status.setup_complete) { markStep(4); show("done"); return; }
     if (!status.wallet_created) { markStep(0); show("wallet"); return; }

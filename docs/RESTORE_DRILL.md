@@ -4,7 +4,8 @@ Do this once, with play money, before you put real money on a server. It proves 
 your 12 recovery words and your backup file really bring your shop back. If you only
 read one page about backups, read this one and then actually do it.
 
-It takes about an hour, most of it waiting. Each step says **where** you do it.
+It takes about an hour, most of it waiting (in our own practice the new server's first
+start took 17 minutes, and the whole restore 30 to 40 minutes). Each step says **where** you do it.
 Your host may label things a little differently; the steps use DigitalOcean's words,
 like [START_HERE.md](START_HERE.md).
 

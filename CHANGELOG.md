@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased (open review items — see docs/REVIEW_2026-11-05.md)
+## Unreleased
+
+- **Real-money banner.** A live-mode server shows "REAL MONEY. Experimental: keep amounts small." on the setup page, the checkout page and the dashboard (the dashboard now shows the mode in both cases). The WooCommerce plugin's fixed "signet only" line now reads true in both modes.
+- **Coin renewal is ready for mainnet.** Amounts under 330 sats are no longer retried every 5 minutes as failures: they are renewed together with other coins, or skipped with one yellow line on Home saying when they lapse. A renewal shows "requested" until the Ark server's round has replaced the coins, then "renewed" (or "failed", and it is tried again). Coins already waiting for a round are never asked for twice. If the Ark server's rounds ever became very slow, renewal starts earlier.
+- **Older Bitcoin payout addresses (`1…`, `3…`) are accepted on a real-money server**, with their checksum checked, and refused on a test server. The setup page and Settings now name only the address types this server accepts.
+- **Choose real money in `.env` with `EBP_MODE=live`** (before setup; default `test`). `docker-compose.yml` now passes `EBP_MODE` and `EBP_MAX_INVOICE_SATS` through. Home shows a red line if the wallet's network does not match the server's mode, for example a play-money server switched to live after setup.
+- **Mainnet, step 1: the setup page can create or restore a real-money wallet on a server set to live mode.** A live-mode server makes its wallet on Bitcoin mainnet with Second's Ark server (`https://ark.second.tech`) unless another server is typed in; a test-mode server stays on signet. A network that does not match the server's mode is refused in both directions, because a wallet belongs to one network for good.
+
+## 0.1.0-rc2 — release candidate, play money only (12 November 2026)
 
 - **Docs: a step-by-step guide to practise a restore** (`docs/RESTORE_DRILL.md`): update and download a backup on the old server, turn it off, make a new server, restore from the 12 words plus the backup file, check balance, orders, payout address, shop connection, a test order and "Move my money now", then clean up. It says where each step happens and what to do if a step fails. Linked from `RECIPE_BACKUP.md` and the README. No code changes.
 - **New: restore on a new server from the 12 recovery words plus your backup file.** On the setup page, "Restore the wallet I already have, from my 12 words" rebuilds the wallet (the words go only to your own server, are used once and are never stored or logged; nothing is overwritten). The next step brings back your orders, settings, payout address, admin password and shop connection from the `.ebpbackup` file; the server restarts once to use it and keeps the files it replaced. It refuses on a server that already holds orders. Steps: `docs/RECIPE_BACKUP.md`.

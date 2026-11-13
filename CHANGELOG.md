@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Mainnet, step 1: the setup page can create or restore a real-money wallet on a server set to live mode.** A live-mode server makes its wallet on Bitcoin mainnet with Second's Ark server (`https://ark.second.tech`) unless another server is typed in; a test-mode server stays on signet. A network that does not match the server's mode is refused in both directions, because a wallet belongs to one network for good.
+
 ## 0.1.0-rc2 — release candidate, play money only (12 November 2026)
 
 - **Docs: a step-by-step guide to practise a restore** (`docs/RESTORE_DRILL.md`): update and download a backup on the old server, turn it off, make a new server, restore from the 12 words plus the backup file, check balance, orders, payout address, shop connection, a test order and "Move my money now", then clean up. It says where each step happens and what to do if a step fails. Linked from `RECIPE_BACKUP.md` and the README. No code changes.

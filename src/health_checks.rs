@@ -65,6 +65,11 @@ pub struct Facts {
     /// How many of the most recent coin renewals in a row failed.
     pub renewals_failing: u32,
     pub payout: Payout,
+    /// This server is in live (real money) mode.
+    pub live: bool,
+    /// The network the wallet's Ark server reports (`"bitcoin"` for
+    /// mainnet); `None` = could not find out (no check shown).
+    pub wallet_network: Option<String>,
 }
 
 /// The "large balance" warning never fires below this many sats, whatever the
@@ -109,6 +114,28 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 "Wallet connection is unclear",
                 "The wallet answered but did not say whether it is connected. Check again shortly.",
             ),
+        }
+    }
+
+    // A wallet belongs to one network for good. A server switched to the
+    // other mode after setup (EBP_MODE changed in .env) would show prices
+    // and addresses for one network while the wallet is on the other.
+    if let Some(net) = f.wallet_network.as_deref() {
+        let wallet_is_real = crate::wallet::barkd::is_mainnet_network(net);
+        if f.live && !wallet_is_real {
+            push(
+                "network",
+                Level::Bad,
+                "This server is set to real money, but its wallet is play money",
+                "The wallet was made for a test network, so real payments cannot work here. A wallet cannot be moved to real Bitcoin. Set EBP_MODE back to test in the .env file and restart, or make a new server for real money.",
+            );
+        } else if !f.live && wallet_is_real {
+            push(
+                "network",
+                Level::Bad,
+                "This server is set to play money, but its wallet holds REAL bitcoin",
+                "The wallet was made for real Bitcoin (mainnet). Set EBP_MODE back to live in the .env file and restart. Do not take payments until this line is gone.",
+            );
         }
     }
 
@@ -307,6 +334,34 @@ mod tests {
             webhook_configured: true,
             price_age_secs: Some(60),
             ..Facts::default()
+        }
+    }
+
+    #[test]
+    fn a_wallet_on_the_other_network_from_the_mode_is_a_red_line() {
+        let mut f = healthy();
+        // Matching: nothing to say.
+        for (live, net) in [(false, "signet"), (false, "regtest"), (true, "bitcoin")] {
+            f.live = live;
+            f.wallet_network = Some(net.into());
+            assert!(build(&f).iter().all(|c| c.id != "network"), "{live} {net}");
+        }
+        // Unknown: nothing to say.
+        f.wallet_network = None;
+        assert!(build(&f).iter().all(|c| c.id != "network"));
+        // Live server, play-money wallet.
+        f.live = true;
+        f.wallet_network = Some("signet".into());
+        let c = build(&f);
+        assert_eq!(find(&c, "network").level, Level::Bad);
+        assert!(find(&c, "network").title.contains("real money"));
+        // Test server, real-money wallet (either spelling).
+        f.live = false;
+        for net in ["bitcoin", "Mainnet"] {
+            f.wallet_network = Some(net.into());
+            let c = build(&f);
+            assert_eq!(find(&c, "network").level, Level::Bad, "{net}");
+            assert!(find(&c, "network").title.contains("REAL"));
         }
     }
 

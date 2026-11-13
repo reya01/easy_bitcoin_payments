@@ -134,6 +134,9 @@ pub async fn status(
                     out.insert("asp_connected".into(), json!(v));
                 }
             }
+            if let Ok(Some(net)) = client.ark_network().await {
+                out.insert("network".into(), json!(net));
+            }
             if !errors.is_empty() {
                 out.insert("error".into(), json!(errors.join("; ")));
             }
@@ -172,6 +175,11 @@ pub async fn status(
     facts.offchain_sats = wallet.get("offchain_sats").and_then(Value::as_i64);
     facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
+    facts.live = state.config.mode == "live";
+    facts.wallet_network = wallet
+        .get("network")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     {
         let cfg = state.config.settlement_destination.clone();
         if let Ok(s) = state

@@ -2669,3 +2669,122 @@ async fn wizard_backup_restore_needs_the_words_first_and_refuses_bad_files() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn emergency_withdrawal_needs_a_session_the_tick_box_an_onchain_address_and_two_step() {
+    let config = Config {
+        password_hash_iterations: 1_000,
+        // Its own address per request, so the password brake stays out of the way.
+        trust_proxy_headers: true,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let client = reqwest::Client::new();
+    let n = std::sync::atomic::AtomicU32::new(1);
+    let send = |path: &str, signed_in: bool, body: serde_json::Value| {
+        let mut r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!(
+                    "10.7.0.{}",
+                    n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                ),
+            )
+            .json(&body);
+        if signed_in {
+            r = r
+                .header("cookie", cookie.clone())
+                .header("x-ebp-csrf", csrf.clone());
+        }
+        r.send()
+    };
+    let tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    let good = serde_json::json!({
+        "admin_password": "a good long password", "code": "123456",
+        "destination": tb, "understood": true
+    });
+    let message = |r: reqwest::Response| async move {
+        let v: serde_json::Value = r.json().await.unwrap();
+        v.to_string()
+    };
+
+    // Not signed in: refused, for every action.
+    for path in [
+        "/admin/exit/start",
+        "/admin/exit/cancel",
+        "/admin/exit/claim",
+        "/admin/exit/leftover",
+        "/admin/exit/status",
+        "/admin/exit/deposit-address",
+    ] {
+        let r = send(path, false, good.clone()).await.unwrap();
+        assert_eq!(r.status().as_u16(), 401, "{path}");
+    }
+    // The tick-box is required.
+    let mut body = good.clone();
+    body["understood"] = serde_json::json!(false);
+    let r = send("/admin/exit/start", true, body).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(message(r).await.contains("Tick the box"));
+    // Never to an Ark address, never to the wrong network.
+    let mut body = good.clone();
+    body["destination"] = serde_json::json!(
+        "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
+    );
+    let r = send("/admin/exit/start", true, body).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(message(r).await.contains("not an Ark address"));
+    let mut body = good.clone();
+    body["destination"] = serde_json::json!("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+    let r = send("/admin/exit/start", true, body).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    // Two-step sign-in is off: refused before anything touches the wallet,
+    // for starting, stopping, claiming and the leftover.
+    for path in [
+        "/admin/exit/start",
+        "/admin/exit/cancel",
+        "/admin/exit/claim",
+        "/admin/exit/leftover",
+    ] {
+        let r = send(path, true, good.clone()).await.unwrap();
+        assert_eq!(r.status().as_u16(), 400, "{path}");
+        assert!(message(r).await.contains("two-step"), "{path}");
+    }
+    // Nothing was started.
+    let started = state
+        .db
+        .call(|c| {
+            easy_bitcoin_payments::settings::get(
+                c,
+                easy_bitcoin_payments::emergency_exit::EXIT_STARTED_AT_KEY,
+            )
+        })
+        .await
+        .unwrap();
+    assert!(started.is_none());
+}
+
+#[test]
+fn the_settings_page_folds_the_emergency_withdrawal_away_behind_a_warning() {
+    let page = include_str!("../assets/dashboard.html");
+    let i = page
+        .find("Emergency: withdraw without the Ark server")
+        .unwrap();
+    let rest = &page[i..];
+    assert!(rest.contains("<details id=\"ex-box\">"), "folded away");
+    assert!(rest.contains("For emergencies only."));
+    assert!(rest.contains("Move my money now"));
+    assert!(
+        rest.contains("id=\"ex-start\" type=\"button\" disabled"),
+        "starts disabled"
+    );
+    // Only on the Settings tab, never on Home.
+    let settings_at = page.find("<section id=\"v-set\"").unwrap();
+    assert!(i > settings_at, "inside Settings");
+    let home = &page[page.find("<section id=\"v-home\"").unwrap()
+        ..page.find("<section id=\"v-orders\"").unwrap()];
+    assert!(!home.contains("ex-"), "not on Home");
+}

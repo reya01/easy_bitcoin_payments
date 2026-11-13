@@ -134,6 +134,8 @@ pub struct Observation {
     pub last_sweep_failed: bool,
     /// Payments that arrived but could not be matched to an order.
     pub unresolved_payments: i64,
+    /// An emergency withdrawal is ready to claim (needs the owner).
+    pub exit_claimable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,6 +186,13 @@ fn rules(o: &Observation) -> Vec<Rule> {
             title: "An automatic withdrawal failed",
             body: "Your money is safe, but it did not reach your payout address. Open your dashboard for details.",
             good: "Withdrawals to your payout address are working again.",
+        },
+        Rule {
+            key: "exit_claimable",
+            active: o.exit_claimable,
+            title: "Your emergency withdrawal is ready to claim",
+            body: "Open your dashboard, Settings, Emergency, and press Send to my address. Nothing moves until you do.",
+            good: "The emergency withdrawal has been claimed.",
         },
         Rule {
             key: "unmatched",
@@ -546,6 +555,9 @@ async fn tick(
                 coins_near_expiry: near,
                 last_sweep_failed: failed,
                 unresolved_payments: unresolved,
+                exit_claimable: settings::get(c, crate::emergency_exit::EXIT_CLAIMABLE_KEY)?
+                    .as_deref()
+                    == Some("true"),
             };
             let d = evaluate(&obs, &load_announced(c)?, now);
             Ok((d, validate_server(&server(c)?), topic(c)?))
@@ -766,6 +778,7 @@ mod tests {
             coins_near_expiry: 3,
             last_sweep_failed: true,
             unresolved_payments: 4,
+            exit_claimable: true,
         };
         for d in evaluate(&o, &none(), 1) {
             let t = format!("{} {}", d.title, d.body).to_lowercase();

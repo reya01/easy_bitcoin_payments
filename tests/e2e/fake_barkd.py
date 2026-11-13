@@ -275,6 +275,19 @@ def handle(method, path, query, body):
     if path == "/onchain/transactions":
         return 200, list(S["txs"])
     if path in ("/wallet/refresh/all", "/wallet/refresh/vtxos"):
+        # The round completes at once in the fake: the refreshed coins are
+        # replaced by fresh ones (new ids, new expiry), as after a real round.
+        wanted = body.get("vtxos") if path == "/wallet/refresh/vtxos" else None
+        inputs = []
+        for v in S["vtxos"]:
+            if v["state"]["type"] != "spendable":
+                continue
+            if wanted is not None and v["id"] not in wanted:
+                continue
+            inputs.append(v["id"])
+            S["n_vtxo"] += 1
+            v["id"] = f"{txid_for('vtxo%d' % S['n_vtxo'])}:0"
+            v["expiry_height"] = S["tip"] + 4000
         return 200, {
             "id": 1,
             "state": "pending",
@@ -283,8 +296,23 @@ def handle(method, path, query, body):
             "funding_tx_hex": None,
             "scheduled_height": None,
             "unlock_hash": None,
-            "participation": {"inputs": [], "outputs": []},
+            "participation": {"inputs": inputs, "outputs": []},
         }
+    if path == "/exits/status/live":
+        # No emergency withdrawal running.
+        return 200, []
+    if path == "/exits/fee":
+        return 200, {
+            "exit_broadcast_fee_sat": 4200,
+            "claim_fee_sat": 800,
+            "total_fee_sat": 5000,
+            "fee_rate_sat_per_vb": 2.0,
+            "txs_to_broadcast": 3,
+            "fundable": False,
+        }
+    if path == "/wallet/rounds":
+        # Rounds finish instantly in the fake, so none is ever in progress.
+        return 200, []
     if path == "/wallet/send":
         amt = body.get("amount_sat") or 0
         S["moves"].append(

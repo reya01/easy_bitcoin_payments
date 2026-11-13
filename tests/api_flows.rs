@@ -1384,6 +1384,9 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
 async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() {
     let config = Config {
         password_hash_iterations: 1_000,
+        // Each request below pretends to come from its own address so the
+        // password-guessing brake (10 a minute per client) does not interfere.
+        trust_proxy_headers: true,
         ..Config::default()
     };
     let (base, state, _store_id, _key) = serve_with(config).await;
@@ -1396,6 +1399,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let login = client
         .post(format!("{base}/admin/login"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.1")
         .json(&serde_json::json!({"password": "a good long password"}))
         .send()
         .await
@@ -1411,10 +1415,18 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .as_str()
         .unwrap()
         .to_string();
+    let n = std::sync::atomic::AtomicU32::new(1);
     let post = |path: &str, body: serde_json::Value| {
         client
             .post(format!("{base}{path}"))
             .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!(
+                    "10.2.0.{}",
+                    n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                ),
+            )
             .header("cookie", &cookie)
             .header("x-ebp-csrf", &csrf)
             .json(&body)
@@ -1491,7 +1503,57 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let r = client
         .post(format!("{base}/admin/payout"))
         .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.2")
         .json(&serde_json::json!({"address": a, "admin_password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
+
+    // The amount the till keeps: default shown, changeable with the password.
+    let g = get().await;
+    assert_eq!(g["cap_is_custom"], false);
+    assert_eq!(g["cap_sats"], g["ark_default_cap_sats"]);
+    // Wrong password, zero, negative and too large are all refused.
+    for body in [
+        serde_json::json!({"cap_sats": 5000, "admin_password": "nope nope nope"}),
+        serde_json::json!({"cap_sats": 0, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": -1, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": 10_000_001i64, "admin_password": "a good long password"}),
+    ] {
+        let r = post("/admin/payout/cap", body).await.unwrap();
+        assert_eq!(r.status().as_u16(), 400);
+    }
+    assert_eq!(get().await["cap_is_custom"], false);
+    // A good value applies at once (no waiting period, unlike the address).
+    let r: serde_json::Value = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": 2500, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["cap_sats"], 2500);
+    let g = get().await;
+    assert_eq!(g["cap_is_custom"], true);
+    assert_eq!(g["cap_sats"], 2500);
+    // Back to the default.
+    let r = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": null, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert_eq!(get().await["cap_is_custom"], false);
+    // Not signed in: refused.
+    let r = client
+        .post(format!("{base}/admin/payout/cap"))
+        .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.3")
+        .json(&serde_json::json!({"cap_sats": 5000, "admin_password": "a good long password"}))
         .send()
         .await
         .unwrap();
@@ -2208,6 +2270,7 @@ async fn malformed_requests_never_cause_server_errors() {
         "/admin/keylock/status",
         "/admin/keylock/save",
         "/setup/wallet",
+        "/setup/restore-backup",
         "/setup/wallet/confirm-backup",
         "/setup/wallet/mnemonic",
         "/setup/wallet/verify-backup",
@@ -2512,4 +2575,216 @@ async fn an_order_priced_in_a_currency_uses_the_stored_price_and_is_refused_with
         .as_str()
         .unwrap()
         .contains("not available right now"));
+}
+
+/// The wizard's "bring back my backup file" step: it only works on an
+/// unfinished server whose wallet was restored from the 12 words, and a bad
+/// file or password changes nothing. (The success path restarts the server,
+/// so it is covered by the unit tests of `backup::stage_restore` and
+/// `backup::apply_pending_restore` instead.)
+#[tokio::test]
+async fn wizard_backup_restore_needs_the_words_first_and_refuses_bad_files() {
+    use easy_bitcoin_payments::backup::{seal_with, Entry};
+
+    let dir = std::env::temp_dir().join(format!(
+        "ebp-api-restore-{}",
+        easy_bitcoin_payments::util::random_hex(6)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = Config {
+        database_path: dir.join("ebp.sqlite3").to_string_lossy().to_string(),
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let client = reqwest::Client::new();
+    let pw = "a good long password";
+    let body_for = |password: &str, file: &[u8]| {
+        let mut b = (password.len() as u32).to_be_bytes().to_vec();
+        b.extend_from_slice(password.as_bytes());
+        b.extend_from_slice(file);
+        b
+    };
+    let post = |body: Vec<u8>| {
+        client
+            .post(format!("{base}/setup/restore-backup"))
+            .header("host", "localhost")
+            .header("content-type", "application/octet-stream")
+            .body(body)
+            .send()
+    };
+    let junk_backup = seal_with(
+        &[
+            Entry {
+                name: "ebp.sqlite3".into(),
+                data: b"this is not a database".to_vec(),
+            },
+            Entry {
+                name: "ebp.key".into(),
+                data: "a".repeat(64).into_bytes(),
+            },
+        ],
+        pw,
+        1_000,
+    )
+    .unwrap();
+
+    // 1. A finished server never takes a restore.
+    let r = post(body_for(pw, &junk_backup)).await.unwrap();
+    assert_eq!(r.status().as_u16(), 409);
+
+    // 2. Unfinished, but the wallet was not restored from the words: refused.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_complete", "false"))
+        .await
+        .unwrap();
+    let r = post(body_for(pw, &junk_backup)).await.unwrap();
+    assert_eq!(r.status().as_u16(), 409);
+    let text = r.text().await.unwrap();
+    assert!(text.contains("12 recovery words"), "{text}");
+
+    // 3. Wallet restored from the words: a wrong password and a file that is
+    //    not a backup are refused, and nothing is staged.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::set(c, "setup_wallet_restored", "true"))
+        .await
+        .unwrap();
+    let r = post(body_for("not the password at all", &junk_backup))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    // Bigger than the 64 KB limit other requests have: the upload must still be
+    // read (real backups are megabytes) and refused only for what it is.
+    let r = post(body_for(pw, &vec![b'x'; 200 * 1024])).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let text = r.text().await.unwrap();
+    assert!(
+        text.contains("not an Easy Bitcoin Payments backup"),
+        "{text}"
+    );
+    let r = post(body_for(pw, &junk_backup)).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400, "a backup with no usable database");
+    assert!(!dir.join("restore-pending").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn emergency_withdrawal_needs_a_session_the_tick_box_an_onchain_address_and_two_step() {
+    let config = Config {
+        password_hash_iterations: 1_000,
+        // Its own address per request, so the password brake stays out of the way.
+        trust_proxy_headers: true,
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let client = reqwest::Client::new();
+    let n = std::sync::atomic::AtomicU32::new(1);
+    let send = |path: &str, signed_in: bool, body: serde_json::Value| {
+        let mut r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!(
+                    "10.7.0.{}",
+                    n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                ),
+            )
+            .json(&body);
+        if signed_in {
+            r = r
+                .header("cookie", cookie.clone())
+                .header("x-ebp-csrf", csrf.clone());
+        }
+        r.send()
+    };
+    let tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    let good = serde_json::json!({
+        "admin_password": "a good long password", "code": "123456",
+        "destination": tb, "understood": true
+    });
+    let message = |r: reqwest::Response| async move {
+        let v: serde_json::Value = r.json().await.unwrap();
+        v.to_string()
+    };
+
+    // Not signed in: refused, for every action.
+    for path in [
+        "/admin/exit/start",
+        "/admin/exit/cancel",
+        "/admin/exit/claim",
+        "/admin/exit/leftover",
+        "/admin/exit/status",
+        "/admin/exit/deposit-address",
+    ] {
+        let r = send(path, false, good.clone()).await.unwrap();
+        assert_eq!(r.status().as_u16(), 401, "{path}");
+    }
+    // The tick-box is required.
+    let mut body = good.clone();
+    body["understood"] = serde_json::json!(false);
+    let r = send("/admin/exit/start", true, body).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(message(r).await.contains("Tick the box"));
+    // Never to an Ark address, never to the wrong network.
+    let mut body = good.clone();
+    body["destination"] = serde_json::json!(
+        "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
+    );
+    let r = send("/admin/exit/start", true, body).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(message(r).await.contains("not an Ark address"));
+    let mut body = good.clone();
+    body["destination"] = serde_json::json!("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+    let r = send("/admin/exit/start", true, body).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    // Two-step sign-in is off: refused before anything touches the wallet,
+    // for starting, stopping, claiming and the leftover.
+    for path in [
+        "/admin/exit/start",
+        "/admin/exit/cancel",
+        "/admin/exit/claim",
+        "/admin/exit/leftover",
+    ] {
+        let r = send(path, true, good.clone()).await.unwrap();
+        assert_eq!(r.status().as_u16(), 400, "{path}");
+        assert!(message(r).await.contains("two-step"), "{path}");
+    }
+    // Nothing was started.
+    let started = state
+        .db
+        .call(|c| {
+            easy_bitcoin_payments::settings::get(
+                c,
+                easy_bitcoin_payments::emergency_exit::EXIT_STARTED_AT_KEY,
+            )
+        })
+        .await
+        .unwrap();
+    assert!(started.is_none());
+}
+
+#[test]
+fn the_settings_page_folds_the_emergency_withdrawal_away_behind_a_warning() {
+    let page = include_str!("../assets/dashboard.html");
+    let i = page
+        .find("Emergency: withdraw without the Ark server")
+        .unwrap();
+    let rest = &page[i..];
+    assert!(rest.contains("<details id=\"ex-box\">"), "folded away");
+    assert!(rest.contains("For emergencies only."));
+    assert!(rest.contains("Move my money now"));
+    assert!(
+        rest.contains("id=\"ex-start\" type=\"button\" disabled"),
+        "starts disabled"
+    );
+    // Only on the Settings tab, never on Home.
+    let settings_at = page.find("<section id=\"v-set\"").unwrap();
+    assert!(i > settings_at, "inside Settings");
+    let home = &page[page.find("<section id=\"v-home\"").unwrap()
+        ..page.find("<section id=\"v-orders\"").unwrap()];
+    assert!(!home.contains("ex-"), "not on Home");
 }

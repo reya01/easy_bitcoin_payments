@@ -1,6 +1,23 @@
 # Handoff — Easy Bitcoin Payments (EBP)
 
-## Update 2026-11-06 (read this first)
+## Update 2026-11-13 (read this first)
+
+`v0.1.0-rc2` is published (signet only; restore on a new server, the 1,000-sat sweep
+minimum and the keep-amount setting). The signet restore drill passed on 12 November.
+The mainnet code (MAINNET_PLAN Stage 2, PRs A to H) is merged after rc2: live mode,
+legacy payout addresses, the renewal changes, `--no-ui`, the emergency withdrawal
+(switched off on mainnet until its signet drill) and the real-money docs. Next: a
+release candidate with these changes, its signet checks, then the first mainnet test
+([MAINNET_TEST_SHEET.md](MAINNET_TEST_SHEET.md)).
+
+## Update 2026-11-11
+
+`v0.1.0-rc1` is published (signet only). The next piece of work is the move to mainnet with
+small real money, and the agreed plan is [MAINNET_PLAN.md](MAINNET_PLAN.md): restore from
+the 12 words, mainnet wallet and addresses, three renewal changes, a docs sweep, then a
+mainnet test sheet. Follow it in order. barkd stays on 0.8.0 during alpha.
+
+## Update 2026-11-06
 
 Since the notes below were written, these were added and are on `main` with CI
 green: phone alerts (ntfy), a working WooCommerce plugin (real WordPress +
@@ -52,8 +69,8 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
   lets EBP stay a single Rust binary + SQLite. The SDK would couple EBP to
   Bark’s internal Rust API and force wallet state into the payments process.
 - **Capped till, Custody Level 0.** The server holds only a capped hot “till”
-  (`EBP_HOT_WALLET_CAP_SATS`, default 20,000 sats for an Ark payout address; `EBP_ONCHAIN_SWEEP_CAP_SATS`, default 1,000,000, for an on-chain one) and sweeps excess to the
-  merchant’s own wallet. WHY: passive Ark receive needs a server-side wallet,
+  (`EBP_HOT_WALLET_CAP_SATS`, default 1,000 sats for an Ark payout address; `EBP_ONCHAIN_SWEEP_CAP_SATS`, default 1,000,000, for an on-chain one) and sweeps excess to the
+  merchant’s own wallet, but only once the excess is at least 1,000 sats (`MIN_SWEEP_EXCESS_SATS`), so the payout wallet gets a few bigger coins, not many tiny ones; “Move my money now” ignores that minimum. WHY: passive Ark receive needs a server-side wallet,
   but the honest custody story is “minimize, cap, sweep home, document exactly.”
   (The on-chain exit-reserve warning was removed: it asked for more money on the server, against that principle.)
 - **No upstream assumptions.** EBP works with Bark/barkd/Arké as they exist

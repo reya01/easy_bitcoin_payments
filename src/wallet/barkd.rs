@@ -113,6 +113,23 @@ const PATH_OFFBOARD_VTXOS: &str = "/wallet/offboard/vtxos";
 const PATH_REFRESH_ALL: &str = "/wallet/refresh/all";
 /// Refresh specific VTXOs in the next round. POST.
 const PATH_REFRESH_VTXOS: &str = "/wallet/refresh/vtxos";
+/// Active round participations (coins registered for a refresh and the
+/// round they wait for), kept until the round confirms. Read-only. GET.
+const PATH_ROUNDS: &str = "/wallet/rounds";
+/// Emergency-exit fee estimate (broadcast and claim legs). Read-only. GET.
+const PATH_EXITS_FEE: &str = "/exits/fee";
+/// Register every coin for an emergency (unilateral) exit. POST.
+const PATH_EXITS_START_ALL: &str = "/exits/start/all";
+/// Exits still progressing, with their state. GET.
+const PATH_EXITS_LIVE: &str = "/exits/status/live";
+/// Stop one coin's exit, allowed until its last transaction is broadcast. POST.
+const PATH_EXITS_CANCEL: &str = "/exits/cancel/{vtxo_id}";
+/// Claim every claimable exit output to one on-chain address. POST.
+const PATH_EXITS_CLAIM_ALL: &str = "/exits/claim/all";
+/// Sync the on-chain wallet with the chain. POST.
+const PATH_ONCHAIN_SYNC: &str = "/onchain/sync";
+/// Send the whole on-chain balance to one address. POST.
+const PATH_ONCHAIN_DRAIN: &str = "/onchain/drain";
 /// Lightning invoice via the ASP gateway. POST.
 const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// Whether the wallet is connected to its ASP. GET.
@@ -821,6 +838,82 @@ impl BarkdClient {
         self.post(PATH_REFRESH_VTXOS, &body).await
     }
 
+    /// Round participations barkd is still working on (pinned OpenAPI
+    /// `PendingRoundInfo`: `state` plus `participation.inputs`, the coins
+    /// being refreshed). Entries are removed once the round confirms or
+    /// fails. Odd entries are skipped, never an error.
+    pub async fn round_participations(&self) -> Result<Vec<RoundParticipation>, WalletError> {
+        let v: Json = self.get(PATH_ROUNDS).await?;
+        Ok(parse_round_participations(&v))
+    }
+
+    // -- Emergency exit (never automatic; see crate::emergency_exit) -------
+
+    /// Fee estimate for exiting every coin. `destination` (the claim
+    /// address) makes the claim leg exact; barkd's default fee margin (1.2)
+    /// applies to the broadcast leg.
+    pub async fn exit_fee(&self, destination: Option<&str>) -> Result<Json, WalletError> {
+        let query: Vec<(&str, String)> = destination
+            .map(|d| vec![("destination", d.to_string())])
+            .unwrap_or_default();
+        self.get_query(PATH_EXITS_FEE, &query).await
+    }
+
+    /// Register every coin for an emergency exit. barkd then broadcasts the
+    /// exit transactions by itself over time.
+    pub async fn start_exit_all(&self) -> Result<Json, WalletError> {
+        self.post(PATH_EXITS_START_ALL, &serde_json::json!({}))
+            .await
+    }
+
+    pub async fn exits_live(&self) -> Result<Json, WalletError> {
+        self.get(PATH_EXITS_LIVE).await
+    }
+
+    pub async fn cancel_exit(&self, vtxo_id: &str) -> Result<Json, WalletError> {
+        if vtxo_id.is_empty() || vtxo_id.contains(['/', '?', '#']) {
+            return Err(WalletError::Rejected("not a coin id".into()));
+        }
+        let path = PATH_EXITS_CANCEL.replace("{vtxo_id}", vtxo_id);
+        self.post(&path, &serde_json::json!({})).await
+    }
+
+    pub async fn claim_exits(&self, destination: &str) -> Result<Json, WalletError> {
+        self.post(
+            PATH_EXITS_CLAIM_ALL,
+            &serde_json::json!({ "destination": destination }),
+        )
+        .await
+    }
+
+    /// Ask the on-chain wallet to catch up with the chain (so a deposit
+    /// shows up). Its answer carries nothing we use.
+    pub async fn onchain_sync(&self) -> Result<(), WalletError> {
+        let _: Json = self.post(PATH_ONCHAIN_SYNC, &serde_json::json!({})).await?;
+        Ok(())
+    }
+
+    /// Send the whole on-chain balance (left-over exit fee money) to an
+    /// address. Returns barkd's answer (`txid`).
+    pub async fn onchain_drain(&self, destination: &str) -> Result<Json, WalletError> {
+        self.post(
+            PATH_ONCHAIN_DRAIN,
+            &serde_json::json!({ "destination": destination }),
+        )
+        .await
+    }
+
+    /// The raw on-chain balance answer (confirmed and pending split out).
+    pub async fn onchain_balance_raw(&self) -> Result<Json, WalletError> {
+        self.get(PATH_ONCHAIN_BALANCE).await
+    }
+
+    /// The server's exit delta in blocks (`vtxo_exit_delta` in ark-info).
+    pub async fn exit_delta_blocks(&self) -> Result<Option<i64>, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(flex::i64_field(&v, &["vtxo_exit_delta"]).filter(|n| *n >= 0))
+    }
+
     // -- Lightning ----------------------------------------------------------
 
     /// Create a Lightning receive invoice through the ASP's gateway
@@ -870,6 +963,14 @@ impl BarkdClient {
     pub async fn ark_terms(&self) -> Result<ArkTerms, WalletError> {
         let v: Json = self.get(PATH_ARK_INFO).await?;
         Ok(parse_ark_terms(&v))
+    }
+
+    /// The Bitcoin network of the wallet's Ark server (`network` in
+    /// ark-info), lowercased. Mainnet answers `"bitcoin"` (captured from
+    /// `ark.second.tech` with barkd 0.8.0 on 12 Nov 2026), signet `"signet"`.
+    pub async fn ark_network(&self) -> Result<Option<String>, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(flex::str_field(&v, &["network"]).map(|n| n.to_lowercase()))
     }
 
     /// Whether the wallet is connected to its ASP (health endpoint).
@@ -1350,6 +1451,88 @@ pub fn vtxo_expiry_unix(v: &Vtxo, tip: Option<&Tip>) -> Option<i64> {
     }
 }
 
+/// One entry of `GET /wallet/rounds`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoundParticipation {
+    /// `delegated-pending`, `pending`, `ongoing`, `awaiting-confirmations`,
+    /// `failed` or `canceled` (pinned `RoundFlowState`).
+    pub state: String,
+    /// Ids of the coins this participation spends.
+    pub inputs: Vec<String>,
+}
+
+impl RoundParticipation {
+    /// Still holding its coins: everything except a failed or canceled
+    /// participation. An unknown state counts as active, so a coin is never
+    /// asked for twice because of a name we have not seen before.
+    pub fn is_active(&self) -> bool {
+        !matches!(self.state.as_str(), "failed" | "canceled" | "cancelled")
+    }
+}
+
+pub fn parse_round_participations(v: &Json) -> Vec<RoundParticipation> {
+    let Some(rows) = v.as_array() else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            let state = row.get("state")?.as_str()?.to_lowercase();
+            let inputs = row
+                .get("participation")
+                .and_then(|p| p.get("inputs"))
+                .and_then(Json::as_array)
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(Json::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(RoundParticipation { state, inputs })
+        })
+        .collect()
+}
+
+/// A duration as the Ark server writes it in ark-info (`"5m"`, `"1h"`,
+/// `"1h30m"`, `"30s"`, `"2d"`), or a bare number of seconds. `None` when it
+/// cannot be read.
+pub fn parse_duration_secs(text: &str) -> Option<i64> {
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if let Ok(n) = t.parse::<i64>() {
+        return (n > 0).then_some(n);
+    }
+    let (mut total, mut number) = (0i64, String::new());
+    for c in t.chars() {
+        if c.is_ascii_digit() {
+            number.push(c);
+            continue;
+        }
+        let unit = match c {
+            's' => 1,
+            'm' => 60,
+            'h' => 3_600,
+            'd' => 86_400,
+            _ => return None,
+        };
+        let n: i64 = number.parse().ok()?;
+        total = total.checked_add(n.checked_mul(unit)?)?;
+        number.clear();
+    }
+    if !number.is_empty() || total <= 0 {
+        return None;
+    }
+    Some(total)
+}
+
+/// Is this ark-info `network` name real Bitcoin? barkd says `"bitcoin"` for
+/// mainnet; `"mainnet"` is accepted too in case a later version renames it.
+pub fn is_mainnet_network(name: &str) -> bool {
+    matches!(name.trim().to_lowercase().as_str(), "bitcoin" | "mainnet")
+}
+
 /// The parts of `GET /wallet/ark-info` that decide when to refresh coins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArkTerms {
@@ -1359,6 +1542,9 @@ pub struct ArkTerms {
     /// (the first tier of the server's refresh price table that costs
     /// something). `None`: no free tier is known, or everything is free.
     pub free_refresh_below_blocks: Option<i64>,
+    /// How often the server runs a round (`round_interval`), in seconds. A
+    /// refresh waits for the next round.
+    pub round_interval_secs: Option<i64>,
 }
 
 /// Read the terms out of the ark-info answer. Missing or odd fields give
@@ -1392,6 +1578,11 @@ pub fn parse_ark_terms(v: &Json) -> ArkTerms {
         } else {
             free_refresh_boundary(&table)
         },
+        round_interval_secs: v.get("round_interval").and_then(|r| match r {
+            Json::String(s) => parse_duration_secs(s),
+            Json::Number(n) => n.as_i64().filter(|n| *n > 0),
+            _ => None,
+        }),
     }
 }
 
@@ -2731,9 +2922,74 @@ mod ark_terms_tests {
             parse_ark_terms(&v),
             ArkTerms {
                 vtxo_lifetime_blocks: Some(144),
-                free_refresh_below_blocks: Some(288)
+                free_refresh_below_blocks: Some(288),
+                round_interval_secs: Some(300),
             }
         );
+    }
+
+    /// The full real answer from Second's MAINNET Ark server
+    /// (`ark.second.tech`), read by the pinned barkd 0.8.0 for a throwaway
+    /// empty wallet in the `mainnet-compat-check` workflow (run 43126312755,
+    /// 12 Nov 2026 UTC). Note `network` is `"bitcoin"`, not `"mainnet"`.
+    const MAINNET: &str = r#"{"network":"bitcoin","server_pubkey":"0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5","mailbox_pubkey":"037bb26bfe7a819c2285f4cfdba63e1d806cb37d04915f17447c76140c34cf73a9","round_interval":"1h","nb_round_nonces":10,"vtxo_exit_delta":144,"vtxo_lifetime":4032,"htlc_send_expiry_delta":1008,"htlc_expiry_delta":12,"max_vtxo_amount":10000000,"required_board_confirmations":2,"max_user_invoice_cltv_delta":250,"min_board_amount_sat":50000,"offboard_feerate_sat_per_kvb":124,"ln_receive_anti_dos_required":false,"fees":{"board":{"min_fee_sat":0,"base_fee_sat":0,"ppm":0},"offboard":{"base_fee_sat":0,"fixed_additional_vb":389,"ppm_expiry_table":[{"expiry_blocks_threshold":0,"ppm":2000},{"expiry_blocks_threshold":1008,"ppm":4000},{"expiry_blocks_threshold":2016,"ppm":5000}]},"refresh":{"base_fee_sat":0,"ppm_expiry_table":[{"expiry_blocks_threshold":0,"ppm":0},{"expiry_blocks_threshold":288,"ppm":2000},{"expiry_blocks_threshold":1008,"ppm":4000},{"expiry_blocks_threshold":2016,"ppm":5000}]},"lightning_receive":{"base_fee_sat":0,"ppm":0},"lightning_send":{"min_fee_sat":20,"base_fee_sat":0,"ppm_expiry_table":[{"expiry_blocks_threshold":0,"ppm":2000},{"expiry_blocks_threshold":1008,"ppm":4000},{"expiry_blocks_threshold":2016,"ppm":5000}]}},"max_vtxo_exit_depth":100,"tos_link":"https://second.tech/terms","max_offboard_inputs":100,"vtxo_expiry_delta":4032}"#;
+
+    #[test]
+    fn real_mainnet_answer_gives_28_day_coins_a_288_block_free_window_and_says_bitcoin() {
+        let v: Json = serde_json::from_str(MAINNET).unwrap();
+        assert_eq!(
+            parse_ark_terms(&v),
+            ArkTerms {
+                vtxo_lifetime_blocks: Some(4032),
+                free_refresh_below_blocks: Some(288),
+                round_interval_secs: Some(3600),
+            }
+        );
+        let net = flex::str_field(&v, &["network"]).unwrap();
+        assert!(is_mainnet_network(&net));
+        let signet: Json = serde_json::from_str(SIGNET).unwrap();
+        assert!(!is_mainnet_network(
+            &flex::str_field(&signet, &["network"]).unwrap()
+        ));
+        assert!(!is_mainnet_network("regtest"));
+    }
+
+    #[test]
+    fn round_intervals_are_read_in_the_servers_format() {
+        assert_eq!(parse_duration_secs("5m"), Some(300));
+        assert_eq!(parse_duration_secs("1h"), Some(3_600));
+        assert_eq!(parse_duration_secs("1h30m"), Some(5_400));
+        assert_eq!(parse_duration_secs("30s"), Some(30));
+        assert_eq!(parse_duration_secs("2d"), Some(172_800));
+        assert_eq!(parse_duration_secs("90"), Some(90));
+        for bad in ["", "h", "5x", "-5m", "0", "0m", "m5", "5m3"] {
+            assert_eq!(parse_duration_secs(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn round_participations_list_the_coins_they_hold() {
+        let v: Json = serde_json::from_str(
+            r#"[
+              {"id": 7, "status": {"status": "pending"}, "state": "pending",
+               "participation": {"inputs": ["a:0", "b:1"], "outputs": []},
+               "unlock_hash": null, "funding_txid": null},
+              {"id": 6, "status": {"status": "failed", "error": "x"}, "state": "failed",
+               "participation": {"inputs": ["c:0"], "outputs": []},
+               "unlock_hash": null, "funding_txid": null},
+              {"id": 5, "state": "awaiting-confirmations",
+               "participation": {"inputs": ["d:0"], "outputs": []}},
+              {"no": "state"}
+            ]"#,
+        )
+        .unwrap();
+        let r = parse_round_participations(&v);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].inputs, vec!["a:0", "b:1"]);
+        assert!(r[0].is_active());
+        assert!(!r[1].is_active());
+        assert!(r[2].is_active());
+        assert!(parse_round_participations(&serde_json::json!({"x": 1})).is_empty());
     }
 
     #[test]
@@ -2767,7 +3023,8 @@ mod ark_terms_tests {
             parse_ark_terms(&empty),
             ArkTerms {
                 vtxo_lifetime_blocks: None,
-                free_refresh_below_blocks: None
+                free_refresh_below_blocks: None,
+                round_interval_secs: None,
             }
         );
         // Garbage values are ignored, not trusted.

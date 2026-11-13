@@ -100,4 +100,21 @@ mod tests {
             "bitcoin:?amount=0.00001&lightning=lntbs1i&ark=tark1t"
         );
     }
+
+    #[test]
+    fn mainnet_values_pass_through_unchanged() {
+        // Real-shaped mainnet values: barkd hands out bc1/lnbc/ark1 and the
+        // link carries them verbatim, so a mainnet wallet sees what it expects.
+        let onchain = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
+        let ln = "lnbc20u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypq";
+        let ark = crate::payout::tests::ARK_A;
+        assert_eq!(
+            combined(2_000, Some(onchain), Some(ln), Some(ark)),
+            format!("bitcoin:{onchain}?amount=0.00002&lightning={ln}&ark={ark}")
+        );
+        assert_eq!(
+            combined(2_000, None, Some(ln), Some(ark)),
+            format!("bitcoin:?amount=0.00002&lightning={ln}&ark={ark}")
+        );
+    }
 }

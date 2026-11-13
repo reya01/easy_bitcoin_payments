@@ -22,6 +22,13 @@ services:
     build:
       context: .
     environment:
+      # test = play money (signet, the default). live = REAL bitcoin
+      # (mainnet), experimental: keep amounts small. Choose before setup:
+      # a wallet belongs to one network, so a server cannot be switched later.
+      EBP_MODE: ${EBP_MODE:-test}
+      # Largest single payment request (sats). For a first real-money test,
+      # set a small value such as 5000.
+      EBP_MAX_INVOICE_SATS: ${EBP_MAX_INVOICE_SATS:-100000000}
       EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
       EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
       EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
@@ -30,7 +37,7 @@ services:
       # how much it may hold before it does. Leave the address empty to keep
       # money in the till for now.
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
-      EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-20000}
+      EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-1000}
       EBP_ONCHAIN_SWEEP_CAP_SATS: ${EBP_ONCHAIN_SWEEP_CAP_SATS:-1000000}
       EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB: ${EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB:-50}
       EBP_SETTLEMENT_INTERVAL_SECS: ${EBP_SETTLEMENT_INTERVAL_SECS:-300}

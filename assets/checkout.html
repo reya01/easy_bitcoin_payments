@@ -175,7 +175,13 @@ fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "applicat
     Object.keys(tabs).forEach(function (j) { tabs[j].setAttribute("aria-selected", String(j === s.tab)); });
     // On-chain is off by default (server config onchain_rail_enabled): hide its tab.
     if (!d.onchain_enabled) tabs.chain.hidden = true;
-    if (d.test_mode) els.banner.classList.remove("hidden");
+    if (d.test_mode) {
+      els.banner.classList.remove("hidden");
+    } else if (d.test_mode === false) {
+      els.banner.textContent = "REAL MONEY. Experimental: keep amounts small.";
+      els.banner.removeAttribute("title");
+      els.banner.classList.remove("hidden");
+    }
     els.store.textContent = d.store_name || "This store";
     // Only plain http(s) links are ever followed (the server checks too).
     if (d.return_url && /^https?:\/\//i.test(d.return_url)) {

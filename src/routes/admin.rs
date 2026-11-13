@@ -102,6 +102,14 @@ pub async fn status(
         })
         .await?;
 
+    // The amount the owner chose to keep on the server (Settings), if any.
+    let cap_override = state
+        .db
+        .call(|c| crate::payout::cap_override(c))
+        .await
+        .ok()
+        .flatten();
+
     // Wallet figures straight from barkd (best effort).
     let wallet = match BarkdClient::from_app_config(&state.config) {
         Err(err) => json!({ "error": err.to_string() }),
@@ -116,7 +124,7 @@ pub async fn status(
                     out.insert("in_transit_sats".into(), json!(b.in_transit_sats()));
                     out.insert(
                         "hot_wallet_cap_sats".into(),
-                        json!(state.config.hot_wallet_cap_sats),
+                        json!(cap_override.unwrap_or(state.config.hot_wallet_cap_sats)),
                     );
                 }
                 Err(e) => errors.push(format!("balances: {e}")),
@@ -125,6 +133,9 @@ pub async fn status(
                 if let Some(v) = c.connected {
                     out.insert("asp_connected".into(), json!(v));
                 }
+            }
+            if let Ok(Some(net)) = client.ark_network().await {
+                out.insert("network".into(), json!(net));
             }
             if !errors.is_empty() {
                 out.insert("error".into(), json!(errors.join("; ")));
@@ -164,6 +175,41 @@ pub async fn status(
     facts.offchain_sats = wallet.get("offchain_sats").and_then(Value::as_i64);
     facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
+    facts.live = state.config.mode == "live";
+    if let Ok((started, claimable)) = state
+        .db
+        .call(|c| {
+            Ok((
+                crate::settings::get(c, crate::emergency_exit::EXIT_STARTED_AT_KEY)?,
+                crate::settings::get(c, crate::emergency_exit::EXIT_CLAIMABLE_KEY)?,
+            ))
+        })
+        .await
+    {
+        facts.exit_running_for_secs = started
+            .and_then(|v| v.parse::<i64>().ok())
+            .map(|t| crate::util::now_unix() - t);
+        facts.exit_claimable = claimable.as_deref() == Some("true");
+    }
+    if let Ok((small, lapse_at)) = state
+        .db
+        .call(|c| {
+            Ok((
+                crate::settings::get(c, crate::wallet::settlement::TOO_SMALL_SATS_KEY)?,
+                crate::settings::get(c, crate::wallet::settlement::TOO_SMALL_LAPSE_AT_KEY)?,
+            ))
+        })
+        .await
+    {
+        facts.too_small_to_renew_sats = small.and_then(|v| v.parse().ok());
+        facts.too_small_lapse_in_secs = lapse_at
+            .and_then(|v| v.parse::<i64>().ok())
+            .map(|at| at - crate::util::now_unix());
+    }
+    facts.wallet_network = wallet
+        .get("network")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     {
         let cfg = state.config.settlement_destination.clone();
         if let Ok(s) = state
@@ -173,7 +219,9 @@ pub async fn status(
         {
             use crate::health_checks::Payout;
             if let Some(active) = s.active.as_deref() {
-                facts.hot_wallet_cap_sats = state.config.sweep_cap_for(active);
+                facts.hot_wallet_cap_sats = s
+                    .cap_override
+                    .unwrap_or_else(|| state.config.sweep_cap_for(active));
             }
             let invalid = s
                 .active

@@ -4,7 +4,8 @@
 //! The payment loop is implemented against a barkd 0.8.0 sidecar: invoice API,
 //! hosted checkout, polling watcher with a persisted cursor, VTXO expiry queue,
 //! settlement engine, setup wizard, and signed webhooks. This build is
-//! EXPERIMENTAL — use signet or regtest only, never mainnet or real funds.
+//! EXPERIMENTAL. Signet (play money) is the default; mainnet is opt-in with
+//! `EBP_MODE=live` and is for very small amounts only.
 
 pub mod admin_auth;
 pub mod aead;
@@ -14,6 +15,7 @@ pub mod auth;
 pub mod backup;
 pub mod config;
 pub mod db;
+pub mod emergency_exit;
 pub mod error;
 pub mod health_checks;
 pub mod invoice;

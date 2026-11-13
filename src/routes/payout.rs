@@ -2,6 +2,8 @@
 //!
 //! * `GET  /api/v1/payout`         — current / pending address (signed in).
 //! * `POST /admin/payout`          — change it (session + CSRF + admin password).
+//! * `POST /admin/payout/cap`      — change how much the till keeps before the rest
+//!   is sent on (session + CSRF + admin password, + second step when on).
 //! * `POST /admin/payout/cancel`   — cancel a pending change (session + CSRF).
 //! * `POST /admin/sweep`           — move the whole till to the payout address now
 //!   (session + CSRF; it can only ever pay the saved payout address).
@@ -30,14 +32,20 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
     json!({
         "address": s.active,
         "kind": kind,
-        "cap_sats": s.active.as_deref().map(|a| config.sweep_cap_for(a)),
-        "ark_cap_sats": config.hot_wallet_cap_sats,
-        "onchain_cap_sats": config.onchain_sweep_cap_sats,
+        "cap_sats": s.active.as_deref().map(|a| s.cap_override.unwrap_or_else(|| config.sweep_cap_for(a))),
+        "cap_is_custom": s.cap_override.is_some(),
+        "cap_min_sats": crate::payout::MIN_CAP_SATS,
+        "cap_max_sats": crate::payout::MAX_CAP_SATS,
+        "ark_cap_sats": s.cap_override.unwrap_or(config.hot_wallet_cap_sats),
+        "onchain_cap_sats": s.cap_override.unwrap_or(config.onchain_sweep_cap_sats),
+        "ark_default_cap_sats": config.hot_wallet_cap_sats,
+        "onchain_default_cap_sats": config.onchain_sweep_cap_sats,
         "onchain_max_fee_sat_vb": config.onchain_sweep_max_fee_sat_vb,
         "pending_address": s.pending,
         "pending_effective_at": s.effective_at,
         "set_by_server_config": s.from_server_config,
         "change_delay_hours": delay_secs / 3600,
+        "live": config.mode == "live",
     })
 }
 
@@ -92,6 +100,62 @@ pub async fn change(
     let mut v = view(&s, &state.config);
     v["applied_now"] = json!(matches!(change, crate::payout::Change::Now));
     Ok(Json(v))
+}
+
+#[derive(Deserialize)]
+pub struct CapRequest {
+    /// The new amount to keep on the server, in sats. Absent or null = go back
+    /// to the server's default.
+    #[serde(default)]
+    pub cap_sats: Option<i64>,
+    pub admin_password: String,
+    /// Authenticator code, needed only when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+/// `POST /admin/payout/cap` — change how much the till keeps before the rest
+/// is sent on. Same protection as the address (signed in, CSRF, admin
+/// password, second step when on). It cannot redirect money, so it applies at
+/// once and needs no waiting period.
+pub async fn change_cap(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CapRequest>,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    // Validate first so a typo never costs a slow password check.
+    if let Some(v) = req.cap_sats {
+        if !(crate::payout::MIN_CAP_SATS..=crate::payout::MAX_CAP_SATS).contains(&v) {
+            return Err(AppError::BadRequest(format!(
+                "the amount must be a whole number of sats between {} and {}",
+                crate::payout::MIN_CAP_SATS,
+                crate::payout::MAX_CAP_SATS
+            )));
+        }
+    }
+    let stored = state.db.call(|c| aa::stored_hash(c)).await?;
+    let ok = aa::verify_login_slow(stored, req.admin_password).await?;
+    if !ok {
+        return Err(AppError::BadRequest(
+            "that admin password isn't right".into(),
+        ));
+    }
+    crate::routes::admin_session::check_second_step(&state, req.code).await?;
+
+    let cfg = state.config.settlement_destination.clone();
+    let cap = req.cap_sats;
+    let s = state
+        .db
+        .call(move |c| {
+            match cap {
+                Some(v) => crate::payout::set_cap(c, v)?,
+                None => crate::payout::clear_cap(c)?,
+            }
+            crate::payout::status(c, cfg.as_deref())
+        })
+        .await?;
+    Ok(Json(view(&s, &state.config)))
 }
 
 pub async fn cancel(

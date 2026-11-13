@@ -57,6 +57,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 <body>
 <main>
 <header><span class="dot"></span><h1>Easy Bitcoin Payments</h1><button class="small hidden" id="logout" style="margin-left:auto" type="button">Sign out</button></header>
+<div class="warnbox hidden" id="mode-banner" role="note" style="text-align:center;font-weight:600;color:var(--warn)"></div>
 
 <section id="v-login" class="hidden">
   <h2>Sign in</h2>
@@ -189,6 +190,15 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
     </div>
+    <div id="cap-box" class="hidden">
+      <h3>How much to keep on this server</h3>
+      <p class="muted" id="cap-now"></p>
+      <label for="cap-new">New amount to keep (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
+      <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
+      <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+      <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
+      <p class="msg hidden" id="cap-msg"></p>
+    </div>
     <div id="sweep-box" class="hidden">
       <p class="muted">Don't want to wait? You can move everything in the till to your payout address right now. This ignores the amount and fee limits above, and on-chain withdrawals then pay whatever the network fee is today.</p>
       <div class="btns"><button id="sweep-go" type="button">Move my money to my payout address now</button></div>
@@ -211,6 +221,45 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <label for="ck-pw">Password for that backup</label><input type="password" id="ck-pw" autocomplete="off">
     <div class="btns"><button id="ck-go" type="button">Check this backup</button></div>
     <p class="msg hidden" id="ck-msg"></p>
+  </div>
+  <h2 class="bad">Emergency: withdraw without the Ark server</h2>
+  <div class="card">
+    <details id="ex-box">
+      <summary>Open only in an emergency</summary>
+      <div class="warnbox"><strong>For emergencies only.</strong> You always hold the keys to this money, so you can take it out on your own even if the Ark server is gone or refuses to help. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use <strong>Move my money now</strong> instead: it is cheaper and faster.</div>
+      <div id="ex-facts"></div>
+      <p class="msg hidden" id="ex-refusal"></p>
+      <div id="ex-deposit" class="hidden">
+        <h3>Step 1: put the fee money on the server</h3>
+        <p class="muted" id="ex-deposit-need"></p>
+        <div class="btns"><button id="ex-get-addr" type="button">Show the deposit address</button></div>
+        <div id="ex-addr-box" class="hidden">
+          <div class="secret" id="ex-addr"></div>
+          <div class="btns"><button class="small" type="button" data-copy="ex-addr">Copy</button></div>
+          <div class="qrbox" id="ex-qr"></div>
+        </div>
+      </div>
+      <div id="ex-auth" class="hidden">
+        <label for="ex-dest">Your Bitcoin address (on-chain) where the money goes</label><input type="text" id="ex-dest" autocomplete="off" spellcheck="false">
+        <label for="ex-pw">Admin password</label><input type="password" id="ex-pw" autocomplete="current-password">
+        <label for="ex-code">Code from your authenticator app</label><input type="text" id="ex-code" inputmode="numeric" autocomplete="off" placeholder="6 digits">
+      </div>
+      <div id="ex-start-box" class="hidden">
+        <h3>Step 2: start</h3>
+        <label><input type="checkbox" id="ex-ok"> I understand this is for emergencies, costs network fees and takes at least a day</label>
+        <div class="btns"><button id="ex-start" type="button" disabled>Start the emergency withdrawal</button></div>
+      </div>
+      <div id="ex-running" class="hidden">
+        <h3>In progress</h3>
+        <div id="ex-list"></div>
+        <p class="muted">Leave the server on. Download a fresh backup now (above): the backup carries this withdrawal, the 12 words do not.</p>
+        <div class="btns"><button id="ex-claim" type="button" class="hidden">Send to my address</button><button id="ex-stop" type="button">Stop</button></div>
+      </div>
+      <div id="ex-left-box" class="hidden">
+        <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
+      </div>
+      <p class="msg hidden" id="ex-msg"></p>
+    </details>
   </div>
   <h2>Security activity</h2>
   <div class="card" id="audit"></div>
@@ -357,21 +406,37 @@ function loadRecon() {
     var box = $("recon"); clear(box);
     if (!r.paid_orders && !r.swept_sats) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
-    box.appendChild(el("strong", r.due ? "Time for your weekly wallet check" : "Weekly wallet check", r.due ? "bad" : ""));
-    box.appendChild(el("p", "In the last " + r.days + " days this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ") and says it sent " + fmtSats(r.swept_sats) + " on to your payout address.", "muted"));
-    box.appendChild(el("p", "Open your own wallet and check that the payments you received match. This is the one check that does not depend on this server telling the truth.", "muted"));
-    if (r.last_checked_at) box.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
+    // Checked within the last week: fold it away to one line so it does not take
+    // up room on the Home page. It opens out again on a tap, and by itself when due.
+    var host = box;
+    if (r.due) {
+      box.appendChild(el("strong", "Time for your weekly wallet check", "bad"));
+    } else {
+      host = document.createElement("details");
+      host.style.margin = "0";
+      host.appendChild(el("summary", "Weekly wallet check: done" + (r.last_checked_at ? " " + when(r.last_checked_at * 1000) : "") + ". Tap to check again."));
+      box.appendChild(host);
+    }
+    var days = r.days + " days";
+    if (r.swept_sats > 0) {
+      host.appendChild(el("p", "Open your own wallet. Does it show about " + fmtSats(r.swept_sats) + " received from this server in the last " + days + "?"));
+    } else {
+      host.appendChild(el("p", "This server says it has not sent anything on to your wallet in the last " + days + ". Open your own wallet and check that nothing arrived from it either."));
+    }
+    host.appendChild(el("p", "This is the one check that does not depend on this server telling the truth. Payments are sent on in batches, so the amount in your wallet can lag a little behind your orders.", "muted"));
+    host.appendChild(el("p", "For reference: in the last " + days + " this server marked " + r.paid_orders + " order" + (r.paid_orders === 1 ? "" : "s") + " paid (" + fmtSats(r.paid_sats) + ").", "muted"));
+    if (r.last_checked_at) host.appendChild(el("p", "Last checked " + when(r.last_checked_at * 1000) + ".", "muted"));
     var btns = el("div", "", "btns");
     var ok = el("button", "I checked: it matches"); ok.type = "button"; ok.className = r.due ? "primary" : "";
     ok.addEventListener("click", function () { ok.disabled = true; api("POST", "/admin/reconcile/done", {}).then(loadRecon).catch(function () { ok.disabled = false; }); });
     btns.appendChild(ok);
-    box.appendChild(btns);
+    host.appendChild(btns);
     var d = document.createElement("details");
     d.appendChild(el("summary", "It doesn't match"));
     d.appendChild(el("p", "1. In Settings, press \"Pause new payments\". Then in your shop, turn off the Bitcoin payment method (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
     d.appendChild(el("p", "2. Do not delete anything on the server; it may help work out what happened.", "muted"));
     d.appendChild(el("p", "3. Turn the server off at your hosting company, then follow \"If something looks wrong\" in the docs (IF_SOMETHING_LOOKS_WRONG.md) before you do anything else. Never type your recovery words anywhere while fixing this.", "muted"));
-    box.appendChild(d);
+    host.appendChild(d);
   }).catch(function () {});
 }
 
@@ -470,6 +535,9 @@ var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wall
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
+    var mb = $("mode-banner");
+    if (s.mode === "live") { mb.textContent = "REAL MONEY. Experimental: keep amounts small."; mb.classList.remove("hidden"); }
+    else if (s.mode === "test") { mb.textContent = "TEST MODE: play money (signet). Nothing here is real."; mb.classList.remove("hidden"); }
     loadVersion();
     USD = s.usd_per_btc > 0 ? Number(s.usd_per_btc) : null;
     tpPreview();
@@ -681,13 +749,19 @@ $("sweep-go").addEventListener("click", function () {
 function loadPayout() {
   api("GET", "/api/v1/payout").then(function (p) {
     var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
-    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + ". The till is emptied whenever it holds more than " + fmtSats(p.cap_sats) + "." : "No payout address yet — money stays in the till until you add one.";
+    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + "." : "No payout address yet — money stays in the till until you add one.";
     var kinds = $("po-kinds"); clear(kinds);
-    [["Ark address (recommended)", "starts with ark1… (tark1… for play money) — instant and almost free. The till is emptied above " + fmtSats(p.ark_cap_sats) + ", so only a small amount is ever held on this server."],
-     ["On-chain Bitcoin address", "starts with bc1… (tb1… for play money) — the most widely understood option. Money is withdrawn once the till holds more than " + fmtSats(p.onchain_cap_sats) + ", and only when network fees are low (" + Number(p.onchain_max_fee_sat_vb) + " sat/vB or less). Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
+    [["Ark address (recommended)", (p.live ? "starts with ark1… (your Ark wallet must use ark.second.tech)" : "starts with tark1… on this play-money server") + " — instant and almost free, so only a small amount is ever held on this server."],
+     ["On-chain Bitcoin address", (p.live ? "starts with bc1… (older wallets: 1… or 3…)" : "starts with tb1… on this play-money server") + " — the most widely understood option. Withdrawals wait for network fees to be low. Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
+    $("cap-box").classList.toggle("hidden", !p.address);
+    if (p.address) {
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once enough has built up" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("cap-new").placeholder = "number of sats";
+      $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
+    }
     var pend = p.pending_address;
     $("po-pending").classList.toggle("hidden", !pend);
     $("po-cancel-box").classList.toggle("hidden", !pend);
@@ -704,6 +778,21 @@ $("po-go").addEventListener("click", function () {
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
 });
+function saveCap(value, btn) {
+  btn.disabled = true;
+  api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
+    $("cap-new").value = ""; $("cap-pw").value = ""; $("cap-code").value = "";
+    say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + ".");
+    loadPayout();
+  }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
+}
+$("cap-go").addEventListener("click", function () {
+  var raw = $("cap-new").value.trim();
+  var n = Number(raw);
+  if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 1000.", true); return; }
+  saveCap(n, $("cap-go"));
+});
+$("cap-reset").addEventListener("click", function () { saveCap(null, $("cap-reset")); });
 $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });
@@ -889,8 +978,82 @@ function loadAudit() {
   }).catch(function (e) { $("audit").textContent = e.message; });
 }
 
+// ---- Emergency withdrawal (Settings). Folded away; nothing starts on its own.
+var exState = null, exTimer = null;
+function exReady() {
+  var s = exState;
+  $("ex-start").disabled = !(s && s.allowed && s.two_step_on && s.deposit_needed_sats === 0 && !s.in_progress_since && !(s.live || []).length &&
+    $("ex-ok").checked && $("ex-pw").value && $("ex-code").value.trim() && $("ex-dest").value.trim());
+}
+function loadExit() {
+  api("POST", "/admin/exit/status", {}).then(function (s) {
+    exState = s;
+    var f = $("ex-facts"); clear(f);
+    f.appendChild(row("Ark money on this server", s.ark_sats == null ? "unknown" : fmtSats(s.ark_sats)));
+    f.appendChild(row("Network fees to take it out (estimate)", s.fee ? fmtSats(s.fee.total_sat) : "unknown"));
+    f.appendChild(row("Fee money on the server (confirmed)", s.onchain_confirmed_sats == null ? "unknown" : fmtSats(s.onchain_confirmed_sats) + (s.onchain_pending_sats ? " (+" + fmtSats(s.onchain_pending_sats) + " waiting for a confirmation)" : "")));
+    f.appendChild(row("Must start before", s.deadline ? when(s.deadline * 1000) : "unknown"));
+    f.appendChild(row("Ark server answering right now", s.asp_connected === true ? "yes" : s.asp_connected === false ? "no" : "unknown"));
+    var live = s.live || [];
+    var running = !!s.in_progress_since || live.length > 0;
+    var r = $("ex-refusal");
+    if (!running && !s.two_step_on) { r.textContent = "Turn on two-step sign-in (above) first: an emergency withdrawal needs your password and a code from your authenticator app."; r.className = "msg bad"; }
+    else if (!running && s.refusal) { r.textContent = s.refusal; r.className = "msg bad"; }
+    else { r.className = "msg hidden"; }
+    var canGo = !running && s.allowed && s.two_step_on;
+    $("ex-deposit").classList.toggle("hidden", !canGo);
+    if (canGo && s.fee) {
+      $("ex-deposit-need").textContent = s.deposit_needed_sats > 0
+        ? "The fees are paid from the server's own Bitcoin balance, which is normally empty. Send at least " + fmtSats(s.deposit_needed_sats) + " to the address below from any wallet or exchange, then wait for 1 confirmation. This page checks again every minute. (The final step's fee, about " + fmtSats(s.fee.claim_sat) + ", comes out of the money itself.)"
+        : "Enough fee money is on the server and confirmed.";
+    }
+    $("ex-start-box").classList.toggle("hidden", !canGo);
+    $("ex-auth").classList.toggle("hidden", !(canGo || running || s.onchain_confirmed_sats > 0));
+    if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+    $("ex-running").classList.toggle("hidden", !running);
+    var list = $("ex-list"); clear(list);
+    if (s.in_progress_since) list.appendChild(row("Started", when(s.in_progress_since * 1000)));
+    live.forEach(function (e) { list.appendChild(row("Coin " + e.vtxo_id.slice(0, 10) + "…", e.words)); });
+    $("ex-claim").classList.toggle("hidden", !s.claimable);
+    $("ex-left-box").classList.toggle("hidden", running || !(s.onchain_confirmed_sats > 0));
+    exReady();
+  }).catch(function (e) { say("ex-msg", e.message, true); });
+}
+$("ex-box").addEventListener("toggle", function () {
+  if (exTimer) { clearInterval(exTimer); exTimer = null; }
+  if ($("ex-box").open) { loadExit(); exTimer = setInterval(loadExit, 60000); }
+});
+["ex-ok", "ex-pw", "ex-code", "ex-dest"].forEach(function (id) { $(id).addEventListener("input", exReady); $(id).addEventListener("change", exReady); });
+$("ex-get-addr").addEventListener("click", function () {
+  api("POST", "/admin/exit/deposit-address", {}).then(function (r) {
+    $("ex-addr").textContent = r.address;
+    var q = $("ex-qr"); clear(q);
+    try {
+      var img = document.createElement("img"); img.alt = "QR code for the deposit address";
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg("bitcoin:" + r.address));
+      q.appendChild(img);
+    } catch (e) {}
+    $("ex-addr-box").classList.remove("hidden");
+  }).catch(function (e) { say("ex-msg", e.message, true); });
+});
+function exAction(path, extra, button) {
+  var body = { admin_password: $("ex-pw").value, code: $("ex-code").value.trim(), destination: $("ex-dest").value.trim() };
+  for (var k in extra) body[k] = extra[k];
+  button.disabled = true;
+  return api("POST", path, body).then(function (r) {
+    $("ex-pw").value = ""; $("ex-code").value = "";
+    say("ex-msg", r.message || "Done.");
+    loadExit();
+  }).catch(function (e) { say("ex-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
+}
+$("ex-start").addEventListener("click", function () { exAction("/admin/exit/start", { understood: $("ex-ok").checked }, $("ex-start")); });
+$("ex-stop").addEventListener("click", function () { exAction("/admin/exit/cancel", {}, $("ex-stop")); });
+$("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
+$("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
+
 boot();
 })();
+
 </script>
 </body>
 </html>

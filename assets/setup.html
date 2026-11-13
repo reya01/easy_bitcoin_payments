@@ -63,6 +63,13 @@
     background: transparent; color: var(--fg);
     font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
   }
+  textarea {
+    width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: transparent; color: var(--fg); resize: vertical;
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  input[type=file] { width: 100%; padding: 8px 0; color: var(--fg); font: inherit; font-size: 14px; }
+  button.link { background: none; border: 0; color: var(--fg); text-decoration: underline; font: inherit; font-size: 14px; padding: 12px 0; min-height: 44px; cursor: pointer; }
   input.name { font-family: inherit; }
   .pwrow { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 13px; color: var(--muted); }
   .pwrow button { background: none; border: 0; color: inherit; text-decoration: underline; font: inherit; padding: 0 4px; min-height: 44px; cursor: pointer; }
@@ -80,7 +87,7 @@
   }
   /* 16px stops iPhones zooming the page when a field is tapped. */
   @media (max-width: 600px) {
-    input[type=text], input[type=password] { font-size: 16px; }
+    input[type=text], input[type=password], textarea { font-size: 16px; }
   }
   .words {
     display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 14px 0; padding: 14px;
@@ -145,10 +152,43 @@
       <input type="text" id="asp" value="https://ark.signet.2nd.dev" autocomplete="off">
       <label for="network">Network</label>
       <input type="text" id="network" value="signet" autocomplete="off">
-      <p class="sub">Leave these two as they are while EBP is in testing (practice network, play money).</p>
+      <p class="sub" id="wallet-net-note">Leave these two as they are while EBP is in testing (practice network, play money).</p>
       <button class="primary" id="btn-wallet" type="button">Create the wallet</button>
+      <p class="note">Moving to a new server? <button class="link" id="btn-go-restore" type="button">Restore the wallet I already have, from my 12 words</button></p>
     </div>
     <div class="error hidden" id="wallet-error"></div>
+  </section>
+
+  <section id="step-restore" class="hidden">
+    <h1>Restore your wallet</h1>
+    <p class="sub">Type the 12 recovery words you wrote down when you first set up your server. The wallet and the money in it come back from these words. Type them only here, nowhere else.</p>
+    <div class="card">
+      <label for="restore-words">Your 12 recovery words, in order, separated by spaces</label>
+      <textarea id="restore-words" rows="3" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="word1 word2 word3 …"></textarea>
+      <p class="note">The words are sent to your own server only, used once to rebuild the wallet, and never stored or logged. Coins can take a round or two (a few minutes on the practice network) to appear after a restore.</p>
+      <div class="check">
+        <input type="checkbox" id="restore-paper">
+        <label for="restore-paper">My paper copy of these words still exists, in a safe place. It is my real backup.</label>
+      </div>
+      <button class="primary" id="btn-restore" type="button" disabled>Restore my wallet</button>
+      <button class="small" id="btn-restore-back" type="button">Back</button>
+    </div>
+    <div class="error hidden" id="restore-error"></div>
+  </section>
+
+  <section id="step-restorefile" class="hidden">
+    <h1>Bring back your orders and settings</h1>
+    <p class="sub">Your wallet is restored. If you also have the backup file you downloaded from your old server (it ends in <code>.ebpbackup</code>), pick it here to bring back your order history, your payout address, your admin password and your shop connection.</p>
+    <div class="card">
+      <label for="rf-file">Backup file</label>
+      <input type="file" id="rf-file">
+      <label for="rf-pw">Password for that backup (your admin password from when you downloaded it)</label>
+      <input type="password" id="rf-pw" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <button class="primary" id="btn-rf" type="button">Restore from this backup</button>
+      <p class="note hidden" id="rf-working"></p>
+      <button class="link" id="btn-rf-skip" type="button">I don't have a backup file &mdash; set up a new store instead</button>
+    </div>
+    <div class="error hidden" id="rf-error"></div>
   </section>
 
   <section id="step-backup" class="hidden">
@@ -235,6 +275,7 @@
     <h1>Setup complete</h1>
     <p class="sub">Your server can now take payments. Open the dashboard to watch them arrive — and to see the till empty into your own wallet.</p>
     <div class="card"><a href="/admin">Open your admin page</a></div>
+    <p class="note hidden" id="done-restored">Restored from your backup. Sign in with the admin password you had when you downloaded it. Two-step sign-in is off after a restore: turn it on again in Settings, then download a fresh backup.</p>
     <p class="note">If the page stops answering for about a minute, the server is restarting to connect the wallet. Wait, then refresh.</p>
   </section>
 </main>
@@ -276,6 +317,8 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     network: document.getElementById("network"),
     btnWallet: document.getElementById("btn-wallet"),
     walletError: document.getElementById("wallet-error"),
+    restore: document.getElementById("step-restore"),
+    restorefile: document.getElementById("step-restorefile"),
     backup: document.getElementById("step-backup"),
     words: document.getElementById("words"),
     wordsManual: document.getElementById("words-manual"),
@@ -300,7 +343,8 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     done: document.getElementById("step-done")
   };
 
-  var sections = ["https", "code", "wallet", "backup", "token", "store", "done"];
+  var sections = ["https", "code", "wallet", "restore", "restorefile", "backup", "token", "store", "done"];
+  var skipRestoreFile = false;
 
   function show(name) {
     sections.forEach(function (section) {
@@ -317,12 +361,24 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   // Payout wallet picker: choosing a kind shows the address box with the right
   // hint. The server still checks the address properly; this only catches the
   // obvious mix-up (an Ark address in the on-chain box, or the reverse).
-  var payoutHints = {
-    ark: { label: "Your Ark address", ph: "ark1… (play money: tark1…)",
-      hint: "In your Ark wallet (Arké or Noah) open Receive and copy the Ark address. It starts with ark1, or tark1 for play money." },
-    onchain: { label: "Your Bitcoin address", ph: "bc1… (play money: tb1…)",
-      hint: "In your wallet (Sparrow, Nunchuk or Liana) open Receive and copy a fresh address. It starts with bc1, or tb1 for play money. Use a wallet you control, not an exchange deposit address." }
+  // Wording follows the server's mode (set in resume()): a play-money server
+  // only takes tark1/tb1 addresses, a real-money one only ark1/bc1/1/3.
+  var payoutHintsFor = {
+    test: {
+      ark: { label: "Your Ark address", ph: "tark1…",
+        hint: "In your Ark wallet (Arké or Noah, on signet) open Receive and copy the Ark address. On this play-money server it starts with tark1." },
+      onchain: { label: "Your Bitcoin address", ph: "tb1…",
+        hint: "In your signet wallet open Receive and copy a fresh address. On this play-money server it starts with tb1. Use a wallet you control, not an exchange deposit address." }
+    },
+    live: {
+      ark: { label: "Your Ark address", ph: "ark1…",
+        hint: "In your Ark wallet (Arké or Noah) open Receive and copy the Ark address. It starts with ark1. The wallet must use Second's Ark server (ark.second.tech)." },
+      onchain: { label: "Your Bitcoin address", ph: "bc1… (or 1… / 3…)",
+        hint: "In your wallet (Sparrow, Nunchuk or Liana) open Receive and copy a fresh address. It starts with bc1 (older wallets: 1 or 3). Use a wallet you control, not an exchange deposit address." }
+    }
   };
+  var payoutHints = payoutHintsFor.test;
+  var arkPrefixText = "tark1";
   function payoutKind() { return document.getElementById("payout-kind").value; }
   function looksArk(a) { return /^t?ark1/i.test(a); }
   function payoutValue() {
@@ -405,9 +461,16 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     if (status.setup_code_required && !codeOk && !setupToken) { markStep(0); show("code"); return; }
     if (status.mode === "test") els.testBanner.classList.remove("hidden");
     if (status.mode === "live") {
+      els.testBanner.textContent = "REAL MONEY. Experimental: keep amounts small.";
+      els.testBanner.classList.remove("hidden");
+    }
+    payoutHints = status.mode === "live" ? payoutHintsFor.live : payoutHintsFor.test;
+    arkPrefixText = status.mode === "live" ? "ark1" : "tark1";
+    if (status.mode === "live") {
       els.network.value = "mainnet";
-      els.asp.value = "";
-      els.asp.placeholder = "https://your-asp.example";
+      els.asp.value = "https://ark.second.tech";
+      document.getElementById("wallet-net-note").textContent =
+        "This server is set to real money. Leave these two as they are: Second's Ark server and real Bitcoin (mainnet). Keep amounts small: this is experimental.";
     }
     if (status.setup_complete) { markStep(4); show("done"); return; }
     if (!status.wallet_created) { markStep(0); show("wallet"); return; }
@@ -423,6 +486,9 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       els.wordsManual.classList.remove("hidden");
       return;
     }
+    // (A separate wallet container needs its token step first: the backup
+    // marks setup as finished, so that step would never come round again.)
+    if (status.wallet_restored && !skipRestoreFile && (status.managed || status.config_written)) { markStep(2); show("restorefile"); return; }
     if (!status.config_written && status.managed && !autoTokenTried) {
       // Managed install: the server already holds the wallet token; no
       // copying needed. Fall back to the manual step if this fails.
@@ -508,6 +574,107 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       })
       .catch(function (err) { fail(els.walletError, err.message); })
       .finally(function () { els.btnWallet.disabled = false; });
+  });
+
+  // Restore from the 12 words. The words live only in this box and in one
+  // request; the box is wiped as soon as the request is sent.
+  var restoreWords = document.getElementById("restore-words");
+  var restorePaper = document.getElementById("restore-paper");
+  var btnRestore = document.getElementById("btn-restore");
+  var restoreError = document.getElementById("restore-error");
+  restorePaper.addEventListener("change", function () { btnRestore.disabled = !this.checked; });
+  document.getElementById("btn-go-restore").addEventListener("click", function () {
+    clearFail(els.walletError); show("restore");
+  });
+  document.getElementById("btn-restore-back").addEventListener("click", function () {
+    restoreWords.value = ""; clearFail(restoreError); show("wallet");
+  });
+  btnRestore.addEventListener("click", function () {
+    clearFail(restoreError);
+    var words = restoreWords.value;
+    if (!words.trim()) { fail(restoreError, "Type your recovery words first."); return; }
+    btnRestore.disabled = true;
+    btnRestore.textContent = "Restoring… this can take a minute";
+    api("POST", "/setup/wallet", {
+      asp_url: els.asp.value.trim(),
+      network: els.network.value.trim(),
+      mnemonic: words,
+      paper_copies_exist: restorePaper.checked
+    })
+      .then(function () {
+        restoreWords.value = "";
+        return api("GET", "/setup/status");
+      })
+      .then(function (s) { resume(s, true); })
+      .catch(function (err) { fail(restoreError, err.message); })
+      .finally(function () {
+        btnRestore.textContent = "Restore my wallet";
+        btnRestore.disabled = !restorePaper.checked;
+      });
+  });
+
+  // Bring back a backup file: 4 bytes (password length), the password, then
+  // the file, in one request. The server stages it and restarts; we then wait
+  // for it to come back and show the last step.
+  var rfError = document.getElementById("rf-error");
+  var btnRf = document.getElementById("btn-rf");
+  var rfWorking = document.getElementById("rf-working");
+  document.getElementById("btn-rf-skip").addEventListener("click", function () {
+    skipRestoreFile = true; clearFail(rfError); resume(lastStatus, true);
+  });
+  function waitForRestart() {
+    rfWorking.textContent = "Restored. The server is restarting to use your backup; this takes about a minute…";
+    rfWorking.classList.remove("hidden");
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries += 1;
+      fetch("/setup/status", { headers: { "accept": "application/json" } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (s) {
+          if (s && s.restore_refused) {
+            clearInterval(timer);
+            rfWorking.classList.add("hidden");
+            fail(rfError, "The server restarted but did not use your backup: " + s.restore_refused + ". Nothing was deleted. To try again, reload this page; you will need the new setup code shown where the server runs.");
+          } else if (s && s.setup_complete) {
+            clearInterval(timer);
+            document.getElementById("done-restored").classList.remove("hidden");
+            markStep(4); show("done");
+          } else if (tries > 100) {
+            clearInterval(timer);
+            fail(rfError, "The server is taking longer than expected to restart. Wait a minute, then reload this page.");
+          }
+        })
+        .catch(function () { /* still restarting */ });
+    }, 3000);
+  }
+  btnRf.addEventListener("click", function () {
+    clearFail(rfError);
+    var file = document.getElementById("rf-file").files[0];
+    var pw = document.getElementById("rf-pw").value;
+    if (!file) { fail(rfError, "Choose your backup file first."); return; }
+    if (!pw) { fail(rfError, "Type the password for that backup."); return; }
+    var pwBytes = new TextEncoder().encode(pw);
+    var head = new Uint8Array(4);
+    new DataView(head.buffer).setUint32(0, pwBytes.length, false);
+    var headers = { "content-type": "application/octet-stream", "accept": "application/json" };
+    if (setupToken) headers["x-ebp-setup-token"] = setupToken;
+    btnRf.disabled = true;
+    btnRf.textContent = "Restoring… this can take a minute";
+    fetch("/setup/restore-backup", { method: "POST", headers: headers, body: new Blob([head, pwBytes, file]) })
+      .catch(function () { throw new Error("Can't reach your server right now. Check that it is running, then try again."); })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok) throw new Error(errorText(data) || (res.status === 429 ? "Too many tries. Wait a minute, then try again." : "The server did not accept that (error " + res.status + ")."));
+          return data;
+        });
+      })
+      .then(function () {
+        document.getElementById("rf-pw").value = "";
+        btnRf.classList.add("hidden");
+        document.getElementById("btn-rf-skip").classList.add("hidden");
+        waitForRestart();
+      })
+      .catch(function (err) { fail(rfError, err.message); btnRf.disabled = false; btnRf.textContent = "Restore from this backup"; });
   });
 
   // The expose-mnemonic ceremony: reads the words straight from barkd
@@ -668,7 +835,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       return;
     }
     if (kind === "ark" && addr && !looksArk(addr)) {
-      fail(els.storeError, "That does not look like an Ark address (they start with ark1, or tark1 for play money). If it is a regular Bitcoin address, choose the on-chain option instead.");
+      fail(els.storeError, "That does not look like an Ark address (on this server they start with " + arkPrefixText + "). If it is a regular Bitcoin address, choose the on-chain option instead.");
       return;
     }
     if (kind === "onchain" && addr && looksArk(addr)) {
@@ -714,6 +881,8 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       if (typeof hideWords === "function") hideWords();
       if (els.words) { els.words.textContent = ""; els.words.classList.add("hidden"); }
       if (els.wordsManual) { els.wordsManual.textContent = ""; }
+      var rw = document.getElementById("restore-words"); if (rw) { rw.value = ""; }
+      var rp = document.getElementById("rf-pw"); if (rp) { rp.value = ""; }
       if (els.apiKey) { els.apiKey.textContent = ""; }
       if (els.webhookSecret) { els.webhookSecret.textContent = ""; }
       if (els.storeSecrets) { els.storeSecrets.classList.add("hidden"); }

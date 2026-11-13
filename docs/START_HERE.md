@@ -12,7 +12,10 @@ do not need a terminal.
 > **Never give an AI, or anyone, your passwords, API key, signing secret or
 > recovery words.** Describe what you see instead, or hide those values first.
 
-**This is a test version: play money (signet) only.** Do not use real bitcoin.
+**This page sets up a test server with play money (signet).** Real bitcoin
+(mainnet) is possible but experimental and not yet tried with real money; it has
+to be chosen before setup, so read [Real money (experimental)](#real-money-experimental)
+first if you want it.
 
 **You need**
 
@@ -105,7 +108,8 @@ Open the web address from the box (it ends in `/setup`) and follow the page:
    and locks your backups.
 5. **Where your money goes.** Choose **Ark wallet** (recommended: your money is moved to your own
    wallet at very small amounts) or **On-chain Bitcoin wallet**, open Receive in that wallet, copy an address and paste it. For play
-   money it starts with `tark1` (Ark) or `tb1` (on-chain). This is required. You
+   money it starts with `tark1` (Ark) or `tb1` (on-chain); on a real-money server
+   `ark1` (Ark) or `bc1` (on-chain; older wallets also `1` or `3`). This is required. You
    can change it later in Settings (a change waits a day for safety).
 6. **API key.** Shown once. Save it in your password manager.
 7. **Finish.** The server restarts once, so the page may not answer for about a
@@ -160,6 +164,32 @@ file, type the password. It tells you whether the backup opens and what it holds
 - [ ] You downloaded a backup, checked that it opens, and stored it away from the server.
 - [ ] Your recovery words are on paper in two places.
 
+## Real money (experimental)
+
+A server is either play money or real money, for good: its wallet is made for
+one network when you press **Create wallet**. To use real bitcoin:
+
+1. Do steps 1 to 3 above (a **new** server; an existing play-money server cannot be switched).
+2. **In the new server's Console** (log in as `root`), before you open the setup page, run these one at a time:
+   ```
+   cd /opt/ebp
+   echo "EBP_MODE=live" >> .env
+   echo "EBP_MAX_INVOICE_SATS=5000" >> .env
+   ebp-info
+   ```
+   The second line chooses real money. The third limits any single payment to
+   5,000 sats while you test. `ebp-info` restarts the server with these settings
+   and shows the setup box again; the setup code is new after the restart.
+3. Do step 4. The setup page now shows **REAL MONEY. Experimental: keep amounts
+   small.** and fills in Second's Ark server (`ark.second.tech`) and `mainnet`:
+   leave both. Your Ark payout wallet must also use `ark.second.tech`.
+4. Test with a product priced under one dollar. Keep only small amounts on this
+   server: the emergency withdrawal (Settings) is switched off on real-money
+   servers until it has been practised on play money.
+
+If Home ever shows "This server is set to real money, but its wallet is play
+money" (or the reverse), the `.env` was changed after setup: put it back.
+
 ## Later
 
 - **A nicer address.** The free `sslip.io` address is built from the server's IP,
@@ -185,6 +215,7 @@ file, type the password. It tells you whether the backup opens and what it holds
 ## Glossary
 
 - **Signet:** a practice Bitcoin network with worthless coins.
+- **Mainnet:** real Bitcoin. A server set to `EBP_MODE=live` uses it.
 - **Till:** the small wallet on your server that receives payments. EBP moves its
   contents to your own wallet automatically.
 - **Two-step sign-in:** a second lock on the admin page: your password plus a

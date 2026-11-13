@@ -65,7 +65,24 @@ pub struct Facts {
     /// How many of the most recent coin renewals in a row failed.
     pub renewals_failing: u32,
     pub payout: Payout,
+    /// This server is in live (real money) mode.
+    pub live: bool,
+    /// Sats on the server too small to renew (under the wallet's minimum),
+    /// and how long until they lapse; `None` = nothing too small.
+    pub too_small_to_renew_sats: Option<i64>,
+    pub too_small_lapse_in_secs: Option<i64>,
+    /// Seconds since the owner started an emergency withdrawal; `None` = none.
+    pub exit_running_for_secs: Option<i64>,
+    /// barkd reports emergency-withdrawal outputs ready to claim.
+    pub exit_claimable: bool,
+    /// The network the wallet's Ark server reports (`"bitcoin"` for
+    /// mainnet); `None` = could not find out (no check shown).
+    pub wallet_network: Option<String>,
 }
+
+/// The "large balance" warning never fires below this many sats, whatever the
+/// amount the server keeps is set to.
+const LARGE_BALANCE_FLOOR_SATS: i64 = 100_000;
 
 pub fn build(f: &Facts) -> Vec<Check> {
     let mut out = Vec::new();
@@ -106,6 +123,51 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 "The wallet answered but did not say whether it is connected. Check again shortly.",
             ),
         }
+    }
+
+    // A wallet belongs to one network for good. A server switched to the
+    // other mode after setup (EBP_MODE changed in .env) would show prices
+    // and addresses for one network while the wallet is on the other.
+    if let Some(net) = f.wallet_network.as_deref() {
+        let wallet_is_real = crate::wallet::barkd::is_mainnet_network(net);
+        if f.live && !wallet_is_real {
+            push(
+                "network",
+                Level::Bad,
+                "This server is set to real money, but its wallet is play money",
+                "The wallet was made for a test network, so real payments cannot work here. A wallet cannot be moved to real Bitcoin. Set EBP_MODE back to test in the .env file and restart, or make a new server for real money.",
+            );
+        } else if !f.live && wallet_is_real {
+            push(
+                "network",
+                Level::Bad,
+                "This server is set to play money, but its wallet holds REAL bitcoin",
+                "The wallet was made for real Bitcoin (mainnet). Set EBP_MODE back to live in the .env file and restart. Do not take payments until this line is gone.",
+            );
+        }
+    }
+
+    if f.exit_claimable {
+        push(
+            "exit",
+            Level::Bad,
+            "Your emergency withdrawal is ready to claim",
+            "Open Settings, Emergency, and press Send to my address. Nothing moves until you do.",
+        );
+    } else if let Some(secs) = f.exit_running_for_secs {
+        let ago = if secs < 3600 {
+            "less than an hour ago".to_string()
+        } else if secs < 2 * 86_400 {
+            format!("{} hours ago", secs / 3600)
+        } else {
+            format!("{} days ago", secs / 86_400)
+        };
+        push(
+            "exit",
+            Level::Bad,
+            "Emergency withdrawal in progress",
+            &format!("Started {ago}. Normal transfers and coin renewals are paused until it finishes. Leave the server on, and follow it in Settings, Emergency."),
+        );
     }
 
     if f.local_only {
@@ -224,6 +286,25 @@ pub fn build(f: &Facts) -> Vec<Check> {
         );
     }
 
+    if let Some(sats) = f.too_small_to_renew_sats.filter(|s| *s > 0) {
+        let when = match f.too_small_lapse_in_secs {
+            Some(s) if s <= 0 => "now".to_string(),
+            Some(s) if s < 2 * 3600 => "within the next couple of hours".to_string(),
+            Some(s) if s < 2 * 86_400 => format!("in about {} hours", s / 3600),
+            Some(s) => format!("in about {} days", s / 86_400),
+            None => "when they expire".to_string(),
+        };
+        push(
+            "renewal_small",
+            Level::Warn,
+            &format!("{sats} sats on the server are too small to renew"),
+            &format!(
+                "The Ark server cannot renew less than {} sats, so they will lapse {when} unless more payments arrive. Nothing to do: the amount is tiny, and new payments are not affected.",
+                crate::wallet::settlement::MIN_RENEW_SATS
+            ),
+        );
+    }
+
     if f.webhooks_failed > 0 {
         push(
             "webhooks",
@@ -257,12 +338,24 @@ pub fn build(f: &Facts) -> Vec<Check> {
     }
 
     if let Some(offchain) = f.offchain_sats {
-        if f.hot_wallet_cap_sats > 0 && offchain > f.hot_wallet_cap_sats.saturating_mul(2) {
+        // Both tests must pass: more than twice the amount the server keeps, AND
+        // a real sum. With a small kept amount (1,000 sats) "twice" alone would
+        // warn about a couple of thousand sats, which is not worth a warning.
+        let limit = f
+            .hot_wallet_cap_sats
+            .saturating_mul(2)
+            .max(LARGE_BALANCE_FLOOR_SATS);
+        if f.hot_wallet_cap_sats > 0 && offchain > limit {
+            let detail = if f.payout == Payout::Set {
+                "More is held here than usual. Money is normally sent on to your own wallet by itself; look under Recent transfers on Home, or press Move my money now."
+            } else {
+                "Move some to your own wallet. Set a withdrawal address in Settings so this happens automatically."
+            };
             push(
                 "balance",
                 Level::Warn,
                 "A large balance is sitting in the shop wallet",
-                "Move some to your own wallet. Set a withdrawal address in Settings so this happens automatically.",
+                detail,
             );
         }
     }
@@ -291,6 +384,63 @@ mod tests {
             webhook_configured: true,
             price_age_secs: Some(60),
             ..Facts::default()
+        }
+    }
+
+    #[test]
+    fn an_emergency_withdrawal_is_a_red_line_until_it_is_claimed() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|c| c.id != "exit"));
+        f.exit_running_for_secs = Some(5 * 3600);
+        let c = build(&f);
+        assert_eq!(find(&c, "exit").level, Level::Bad);
+        assert!(find(&c, "exit").detail.contains("5 hours ago"));
+        f.exit_claimable = true;
+        assert!(find(&build(&f), "exit").title.contains("ready to claim"));
+    }
+
+    #[test]
+    fn coins_too_small_to_renew_get_one_plain_yellow_line() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|c| c.id != "renewal_small"));
+        f.too_small_to_renew_sats = Some(136);
+        f.too_small_lapse_in_secs = Some(30 * 3600);
+        let c = build(&f);
+        let line = find(&c, "renewal_small");
+        assert_eq!(line.level, Level::Warn);
+        assert!(line.title.contains("136 sats"), "{}", line.title);
+        assert!(line.detail.contains("in about 30 hours"), "{}", line.detail);
+        f.too_small_lapse_in_secs = Some(3 * 86_400);
+        assert!(find(&build(&f), "renewal_small")
+            .detail
+            .contains("about 3 days"));
+    }
+
+    #[test]
+    fn a_wallet_on_the_other_network_from_the_mode_is_a_red_line() {
+        let mut f = healthy();
+        // Matching: nothing to say.
+        for (live, net) in [(false, "signet"), (false, "regtest"), (true, "bitcoin")] {
+            f.live = live;
+            f.wallet_network = Some(net.into());
+            assert!(build(&f).iter().all(|c| c.id != "network"), "{live} {net}");
+        }
+        // Unknown: nothing to say.
+        f.wallet_network = None;
+        assert!(build(&f).iter().all(|c| c.id != "network"));
+        // Live server, play-money wallet.
+        f.live = true;
+        f.wallet_network = Some("signet".into());
+        let c = build(&f);
+        assert_eq!(find(&c, "network").level, Level::Bad);
+        assert!(find(&c, "network").title.contains("real money"));
+        // Test server, real-money wallet (either spelling).
+        f.live = false;
+        for net in ["bitcoin", "Mainnet"] {
+            f.wallet_network = Some(net.into());
+            let c = build(&f);
+            assert_eq!(find(&c, "network").level, Level::Bad, "{net}");
+            assert!(find(&c, "network").title.contains("REAL"));
         }
     }
 
@@ -435,5 +585,22 @@ mod tests {
         let c = build(&f);
         assert_eq!(find(&c, "balance").level, Level::Warn);
         assert_eq!(find(&c, "withdrawals").level, Level::Warn);
+    }
+
+    #[test]
+    fn a_small_kept_amount_does_not_make_a_small_balance_a_large_one() {
+        let mut f = healthy();
+        f.hot_wallet_cap_sats = 1_000;
+        // Above twice the kept amount, but only a couple of thousand sats.
+        f.offchain_sats = Some(2_195);
+        assert!(build(&f).iter().all(|x| x.id != "balance"));
+        f.offchain_sats = Some(100_000);
+        assert!(build(&f).iter().all(|x| x.id != "balance"));
+        f.offchain_sats = Some(100_001);
+        assert_eq!(find(&build(&f), "balance").level, Level::Warn);
+        // A large kept amount still uses twice that amount.
+        f.hot_wallet_cap_sats = 500_000;
+        f.offchain_sats = Some(900_000);
+        assert!(build(&f).iter().all(|x| x.id != "balance"));
     }
 }

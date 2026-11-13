@@ -84,17 +84,28 @@ impl ManagedBarkd {
         cmd
     }
 
-    fn spawn(&self, expose_mnemonic: bool) -> std::io::Result<Child> {
-        std::fs::create_dir_all(&self.datadir)?;
+    /// The barkd start command: loopback only, and with barkd's built-in
+    /// wallet web page turned off (`--no-ui`, barkd 0.8.0): EBP is the only
+    /// interface, and a second page that can move money has no place here.
+    fn start_command(&self, expose_mnemonic: bool) -> Command {
         let mut cmd = self.base_command();
         cmd.arg("--datadir")
             .arg(&self.datadir)
             .args(["--host", "127.0.0.1", "--port"])
-            .arg(self.port.to_string());
+            .arg(self.port.to_string())
+            .arg("--no-ui");
         if expose_mnemonic {
             cmd.arg("--expose-mnemonic");
         }
-        cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn()
+        cmd
+    }
+
+    fn spawn(&self, expose_mnemonic: bool) -> std::io::Result<Child> {
+        std::fs::create_dir_all(&self.datadir)?;
+        self.start_command(expose_mnemonic)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
     }
 
     fn restart_blocking(&self, expose_mnemonic: bool) -> Result<(), String> {
@@ -199,6 +210,27 @@ mod tests {
             ManagedBarkd::new("ebp.sqlite3").datadir,
             PathBuf::from("./barkd")
         );
+    }
+
+    #[test]
+    fn barkd_starts_on_loopback_without_its_own_wallet_page() {
+        let m = ManagedBarkd::new("/data/ebp.sqlite3");
+        let args = |expose| -> Vec<String> {
+            m.start_command(expose)
+                .get_args()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect()
+        };
+        let plain = args(false);
+        assert!(plain.contains(&"--no-ui".to_string()), "{plain:?}");
+        assert!(
+            plain.windows(2).any(|w| w == ["--host", "127.0.0.1"]),
+            "{plain:?}"
+        );
+        assert!(!plain.contains(&"--expose-mnemonic".to_string()));
+        let ceremony = args(true);
+        assert!(ceremony.contains(&"--no-ui".to_string()));
+        assert!(ceremony.contains(&"--expose-mnemonic".to_string()));
     }
 
     #[test]

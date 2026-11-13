@@ -1,11 +1,13 @@
 # Easy Bitcoin Payments
 
-**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **play-money testing only**.
+**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **testing**: play money by default, real bitcoin only in tiny amounts.
 
 > **⚠ EXPERIMENTAL: NOT FOR REAL FUNDS.** This is pre-release software. Its wallet
 > integration has not been audited and no independent security audit has been
-> completed. **Do not connect it to mainnet or real bitcoin.** Use signet
-> (play money) until this notice is removed.
+> completed. Use signet (play money, the default). Real bitcoin (mainnet) can be
+> switched on (`EBP_MODE=live`, see [START_HERE.md](docs/START_HERE.md#real-money-experimental))
+> but has not yet been tried with real money: if you do, use only a few thousand
+> sats you can afford to lose.
 
 ## Goals
 
@@ -40,14 +42,14 @@ Being honest about this matters more than sounding safe.
 
 **Built to hold up if these happen:**
 - *Your shop website is hacked.* The shop's key can create payment requests but cannot change where your money goes. You can pause new payments with one switch.
-- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in or change your payout address, and a changed address waits a day before it is used.
+- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in, change your payout address or change how much the server keeps, and a changed address waits a day before it is used.
 - *The payment server is attacked.* It holds only a small amount at a time (the rest is moved to your own wallet), and nobody but you holds your keys.
 
 **Not protected, so please plan for it:**
 - Someone with full control of the payment server can take what it holds at that moment, and can read its keys.
 - Your recovery words, phone or authenticator in the wrong hands. Lose the recovery words and nobody, including us, can recover them.
 - A hacked shop can still show your customers a fake payment page. EBP cannot see that happen.
-- Bugs in the software we build on (including the Ark server and wallet) and in ours. No independent security audit has been done yet, which is why this is play-money only.
+- Bugs in the software we build on (including the Ark server and wallet) and in ours. No independent security audit has been done yet, which is why play money is the default and real money is limited to tiny experimental amounts.
 
 The longer lists are in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) and [docs/dev/SHOP_COMPROMISE.md](docs/dev/SHOP_COMPROMISE.md).
 
@@ -99,8 +101,9 @@ purpose**: the server only ever holds a small amount of money, so less is in har
 way. A smaller prize is not a stronger vault; it is a different bet.
 
 For example, set your payout address to an Ark wallet on your phone. Every payment
-is swept off the server within minutes, so even at the default limit of 20,000
-sats, that is the most the server holds at any moment. Then, if your wallet
+is swept off the server within minutes once at least 1,000 sats are above the
+1,000 it keeps, so with the default settings the server holds about 2,000 sats at
+most at any moment. Then, if your wallet
 supports it, have the phone wallet move funds to regular on-chain Bitcoin once they
 pass a threshold you choose. You hold the keys the whole way, and as your balance
 grows, more of it sits in colder storage. The full, blunt comparison:
@@ -111,6 +114,7 @@ grows, more of it sits in colder storage. The full, blunt comparison:
 - [docs/WOOCOMMERCE.md](docs/WOOCOMMERCE.md): connect a WooCommerce shop
 - [docs/KEEPING_WORDPRESS_SAFE.md](docs/KEEPING_WORDPRESS_SAFE.md): keeping the shop itself safe
 - [docs/RECIPE_BACKUP.md](docs/RECIPE_BACKUP.md): backups and restore
+- [docs/RESTORE_DRILL.md](docs/RESTORE_DRILL.md): practice a restore on a new server, step by step
 - [docs/UPGRADING.md](docs/UPGRADING.md): updating
 - [docs/IF_SOMETHING_LOOKS_WRONG.md](docs/IF_SOMETHING_LOOKS_WRONG.md) and [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)
 - [SECURITY.md](SECURITY.md): reporting a vulnerability

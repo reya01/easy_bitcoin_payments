@@ -103,16 +103,18 @@ scripts/install.sh              # latest
 ```
 
 "Latest" means the newest *full* release. GitHub does not count release candidates
-such as `0.1.0-rc1`, so while only candidates exist give the exact version:
-`scripts/install.sh 0.1.0-rc1`. The installer detects the architecture and verifies
+such as `0.1.0-rc2`, so while only candidates exist give the exact version:
+`scripts/install.sh 0.1.0-rc2`. The installer detects the architecture and verifies
 the tarball against `SHA256SUMS`. That file is itself signed (sigstore, keyless); to
-check the signature too (optional; release workflow not yet run):
+check the signature too (optional, advanced; needs [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 
 ```
 cosign verify-blob --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/release\.yml@' \
+  --certificate-identity-regexp '^https://github.com/reya01/easy_bitcoin_payments/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   SHA256SUMS
 ```
+
+It prints `Verified OK` when `SHA256SUMS` was signed by this project's release workflow.
 
 `scripts/release.sh` builds the same artifacts locally without publishing.

@@ -7,7 +7,7 @@ your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
 This repository is at **Phase 1 code-complete** (2026-11-01) and remains
-**EXPERIMENTAL — not for real funds**. CI is green; the canonical suite is `cargo test --all --all-features` (**234 passed, 0 failed**).
+**EXPERIMENTAL**: signet by default; mainnet is opt-in (`EBP_MODE=live`) for tiny test amounts only and not yet tried with real money. CI is green; the canonical suite is `cargo test --all --all-features` (**234 passed, 0 failed**).
 Every Lightning-side client-facing barkd shape is live-verified against
 **barkd 0.8.0 on signet** and pinned in
 [`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs) with shape tests;
@@ -233,7 +233,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_PUBLIC_BASE_URL` | `http://localhost:8080` | Used to build checkout links |
 | `EBP_DEFAULT_EXPIRY_MINUTES` | `20` | Rate-lock lifetime |
 | `EBP_DEFAULT_CURRENCY` | `EUR` | Fallback currency |
-| `EBP_HOT_WALLET_CAP_SATS` | `20000` | Till cap when your payout address is an Ark address (low: Ark transfers are almost free) |
+| `EBP_HOT_WALLET_CAP_SATS` | `1000` | Till cap when your payout address is an Ark address (low: Ark transfers are almost free) |
 | `EBP_ONCHAIN_SWEEP_CAP_SATS` | `1000000` | Till cap when your payout address is an on-chain address (higher: each withdrawal pays a network fee) |
 | `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB` | `50` | An automatic on-chain withdrawal waits until network fees are at or below this (sat/vB). The manual "move my money now" button ignores it |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
@@ -248,7 +248,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_CONFIG` | unset | Path to an extra TOML config file (see `ebp.example.toml`) |
 | `EBP_RENEWAL_LEAD_TIME_SECS` | `604800` | The earliest EBP refreshes a coin before it expires. EBP also reads the Ark server's coin lifetime and its free-refresh window (`GET /wallet/ark-info`) and waits until the coin is inside the free window, but never later than a few hours before expiry; if the server's terms cannot be read this value is used as is |
 | `EBP_LIGHTNING_RECEIVE_ENABLED` | `true` | LN invoice per checkout invoice |
-| `EBP_MODE` | `test` | `test` (signet, play money) or `live` — `live` is accepted as a config value but is NOT supported in this EXPERIMENTAL release: never point it at real funds |
+| `EBP_MODE` | `test` | `test` (signet, play money) or `live` (Bitcoin mainnet, real money, experimental: keep amounts small). Set it in `.env` before setup: the wallet is created for that network and a server cannot be switched afterwards. Passed through by `docker-compose.yml` |
 | `EBP_RATES_TIMEOUT_SECS` | `4` | How long each Bitcoin-price source gets to answer. The price is fetched in the background (see "The Bitcoin price" below), so this never slows a page down |
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
@@ -264,6 +264,8 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_ONCHAIN_MIN_CONFIRMATIONS` | `1` | Block confirmations before an on-chain payment counts as paid (minimum 1; zero-confirmation payments can be replaced by the sender and are never credited) |
 | `EBP_ONCHAIN_RAIL_ENABLED` | `false` | Offer the on-chain rail at checkout (off by default in the beta until the signet drill passes; see docs/dev/SIGNET_DRILL.md) |
 | `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
+
+The two cap settings above are **defaults**. The owner can instead type one number in **Settings → Where your money goes → How much to keep on this server** (`POST /admin/payout/cap`: signed in, CSRF, admin password, second step when on; takes effect at once; recorded in the security log as `payout.cap_changed`). It is stored in the `settings` table as `sweep_cap_sats`, applies to either kind of payout address, must be 1 to 10,000,000 sats, and wins over the defaults until reset. The manual "move my money now" ignores it.
 
 ---
 
@@ -393,7 +395,7 @@ If you are a trust-minimization purist, use BTCPay.
   health alerts are designed to be handled from a phone. If a flow cannot
   be completed on a phone, it does not ship.
 - **Smaller breach blast radius.** The server holds a capped till (default
-  20,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is swept to your own wallet automatically — the UI
+  1,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is swept to your own wallet automatically — the UI
   calls it "cash in a till; we empty it into your vault automatically." A
   compromised server can steal the float, not a full Lightning node's hot
   wallet.
@@ -424,7 +426,7 @@ a high-value signing credential reachable through the web tier, guarding a
 hot wallet whose size is a *requirement* of Lightning (channels must hold
 liquidity). EBP is designed against that failure class:
 
-- The server-side wallet is a **capped till** (default 20,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is
+- The server-side wallet is a **capped till** (default 1,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is
   swept automatically to your own wallet. A compromised server exposes the
   float, not the vault.
 - **You do not have to trust the ASP with your funds — only for liveness.**

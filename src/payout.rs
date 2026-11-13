@@ -20,6 +20,15 @@ const KEY_PENDING: &str = "payout_destination_pending";
 const KEY_EFFECTIVE_AT: &str = "payout_destination_effective_at";
 pub const DEFAULT_DELAY_SECS: i64 = 86_400;
 
+/// The amount the till keeps, when the owner has set one in Settings. Wins over
+/// the server's default (`hot_wallet_cap_sats` / `onchain_sweep_cap_sats`).
+const KEY_CAP: &str = "sweep_cap_sats";
+/// Bounds for that amount. The top is the largest single coin the Ark server
+/// accepts (10,000,000 sats): holding more than that on the server defeats the
+/// point of sweeping.
+pub const MIN_CAP_SATS: i64 = 1;
+pub const MAX_CAP_SATS: i64 = 10_000_000;
+
 const CHARSET: &str = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 /// Checksum constants: bech32 (BIP173) and bech32m (BIP350).
 const BECH32: u32 = 1;
@@ -115,10 +124,15 @@ fn segwit_program_ok(d: &Decoded) -> bool {
     if !(2..=40).contains(&program.len()) {
         return false;
     }
-    if version == 0 {
-        (program.len() == 20 || program.len() == 32) && !d.bech32m
-    } else {
-        d.bech32m
+    // Only address types that are actually spendable by their owner today:
+    // v0 (P2WPKH 20 bytes, P2WSH 32 bytes) and v1 Taproot (32 bytes). Any
+    // other witness version or v1 length is valid BIP350 but has no
+    // spending rules yet: coins sent there can be taken by anyone. Refused,
+    // never paid.
+    match version {
+        0 => (program.len() == 20 || program.len() == 32) && !d.bech32m,
+        1 => program.len() == 32 && d.bech32m,
+        _ => false,
     }
 }
 
@@ -132,6 +146,9 @@ const SILENT_PAYMENT: &str = "that is a silent payment (BIP-352) address, which 
 const REAL_ADDRESS_ON_TEST_SERVER: &str =
     "this server is in test mode and only works with play-money (signet) coins, \
     but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1)";
+const OLD_TEST_ADDRESS: &str =
+    "that is an old-style test-network address, which this server does not use. \
+    Use a signet address that starts with tb1 or tark1";
 const TEST_ADDRESS_ON_LIVE_SERVER: &str =
     "that is a test-network address, but this server works with real Bitcoin. \
     Use an address that starts with bc1 or ark1";
@@ -149,6 +166,11 @@ const TEST_ADDRESS_ON_LIVE_SERVER: &str =
 pub fn check(input: &str, mode: &str) -> Result<String, String> {
     let live = mode == "live";
     let trimmed = input.trim();
+    // Older Bitcoin addresses (`1…`, `3…`) are Base58Check, case-sensitive,
+    // so they are checked before anything lowercases them.
+    if let Some(result) = check_legacy(trimmed, live) {
+        return result;
+    }
     if trimmed.len() < 14
         || trimmed.len() > 200
         || !trimmed.is_ascii()
@@ -197,6 +219,68 @@ pub fn check(input: &str, mode: &str) -> Result<String, String> {
     }
 }
 
+const BASE58: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// Decode a Base58Check string. Returns the 21-byte payload (version byte
+/// plus 20-byte hash) only when the whole thing is exactly 25 bytes and its
+/// last 4 bytes match the double-SHA-256 checksum, so a typo is caught.
+fn decode_base58check(s: &str) -> Option<Vec<u8>> {
+    // Big-endian base-58 to base-256, one character at a time.
+    let mut number: Vec<u8> = Vec::new();
+    for c in s.bytes() {
+        let mut carry = BASE58.iter().position(|&b| b == c)? as u32;
+        for byte in number.iter_mut().rev() {
+            carry += u32::from(*byte) * 58;
+            *byte = (carry & 0xff) as u8;
+            carry >>= 8;
+        }
+        while carry > 0 {
+            number.insert(0, (carry & 0xff) as u8);
+            carry >>= 8;
+        }
+    }
+    // Each leading '1' stands for one leading zero byte.
+    let zeros = s.bytes().take_while(|&c| c == b'1').count();
+    let mut raw = vec![0u8; zeros];
+    raw.extend(number);
+    if raw.len() != 25 {
+        return None;
+    }
+    let (payload, checksum) = raw.split_at(21);
+    use sha2::{Digest, Sha256};
+    let first = Sha256::digest(payload);
+    let second = Sha256::digest(&first[..]);
+    if second[..4] != *checksum {
+        return None;
+    }
+    Some(payload.to_vec())
+}
+
+/// Legacy (Base58Check) addresses: `1…` (P2PKH, version 0x00) and `3…`
+/// (P2SH, 0x05) are real Bitcoin and accepted on a live server; the test
+/// forms `m…`/`n…` (0x6f) and `2…` (0xc4) are refused everywhere (test
+/// servers use `tb1…`/`tark1…`). `None` means "not a legacy address": the
+/// bech32 checks apply.
+fn check_legacy(a: &str, live: bool) -> Option<Result<String, String>> {
+    let first = a.chars().next()?;
+    if !matches!(first, '1' | '3' | 'm' | 'n' | '2')
+        || !(26..=35).contains(&a.len())
+        || !a.bytes().all(|c| BASE58.contains(&c))
+    {
+        return None;
+    }
+    let Some(payload) = decode_base58check(a) else {
+        return Some(Err(BROKEN_ADDRESS.into()));
+    };
+    Some(match payload[0] {
+        0x00 | 0x05 if live => Ok(a.to_string()),
+        0x00 | 0x05 => Err(REAL_ADDRESS_ON_TEST_SERVER.into()),
+        0x6f | 0xc4 if live => Err(TEST_ADDRESS_ON_LIVE_SERVER.into()),
+        0x6f | 0xc4 => Err(OLD_TEST_ADDRESS.into()),
+        _ => Err(NOT_AN_ADDRESS.into()),
+    })
+}
+
 /// [`check`] as a request error, for the setup wizard and the admin page.
 pub fn validate(input: &str, mode: &str) -> Result<String, AppError> {
     check(input, mode).map_err(AppError::BadRequest)
@@ -209,6 +293,8 @@ pub struct Status {
     pub effective_at: Option<i64>,
     /// Set by the server's own configuration; cannot be changed here.
     pub from_server_config: bool,
+    /// The amount the till keeps, if the owner set one in Settings.
+    pub cap_override: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -271,6 +357,7 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             pending: None,
             effective_at: None,
             from_server_config: true,
+            cap_override: cap_override(conn)?,
         });
     }
     Ok(Status {
@@ -279,7 +366,64 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
         effective_at: crate::settings::get(conn, KEY_EFFECTIVE_AT)?
             .and_then(|v| v.parse::<i64>().ok()),
         from_server_config: false,
+        cap_override: cap_override(conn)?,
     })
+}
+
+/// The amount the owner chose in Settings, if any. A stored value that is out
+/// of range (it cannot be, but a hand-edited database might) is ignored, so
+/// the server's default applies instead of something odd.
+pub fn cap_override(conn: &Connection) -> Result<Option<i64>, AppError> {
+    Ok(crate::settings::get(conn, KEY_CAP)?
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|v| (MIN_CAP_SATS..=MAX_CAP_SATS).contains(v)))
+}
+
+/// How much the till keeps before the rest is sent on to `destination`: the
+/// owner's number from Settings, otherwise the server's default for that kind
+/// of address (low for Ark, higher for on-chain).
+pub fn cap_for(
+    conn: &Connection,
+    config: &crate::config::Config,
+    destination: &str,
+) -> Result<i64, AppError> {
+    Ok(cap_override(conn)?.unwrap_or_else(|| config.sweep_cap_for(destination)))
+}
+
+/// Settings: change the amount the till keeps (the caller has already
+/// verified the admin password and, when on, the second step). Takes effect
+/// at once: unlike the address it cannot send money anywhere new. Recorded in
+/// the security log.
+pub fn set_cap(conn: &Connection, cap_sats: i64) -> Result<(), AppError> {
+    if !(MIN_CAP_SATS..=MAX_CAP_SATS).contains(&cap_sats) {
+        return Err(AppError::BadRequest(format!(
+            "the amount must be a whole number of sats between {MIN_CAP_SATS} and {MAX_CAP_SATS}"
+        )));
+    }
+    let before = cap_override(conn)?;
+    crate::settings::set(conn, KEY_CAP, &cap_sats.to_string())?;
+    audit(
+        conn,
+        "payout.cap_changed",
+        &match before {
+            Some(b) => format!("amount kept on the server changed from {b} to {cap_sats} sats"),
+            None => format!("amount kept on the server set to {cap_sats} sats"),
+        },
+    );
+    Ok(())
+}
+
+/// Settings: go back to the server's default amount.
+pub fn clear_cap(conn: &Connection) -> Result<(), AppError> {
+    if cap_override(conn)?.is_some() {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [KEY_CAP])?;
+        audit(
+            conn,
+            "payout.cap_changed",
+            "amount kept on the server reset to the default",
+        );
+    }
+    Ok(())
 }
 
 /// The address sweeps should use right now, if any.
@@ -367,8 +511,54 @@ pub fn cancel(conn: &Connection) -> Result<bool, AppError> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn the_amount_kept_can_be_set_changed_and_reset() {
+        let c = conn();
+        let cfg = crate::config::Config::default();
+        // Nothing saved: the server's default for each kind of address.
+        assert_eq!(cap_override(&c).unwrap(), None);
+        assert_eq!(
+            cap_for(&c, &cfg, "ark1abc").unwrap(),
+            cfg.hot_wallet_cap_sats
+        );
+        assert_eq!(
+            cap_for(&c, &cfg, "bc1qabc").unwrap(),
+            cfg.onchain_sweep_cap_sats
+        );
+        // The owner's number wins for both kinds.
+        set_cap(&c, 5_000).unwrap();
+        assert_eq!(cap_override(&c).unwrap(), Some(5_000));
+        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 5_000);
+        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), 5_000);
+        set_cap(&c, 2_500).unwrap();
+        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 2_500);
+        // Reset goes back to the defaults.
+        clear_cap(&c).unwrap();
+        assert_eq!(cap_override(&c).unwrap(), None);
+        assert_eq!(
+            cap_for(&c, &cfg, "ark1abc").unwrap(),
+            cfg.hot_wallet_cap_sats
+        );
+    }
+
+    #[test]
+    fn the_amount_kept_must_be_in_range_and_bad_stored_values_are_ignored() {
+        let c = conn();
+        for bad in [-5, 0, MAX_CAP_SATS + 1, i64::MAX] {
+            assert!(set_cap(&c, bad).is_err(), "{bad} must be refused");
+        }
+        assert_eq!(cap_override(&c).unwrap(), None);
+        set_cap(&c, MIN_CAP_SATS).unwrap();
+        set_cap(&c, MAX_CAP_SATS).unwrap();
+        // A hand-edited database cannot make the cap zero, negative or text.
+        for junk in ["0", "-1", "abc", "", "99999999999"] {
+            crate::settings::set(&c, KEY_CAP, junk).unwrap();
+            assert_eq!(cap_override(&c).unwrap(), None, "{junk:?} must be ignored");
+        }
+    }
 
     fn conn() -> Connection {
         let c = Connection::open_in_memory().unwrap();
@@ -397,16 +587,22 @@ mod tests {
         ] {
             assert!(check(ok, "test").is_ok(), "{ok}");
         }
-        // Live mode: mainnet addresses, including v0 20/32 bytes and v1+.
+        // Live mode: mainnet v0 (20/32 bytes) and v1 Taproot (32 bytes).
         for ok in [
             "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
             "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4",
             "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
             "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0",
+        ] {
+            assert!(check(ok, "live").is_ok(), "{ok}");
+        }
+        // Valid BIP350 but anyone-can-spend today (future witness versions,
+        // v1 with a non-32-byte program): money sent there would be lost.
+        for lost in [
             "bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y",
             "bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs",
         ] {
-            assert!(check(ok, "live").is_ok(), "{ok}");
+            assert!(check(lost, "live").is_err(), "{lost}");
         }
         // Official BIP350 invalid vectors and common mistakes (all refused
         // on both networks).
@@ -424,13 +620,62 @@ mod tests {
             "bc1gmk9yu",                                                      // empty data
             "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsy",                     // typo
             "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3",                       // truncated
-            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", // legacy: not supported
             "hello world, not an address",
             "",
         ] {
             assert!(check(bad, "test").is_err(), "test: {bad}");
             assert!(check(bad, "live").is_err(), "live: {bad}");
         }
+    }
+
+    #[test]
+    fn legacy_mainnet_addresses_are_accepted_on_a_live_server_only() {
+        // Known-good vectors: P2PKH (1…) and P2SH (3…). Case is kept.
+        for ok in [
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+            "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+        ] {
+            assert_eq!(check(ok, "live").unwrap(), ok, "{ok}");
+            assert_eq!(check(&format!("  {ok} "), "live").unwrap(), ok);
+            let e = check(ok, "test").unwrap_err();
+            assert!(e.contains("test mode"), "{e}");
+        }
+        // One changed character (or a changed case) breaks the checksum.
+        for typo in [
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN3",
+            "1bvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLz",
+        ] {
+            let e = check(typo, "live").unwrap_err();
+            assert!(e.contains("not valid"), "{typo}: {e}");
+        }
+        // Too short / too long / characters base58 never uses.
+        assert!(check("1BvBMSEYstWetqTFn5Au4m4GFg7xJaN", "live").is_err());
+        assert!(check("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2VN2", "live").is_err());
+        assert!(check("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN0", "live").is_err());
+        // Test-network legacy forms (m…, n…, 2…) are refused in both modes.
+        for t in [
+            "mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn",
+            "n3GNqMveyvaPvUbH469vDRadqpJMPc84JA",
+            "2MzQwSSnBHWHqSAqtTVQ6v47XtaisrJa1Vc",
+        ] {
+            assert!(check(t, "live").is_err(), "live: {t}");
+            assert!(check(t, "test").is_err(), "test: {t}");
+        }
+    }
+
+    #[test]
+    fn base58check_decodes_a_known_address() {
+        let p = decode_base58check("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").unwrap();
+        assert_eq!(p[0], 0x00);
+        assert_eq!(
+            hex::encode(&p[1..]),
+            "62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
+        );
+        let p = decode_base58check("3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy").unwrap();
+        assert_eq!(p[0], 0x05);
+        assert!(decode_base58check("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb").is_none());
     }
 
     #[test]

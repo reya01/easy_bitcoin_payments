@@ -6,6 +6,7 @@ pub mod checkout;
 pub mod checkout_rails;
 pub mod dashboard;
 pub mod deliveries;
+pub mod exit;
 pub mod health;
 pub mod invoices;
 pub mod payout;
@@ -115,6 +116,11 @@ pub fn router(state: AppState) -> Router {
         .route("/setup", get(setup::page))
         .route("/setup/status", get(setup::status))
         .route("/setup/wallet", post(setup::create_wallet))
+        // The backup file is read inside the handler, after its own checks.
+        .route(
+            "/setup/restore-backup",
+            post(setup::restore_backup).layer(DefaultBodyLimit::max(backup::MAX_CHECK_BYTES)),
+        )
         .route("/setup/wallet/confirm-backup", post(setup::confirm_backup))
         .route("/setup/wallet/mnemonic", post(setup::wallet_mnemonic))
         .route("/setup/wallet/verify-backup", post(setup::verify_backup))
@@ -201,6 +207,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/logout", post(admin_session::logout))
         .route("/admin/payout/cancel", post(payout::cancel))
         .route("/admin/sweep", post(payout::sweep_now))
+        .route("/admin/exit/status", post(exit::status))
+        .route("/admin/exit/deposit-address", post(exit::deposit_address))
         .route("/admin/alerts/status", post(alerts::get))
         .route("/admin/alerts/enable", post(alerts::enable))
         .route("/admin/alerts/disable", post(alerts::disable))
@@ -232,6 +240,12 @@ pub fn router(state: AppState) -> Router {
                 )
                 // Also checks the admin password.
                 .route("/admin/payout", post(payout::change))
+                .route("/admin/payout/cap", post(payout::change_cap))
+                // Emergency withdrawal: admin password and two-step code.
+                .route("/admin/exit/start", post(exit::start))
+                .route("/admin/exit/cancel", post(exit::cancel))
+                .route("/admin/exit/claim", post(exit::claim))
+                .route("/admin/exit/leftover", post(exit::leftover))
                 // These check the admin password or a code, so they share the brake.
                 .route("/admin/2fa/start", post(twofa::start))
                 .route("/admin/2fa/confirm", post(twofa::confirm))

@@ -57,6 +57,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 <body>
 <main>
 <header><span class="dot"></span><h1>Easy Bitcoin Payments</h1><button class="small hidden" id="logout" style="margin-left:auto" type="button">Sign out</button></header>
+<div class="warnbox hidden" id="mode-banner" role="note" style="text-align:center;font-weight:600;color:var(--warn)"></div>
 
 <section id="v-login" class="hidden">
   <h2>Sign in</h2>
@@ -495,6 +496,9 @@ var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wall
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
+    var mb = $("mode-banner");
+    if (s.mode === "live") { mb.textContent = "REAL MONEY. Experimental: keep amounts small."; mb.classList.remove("hidden"); }
+    else if (s.mode === "test") { mb.textContent = "TEST MODE: play money (signet). Nothing here is real."; mb.classList.remove("hidden"); }
     loadVersion();
     USD = s.usd_per_btc > 0 ? Number(s.usd_per_btc) : null;
     tpPreview();

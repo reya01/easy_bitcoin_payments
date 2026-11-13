@@ -460,6 +460,10 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     if (status.https_required) { markStep(0); show("https"); return; }
     if (status.setup_code_required && !codeOk && !setupToken) { markStep(0); show("code"); return; }
     if (status.mode === "test") els.testBanner.classList.remove("hidden");
+    if (status.mode === "live") {
+      els.testBanner.textContent = "REAL MONEY. Experimental: keep amounts small.";
+      els.testBanner.classList.remove("hidden");
+    }
     payoutHints = status.mode === "live" ? payoutHintsFor.live : payoutHintsFor.test;
     arkPrefixText = status.mode === "live" ? "ark1" : "tark1";
     if (status.mode === "live") {

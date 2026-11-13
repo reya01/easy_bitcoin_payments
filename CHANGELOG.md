@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
+
 - **Review fixes for the mainnet changes (money safety).** (1) While an emergency withdrawal runs, coins that are not part of it are still renewed, so a payment that arrives meanwhile cannot expire; only transfers stay paused. (2) A coin close to expiry is asked for again, at most hourly, even if a round is supposed to hold it, so a round that never finishes cannot let it expire. (3) A large coin is no longer renewed at a fee just to rescue a coin under 330 sats (it mattered with an on-chain payout). (4) The emergency claim and the "send leftover" button always go to the address chosen when the withdrawal was started; a typed address is only used when none was saved, and "send leftover" is switched off on real-money servers together with the withdrawal. (5) Phone alerts when an emergency withdrawal is started, claimed, or left-over money is sent. (6) Payout and emergency addresses must be a type that is spendable today (v0, or v1 Taproot with 32 bytes): future witness versions are valid addresses but anyone could take coins sent to them, so they are refused.
 
 - **Docs sweep for real money (experimental):** START_HERE has a "Real money (experimental)" section (how to choose it before setup, with a 5,000-sat payment limit), the README notice allows tiny real-money tests instead of forbidding them, a new test-day sheet for the first mainnet test (`docs/dev/MAINNET_TEST_SHEET.md`), and the WooCommerce page, plugin readme, other-hosts page, technical notes, handoff and release-notes template now say "play money by default, real money experimental" instead of "play money only".

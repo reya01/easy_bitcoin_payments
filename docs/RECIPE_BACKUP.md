@@ -168,7 +168,9 @@ balances.
 
 ## Practice a restore once (before real money)
 
-Proves the backup is real. Allow an hour, and use play money first.
+Proves the backup is real. Allow an hour, and use play money first. The full
+walk-through, with checks and a "what to do if" table, is
+[RESTORE_DRILL.md](RESTORE_DRILL.md); the short version is below.
 
 1. On your current server, note the balance, the number of orders and the payout
    address on Home and in Settings. Leave a few hundred sats on the server. **Download

@@ -103,11 +103,12 @@ pub const TOO_SMALL_SATS_KEY: &str = "renewal_too_small_sats";
 pub const TOO_SMALL_LAPSE_AT_KEY: &str = "renewal_too_small_lapse_at";
 /// Settings key: renewals requested but not yet seen finished (JSON).
 const REQUESTED_RENEWALS_KEY: &str = "renewals_requested";
-/// A requested renewal that cannot be confirmed either way after this long
-/// is counted as failed (and its coins become eligible again).
+/// A requested renewal whose coins are still there, with no round holding
+/// them, is counted as failed after this long (and its coins become eligible
+/// again). Long enough for an hourly mainnet round plus its confirmations, so
+/// a round list we misread can never turn a working renewal into a false
+/// "renewing is not working" warning.
 const REQUESTED_GIVE_UP_SECS: i64 = 2 * 3600;
-/// Give barkd a moment to list a fresh participation before judging it.
-const REQUESTED_GRACE_SECS: i64 = 60;
 
 /// A renewal the wallet accepted, waiting for its round.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -153,16 +154,12 @@ pub(crate) fn judge_requested(
         // The old coins are gone: the round replaced them with fresh ones.
         return RenewalOutcome::Renewed;
     }
-    let age = now - r.at;
-    if rounds_known && age >= REQUESTED_GRACE_SECS {
-        return RenewalOutcome::Failed(
-            "the coins were not taken into a round; they will be renewed again",
-        );
-    }
-    if age >= REQUESTED_GIVE_UP_SECS {
-        return RenewalOutcome::Failed(
-            "no sign of the round finishing; the coins will be renewed again",
-        );
+    if now - r.at >= REQUESTED_GIVE_UP_SECS {
+        return RenewalOutcome::Failed(if rounds_known {
+            "the coins were not taken into a round; they will be renewed again"
+        } else {
+            "no sign of the round finishing; the coins will be renewed again"
+        });
     }
     RenewalOutcome::Waiting
 }
@@ -1874,19 +1871,20 @@ mod tests {
             judge_requested(&r, &set(&["z"]), &none, &none, true, now),
             RenewalOutcome::Renewed
         );
-        // Coins back, no round holds them: failed (after the grace period).
-        assert!(matches!(
-            judge_requested(&r, &set(&["b"]), &none, &none, true, now),
-            RenewalOutcome::Failed(_)
-        ));
-        let fresh = RequestedRenewal {
-            at: now - 5,
-            ..r.clone()
-        };
+        // Coins still there and no round holds them: wait (a round list we
+        // misread must never raise a false alarm), then give up after a while.
         assert_eq!(
-            judge_requested(&fresh, &set(&["b"]), &none, &none, true, now),
+            judge_requested(&r, &set(&["b"]), &none, &none, true, now),
             RenewalOutcome::Waiting
         );
+        let late = RequestedRenewal {
+            at: now - REQUESTED_GIVE_UP_SECS,
+            ..r.clone()
+        };
+        assert!(matches!(
+            judge_requested(&late, &set(&["b"]), &none, &none, true, now),
+            RenewalOutcome::Failed(_)
+        ));
         // Round list unreadable: wait, then give up after a while.
         assert_eq!(
             judge_requested(&r, &set(&["b"]), &none, &none, false, now),

@@ -112,6 +112,7 @@ grows, more of it sits in colder storage. The full, blunt comparison:
 - [docs/WOOCOMMERCE.md](docs/WOOCOMMERCE.md): connect a WooCommerce shop
 - [docs/KEEPING_WORDPRESS_SAFE.md](docs/KEEPING_WORDPRESS_SAFE.md): keeping the shop itself safe
 - [docs/RECIPE_BACKUP.md](docs/RECIPE_BACKUP.md): backups and restore
+- [docs/RESTORE_DRILL.md](docs/RESTORE_DRILL.md): practice a restore on a new server, step by step
 - [docs/UPGRADING.md](docs/UPGRADING.md): updating
 - [docs/IF_SOMETHING_LOOKS_WRONG.md](docs/IF_SOMETHING_LOOKS_WRONG.md) and [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)
 - [SECURITY.md](SECURITY.md): reporting a vulnerability

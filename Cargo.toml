@@ -30,7 +30,7 @@ sha2 = "0.11"
 hmac = "0.13"
 hex = "0.4"
 ring = "0.17"
-rand = "0.8"
+rand = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -978,9 +978,6 @@ function loadAudit() {
   }).catch(function (e) { $("audit").textContent = e.message; });
 }
 
-boot();
-})();
-
 // ---- Emergency withdrawal (Settings). Folded away; nothing starts on its own.
 var exState = null, exTimer = null;
 function exReady() {
@@ -1053,6 +1050,10 @@ $("ex-start").addEventListener("click", function () { exAction("/admin/exit/star
 $("ex-stop").addEventListener("click", function () { exAction("/admin/exit/cancel", {}, $("ex-stop")); });
 $("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
 $("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
+
+boot();
+})();
+
 </script>
 </body>
 </html>

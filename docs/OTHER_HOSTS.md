@@ -3,7 +3,8 @@
 The recommended path is [DigitalOcean](START_HERE.md). EBP is plain Docker, so
 it is never tied to one company: anything that runs Docker works, and moving
 later means restoring your encrypted backup on the new host. **Play money
-(signet) only for now, on any host.**
+(signet) by default, on any host;** real money is experimental (see
+[START_HERE.md](START_HERE.md#real-money-experimental)).
 
 ## What you are trusting, on any host
 

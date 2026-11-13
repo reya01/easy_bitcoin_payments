@@ -6,11 +6,11 @@ Stable tag: 0.1.0-rc2
 License: MIT
 License URI: https://opensource.org/license/mit
 
-Accept Bitcoin in WooCommerce through your own Easy Bitcoin Payments server. Test version: play money only.
+Accept Bitcoin in WooCommerce through your own Easy Bitcoin Payments server. Experimental test version.
 
 == Description ==
 
-**This is a test version. Use play-money (signet) coins only. Do not take real bitcoin yet.**
+**This is an experimental test version.** Use a payment server in test mode (play-money signet coins). A real-money payment server is possible but not yet tried with real bitcoin: keep amounts tiny.
 
 This plugin adds a "Bitcoin" payment method to WooCommerce. It does not handle any money itself. It talks to **your own** Easy Bitcoin Payments server, which holds a small wallet that is emptied to a wallet you control.
 
@@ -47,7 +47,7 @@ Stored in your WordPress database (in the plugin's settings): the server address
 2. Go to WooCommerce > Settings > Payments > Bitcoin (Easy Bitcoin Payments) and tick Enable.
 3. Fill in the server address, API key and signing secret from your payment server's admin page (a different website from your shop: the Connect tab, at the bottom of the screen). Paste the "notification address" shown here into that tab.
 4. Press Save changes. A green message says the connection works; a red one says what to fix.
-5. Place a small test order with a signet wallet.
+5. Place a small test order (with a signet wallet on a play-money server).
 
 Your server needs a padlock (https) address.
 

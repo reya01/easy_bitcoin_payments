@@ -1,11 +1,13 @@
 # Easy Bitcoin Payments
 
-**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **play-money testing only**.
+**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **testing**: play money by default, real bitcoin only in tiny amounts.
 
 > **⚠ EXPERIMENTAL: NOT FOR REAL FUNDS.** This is pre-release software. Its wallet
 > integration has not been audited and no independent security audit has been
-> completed. **Do not connect it to mainnet or real bitcoin.** Use signet
-> (play money) until this notice is removed.
+> completed. Use signet (play money, the default). Real bitcoin (mainnet) can be
+> switched on (`EBP_MODE=live`, see [START_HERE.md](docs/START_HERE.md#real-money-experimental))
+> but has not yet been tried with real money: if you do, use only a few thousand
+> sats you can afford to lose.
 
 ## Goals
 

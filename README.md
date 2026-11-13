@@ -49,7 +49,7 @@ Being honest about this matters more than sounding safe.
 - Someone with full control of the payment server can take what it holds at that moment, and can read its keys.
 - Your recovery words, phone or authenticator in the wrong hands. Lose the recovery words and nobody, including us, can recover them.
 - A hacked shop can still show your customers a fake payment page. EBP cannot see that happen.
-- Bugs in the software we build on (including the Ark server and wallet) and in ours. No independent security audit has been done yet, which is why this is play-money only.
+- Bugs in the software we build on (including the Ark server and wallet) and in ours. No independent security audit has been done yet, which is why play money is the default and real money is limited to tiny experimental amounts.
 
 The longer lists are in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) and [docs/dev/SHOP_COMPROMISE.md](docs/dev/SHOP_COMPROMISE.md).
 

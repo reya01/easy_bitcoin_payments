@@ -59,7 +59,7 @@ To a small wallet on your own payment server, which is emptied to the payout add
 
 = Can I use it for real money? =
 
-Not yet. This is a test version. See the project repository for the checklist before a real release.
+Not for real sales yet. A payment server can be set to real money for a first test with tiny amounts (a product under one dollar); it has not yet been tried with real bitcoin. See the project repository for the checklist before a real release.
 
 = Why does a paid order stay "On hold"? =
 

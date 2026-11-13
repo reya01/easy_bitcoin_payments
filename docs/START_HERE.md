@@ -169,26 +169,24 @@ file, type the password. It tells you whether the backup opens and what it holds
 A server is either play money or real money, for good: its wallet is made for
 one network when you press **Create wallet**. To use real bitcoin:
 
-1. Do steps 1 to 3 above (a **new** server; an existing play-money server cannot be switched).
-2. **In the new server's Console** (log in as `root`), before you open the setup page, run these one at a time:
-   ```
-   cd /opt/ebp
-   echo "EBP_MODE=live" >> .env
-   echo "EBP_MAX_INVOICE_SATS=5000" >> .env
-   ebp-info
-   ```
-   The second line chooses real money. The third limits any single payment to
-   5,000 sats while you test. `ebp-info` restarts the server with these settings
-   and shows the setup box again; the setup code is new after the restart.
-3. Do step 4. The setup page now shows **REAL MONEY. Experimental: keep amounts
-   small.** and fills in Second's Ark server (`ark.second.tech`) and `mainnet`:
-   leave both. Your Ark payout wallet must also use `ark.second.tech`.
+1. Use a **new** server (an existing play-money server cannot be switched).
+2. **On the setup page, at Create your wallet:** set **Network** to **Mainnet:
+   real bitcoin (experimental)**. Read the warning, tick the box, and leave the
+   Ark server as the page fills it in (`ark.second.tech`). Your Ark payout wallet
+   must also use `ark.second.tech`.
+3. Optional, for a first test: limit any single payment to 5,000 sats. **In the
+   server's Console** (log in as `root`): `cd /opt/ebp`, then
+   `echo "EBP_MAX_INVOICE_SATS=5000" >> .env`, then `./scripts/start.sh`.
 4. Test with a product priced under one dollar. Keep only small amounts on this
    server: the emergency withdrawal (Settings) is switched off on real-money
    servers until it has been practised on play money.
 
-If Home ever shows "This server is set to real money, but its wallet is play
-money" (or the reverse), the `.env` was changed after setup: put it back.
+At the end of setup the server restarts once by itself to switch to real
+money; if the page stops answering for about a minute, wait, then refresh.
+
+(Advanced: `EBP_MODE=live` in `.env` before setup makes Mainnet the page's
+default instead of Signet. Once the wallet exists, the network chosen on the
+page always wins.)
 
 ## Later
 

@@ -602,7 +602,46 @@ pub fn apply_pending_restore(database_path: &str) -> Result<Option<String>, Stri
     }
     drop(db_bytes);
 
+    // The network chosen on the setup page (with the restored words) must
+    // agree with the server the backup came from; an older backup that does
+    // not say keeps the choice made now.
+    let read_mode = |path: &Path| -> Option<String> {
+        let conn = rusqlite::Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .ok()?;
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [crate::config::SERVER_MODE_KEY],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+    };
     let live_db = Path::new(database_path);
+    let chosen_mode = if live_db.exists() {
+        read_mode(live_db)
+    } else {
+        None
+    };
+    let backup_mode = read_mode(&staged_db);
+    if let (Some(chosen), Some(backup)) = (&chosen_mode, &backup_mode) {
+        if chosen != backup {
+            return refuse(format!(
+                "the backup is from a {} server, but this server was set up for {}",
+                if backup == "live" {
+                    "real-money (mainnet)"
+                } else {
+                    "play-money (signet)"
+                },
+                if chosen == "live" {
+                    "real money (mainnet)"
+                } else {
+                    "play money (signet)"
+                }
+            ));
+        }
+    }
     if live_db.exists() {
         // A look at what is there now. Anything that cannot be read
         // counts as "nothing of value", but a finished setup or any order
@@ -668,6 +707,11 @@ pub fn apply_pending_restore(database_path: &str) -> Result<Option<String>, Stri
         let _ = std::fs::rename(live_db, &staged_db);
         undo(&moved);
         return Err(format!("could not put the restored key in place: {e}"));
+    }
+    if let (Some(chosen), None) = (&chosen_mode, &backup_mode) {
+        if let Ok(conn) = rusqlite::Connection::open(live_db) {
+            let _ = crate::config::save_mode(&conn, chosen);
+        }
     }
     let _ = std::fs::remove_dir_all(&pending);
     Ok(Some(format!(
@@ -851,6 +895,42 @@ mod tests {
                 data: vec![7u8; 10],
             },
         ]
+    }
+
+    #[test]
+    fn the_network_chosen_at_setup_survives_an_older_backup_and_must_match_a_newer_one() {
+        // An older backup (no saved network) keeps the choice made now.
+        let dir = tmpdir("mode-keep");
+        let live = dir.join("ebp.sqlite3");
+        real_db(&live, false, 0, "Fresh Shop");
+        crate::config::save_mode(&rusqlite::Connection::open(&live).unwrap(), "live").unwrap();
+        std::fs::write(dir.join("ebp.key"), KEY_B).unwrap();
+        stage_restore(&old_server_backup("mode-keep-src"), &dir).unwrap();
+        apply_pending_restore(&live.to_string_lossy())
+            .unwrap()
+            .unwrap();
+        let c = rusqlite::Connection::open(&live).unwrap();
+        assert_eq!(
+            crate::config::saved_mode(&c).unwrap().as_deref(),
+            Some("live")
+        );
+
+        // A backup from a play-money server onto a server set up for real
+        // money: refused, nothing replaced.
+        let dir = tmpdir("mode-clash");
+        let live = dir.join("ebp.sqlite3");
+        real_db(&live, false, 0, "Fresh Shop");
+        crate::config::save_mode(&rusqlite::Connection::open(&live).unwrap(), "live").unwrap();
+        std::fs::write(dir.join("ebp.key"), KEY_B).unwrap();
+        let mut entries = old_server_backup("mode-clash-src");
+        let src = tmpdir("mode-clash-db").join("b.sqlite3");
+        std::fs::write(&src, &entries[0].data).unwrap();
+        crate::config::save_mode(&rusqlite::Connection::open(&src).unwrap(), "test").unwrap();
+        entries[0].data = std::fs::read(&src).unwrap();
+        stage_restore(&entries, &dir).unwrap();
+        let err = apply_pending_restore(&live.to_string_lossy()).unwrap_err();
+        assert!(err.contains("play-money (signet) server"), "{err}");
+        assert_eq!(std::fs::read_to_string(dir.join("ebp.key")).unwrap(), KEY_B);
     }
 
     #[test]

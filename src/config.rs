@@ -850,3 +850,17 @@ pub fn is_ark_destination(destination: &str) -> bool {
     let d = destination.trim().to_ascii_lowercase();
     d.starts_with("ark1") || d.starts_with("tark1")
 }
+
+/// Settings key: the mode (`test` or `live`) the owner chose on the setup
+/// page when the wallet was made. Once saved it is the server's mode for
+/// good, whatever `EBP_MODE` says, because the wallet is on that network.
+pub const SERVER_MODE_KEY: &str = "server_mode";
+
+/// The mode saved by the setup page, if any.
+pub fn saved_mode(conn: &rusqlite::Connection) -> Result<Option<String>, crate::error::AppError> {
+    Ok(crate::settings::get(conn, SERVER_MODE_KEY)?.filter(|m| m == "test" || m == "live"))
+}
+
+pub fn save_mode(conn: &rusqlite::Connection, mode: &str) -> Result<(), crate::error::AppError> {
+    crate::settings::set(conn, SERVER_MODE_KEY, mode)
+}

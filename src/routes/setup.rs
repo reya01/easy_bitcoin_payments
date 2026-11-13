@@ -117,41 +117,58 @@ const DEFAULT_SIGNET_ASP: &str = "https://ark.signet.2nd.dev";
 /// 11 Nov 2026 by the `mainnet-compat-check` workflow).
 const DEFAULT_MAINNET_ASP: &str = "https://ark.second.tech";
 
-/// The network and Ark server a new (or restored) wallet gets, from this
-/// server's mode and what the wizard sent. Live mode means mainnet only and
-/// test mode means signet only: a mismatch in either direction is refused,
-/// because a barkd wallet belongs to one network for good. An empty or
-/// missing server address means Second's server for that network.
-fn resolve_wallet_network(
-    mode: &str,
+/// The network, Ark server and server mode a new (or restored) wallet gets,
+/// from the owner's choice on the setup page: `signet` (play money, test
+/// mode) or `mainnet` (real bitcoin, live mode). Nothing chosen means the
+/// default for how the server was started (`EBP_MODE`, itself `test` by
+/// default). A barkd wallet belongs to one network for good, so mainnet
+/// needs the owner's explicit "I understand" and the Ark server must belong
+/// to the chosen network. An empty server address means Second's server for
+/// that network.
+fn resolve_wallet_choice(
+    default_mode: &str,
     network: Option<&str>,
     asp_url: Option<&str>,
-) -> Result<(String, String), AppError> {
-    let live = mode == "live";
-    let (allowed, default_asp) = if live {
-        ("mainnet", DEFAULT_MAINNET_ASP)
-    } else {
-        ("signet", DEFAULT_SIGNET_ASP)
-    };
+    mainnet_understood: bool,
+) -> Result<(String, String, &'static str), AppError> {
     let network = match network.map(str::trim).filter(|n| !n.is_empty()) {
         Some(n) => n.to_lowercase(),
-        None => allowed.to_string(),
+        None if default_mode == "live" => "mainnet".to_string(),
+        None => "signet".to_string(),
     };
-    if network != allowed {
-        let why = if live {
-            "this server is set to real money (live mode), so its wallet must be on \"mainnet\""
-        } else {
-            "this server is set to play money (test mode), so its wallet must be on \"signet\""
-        };
-        return Err(AppError::BadRequest(format!(
-            "network \"{network}\" is not allowed: {why}"
-        )));
+    let (network, mode, default_asp) = match network.as_str() {
+        "signet" => ("signet".to_string(), "test", DEFAULT_SIGNET_ASP),
+        "mainnet" | "bitcoin" => ("mainnet".to_string(), "live", DEFAULT_MAINNET_ASP),
+        other => {
+            return Err(AppError::BadRequest(format!(
+                "network \"{other}\" is not offered: choose signet (play money) or mainnet (real bitcoin)"
+            )))
+        }
+    };
+    if mode == "live" && !mainnet_understood {
+        return Err(AppError::BadRequest(
+            "Mainnet means real bitcoin, and this server stays on mainnet for good. Tick the box to confirm you understand, or choose signet.".into(),
+        ));
     }
     let asp_url = match asp_url.map(str::trim).filter(|u| !u.is_empty()) {
         Some(url) => url.trim_end_matches('/').to_string(),
         None => default_asp.to_string(),
     };
-    Ok((network, asp_url))
+    let signet_server = asp_url.to_lowercase().contains("signet");
+    if (mode == "live" && signet_server) || (mode == "test" && asp_url == DEFAULT_MAINNET_ASP) {
+        return Err(AppError::BadRequest(format!(
+            "that Ark server is not on {network}: leave the Ark server box as the page fills it in"
+        )));
+    }
+    Ok((network, asp_url, mode))
+}
+
+/// The server's mode as the setup page sees it: the network chosen on this
+/// page (saved when the wallet was made) wins over how the server was
+/// started, because the wallet itself is on that network.
+async fn wizard_mode(state: &AppState) -> Result<String, AppError> {
+    let saved = state.db.call(|c| crate::config::saved_mode(c)).await?;
+    Ok(saved.unwrap_or_else(|| state.config.mode.clone()))
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +252,8 @@ pub struct SetupStatus {
     pub managed: bool,
     /// `"test"` (signet, play money) or `"live"`.
     pub mode: String,
+    /// The network was chosen on the setup page and is now fixed.
+    pub mode_chosen: bool,
 }
 
 /// GET /setup — the mobile-first wizard page.
@@ -263,7 +282,12 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
 
     snapshot.barkd_token_present = token.is_some();
     snapshot.restore_refused = crate::backup::restore_refused_reason().map(str::to_string);
-    snapshot.mode = state.config.mode.clone();
+    snapshot.mode = wizard_mode(&state).await?;
+    snapshot.mode_chosen = state
+        .db
+        .call(|c| crate::config::saved_mode(c))
+        .await?
+        .is_some();
     snapshot.setup_code_required = state.config.setup_token.is_some() && !snapshot.setup_complete;
     snapshot.managed = crate::managed_barkd::get().is_some();
     snapshot.https_required = !state.config.setup_transport_ok() && !snapshot.setup_complete;
@@ -287,6 +311,7 @@ fn wizard_snapshot(conn: &rusqlite::Connection) -> Result<SetupStatus, AppError>
         https_required: false,      // filled by the caller
         managed: false,             // filled by the caller
         mode: String::new(),        // filled by the caller
+        mode_chosen: false,         // filled by the caller
     })
 }
 
@@ -311,6 +336,10 @@ pub struct CreateWalletRequest {
     /// exist (this stands in for the "I wrote the words down" step).
     #[serde(default)]
     pub paper_copies_exist: bool,
+    /// Mainnet only: the owner ticked "real bitcoin, and this server stays
+    /// on mainnet for good".
+    #[serde(default)]
+    pub mainnet_understood: bool,
 }
 
 // Manual Debug: the words must never reach a log line, panic message or `{:?}`.
@@ -321,6 +350,7 @@ impl std::fmt::Debug for CreateWalletRequest {
             .field("asp_url", &self.asp_url)
             .field("mnemonic", &self.mnemonic.as_ref().map(|_| "[REDACTED]"))
             .field("paper_copies_exist", &self.paper_copies_exist)
+            .field("mainnet_understood", &self.mainnet_understood)
             .finish()
     }
 }
@@ -766,11 +796,20 @@ pub async fn create_wallet(
 ) -> Result<Response, AppError> {
     ensure_wizard_open(&state).await?;
 
-    let (network, asp_url) = resolve_wallet_network(
+    let (network, asp_url, mode) = resolve_wallet_choice(
         &state.config.mode,
         req.network.as_deref(),
         req.asp_url.as_deref(),
+        req.mainnet_understood,
     )?;
+    // Once a network was chosen it is fixed: switching needs a new server.
+    if let Some(saved) = state.db.call(|c| crate::config::saved_mode(c)).await? {
+        if saved != mode {
+            return Err(AppError::BadRequest(
+                "This server already uses the other network, and that cannot change. To switch, set up a new server.".into(),
+            ));
+        }
+    }
 
     // Restoring: tidy and shape-check the words BEFORE anything is sent.
     let restore_words = match req.mnemonic.as_deref().map(str::trim) {
@@ -807,9 +846,16 @@ pub async fn create_wallet(
     // in for the "write the words down" step, which has nothing to show.
     let restored = restore_words.is_some();
     drop(restore_words);
+    // The wallet is now on this network: the server's mode follows it for
+    // good. A running server applies a changed mode after one restart, at the
+    // end of setup (payments stay closed until then).
+    if mode != state.config.mode {
+        request_restart_after_setup();
+    }
     state
         .db
         .call(move |conn| {
+            crate::config::save_mode(conn, mode)?;
             settings::set(conn, "setup_wallet_created", "true")?;
             if restored {
                 settings::set(conn, "setup_wallet_restored", "true")?;
@@ -1320,14 +1366,14 @@ pub async fn create_store(
     // not leave a half-finished setup behind.
     let payout_address =
         match req.payout_address.as_deref().map(str::trim) {
-            Some(a) if !a.is_empty() => crate::payout::validate(a, &state.config.mode)?,
+            Some(a) if !a.is_empty() => crate::payout::validate(a, &wizard_mode(&state).await?)?,
             _ => return Err(AppError::BadRequest(
                 "Add the address of a wallet you control (an Ark or Bitcoin address) to continue."
                     .into(),
             )),
         };
     let admin_password = req.admin_password.clone();
-    let mode = state.config.mode.clone();
+    let mode = wizard_mode(&state).await?;
     let iterations = state.config.password_hash_iterations;
     let (created, setup_complete) = state
         .db
@@ -2195,41 +2241,60 @@ mod tests {
     // -- the runtime token override ----------------------------------------
 
     #[test]
-    fn live_mode_creates_a_mainnet_wallet_on_seconds_server_by_default() {
-        let (network, asp) = resolve_wallet_network("live", None, None).unwrap();
-        assert_eq!(network, "mainnet");
-        assert_eq!(asp, "https://ark.second.tech");
-        // What the wizard page sends in live mode, and an empty server box.
-        let (network, asp) = resolve_wallet_network("live", Some(" Mainnet "), Some("  ")).unwrap();
-        assert_eq!(network, "mainnet");
-        assert_eq!(asp, DEFAULT_MAINNET_ASP);
-        let (_, asp) =
-            resolve_wallet_network("live", Some("mainnet"), Some("https://ark.second.tech/"))
-                .unwrap();
-        assert_eq!(asp, "https://ark.second.tech");
-    }
-
-    #[test]
-    fn live_mode_refuses_every_test_network() {
-        for net in ["signet", "testnet", "regtest", "bitcoin-ish"] {
-            let err = resolve_wallet_network("live", Some(net), None).unwrap_err();
-            let AppError::BadRequest(msg) = err else {
-                panic!("expected a plain refusal for {net}");
-            };
-            assert!(msg.contains("real money"), "{msg}");
-        }
-    }
-
-    #[test]
-    fn test_mode_refuses_mainnet_and_defaults_to_signet() {
-        let err = resolve_wallet_network("test", Some("mainnet"), None).unwrap_err();
+    fn signet_is_the_default_and_mainnet_needs_the_tick_box() {
+        // Nothing chosen: signet, unless the server was started in live mode.
+        let (net, asp, mode) = resolve_wallet_choice("test", None, None, false).unwrap();
+        assert_eq!(
+            (net.as_str(), asp.as_str(), mode),
+            ("signet", DEFAULT_SIGNET_ASP, "test")
+        );
+        let (net, _, mode) = resolve_wallet_choice("live", None, None, true).unwrap();
+        assert_eq!((net.as_str(), mode), ("mainnet", "live"));
+        // Choosing mainnet on a server started in test mode works, with the
+        // tick-box, and gets Second's mainnet server.
+        let err = resolve_wallet_choice("test", Some("mainnet"), Some(""), false).unwrap_err();
         let AppError::BadRequest(msg) = err else {
-            panic!("expected a plain refusal");
+            panic!("expected a plain refusal")
         };
-        assert!(msg.contains("play money"), "{msg}");
-        let (network, asp) = resolve_wallet_network("test", None, Some("")).unwrap();
-        assert_eq!(network, "signet");
-        assert_eq!(asp, DEFAULT_SIGNET_ASP);
+        assert!(msg.contains("Tick the box"), "{msg}");
+        let (net, asp, mode) =
+            resolve_wallet_choice("test", Some(" Mainnet "), Some("  "), true).unwrap();
+        assert_eq!(
+            (net.as_str(), asp.as_str(), mode),
+            ("mainnet", DEFAULT_MAINNET_ASP, "live")
+        );
+        // Choosing signet on a server started in live mode works too.
+        let (net, asp, mode) = resolve_wallet_choice("live", Some("signet"), None, false).unwrap();
+        assert_eq!(
+            (net.as_str(), asp.as_str(), mode),
+            ("signet", DEFAULT_SIGNET_ASP, "test")
+        );
+        let (_, asp, _) = resolve_wallet_choice(
+            "test",
+            Some("mainnet"),
+            Some("https://ark.second.tech/"),
+            true,
+        )
+        .unwrap();
+        assert_eq!(asp, "https://ark.second.tech");
+    }
+
+    #[test]
+    fn only_signet_and_mainnet_are_offered_and_the_server_must_match() {
+        for net in ["testnet", "regtest", "bitcoin-ish"] {
+            assert!(
+                resolve_wallet_choice("test", Some(net), None, true).is_err(),
+                "{net}"
+            );
+        }
+        // A signet Ark server with mainnet (or the reverse) is refused.
+        assert!(
+            resolve_wallet_choice("test", Some("mainnet"), Some(DEFAULT_SIGNET_ASP), true).is_err()
+        );
+        assert!(
+            resolve_wallet_choice("test", Some("signet"), Some(DEFAULT_MAINNET_ASP), false)
+                .is_err()
+        );
     }
 
     #[test]

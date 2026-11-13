@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The "large balance" warning now says what to do.** Above 100,000 sats held on the server, Home shows a yellow line (before, it stayed quiet when the keep amount was large) recommending that you send money on to an Ark mobile wallet such as Noah or Arké and set "How much to keep on this server" below 5,000 sats, because getting a large balance out in an emergency costs network fees for every coin.
+
 ## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
 
 - **Choose signet or mainnet on the setup page.** The Create your wallet step has a Network box: Signet (play money) is the default, Mainnet (real bitcoin, experimental) is the other choice. Mainnet shows a real-money warning and needs a tick-box; the page says the choice is permanent and switching needs a new server. The choice is saved with the wallet and always wins over `EBP_MODE` (which now only sets the page's default); the server restarts once at the end of setup to apply it. A backup from a server on the other network is refused when restoring. No command line needed.

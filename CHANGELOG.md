@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Older Bitcoin payout addresses (`1…`, `3…`) are accepted on a real-money server**, with their checksum checked, and refused on a test server. The setup page and Settings now name only the address types this server accepts.
 - **Choose real money in `.env` with `EBP_MODE=live`** (before setup; default `test`). `docker-compose.yml` now passes `EBP_MODE` and `EBP_MAX_INVOICE_SATS` through. Home shows a red line if the wallet's network does not match the server's mode, for example a play-money server switched to live after setup.
 - **Mainnet, step 1: the setup page can create or restore a real-money wallet on a server set to live mode.** A live-mode server makes its wallet on Bitcoin mainnet with Second's Ark server (`https://ark.second.tech`) unless another server is typed in; a test-mode server stays on signet. A network that does not match the server's mode is refused in both directions, because a wallet belongs to one network for good.
 

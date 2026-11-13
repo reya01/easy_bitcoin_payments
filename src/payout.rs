@@ -141,6 +141,9 @@ const SILENT_PAYMENT: &str = "that is a silent payment (BIP-352) address, which 
 const REAL_ADDRESS_ON_TEST_SERVER: &str =
     "this server is in test mode and only works with play-money (signet) coins, \
     but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1)";
+const OLD_TEST_ADDRESS: &str =
+    "that is an old-style test-network address, which this server does not use. \
+    Use a signet address that starts with tb1 or tark1";
 const TEST_ADDRESS_ON_LIVE_SERVER: &str =
     "that is a test-network address, but this server works with real Bitcoin. \
     Use an address that starts with bc1 or ark1";
@@ -158,6 +161,11 @@ const TEST_ADDRESS_ON_LIVE_SERVER: &str =
 pub fn check(input: &str, mode: &str) -> Result<String, String> {
     let live = mode == "live";
     let trimmed = input.trim();
+    // Older Bitcoin addresses (`1…`, `3…`) are Base58Check, case-sensitive,
+    // so they are checked before anything lowercases them.
+    if let Some(result) = check_legacy(trimmed, live) {
+        return result;
+    }
     if trimmed.len() < 14
         || trimmed.len() > 200
         || !trimmed.is_ascii()
@@ -204,6 +212,68 @@ pub fn check(input: &str, mode: &str) -> Result<String, String> {
     } else {
         Err(BROKEN_ADDRESS.into())
     }
+}
+
+const BASE58: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// Decode a Base58Check string. Returns the 21-byte payload (version byte
+/// plus 20-byte hash) only when the whole thing is exactly 25 bytes and its
+/// last 4 bytes match the double-SHA-256 checksum, so a typo is caught.
+fn decode_base58check(s: &str) -> Option<Vec<u8>> {
+    // Big-endian base-58 to base-256, one character at a time.
+    let mut number: Vec<u8> = Vec::new();
+    for c in s.bytes() {
+        let mut carry = BASE58.iter().position(|&b| b == c)? as u32;
+        for byte in number.iter_mut().rev() {
+            carry += u32::from(*byte) * 58;
+            *byte = (carry & 0xff) as u8;
+            carry >>= 8;
+        }
+        while carry > 0 {
+            number.insert(0, (carry & 0xff) as u8);
+            carry >>= 8;
+        }
+    }
+    // Each leading '1' stands for one leading zero byte.
+    let zeros = s.bytes().take_while(|&c| c == b'1').count();
+    let mut raw = vec![0u8; zeros];
+    raw.extend(number);
+    if raw.len() != 25 {
+        return None;
+    }
+    let (payload, checksum) = raw.split_at(21);
+    use sha2::{Digest, Sha256};
+    let first = Sha256::digest(payload);
+    let second = Sha256::digest(&first[..]);
+    if second[..4] != *checksum {
+        return None;
+    }
+    Some(payload.to_vec())
+}
+
+/// Legacy (Base58Check) addresses: `1…` (P2PKH, version 0x00) and `3…`
+/// (P2SH, 0x05) are real Bitcoin and accepted on a live server; the test
+/// forms `m…`/`n…` (0x6f) and `2…` (0xc4) are refused everywhere (test
+/// servers use `tb1…`/`tark1…`). `None` means "not a legacy address": the
+/// bech32 checks apply.
+fn check_legacy(a: &str, live: bool) -> Option<Result<String, String>> {
+    let first = a.chars().next()?;
+    if !matches!(first, '1' | '3' | 'm' | 'n' | '2')
+        || !(26..=35).contains(&a.len())
+        || !a.bytes().all(|c| BASE58.contains(&c))
+    {
+        return None;
+    }
+    let Some(payload) = decode_base58check(a) else {
+        return Some(Err(BROKEN_ADDRESS.into()));
+    };
+    Some(match payload[0] {
+        0x00 | 0x05 if live => Ok(a.to_string()),
+        0x00 | 0x05 => Err(REAL_ADDRESS_ON_TEST_SERVER.into()),
+        0x6f | 0xc4 if live => Err(TEST_ADDRESS_ON_LIVE_SERVER.into()),
+        0x6f | 0xc4 => Err(OLD_TEST_ADDRESS.into()),
+        _ => Err(NOT_AN_ADDRESS.into()),
+    })
 }
 
 /// [`check`] as a request error, for the setup wizard and the admin page.
@@ -436,7 +506,7 @@ pub fn cancel(conn: &Connection) -> Result<bool, AppError> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -539,13 +609,62 @@ mod tests {
             "bc1gmk9yu",                                                      // empty data
             "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsy",                     // typo
             "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3",                       // truncated
-            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", // legacy: not supported
             "hello world, not an address",
             "",
         ] {
             assert!(check(bad, "test").is_err(), "test: {bad}");
             assert!(check(bad, "live").is_err(), "live: {bad}");
         }
+    }
+
+    #[test]
+    fn legacy_mainnet_addresses_are_accepted_on_a_live_server_only() {
+        // Known-good vectors: P2PKH (1…) and P2SH (3…). Case is kept.
+        for ok in [
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+            "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
+        ] {
+            assert_eq!(check(ok, "live").unwrap(), ok, "{ok}");
+            assert_eq!(check(&format!("  {ok} "), "live").unwrap(), ok);
+            let e = check(ok, "test").unwrap_err();
+            assert!(e.contains("test mode"), "{e}");
+        }
+        // One changed character (or a changed case) breaks the checksum.
+        for typo in [
+            "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN3",
+            "1bvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2",
+            "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLz",
+        ] {
+            let e = check(typo, "live").unwrap_err();
+            assert!(e.contains("not valid"), "{typo}: {e}");
+        }
+        // Too short / too long / characters base58 never uses.
+        assert!(check("1BvBMSEYstWetqTFn5Au4m4GFg7xJaN", "live").is_err());
+        assert!(check("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2VN2", "live").is_err());
+        assert!(check("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN0", "live").is_err());
+        // Test-network legacy forms (m…, n…, 2…) are refused in both modes.
+        for t in [
+            "mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn",
+            "n3GNqMveyvaPvUbH469vDRadqpJMPc84JA",
+            "2MzQwSSnBHWHqSAqtTVQ6v47XtaisrJa1Vc",
+        ] {
+            assert!(check(t, "live").is_err(), "live: {t}");
+            assert!(check(t, "test").is_err(), "test: {t}");
+        }
+    }
+
+    #[test]
+    fn base58check_decodes_a_known_address() {
+        let p = decode_base58check("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa").unwrap();
+        assert_eq!(p[0], 0x00);
+        assert_eq!(
+            hex::encode(&p[1..]),
+            "62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
+        );
+        let p = decode_base58check("3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy").unwrap();
+        assert_eq!(p[0], 0x05);
+        assert!(decode_base58check("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb").is_none());
     }
 
     #[test]

@@ -45,6 +45,7 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
         "pending_effective_at": s.effective_at,
         "set_by_server_config": s.from_server_config,
         "change_delay_hours": delay_secs / 3600,
+        "live": config.mode == "live",
     })
 }
 

@@ -178,6 +178,24 @@ pub struct ExitRequest {
     pub understood: bool,
 }
 
+/// Where a claim or the left-over money goes: the address chosen when the
+/// withdrawal was started always wins, so a later request cannot redirect
+/// it. Only when none was saved (a withdrawal this server did not start, or
+/// fee money deposited for one that never started) is the typed address
+/// used, and the owner's phone is told.
+fn settled_destination(
+    req: &ExitRequest,
+    saved: Option<String>,
+    mode: &str,
+) -> Result<(String, bool), AppError> {
+    match saved.filter(|s| !s.trim().is_empty()) {
+        Some(saved) => ee::check_destination(&saved, mode)
+            .map(|d| (d, false))
+            .map_err(AppError::BadRequest),
+        None => destination_from(req, None, mode).map(|d| (d, true)),
+    }
+}
+
 fn destination_from(
     req: &ExitRequest,
     fallback: Option<String>,
@@ -270,6 +288,7 @@ pub async fn start(
             crate::settings::set(conn, ee::EXIT_STARTED_AT_KEY, &now.to_string())?;
             crate::settings::set(conn, EXIT_DESTINATION_KEY, &destination)?;
             audit(conn, "exit.started", &detail);
+            let _ = crate::alerts::queue_notice(conn, "exit_started");
             Ok(())
         })
         .await?;
@@ -342,7 +361,7 @@ pub async fn claim(
         .db
         .call(|c| crate::settings::get(c, EXIT_DESTINATION_KEY))
         .await?;
-    let destination = destination_from(&req, saved, &state.config.mode)?;
+    let (destination, typed_now) = settled_destination(&req, saved, &state.config.mode)?;
     authorize(&state, &headers, req.admin_password, req.code).await?;
     let c = client(&state)?;
     let live = ee::parse_live(&c.exits_live().await?);
@@ -361,6 +380,14 @@ pub async fn claim(
                 rusqlite::params![ee::EXIT_CLAIMABLE_KEY],
             )?;
             audit(conn, "exit.claimed", &detail);
+            let _ = crate::alerts::queue_notice(
+                conn,
+                if typed_now {
+                    "exit_claimed_new_address"
+                } else {
+                    "exit_claimed"
+                },
+            );
             Ok(())
         })
         .await?;
@@ -378,11 +405,14 @@ pub async fn leftover(
     Json(req): Json<ExitRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    if let Some(off) = ee::not_enabled_reason(&state.config.mode) {
+        return Err(AppError::BadRequest(off.into()));
+    }
     let saved = state
         .db
         .call(|c| crate::settings::get(c, EXIT_DESTINATION_KEY))
         .await?;
-    let destination = destination_from(&req, saved, &state.config.mode)?;
+    let (destination, _typed_now) = settled_destination(&req, saved, &state.config.mode)?;
     authorize(&state, &headers, req.admin_password, req.code).await?;
     let c = client(&state)?;
     let live = ee::parse_live(&c.exits_live().await?);
@@ -402,6 +432,7 @@ pub async fn leftover(
         .db
         .call(move |conn| {
             audit(conn, "exit.leftover_sent", &detail);
+            let _ = crate::alerts::queue_notice(conn, "exit_leftover_sent");
             Ok(())
         })
         .await?;

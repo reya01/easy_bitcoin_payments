@@ -124,10 +124,15 @@ fn segwit_program_ok(d: &Decoded) -> bool {
     if !(2..=40).contains(&program.len()) {
         return false;
     }
-    if version == 0 {
-        (program.len() == 20 || program.len() == 32) && !d.bech32m
-    } else {
-        d.bech32m
+    // Only address types that are actually spendable by their owner today:
+    // v0 (P2WPKH 20 bytes, P2WSH 32 bytes) and v1 Taproot (32 bytes). Any
+    // other witness version or v1 length is valid BIP350 but has no
+    // spending rules yet: coins sent there can be taken by anyone. Refused,
+    // never paid.
+    match version {
+        0 => (program.len() == 20 || program.len() == 32) && !d.bech32m,
+        1 => program.len() == 32 && d.bech32m,
+        _ => false,
     }
 }
 
@@ -582,16 +587,22 @@ pub(crate) mod tests {
         ] {
             assert!(check(ok, "test").is_ok(), "{ok}");
         }
-        // Live mode: mainnet addresses, including v0 20/32 bytes and v1+.
+        // Live mode: mainnet v0 (20/32 bytes) and v1 Taproot (32 bytes).
         for ok in [
             "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
             "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4",
             "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
             "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0",
+        ] {
+            assert!(check(ok, "live").is_ok(), "{ok}");
+        }
+        // Valid BIP350 but anyone-can-spend today (future witness versions,
+        // v1 with a non-32-byte program): money sent there would be lost.
+        for lost in [
             "bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y",
             "bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs",
         ] {
-            assert!(check(ok, "live").is_ok(), "{ok}");
+            assert!(check(lost, "live").is_err(), "{lost}");
         }
         // Official BIP350 invalid vectors and common mistakes (all refused
         // on both networks).

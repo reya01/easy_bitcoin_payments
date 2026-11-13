@@ -154,6 +154,7 @@ You hold the keys, so the money on your payment server can be taken out without 
 1. **On your payment server, in Settings**, open **Emergency: withdraw without the Ark server** (folded away at the bottom). Two-step sign-in must be on.
 2. It shows the Ark money on the server, the estimated network fees, and the deadline to start. **It refuses** unless there are at least 100,000 sats on the server and at least twice the fees: below that, the fees cost more than they rescue, and waiting for the Ark server to come back is better.
 3. If it is allowed: send the fee money it asks for to the deposit address shown (from any wallet or exchange), wait for 1 confirmation, type your on-chain address, tick the box, enter your admin password and code, and press **Start**. Leave the server on, and download a fresh backup.
+   The address you type here is fixed for this withdrawal: the claim and any left-over fee money go there and nowhere else. Your phone gets an alert when a withdrawal is started.
 4. When Home says it is **ready to claim** (and your phone alert, if on), press **Send to my address** in the same place. Then send any left-over fee money back with **Send leftover to my address**.
 
 The money in your own payout wallet is not on this server: that wallet's own app is responsible for its own emergency exits. On a real-money server this option stays switched off until it has been practised on play money.

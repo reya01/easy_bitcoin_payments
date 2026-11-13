@@ -99,6 +99,22 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "Your payout address was changed",
             "The payout address change has taken effect. If you did not ask for it, pause payments in Settings and follow If something looks wrong.",
         )),
+        "exit_started" => Some((
+            "An emergency withdrawal was started",
+            "Someone started taking the money on your payment server out without the Ark server. If this was not you, open Settings, Emergency, now, press Stop, and change your admin password.",
+        )),
+        "exit_claimed" => Some((
+            "The emergency withdrawal was claimed",
+            "The money was sent to the address chosen when the withdrawal was started.",
+        )),
+        "exit_claimed_new_address" => Some((
+            "The emergency withdrawal was claimed to a newly typed address",
+            "No address had been saved for this withdrawal, so the one typed at the claim was used. If this was not you, change your admin password and follow If something looks wrong.",
+        )),
+        "exit_leftover_sent" => Some((
+            "Left-over on-chain money was sent from your payment server",
+            "The server's own Bitcoin balance was sent out from Settings, Emergency. If this was not you, change your admin password and follow If something looks wrong.",
+        )),
         _ => None,
     }
 }

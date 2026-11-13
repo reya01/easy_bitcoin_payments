@@ -110,6 +110,25 @@ const REQUESTED_RENEWALS_KEY: &str = "renewals_requested";
 /// "renewing is not working" warning.
 const REQUESTED_GIVE_UP_SECS: i64 = 2 * 3600;
 
+/// A coin this close to expiry (a quarter of the renewal lead time) is asked
+/// for again even if a round is supposed to hold it, at most this often. A
+/// round participation that never finishes must not be the reason a coin
+/// expires: asking again costs nothing, expiring costs the coin.
+const LAST_RESORT_RETRY_SECS: i64 = 3600;
+/// A coin outside the server's free renewal window is only pulled into a
+/// renewal to rescue a too-small coin if it is at most this many times the
+/// rescued amount (its renewal fee, at most about 0.5%, then stays below
+/// what is rescued). Matters with an on-chain payout, where the server may
+/// hold one large coin.
+const MERGE_MAX_PAID_MULTIPLE: i64 = 100;
+
+/// An emergency withdrawal is running (see `exit_pause`).
+struct ExitPause {
+    reason: String,
+    /// Coins being withdrawn; `None` when barkd could not say.
+    exiting: Option<std::collections::HashSet<String>>,
+}
+
 /// A renewal the wallet accepted, waiting for its round.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RequestedRenewal {
@@ -287,7 +306,13 @@ impl SettlementEngine {
         vtxos: &crate::wallet::barkd::VtxoSet,
         participations: Option<&[crate::wallet::barkd::RoundParticipation]>,
         now: i64,
-    ) -> Result<std::collections::HashSet<String>, AppError> {
+    ) -> Result<
+        (
+            std::collections::HashSet<String>,
+            std::collections::HashSet<String>,
+        ),
+        AppError,
+    > {
         use std::collections::HashSet;
         let present: HashSet<String> = vtxos
             .spendable
@@ -303,22 +328,26 @@ impl SettlementEngine {
         }
         let rounds_known = participations.is_some();
         let (held_c, present_c, dead_c) = (held.clone(), present, dead);
-        let waiting: HashSet<String> = self
+        let (waiting, recent): (HashSet<String>, HashSet<String>) = self
             .db
             .call(move |conn| {
                 let list = load_requested(conn)?;
                 if list.is_empty() {
-                    return Ok(HashSet::new());
+                    return Ok((HashSet::new(), HashSet::new()));
                 }
                 let p: HashSet<&str> = present_c.iter().map(String::as_str).collect();
                 let h: HashSet<&str> = held_c.iter().map(String::as_str).collect();
                 let d: HashSet<&str> = dead_c.iter().map(String::as_str).collect();
                 let mut keep = Vec::new();
                 let mut waiting = HashSet::new();
+                let mut recent = HashSet::new();
                 for r in list {
                     match judge_requested(&r, &p, &h, &d, rounds_known, now) {
                         RenewalOutcome::Waiting => {
                             waiting.extend(r.inputs.iter().cloned());
+                            if now - r.at < LAST_RESORT_RETRY_SECS {
+                                recent.extend(r.inputs.iter().cloned());
+                            }
                             keep.push(r);
                         }
                         RenewalOutcome::Renewed => {
@@ -336,18 +365,21 @@ impl SettlementEngine {
                     }
                 }
                 save_requested(conn, &keep)?;
-                Ok(waiting)
+                Ok((waiting, recent))
             })
             .await?;
         held.extend(waiting);
-        Ok(held)
+        Ok((held, recent))
     }
 
     /// While an emergency withdrawal runs, renewals and sweeps would fight
     /// it over the same coins, so the whole cycle pauses. Also keeps the
     /// "ready to claim" flag (Home, phone alert) up to date, and notices when
-    /// the withdrawal is over. `Some(reason)` = paused.
-    async fn exit_pause(&self) -> Result<Option<String>, AppError> {
+    /// the withdrawal is over. `Some` = paused: `exiting` lists the coins
+    /// being withdrawn when barkd could say (other coins are still renewed,
+    /// so a payment that arrives meanwhile cannot expire); `None` there means
+    /// barkd could not say, and nothing at all is touched.
+    async fn exit_pause(&self) -> Result<Option<ExitPause>, AppError> {
         use crate::emergency_exit as ee;
         let started: Option<i64> = self
             .db
@@ -393,20 +425,32 @@ impl SettlementEngine {
             })
             .await?;
         let paused = (started.is_some() && !over) || running;
-        Ok(paused.then(|| {
-            "An emergency withdrawal is in progress, so normal transfers and renewals are paused.".to_string()
+        Ok(paused.then(|| ExitPause {
+            reason: "An emergency withdrawal is in progress, so normal transfers are paused."
+                .to_string(),
+            exiting: live.map(|l| l.into_iter().map(|e| e.vtxo_id).collect()),
         }))
     }
 
     async fn cycle(&self, manual: bool) -> Result<TickReport, AppError> {
         let _one_at_a_time = CYCLE_LOCK.lock().await;
         let mut report = TickReport::default();
-        if let Some(reason) = self.exit_pause().await? {
+        let exit = self.exit_pause().await?;
+        if let Some(ExitPause {
+            reason,
+            exiting: None,
+        }) = &exit
+        {
+            // barkd cannot say which coins are being withdrawn: touch none.
             if manual {
-                report.sweep_refused = Some(reason);
+                report.sweep_refused = Some(reason.clone());
             }
             return Ok(report);
         }
+        let exiting: std::collections::HashSet<String> = exit
+            .as_ref()
+            .and_then(|e| e.exiting.clone())
+            .unwrap_or_default();
 
         // NOTE: the sweep destination guard lives right before the sweep
         // section, NOT here. A missing destination disables SWEEPING, never
@@ -491,9 +535,23 @@ impl SettlementEngine {
                 None
             }
         };
-        let excluded = self
+        let (mut excluded, recently_requested) = self
             .settle_requested_renewals(&vtxos, participations.as_deref(), now)
             .await?;
+        // Last resort: a coin close to expiry is asked for again (at most
+        // hourly) even when a round is supposed to hold it. Coins in an
+        // emergency withdrawal are never touched.
+        let critical = lead / 4;
+        excluded.retain(|id| {
+            let near_expiry = vtxos
+                .spendable
+                .iter()
+                .find(|v| &v.id == id)
+                .and_then(|v| vtxo_expiry_unix(v, tip.as_ref()))
+                .is_some_and(|t| t - now <= critical);
+            !(near_expiry && !recently_requested.contains(id))
+        });
+        excluded.extend(exiting.iter().cloned());
 
         let mut unknown_expiry = false;
         let mut due: Vec<_> = Vec::new();
@@ -560,11 +618,22 @@ impl SettlementEngine {
                 .filter(|v| !due.iter().any(|d| d.id == v.id))
                 .filter(|v| !excluded.contains(&v.id))
                 .collect();
-            extra.sort_by_key(|v| vtxo_expiry_unix(v, tip.as_ref()).unwrap_or(i64::MAX));
+            // Coins inside the server's free renewal window first (they cost
+            // nothing), then the smallest. A coin that would pay a renewal
+            // fee is only added while that fee stays below what is rescued.
+            let free = |v: &crate::wallet::barkd::Vtxo| {
+                topup_horizon_secs.is_some_and(|h| {
+                    vtxo_expiry_unix(v, tip.as_ref()).is_some_and(|t| t - now <= h)
+                })
+            };
+            extra.sort_by_key(|v| (!free(v), v.amount_sats));
             let mut total = due_total;
             for v in extra {
                 if total >= MIN_RENEW_SATS {
                     break;
+                }
+                if !free(v) && v.amount_sats > MERGE_MAX_PAID_MULTIPLE * due_total {
+                    continue;
                 }
                 total += v.amount_sats;
                 due.push(v);
@@ -578,7 +647,9 @@ impl SettlementEngine {
                 due.clear();
             }
         }
-        self.db
+        // Best effort: a note for Home must never stop a renewal.
+        if let Err(err) = self
+            .db
             .call(move |conn| {
                 match too_small {
                     Some((sats, lapse)) => {
@@ -597,7 +668,10 @@ impl SettlementEngine {
                 }
                 Ok(())
             })
-            .await?;
+            .await
+        {
+            tracing::warn!(error = %err, "settlement: could not save the too-small note");
+        }
 
         let due_ids: Vec<String> = due
             .iter()
@@ -681,6 +755,14 @@ impl SettlementEngine {
                         .await?;
                 }
             }
+        }
+        if let Some(e) = exit {
+            // An emergency withdrawal is running: coins outside it were
+            // renewed above; nothing is sent anywhere until it is over.
+            if manual {
+                report.sweep_refused = Some(e.reason);
+            }
+            return Ok(report);
         }
         if renewal_accepted {
             // The wallet accepted a renewal: the balance read above may still
@@ -2085,7 +2167,8 @@ mod tests {
 
     #[tokio::test]
     async fn coins_held_by_a_round_attempt_are_never_requested_again() {
-        let soon = now_unix() + 86_400;
+        // Due (inside the 7-day lead) but not yet close to expiry.
+        let soon = now_unix() + 4 * 86_400;
         let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("c1", 5_000, soon)])));
         // Requested earlier (another process, or before a restart).
         let rounds = Arc::new(std::sync::Mutex::new((
@@ -2097,6 +2180,111 @@ mod tests {
         assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
         assert!(refresh_calls(&rec).is_empty());
         assert!(renew_rows(&db).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_coin_close_to_expiry_is_asked_for_again_even_if_a_round_holds_it() {
+        // A round participation that never finishes must not let a coin
+        // expire: inside the last quarter of the lead time it is asked for
+        // again, at most hourly.
+        let soon = now_unix() + 86_400; // lead is 7 days, so this is critical
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[("c1", 5_000, soon)])));
+        let rounds = Arc::new(std::sync::Mutex::new((
+            200,
+            r#"[{"id": 9, "state": "pending", "participation": {"inputs": ["c1"], "outputs": []}}]"#
+                .to_string(),
+        )));
+        let (engine, db, rec) = renewal_engine(vtxos, rounds, (200, "{}"));
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        // Asked within the last hour: not again on the next cycles.
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+        assert_eq!(refresh_calls(&rec).len(), 1);
+        // An hour later it is asked for once more.
+        db.call(|c| {
+            let mut list = load_requested(c)?;
+            for r in &mut list {
+                r.at -= LAST_RESORT_RETRY_SECS + 1;
+            }
+            save_requested(c, &list)
+        })
+        .await
+        .unwrap();
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        assert_eq!(refresh_calls(&rec).len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_large_coin_is_not_renewed_at_a_fee_to_rescue_a_tiny_one() {
+        // On-chain payout: the server may hold one large coin. Renewing it
+        // outside the free window costs far more than the 136 sats rescued.
+        let soon = now_unix() + 86_400;
+        let later = now_unix() + 20 * 86_400;
+        let vtxos = Arc::new(std::sync::Mutex::new(coins(&[
+            ("tiny", 136, soon),
+            ("big", 900_000, later),
+        ])));
+        let rounds = Arc::new(std::sync::Mutex::new((200, "[]".to_string())));
+        let (engine, db, rec) = renewal_engine(vtxos, rounds, (200, "{}"));
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 0);
+        assert!(refresh_calls(&rec).is_empty());
+        assert!(renew_rows(&db).await.is_empty());
+        let sats = db
+            .call(|c| crate::settings::get(c, TOO_SMALL_SATS_KEY))
+            .await
+            .unwrap();
+        assert_eq!(sats.as_deref(), Some("136"));
+    }
+
+    #[tokio::test]
+    async fn during_an_emergency_withdrawal_other_coins_are_still_renewed_but_nothing_is_sent() {
+        // A payment that arrives while a withdrawal runs must not expire.
+        let soon = now_unix() + 86_400;
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/exits/status/live" => (
+                200,
+                r#"[{"vtxo_id": "exiting", "state": {"type": "awaiting-delta"}}]"#.to_string(),
+            ),
+            "/api/v1/wallet/vtxos" => (
+                200,
+                coins(&[("exiting", 150_000, soon), ("fresh", 5_000, soon)]),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 155000}"#.to_string()),
+            "/api/v1/wallet/rounds" => (200, "[]".to_string()),
+            "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(
+                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+                1_000,
+            ),
+        );
+        let report = engine.sweep_now().await.unwrap();
+        assert_eq!(report.refreshed_vtxos, 1);
+        assert!(report.swept_sats.is_none());
+        assert!(report
+            .sweep_refused
+            .unwrap()
+            .contains("emergency withdrawal"));
+        let calls = refresh_calls(&recorded);
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("fresh") && !calls[0].contains("exiting"),
+            "{}",
+            calls[0]
+        );
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/send"));
     }
 
     #[tokio::test]

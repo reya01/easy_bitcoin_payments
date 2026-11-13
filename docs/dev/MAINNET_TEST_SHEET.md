@@ -32,14 +32,17 @@ without the money arriving.
 - [ ] **On the payment server, in the Console** (log in as `root`):
       ```
       cd /opt/ebp
-      echo "EBP_MODE=live" >> .env
       echo "EBP_MAX_INVOICE_SATS=5000" >> .env
       ebp-info
       ```
       Note the new setup code.
-- [ ] **In your browser, on the setup page:** the banner says **REAL MONEY.
-      Experimental: keep amounts small.**, not "TEST MODE". The wallet step shows
-      `https://ark.second.tech` and `mainnet`.
+- [ ] **In your browser, on the setup page, at Create your wallet:** the
+      Network box shows **Signet** by default. Choose **Mainnet**: the warning
+      and the tick-box appear, the Ark server changes to `https://ark.second.tech`,
+      and the banner says **REAL MONEY**. Pressing Create without the tick is
+      refused. Tick it and create the wallet.
+- [ ] At the end of setup the server restarts once by itself (about a minute).
+      Afterwards Home shows the real-money banner.
 
 ## 2. Setup wizard
 

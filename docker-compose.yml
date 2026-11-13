@@ -22,9 +22,9 @@ services:
     build:
       context: .
     environment:
-      # test = play money (signet, the default). live = REAL bitcoin
-      # (mainnet), experimental: keep amounts small. Choose before setup:
-      # a wallet belongs to one network, so a server cannot be switched later.
+      # The setup page's DEFAULT network: test = play money (signet), live =
+      # real bitcoin (mainnet, experimental). The owner chooses on the setup
+      # page; once the wallet exists that choice is saved and always wins.
       EBP_MODE: ${EBP_MODE:-test}
       # Largest single payment request (sats). For a first real-money test,
       # set a small value such as 5000.

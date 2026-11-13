@@ -99,6 +99,21 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     // finished, make a one-time, human-typable SETUP CODE for this run and
     // show it where the operator started the server. Never stored.
     let mut config = config;
+    // The network chosen on the setup page (saved with the wallet) is the
+    // server's mode for good; EBP_MODE only sets the default before that.
+    if let Some(saved) = db
+        .call(|conn| easy_bitcoin_payments::config::saved_mode(conn))
+        .await?
+    {
+        if saved != config.mode {
+            tracing::warn!(
+                saved = %saved,
+                env = %config.mode,
+                "EBP_MODE differs from the network chosen at setup; using the setup choice (the wallet is on that network)"
+            );
+            config.mode = saved;
+        }
+    }
     if config.setup_token.is_none() {
         let complete = db
             .call(|conn| easy_bitcoin_payments::settings::get_bool(conn, "setup_complete"))

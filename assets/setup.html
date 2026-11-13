@@ -148,11 +148,20 @@
     <h1>Create your wallet</h1>
     <p class="sub">This server holds a small "till" wallet — like cash in a register — that receives payments and empties into your own wallet automatically. It runs as its own small program (called barkd) next to this server.</p>
     <div class="card">
+      <label for="network">Network</label>
+      <select id="network">
+        <option value="signet" selected>Signet: play money (recommended to start)</option>
+        <option value="mainnet">Mainnet: real bitcoin (experimental)</option>
+      </select>
+      <p class="note" id="wallet-net-note"><strong>This choice is permanent for this server.</strong> The wallet is made for one network and cannot be moved. To switch later, you need a new server.</p>
+      <div class="banner hidden" id="mainnet-warn" role="note">REAL MONEY. This server will take real bitcoin. It is experimental: keep amounts small. This cannot be changed later.</div>
+      <div class="check hidden" id="mainnet-ok-box">
+        <input type="checkbox" id="mainnet-ok">
+        <label for="mainnet-ok">I understand: real bitcoin, and this server stays on mainnet for good (switching needs a new server).</label>
+      </div>
       <label for="asp">Ark server (the service that coordinates payments)</label>
       <input type="text" id="asp" value="https://ark.signet.2nd.dev" autocomplete="off">
-      <label for="network">Network</label>
-      <input type="text" id="network" value="signet" autocomplete="off">
-      <p class="sub" id="wallet-net-note">Leave these two as they are while EBP is in testing (practice network, play money).</p>
+      <p class="note">Leave this as the page fills it in: Second's Ark server for the network you chose.</p>
       <button class="primary" id="btn-wallet" type="button">Create the wallet</button>
       <p class="note">Moving to a new server? <button class="link" id="btn-go-restore" type="button">Restore the wallet I already have, from my 12 words</button></p>
     </div>
@@ -163,6 +172,7 @@
     <h1>Restore your wallet</h1>
     <p class="sub">Type the 12 recovery words you wrote down when you first set up your server. The wallet and the money in it come back from these words. Type them only here, nowhere else.</p>
     <div class="card">
+      <p class="note" id="restore-net"></p>
       <label for="restore-words">Your 12 recovery words, in order, separated by spaces</label>
       <textarea id="restore-words" rows="3" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="word1 word2 word3 …"></textarea>
       <p class="note">The words are sent to your own server only, used once to rebuild the wallet, and never stored or logged. Coins can take a round or two (a few minutes on the practice network) to appear after a restore.</p>
@@ -454,23 +464,49 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       });
   });
 
+  // The banner and address wording follow the server's mode: the network
+  // chosen on this page once the wallet exists, else how it was started.
+  function applyMode(mode) {
+    els.testBanner.textContent = mode === "live"
+      ? "REAL MONEY. Experimental: keep amounts small."
+      : "TEST MODE — signet. Play money; nothing here is real.";
+    els.testBanner.classList.remove("hidden");
+    payoutHints = mode === "live" ? payoutHintsFor.live : payoutHintsFor.test;
+    arkPrefixText = mode === "live" ? "ark1" : "tark1";
+  }
+  var networkTouched = false;
+  var mainnetOk = document.getElementById("mainnet-ok");
+  function networkChanged() {
+    var main = els.network.value === "mainnet";
+    els.asp.value = main ? "https://ark.second.tech" : "https://ark.signet.2nd.dev";
+    document.getElementById("mainnet-warn").classList.toggle("hidden", !main);
+    document.getElementById("mainnet-ok-box").classList.toggle("hidden", !main);
+    if (!main) mainnetOk.checked = false;
+    // Before the wallet exists, the banner previews the choice.
+    if (!lastStatus || !lastStatus.wallet_created) applyMode(chosenMode());
+  }
+  function chosenMode() { return els.network.value === "mainnet" ? "live" : "test"; }
+  function mainnetBlocked(errBox) {
+    if (els.network.value === "mainnet" && !mainnetOk.checked) {
+      fail(errBox, "You chose mainnet (real bitcoin). Tick the box to confirm you understand this server stays on mainnet for good, or choose signet.");
+      return true;
+    }
+    return false;
+  }
+  els.network.addEventListener("change", function () { networkTouched = true; networkChanged(); });
+
   var autoTokenTried = false;
   function resume(status, codeOk) {
     lastStatus = status;
     if (status.https_required) { markStep(0); show("https"); return; }
     if (status.setup_code_required && !codeOk && !setupToken) { markStep(0); show("code"); return; }
-    if (status.mode === "test") els.testBanner.classList.remove("hidden");
-    if (status.mode === "live") {
-      els.testBanner.textContent = "REAL MONEY. Experimental: keep amounts small.";
-      els.testBanner.classList.remove("hidden");
-    }
-    payoutHints = status.mode === "live" ? payoutHintsFor.live : payoutHintsFor.test;
-    arkPrefixText = status.mode === "live" ? "ark1" : "tark1";
-    if (status.mode === "live") {
-      els.network.value = "mainnet";
-      els.asp.value = "https://ark.second.tech";
-      document.getElementById("wallet-net-note").textContent =
-        "This server is set to real money. Leave these two as they are: Second's Ark server and real Bitcoin (mainnet). Keep amounts small: this is experimental.";
+    applyMode(status.mode);
+    // Before the wallet exists the owner chooses the network; signet is the
+    // default unless the server was started in live mode. After that the
+    // choice is fixed.
+    if (!status.wallet_created && !networkTouched) {
+      els.network.value = status.mode === "live" ? "mainnet" : "signet";
+      networkChanged();
     }
     if (status.setup_complete) { markStep(4); show("done"); return; }
     if (!status.wallet_created) { markStep(0); show("wallet"); return; }
@@ -551,12 +587,15 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
 
   els.btnWallet.addEventListener("click", function () {
     clearFail(els.walletError);
+    if (mainnetBlocked(els.walletError)) return;
     els.btnWallet.disabled = true;
     api("POST", "/setup/wallet", {
       asp_url: els.asp.value.trim(),
-      network: els.network.value.trim()
+      network: els.network.value,
+      mainnet_understood: mainnetOk.checked
     })
       .then(function (result) {
+        applyMode(chosenMode());
         if (result.mnemonic) {
           renderWords(result.mnemonic);
         } else {
@@ -584,7 +623,11 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   var restoreError = document.getElementById("restore-error");
   restorePaper.addEventListener("change", function () { btnRestore.disabled = !this.checked; });
   document.getElementById("btn-go-restore").addEventListener("click", function () {
-    clearFail(els.walletError); show("restore");
+    clearFail(els.walletError);
+    document.getElementById("restore-net").textContent = els.network.value === "mainnet"
+      ? "Restoring a REAL-MONEY wallet (mainnet). It must be the network your old server used. To change, press Back."
+      : "Restoring a play-money wallet (signet). If your old server used real money, press Back and choose mainnet.";
+    show("restore");
   });
   document.getElementById("btn-restore-back").addEventListener("click", function () {
     restoreWords.value = ""; clearFail(restoreError); show("wallet");
@@ -593,11 +636,13 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     clearFail(restoreError);
     var words = restoreWords.value;
     if (!words.trim()) { fail(restoreError, "Type your recovery words first."); return; }
+    if (mainnetBlocked(restoreError)) return;
     btnRestore.disabled = true;
     btnRestore.textContent = "Restoring… this can take a minute";
     api("POST", "/setup/wallet", {
       asp_url: els.asp.value.trim(),
-      network: els.network.value.trim(),
+      network: els.network.value,
+      mainnet_understood: mainnetOk.checked,
       mnemonic: words,
       paper_copies_exist: restorePaper.checked
     })

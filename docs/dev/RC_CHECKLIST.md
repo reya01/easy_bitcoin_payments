@@ -74,7 +74,9 @@ open box.
 2. Move the `Unreleased` section of `CHANGELOG.md` under a `0.1.0-rc1` heading,
    and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
-   so Home and the Plugins page show which build is running.
+   so Home and the Plugins page show which build is running. Also update the
+   plugin-zip link (the release page for the new tag) in `docs/START_HERE.md`,
+   `docs/WOOCOMMERCE.md` and `docs/dev/DROPLET_TEST_SHEET.md`.
 3. Tag `v0.1.0-rc1` on `main` and push it. The `-rc1` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.

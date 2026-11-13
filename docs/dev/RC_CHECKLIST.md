@@ -161,12 +161,18 @@ barkd stays on 0.8.0 during alpha; moving to the latest Bark is its own piece of
 - [ ] **Renewal fees.** Extra renewals of coins the wallet flags now stay inside the free
       window. Confirm the mainnet fee table and coin lifetime parse as expected, whether
       renewing merges small coins, and show renewal fees paid on Home.
-- [ ] **Restore from the 12 words (top priority before real money).** The setup page
+- [x] **Restore from the 12 words (top priority before real money).** The setup page
       now has "Restore the wallet I already have" and a backup-file step (built, covered
       by automated tests). Still to do: drill it once for real on signet (second server),
       then tick this and the next item.
-- [ ] **Backup restore drill.** Follow RECIPE_BACKUP.md "Practice a restore once" on a
+- [x] **Backup restore drill.** Passed 12 November 2026 on signet (see MAINNET_PLAN.md). Follow RECIPE_BACKUP.md "Practice a restore once" on a
       second signet server and fix any step that does not match the page.
+- [ ] **Ark payout coins expire in the owner's wallet (28 days on Second's server).**
+      Sweeps send existing coins whole (a 9 Nov signet sweep delivered three coins that
+      kept their original expiry heights), so the owner's wallet app must renew them (EBP cannot
+      see or control it). Tell the owner plainly in the payout step of setup ("check your wallet
+      app renews coins by itself, or choose an on-chain address for long-term storage"), and
+      check on signet after two weeks that the owner's wallet really renewed them.
 - [ ] **Ark payments made with nearly expired coins.** A coin paid over Ark keeps the
       sender's expiry and the order is marked Paid when it arrives. Decide a minimum
       time left (or wait for the renewal on larger amounts) before marking Paid; needs

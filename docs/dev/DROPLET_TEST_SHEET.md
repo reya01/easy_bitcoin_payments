@@ -81,6 +81,10 @@ own wallet**. No earlier round has tested this.
       payment: nothing should be sent yet (the server just holds it). Pay another
       **800**: now a transfer of about 1,100 should appear.
 - [ ] **Restore drill (new server).** Follow `docs/RECIPE_BACKUP.md` → "Practice a restore once": on your current server note the balance, orders count and payout address, download a backup, **power off the first droplet** (never run both at once: same wallet, same shop connection), then make a second server and restore it from the 12 words and the backup file on its setup page. Write down anything that did not match the page, and whether the balance, orders, payout address and shop connection all came back. Also check, in the first hour after the restore, that no old order suddenly shows as overpaid and no "payment can't be matched" item appears (the restored wallet re-reads its coins; this is the part automated tests cannot cover).
+- [ ] **Coins you received keep their expiry.** In your own wallet, list the coins that
+      the transfer delivered (for `bark`: `bark vtxos`) and write down their expiry
+      heights. Come back after two weeks and check your wallet renewed them (new
+      expiry heights, or the wallet's own refresh message). If not, tell me.
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line
       says `0.1.0-rc1`. (After any later update, check it changed.)
 

@@ -1,0 +1,177 @@
+# Live test of EBP's code against REAL mainnet barkd wallets on Second's Ark
+# server. Runs only when the `live-test-mainnet` branch is pushed (never on
+# main, never on pull requests).
+#
+# Always: two empty wallets (A, B) are created and every answer EBP reads is
+# checked by `tests/live_mainnet.rs` (no money).
+#
+# Funded, only if `live-test/return-address.txt` exists on the branch: wallet A
+# shows a Lightning invoice (uploaded as the `invoice` artifact) for the amount
+# in `live-test/amount.txt`; once the owner pays it, the job tests an Ark send
+# A -> B, a Lightning payment B -> A, EBP's settlement engine on A (renewal and
+# transfer to B), the emergency-withdrawal estimate, and finally sends
+# everything back to the return address with EBP's "Move my money now".
+#
+# Safety: the wallets' recovery words are never printed, stored or uploaded
+# (barkd runs without --expose-mnemonic). They exist only on this runner, so if
+# the runner died before the last step the money would be lost: only send a
+# small amount.
+name: live-mainnet-test
+
+on:
+  push:
+    branches: [live-test-mainnet]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-mainnet-test
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      ARK_SERVER: https://ark.second.tech
+      BARK_VERSION: "0.8.0"
+      BARK_SHA_X86_64: e78bb35dbfb4c9b639a505e12e8cf3c3ab0a730c0fa4d42032b053a7b9db2a14
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Build the live tests first (so a payment never waits on a compile)
+        run: cargo test --test live_mainnet --no-run
+
+      - name: Download barkd (checksum-pinned, same build as the Dockerfile)
+        run: |
+          curl -fsSL "https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-${BARK_VERSION}/barkd-${BARK_VERSION}-linux-x86_64" -o "$RUNNER_TEMP/barkd"
+          echo "${BARK_SHA_X86_64}  $RUNNER_TEMP/barkd" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/barkd"
+
+      - name: Start two mainnet wallets (A and B)
+        run: |
+          set -eu
+          echo "LIVE_DB=$RUNNER_TEMP/ebp-live.sqlite3" >> "$GITHUB_ENV"
+          for w in A:3901 B:3902; do
+            n=${w%%:*}; port=${w##*:}; D="$RUNNER_TEMP/wallet-$n"; mkdir -p "$D"
+            "$RUNNER_TEMP/barkd" --datadir "$D" --host 127.0.0.1 --port "$port" --no-ui > "$RUNNER_TEMP/barkd-$n.log" 2>&1 &
+            for i in $(seq 1 30); do [ -f "$D/auth_token" ] && curl -s -o /dev/null "http://127.0.0.1:$port/" && break; sleep 1; done
+            TOKEN=$(cat "$D/auth_token"); echo "::add-mask::$TOKEN"
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+              -d "{\"network\":\"mainnet\",\"ark_server\":\"$ARK_SERVER\"}" "http://127.0.0.1:$port/api/v1/wallet/create")
+            echo "wallet $n create -> HTTP $code"; [ "$code" = 200 ]
+            echo "LIVE_${n}_URL=http://127.0.0.1:$port" >> "$GITHUB_ENV"
+            echo "LIVE_${n}_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          done
+
+      - name: "No money: EBP's code against the real wallet answers"
+        run: cargo test --test live_mainnet -- --ignored --nocapture --exact unfunded_mainnet_wallet_answers_match_what_ebp_expects
+
+      - name: Funded run?
+        id: funded
+        run: |
+          if [ -s live-test/return-address.txt ]; then
+            echo "yes=true" >> "$GITHUB_OUTPUT"
+            echo "LIVE_RETURN=$(tr -d ' \n\r' < live-test/return-address.txt)" >> "$GITHUB_ENV"
+            echo "AMOUNT=$(tr -dc 0-9 < live-test/amount.txt 2>/dev/null || echo 5000)" >> "$GITHUB_ENV"
+          else
+            echo "No return address on the branch: unfunded run only."
+          fi
+
+      - name: Invoice for the owner to pay (wallet A)
+        if: steps.funded.outputs.yes == 'true'
+        run: |
+          set -eu
+          curl -sS -X POST -H "Authorization: Bearer $LIVE_A_TOKEN" -H 'content-type: application/json' \
+            -d "{\"amount_sat\": $AMOUNT, \"description\": \"EBP live mainnet test\"}" \
+            "$LIVE_A_URL/api/v1/lightning/receives/invoice" > "$RUNNER_TEMP/invoice.json"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('invoice') or d.get('bolt11') or d)" "$RUNNER_TEMP/invoice.json" > "$RUNNER_TEMP/invoice.txt"
+          cat "$RUNNER_TEMP/invoice.txt"
+      - name: Upload the invoice
+        if: steps.funded.outputs.yes == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: invoice
+          path: ${{ runner.temp }}/invoice.txt
+          retention-days: 1
+
+      - name: Wait up to 60 minutes for the payment
+        if: steps.funded.outputs.yes == 'true'
+        run: |
+          for i in $(seq 1 120); do
+            b=$(curl -sS -H "Authorization: Bearer $LIVE_A_TOKEN" "$LIVE_A_URL/api/v1/wallet/balance" || true)
+            s=$(echo "$b" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('spendable_sat',0))" 2>/dev/null || echo 0)
+            echo "$(date -u +%H:%M:%S) A spendable: $s"
+            [ "${s:-0}" -gt 0 ] && exit 0
+            sleep 30
+          done
+          echo "No payment arrived within 60 minutes."; exit 1
+
+      - name: Both wallets after the payment
+        if: steps.funded.outputs.yes == 'true'
+        run: cargo test --test live_mainnet -- --ignored --nocapture --exact show_both_wallets
+
+      - name: Ark transfer A -> B (EBP's client)
+        if: steps.funded.outputs.yes == 'true'
+        continue-on-error: true
+        run: cargo test --test live_mainnet -- --ignored --nocapture --exact ark_send_from_a_to_b
+
+      - name: Lightning payment B -> A (400 sats)
+        if: steps.funded.outputs.yes == 'true'
+        continue-on-error: true
+        run: |
+          set -u
+          inv=$(curl -sS -X POST -H "Authorization: Bearer $LIVE_A_TOKEN" -H 'content-type: application/json' \
+            -d '{"amount_sat": 400, "description": "EBP live B to A"}' "$LIVE_A_URL/api/v1/lightning/receives/invoice" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('invoice') or d.get('bolt11') or '')")
+          echo "A's invoice: $inv"
+          code=$(curl -sS -o "$RUNNER_TEMP/pay.json" -w '%{http_code}' -X POST -H "Authorization: Bearer $LIVE_B_TOKEN" -H 'content-type: application/json' \
+            -d "{\"destination\": \"$inv\"}" "$LIVE_B_URL/api/v1/lightning/pay")
+          echo "B pays -> HTTP $code"; head -c 800 "$RUNNER_TEMP/pay.json"; echo
+          sleep 60
+          cargo test --test live_mainnet -- --ignored --nocapture --exact show_both_wallets
+
+      - name: EBP settlement engine on A (live mode, payout to B), every 5 minutes for 80 minutes
+        if: steps.funded.outputs.yes == 'true'
+        continue-on-error: true
+        run: |
+          for i in $(seq 1 16); do
+            echo "===== cycle $i $(date -u +%H:%M:%S)"
+            cargo test --test live_mainnet -- --ignored --nocapture --exact engine_cycle_on_a_with_payout_to_b || true
+            curl -sS -H "Authorization: Bearer $LIVE_A_TOKEN" "$LIVE_A_URL/api/v1/wallet/rounds"; echo
+            [ "$i" -lt 16 ] && sleep 300
+          done
+
+      - name: Emergency-withdrawal estimate (nothing started)
+        if: steps.funded.outputs.yes == 'true'
+        continue-on-error: true
+        run: cargo test --test live_mainnet -- --ignored --nocapture --exact emergency_withdrawal_estimate_on_a_funded_wallet
+
+      - name: Send everything back to the owner (Move my money now), retrying up to 90 minutes
+        if: always() && steps.funded.outputs.yes == 'true'
+        run: |
+          for i in $(seq 1 18); do
+            left=0
+            for w in A B; do
+              LIVE_WALLET=$w cargo test --test live_mainnet -- --ignored --nocapture --exact move_my_money_now_to_the_owner || true
+              url_var="LIVE_${w}_URL"; tok_var="LIVE_${w}_TOKEN"
+              b=$(curl -sS -H "Authorization: Bearer ${!tok_var}" "${!url_var}/api/v1/wallet/balance" || true)
+              echo "[$w] balance after: $b"
+              s=$(echo "$b" | python3 -c "import json,sys; d=json.load(sys.stdin); print(int(d.get('spendable_sat',0))+int(d.get('pending_in_round_sat',0) or 0)+int(d.get('claimable_lightning_receive_sat',0) or 0))" 2>/dev/null || echo 1)
+              left=$((left + s))
+            done
+            [ "$left" -eq 0 ] && { echo "Everything returned."; exit 0; }
+            echo "$left sats still on the test wallets; trying again in 5 minutes."
+            sleep 300
+          done
+          echo "::error::Some sats are still on the test wallets."; exit 1
+
+      - name: barkd logs (no recovery words in them)
+        if: always()
+        run: |
+          for n in A B; do echo "== $n"; tail -n 60 "$RUNNER_TEMP/barkd-$n.log" 2>/dev/null; done

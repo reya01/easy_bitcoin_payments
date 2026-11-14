@@ -14,7 +14,7 @@ x86_64 + aarch64 musl binaries, `SHA256SUMS`, the GitHub release, and
 the multi-arch ghcr.io image that `scripts/release.sh` publishes and the
 recipe/`scripts/install.sh` ecosystem consumes alongside the release
 tarballs install.sh actually fetches.
-**Depends on:** Phase 0 spike log (docs/dev/PHASE0_SPIKE_PLAN.md) answered in writing
+**Depends on:** Phase 0 spike log (docs/dev/archive/PHASE0_SPIKE_PLAN.md) answered in writing
 **Window:** months 1–3
 
 ## Goal

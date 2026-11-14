@@ -36,7 +36,7 @@ open box.
       read the Console, finish setup in a phone browser. Note exactly what the
       Console showed and how long it took. This is the first test of the real
       internet certificate (sslip.io + Let's Encrypt). First run done on 8 November
-      2026 (SFO3, signet): see `DROPLET_TEST_RESULTS_2026-11-08.md`. Keep this open
+      2026 (SFO3, signet): see `archive/DROPLET_TEST_RESULTS_2026-11-08.md`. Keep this open
       until the second round (with WooCommerce) is done.
 - [ ] **WooCommerce on a real shop host** (not the CI one), with the plugin zip
       from the dry run.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Long lists on the admin page are now paged, and payments can be downloaded as a CSV.** Recent payments, the shop notification log and Security activity show 15 rows at a time, and Recent transfers and Routine upkeep on Home show 10, with **Newer** and **Older** buttons and a page number, so a busy shop stays manageable and old history is reachable (before, each list showed only its newest rows and no older ones). **Payments → Download all payments (CSV)** saves every payment, oldest first (date, paid date, invoice and order number, status, sats, dollar amount and rate), up to 100,000 rows; text from the shop that starts with `=`, `+`, `-` or `@` is defused so a spreadsheet never runs it as a formula. New: `offset` on `GET /api/v1/invoices`, `GET /api/v1/invoices.csv`, `GET /api/v1/admin/settlements`.
+
 ## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
 
 - **Choose signet or mainnet on the setup page.** The Create your wallet step has a Network box: Signet (play money) is the default, Mainnet (real bitcoin, experimental) is the other choice. Mainnet shows a real-money warning and needs a tick-box; the page says the choice is permanent and switching needs a new server. The choice is saved with the wallet and always wins over `EBP_MODE` (which now only sets the page's default); the server restarts once at the end of setup to apply it. A backup from a server on the other network is refused when restoring. No command line needed.

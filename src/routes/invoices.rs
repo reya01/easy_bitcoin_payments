@@ -686,6 +686,8 @@ pub struct ListQuery {
     pub status: Option<String>,
     pub since: Option<i64>,
     pub limit: Option<i64>,
+    /// Rows to skip (newest first), for paging.
+    pub offset: Option<i64>,
 }
 
 pub async fn list(
@@ -704,10 +706,11 @@ pub async fn list(
     let store_id = auth.store.id.clone();
     let since = query.since;
     let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
 
     let invoices = state
         .db
-        .call(move |conn| invoice::list(conn, &store_id, status, since, limit))
+        .call(move |conn| invoice::list(conn, &store_id, status, since, limit, offset))
         .await?;
 
     let config = &state.config;
@@ -717,6 +720,77 @@ pub async fn list(
             .map(|invoice| to_response(invoice, config, None))
             .collect(),
     ))
+}
+
+/// One CSV cell. Quoted when needed, and a leading `=`, `+`, `-`, `@`, tab or
+/// carriage return is defused with a leading `'` so a spreadsheet never runs
+/// text that came from a shop as a formula.
+fn csv_cell(raw: &str) -> String {
+    let mut s = raw.to_string();
+    if s.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        s.insert(0, '\'');
+    }
+    if s.contains([',', '"', '\n', '\r']) {
+        s = format!("\"{}\"", s.replace('"', "\"\""));
+    }
+    s
+}
+
+/// `GET /api/v1/invoices.csv` — every payment, oldest first, as a CSV file
+/// the owner can open in a spreadsheet.
+pub async fn export_csv(
+    State(state): State<AppState>,
+    auth: StoreAuth,
+) -> Result<axum::response::Response, AppError> {
+    use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+    use axum::response::IntoResponse;
+
+    let store_id = auth.store.id.clone();
+    let invoices = state
+        .db
+        .call(move |conn| invoice::export_all(conn, &store_id))
+        .await?;
+    let cut = invoices.len() as i64 >= invoice::EXPORT_MAX_ROWS;
+    // A byte-order mark so Excel reads the file as UTF-8.
+    let mut out = String::from(
+        "\u{feff}created_at,paid_at,invoice_id,order_id,status,amount_sats,paid_sats,fiat_currency,fiat_amount,rate,rate_source\r\n",
+    );
+    for inv in &invoices {
+        let r = to_response(inv, &state.config, None);
+        let cells = [
+            csv_cell(&r.created_at),
+            csv_cell(r.paid_at.as_deref().unwrap_or("")),
+            csv_cell(&r.id),
+            csv_cell(r.order_id.as_deref().unwrap_or("")),
+            csv_cell(r.status.as_str()),
+            r.amount_sats.to_string(),
+            r.paid_sats.to_string(),
+            csv_cell(r.fiat_currency.as_deref().unwrap_or("")),
+            csv_cell(r.fiat_amount.as_deref().unwrap_or("")),
+            csv_cell(r.rate.as_deref().unwrap_or("")),
+            csv_cell(r.rate_source.as_deref().unwrap_or("")),
+        ];
+        out.push_str(&cells.join(","));
+        out.push_str("\r\n");
+    }
+    if cut {
+        out.push_str(&format!(
+            "# Only the oldest {} payments are included.\r\n",
+            invoice::EXPORT_MAX_ROWS
+        ));
+    }
+    Ok((
+        [
+            (CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                CONTENT_DISPOSITION,
+                "attachment; filename=\"ebp-payments.csv\"",
+            ),
+            (CACHE_CONTROL, "no-store"),
+        ],
+        out,
+    )
+        .into_response())
 }
 
 pub async fn cancel(
@@ -731,6 +805,27 @@ pub async fn cancel(
         .await?;
 
     Ok(Json(to_response(&invoice, &state.config, None)))
+}
+
+#[cfg(test)]
+mod csv_tests {
+    use super::csv_cell;
+
+    #[test]
+    fn cells_are_quoted_and_formulas_are_defused() {
+        assert_eq!(csv_cell("paid"), "paid");
+        assert_eq!(csv_cell("a,b"), "\"a,b\"");
+        assert_eq!(csv_cell("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_cell("line\nbreak"), "\"line\nbreak\"");
+        assert_eq!(
+            csv_cell("=HYPERLINK(\"http://x\")"),
+            "\"'=HYPERLINK(\"\"http://x\"\")\""
+        );
+        for f in ["+1", "-1", "@SUM(A1)", "\tx", "\rx"] {
+            assert!(csv_cell(f).trim_matches('"').starts_with('\''), "{f:?}");
+        }
+        assert_eq!(csv_cell(""), "");
+    }
 }
 
 #[cfg(test)]

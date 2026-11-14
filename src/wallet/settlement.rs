@@ -830,7 +830,10 @@ impl SettlementEngine {
             if let Ok(Some(key)) = self.client.ark_server_pubkey().await {
                 if crate::payout::ark_address_on_server(&destination, &key) == Some(false) {
                     refused = Some(
-                        "payout address refused: it is an Ark address for a different Ark server than this wallet uses".to_string(),
+                        format!(
+                            "payout address refused: it is an Ark address on a different Ark server than this wallet uses, so nothing was sent. {} Then save the new address under Settings.",
+                            crate::payout::ark_server_advice(&self.config.mode)
+                        ),
                     );
                 }
             }

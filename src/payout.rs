@@ -145,13 +145,25 @@ const SILENT_PAYMENT: &str = "that is a silent payment (BIP-352) address, which 
     not expose them. Use a regular Bitcoin (bc1\u{2026}) or Ark address from your wallet instead";
 const REAL_ADDRESS_ON_TEST_SERVER: &str =
     "this server is in test mode and only works with play-money (signet) coins, \
-    but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1)";
+    but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1); \
+    for an Ark address, use a wallet set to the play-money Ark server, ark.signet.2nd.dev";
 const OLD_TEST_ADDRESS: &str =
     "that is an old-style test-network address, which this server does not use. \
     Use a signet address that starts with tb1 or tark1";
 const TEST_ADDRESS_ON_LIVE_SERVER: &str =
     "that is a test-network address, but this server works with real Bitcoin. \
-    Use an address that starts with bc1 or ark1";
+    Use an address that starts with bc1 or ark1. For an Ark address you need a wallet set to \
+    Second's Ark server, ark.second.tech: Noah on Android or Arké on iPhone";
+
+/// What an owner must do to get an Ark address this server can pay: the Ark
+/// server their payout wallet has to use, and which phone wallets can.
+pub fn ark_server_advice(mode: &str) -> &'static str {
+    if mode == "live" {
+        "Your payout wallet must be set to Second's Ark server, ark.second.tech. Noah (Android) and Arké (iPhone) both work: open the wallet's settings, choose that server, then copy its Ark address (it starts with ark1) or use a regular Bitcoin address that starts with bc1."
+    } else {
+        "This is a play-money server, so your payout wallet must be set to the play-money Ark server, ark.signet.2nd.dev, and its Ark address starts with tark1. A regular signet address (tb1…) also works."
+    }
+}
 
 /// Check a payout address for this server's network (`mode` is `"live"` for
 /// real Bitcoin, anything else is the signet/regtest test mode). On success
@@ -373,8 +385,10 @@ pub fn assess(input: &str, mode: &str, server_pubkey: Option<&str>) -> Verdict {
     }
     let Some(same) = server_pubkey.and_then(|k| ark_address_on_server(&address, k)) else {
         return Verdict::Unverified(
-            "Could not verify: the address is well formed, but we could not compare it with your wallet's Ark server, so we do not know that it works with this server."
-                .into(),
+            format!(
+                "Could not verify: the address is well formed, but we could not compare it with this server's Ark server, so we do not know that it will work. {} Sending to an address on a different Ark server can lose the money.",
+                ark_server_advice(mode)
+            ),
         );
     };
     if same {
@@ -383,10 +397,10 @@ pub fn assess(input: &str, mode: &str, server_pubkey: Option<&str>) -> Verdict {
                 .into(),
         )
     } else {
-        Verdict::Failed(
-            "This Ark address belongs to a different Ark server than this wallet uses. Money sent to it may not arrive, or may be lost."
-                .into(),
-        )
+        Verdict::Failed(format!(
+            "This Ark address is on a different Ark server than the one this server uses, so money sent to it may never arrive and could be lost. {}",
+            ark_server_advice(mode)
+        ))
     }
 }
 
@@ -898,6 +912,28 @@ pub(crate) mod tests {
             assess("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "live", None).name(),
             "verified"
         );
+    }
+
+    #[test]
+    fn refusals_say_which_server_and_which_wallets_to_use() {
+        let second = "0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5";
+        let v = assess(ARK_A, "live", Some(second));
+        assert_eq!(v.name(), "failed");
+        for needle in ["ark.second.tech", "Noah", "Arké", "different Ark server"] {
+            assert!(v.message().contains(needle), "{needle}: {}", v.message());
+        }
+        let v = assess(SAME_SERVER_A, "live", None);
+        assert!(v.message().contains("ark.second.tech") && v.message().contains("Noah"));
+        // A play-money address on a real-money server names the right server.
+        let e = check(TARK_A, "live").unwrap_err();
+        assert!(
+            e.contains("ark.second.tech") && e.contains("Noah") && e.contains("Arké"),
+            "{e}"
+        );
+        // And the reverse names the play-money server.
+        let e = check(SAME_SERVER_A, "test").unwrap_err();
+        assert!(e.contains("ark.signet.2nd.dev"), "{e}");
+        assert!(ark_server_advice("test").contains("ark.signet.2nd.dev"));
     }
 
     #[test]

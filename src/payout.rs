@@ -145,13 +145,26 @@ const SILENT_PAYMENT: &str = "that is a silent payment (BIP-352) address, which 
     not expose them. Use a regular Bitcoin (bc1\u{2026}) or Ark address from your wallet instead";
 const REAL_ADDRESS_ON_TEST_SERVER: &str =
     "this server is in test mode and only works with play-money (signet) coins, \
-    but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1)";
+    but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1); \
+    for an Ark address you need a play-money Ark wallet: Noah and Arké only work with real money, \
+    so follow \"Test on signet\" in the Bark docs, https://second.tech/docs/getting-started/bark-cli/signet";
 const OLD_TEST_ADDRESS: &str =
     "that is an old-style test-network address, which this server does not use. \
     Use a signet address that starts with tb1 or tark1";
 const TEST_ADDRESS_ON_LIVE_SERVER: &str =
     "that is a test-network address, but this server works with real Bitcoin. \
-    Use an address that starts with bc1 or ark1";
+    Use an address that starts with bc1 or ark1. For an Ark address you need a wallet set to \
+    Second's Ark server, ark.second.tech: Noah on Android or Arké on iPhone";
+
+/// What an owner must do to get an Ark address this server can pay: the Ark
+/// server their payout wallet has to use, and which phone wallets can.
+pub fn ark_server_advice(mode: &str) -> &'static str {
+    if mode == "live" {
+        "Your payout wallet must be set to Second's Ark server, ark.second.tech. Noah (Android) and Arké (iPhone) both work: open the wallet's settings, choose that server, then copy its Ark address (it starts with ark1) or use a regular Bitcoin address that starts with bc1."
+    } else {
+        "This is a play-money server, so your payout wallet must be a Bark wallet on the play-money Ark server, ark.signet.2nd.dev (its Ark addresses start with tark1). The Noah and Arké phone wallets only work with real money, not on signet: to make a play-money wallet follow \"Test on signet\" in the Bark docs, https://second.tech/docs/getting-started/bark-cli/signet . A regular signet address (tb1\u{2026}) also works."
+    }
+}
 
 /// Check a payout address for this server's network (`mode` is `"live"` for
 /// real Bitcoin, anything else is the signet/regtest test mode). On success
@@ -279,6 +292,117 @@ fn check_legacy(a: &str, live: bool) -> Option<Result<String, String>> {
         0x6f | 0xc4 => Err(OLD_TEST_ADDRESS.into()),
         _ => Err(NOT_AN_ADDRESS.into()),
     })
+}
+
+/// The 4 bytes at the start of an Ark address (after the version) that name
+/// the Ark server it belongs to. Every address the same wallet makes starts
+/// with the same 4 bytes (confirmed on five real mainnet addresses from one
+/// server); an address from a different server has different ones. `None`
+/// when the address does not decode, so the caller says "could not verify"
+/// and never guesses.
+pub fn ark_server_tag(address: &str) -> Option<[u8; 4]> {
+    let d = decode_bech32(&address.trim().to_ascii_lowercase())?;
+    if !d.bech32m || !matches!(d.hrp.as_str(), "ark" | "tark") || d.data.len() < 8 {
+        return None;
+    }
+    // The first 5-bit value is the address version; the rest is the payload.
+    // Whole bytes only: padding at the end is not needed for the first four.
+    let bytes = {
+        let (mut acc, mut bits) = (0u32, 0u32);
+        let mut out = Vec::new();
+        for &v in &d.data[1..] {
+            acc = ((acc << 5) | u32::from(v)) & 0xfff;
+            bits += 5;
+            while bits >= 8 {
+                bits -= 8;
+                out.push(((acc >> bits) & 0xff) as u8);
+            }
+        }
+        out
+    };
+    bytes.get(..4)?.try_into().ok()
+}
+
+/// The tag that Ark addresses for this server carry: the first 4 bytes of
+/// SHA-256 of the server's compressed public key (hex, from ark-info).
+/// Confirmed against Second's mainnet server and five of its addresses.
+pub fn server_tag_from_pubkey(pubkey_hex: &str) -> Option<[u8; 4]> {
+    use sha2::{Digest, Sha256};
+    let key = hex::decode(pubkey_hex.trim()).ok()?;
+    if key.len() != 33 {
+        return None;
+    }
+    let digest = Sha256::digest(&key);
+    digest.get(..4)?.try_into().ok()
+}
+
+/// Is this Ark address for the server with this public key? `None` when
+/// either cannot be read (then we do not know, and say so).
+pub fn ark_address_on_server(address: &str, server_pubkey_hex: &str) -> Option<bool> {
+    Some(ark_server_tag(address)? == server_tag_from_pubkey(server_pubkey_hex)?)
+}
+
+/// What we could find out about a payout address, for the setup page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    /// Passed every check we can run.
+    Verified(String),
+    /// Looks fine but a check could not run; we do not know.
+    Unverified(String),
+    /// Failed a check: sending money here could lose it.
+    Failed(String),
+}
+
+impl Verdict {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Verdict::Verified(_) => "verified",
+            Verdict::Unverified(_) => "unverified",
+            Verdict::Failed(_) => "failed",
+        }
+    }
+    pub fn message(&self) -> &str {
+        match self {
+            Verdict::Verified(m) | Verdict::Unverified(m) | Verdict::Failed(m) => m,
+        }
+    }
+}
+
+/// Judge a payout address. `server_pubkey` is the wallet's Ark server key
+/// from ark-info (`None` when it could not be fetched); an Ark payout address
+/// must belong to that server. Nothing here can tell
+/// whether the owner controls the address: only that it is well formed and on
+/// the right network and server.
+pub fn assess(input: &str, mode: &str, server_pubkey: Option<&str>) -> Verdict {
+    let address = match check(input, mode) {
+        Ok(a) => a,
+        Err(why) => return Verdict::Failed(why),
+    };
+    if !(address.starts_with("ark1") || address.starts_with("tark1")) {
+        return Verdict::Verified(
+            "Verified: a well-formed Bitcoin address for this network. We cannot see whether you control it, so check it is yours."
+                .into(),
+        );
+    }
+    let Some(same) = server_pubkey.and_then(|k| ark_address_on_server(&address, k)) else {
+        return Verdict::Unverified(
+            format!(
+                "Could not verify: the address is well formed, but we could not compare it with this server's Ark server, so we do not know that it will work. {} Sending to an address on a different Ark server can lose the money.",
+                ark_server_advice(mode)
+            ),
+        );
+    };
+    if same {
+        Verdict::Verified(
+            "Verified: a well-formed Ark address on the same Ark server as this wallet. We cannot see whether you control it, so check it is yours."
+                .into(),
+        )
+    } else {
+        Verdict::Failed(format!(
+            "This Ark address is on a different Ark server than the one this server uses, so money sent to it may never arrive and could be lost. {}",
+            ark_server_advice(mode)
+        ))
+    }
 }
 
 /// [`check`] as a request error, for the setup wizard and the admin page.
@@ -443,6 +567,25 @@ pub fn set_initial(conn: &Connection, address: &str, mode: &str) -> Result<(), A
         conn,
         "payout.set",
         &format!("payout address set ({})", short(&a)),
+    );
+    Ok(())
+}
+
+/// Wizard, after the owner ticked "I understand money could be lost": save
+/// the address even though it failed a check. Sweeps still refuse an address
+/// that fails the format checks (see settlement), so this cannot send money
+/// anywhere on its own.
+pub fn set_initial_unchecked(conn: &Connection, address: &str) -> Result<(), AppError> {
+    let a = address.trim().to_string();
+    crate::settings::set(conn, KEY_ACTIVE, &a)?;
+    clear_pending(conn)?;
+    audit(
+        conn,
+        "payout.set_unverified",
+        &format!(
+            "payout address set although it failed a check ({}); the owner accepted the risk",
+            short(&a)
+        ),
     );
     Ok(())
 }
@@ -706,6 +849,114 @@ pub(crate) mod tests {
         assert!(check("tark1", "test").is_err());
         // A plain bech32 (not bech32m) string with an ark prefix is refused.
         assert!(check("tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k", "test").is_err());
+    }
+
+    // Two addresses made by throwaway mainnet test wallets on Second's server.
+    const SAME_SERVER_A: &str = "ark1pu6h30w3zqqp925mq7na5tp0g9e38dr0ehcm5knhn3t54nyn5vv96stcu993fkxpzqyp68xugqvak7kyzzpjeuwg8sa0083yvkts40sl0vah9wa9z9sl8ulcdexg9g";
+    const SAME_SERVER_B: &str = "ark1pu6h30w3zqqpsgvg9tfp333jaffnfye2q0lase00lkl4wg4h2c5x5hytk0jeycn3zqyp9kccnvcewvcznplaqzmurtq6sggy8zmxerejhdcpwcukycpfdf6sy0sp9h";
+
+    #[test]
+    fn addresses_of_one_ark_server_share_a_tag_and_others_do_not() {
+        assert_eq!(ark_server_tag(SAME_SERVER_A), ark_server_tag(SAME_SERVER_B));
+        assert!(ark_server_tag(SAME_SERVER_A).is_some());
+        assert_ne!(ark_server_tag(SAME_SERVER_A), ark_server_tag(ARK_A));
+        assert_eq!(ark_server_tag("tark1"), None);
+        assert_eq!(
+            ark_server_tag("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            None
+        );
+    }
+
+    #[test]
+    fn the_address_tag_is_derived_from_the_server_key() {
+        // Second's mainnet server_pubkey (ark-info, 12 Nov 2026).
+        let second = "0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5";
+        assert_eq!(ark_address_on_server(SAME_SERVER_A, second), Some(true));
+        assert_eq!(ark_address_on_server(SAME_SERVER_B, second), Some(true));
+        assert_eq!(ark_address_on_server(ARK_A, second), Some(false));
+        // The mailbox key is a different key: no match.
+        let mailbox = "037bb26bfe7a819c2285f4cfdba63e1d806cb37d04915f17447c76140c34cf73a9";
+        assert_eq!(ark_address_on_server(SAME_SERVER_A, mailbox), Some(false));
+        assert_eq!(ark_address_on_server(SAME_SERVER_A, "nothex"), None);
+        assert_eq!(
+            ark_address_on_server("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", second),
+            None
+        );
+    }
+
+    #[test]
+    fn the_verdict_says_verified_unverified_or_failed() {
+        let second = "0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5";
+        // Same server: verified.
+        let v = assess(SAME_SERVER_A, "live", Some(second));
+        assert_eq!(v.name(), "verified");
+        // Server key unknown: could not verify, still allowed.
+        let v = assess(SAME_SERVER_A, "live", None);
+        assert_eq!(v.name(), "unverified");
+        assert!(v.message().starts_with("Could not verify"));
+        // A key that does not decode: could not verify, never "verified".
+        assert_eq!(
+            assess(SAME_SERVER_A, "live", Some("nothex")).name(),
+            "unverified"
+        );
+        // A different Ark server: failed.
+        assert_eq!(assess(ARK_A, "live", Some(second)).name(), "failed");
+        // One character changed: the checksum fails.
+        let mut typo = SAME_SERVER_A.to_string();
+        let swap = if &typo[30..31] == "q" { "p" } else { "q" };
+        typo.replace_range(30..31, swap);
+        assert_eq!(assess(&typo, "live", Some(second)).name(), "failed");
+        // A play-money address on a real-money server: failed.
+        assert_eq!(assess(TARK_A, "live", Some(second)).name(), "failed");
+        // A good Bitcoin address: verified as well formed.
+        assert_eq!(
+            assess("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "live", None).name(),
+            "verified"
+        );
+    }
+
+    #[test]
+    fn refusals_say_which_server_and_which_wallets_to_use() {
+        let second = "0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5";
+        let v = assess(ARK_A, "live", Some(second));
+        assert_eq!(v.name(), "failed");
+        for needle in ["ark.second.tech", "Noah", "Arké", "different Ark server"] {
+            assert!(v.message().contains(needle), "{needle}: {}", v.message());
+        }
+        let v = assess(SAME_SERVER_A, "live", None);
+        assert!(v.message().contains("ark.second.tech") && v.message().contains("Noah"));
+        // A play-money address on a real-money server names the right server.
+        let e = check(TARK_A, "live").unwrap_err();
+        assert!(
+            e.contains("ark.second.tech") && e.contains("Noah") && e.contains("Arké"),
+            "{e}"
+        );
+        // And the reverse names the play-money server.
+        let e = check(SAME_SERVER_A, "test").unwrap_err();
+        assert!(
+            e.contains("ark.signet.2nd.dev") || e.contains("Test on signet"),
+            "{e}"
+        );
+        assert!(
+            e.contains("https://second.tech/docs/getting-started/bark-cli/signet"),
+            "{e}"
+        );
+        let t = ark_server_advice("test");
+        assert!(t.contains("ark.signet.2nd.dev"));
+        assert!(t.contains("https://second.tech/docs/getting-started/bark-cli/signet"));
+        // Noah and Arké are never offered as a signet wallet.
+        assert!(t.contains("only work with real money"));
+    }
+
+    #[test]
+    fn an_address_that_failed_can_be_saved_only_on_purpose() {
+        let c = conn();
+        assert!(set_initial(&c, "tark1notanaddress", "test").is_err());
+        set_initial_unchecked(&c, " tark1notanaddress ").unwrap();
+        assert_eq!(
+            crate::settings::get(&c, KEY_ACTIVE).unwrap().as_deref(),
+            Some("tark1notanaddress")
+        );
     }
 
     #[test]

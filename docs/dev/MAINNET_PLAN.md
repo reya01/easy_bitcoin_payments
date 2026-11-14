@@ -206,7 +206,7 @@ What to change:
   - **Check before merging:** barkd 0.8.0's offboard call must accept a legacy destination. Confirm from the pinned OpenAPI and, if it says nothing, on signet with a testnet-style legacy address through `bark` directly. If barkd refuses legacy destinations, do not ship this; keep refusing with the clear message "use an address that starts with bc1 or ark1" and report.
   - Stage 4 sends one real on-chain sweep to a legacy address only if the owner wants to pay that on-chain fee; otherwise the check there is "accepted when saved".
 - **Tests.** Add live-mode cases with real-shaped mainnet values: a real `ark1…` address from the owner's phone wallet (not secret), `bc1q…` (42 and 62 characters), `bc1p…`, and a mainnet payment link built from `bc1…`, `lnbc…` and `ark1…` in `src/uri.rs`. The existing `ARK_A` test constant was made up for its checksum only.
-- **Open item, still open:** an Ark payout address from a different Ark server passes the check but every sweep to it fails. Refusing it needs the server key inside the address compared with the wallet's server; do that only once the mainnet address format is confirmed in Stage 4. Until then the docs say the payout wallet must be on `ark.second.tech`.
+- **Done (14 Nov):** an Ark address carries the first 4 bytes of SHA-256 of its server's public key (confirmed on five mainnet addresses and three signet ones). The setup page compares that with `server_pubkey` from ark-info (verified / could not verify / failed, continuing allowed after a danger warning), and sweeps refuse a definite mismatch, with a message naming `ark.second.tech` and Noah (Android) / Arké (iPhone).
 
 ### PR D: coin renewal on mainnet (owner concern 3)
 

@@ -80,10 +80,9 @@ pub struct Facts {
     pub wallet_network: Option<String>,
 }
 
-/// The "large balance" warning never fires below this many sats, whatever the
+/// The "large balance" warning fires above this many sats, whatever the
 /// amount the server keeps is set to.
 const LARGE_BALANCE_FLOOR_SATS: i64 = 100_000;
-
 pub fn build(f: &Facts) -> Vec<Check> {
     let mut out = Vec::new();
     let mut push = |id, level, title: &str, detail: &str| {
@@ -338,24 +337,27 @@ pub fn build(f: &Facts) -> Vec<Check> {
     }
 
     if let Some(offchain) = f.offchain_sats {
-        // Both tests must pass: more than twice the amount the server keeps, AND
-        // a real sum. With a small kept amount (1,000 sats) "twice" alone would
-        // warn about a couple of thousand sats, which is not worth a warning.
-        let limit = f
-            .hot_wallet_cap_sats
-            .saturating_mul(2)
-            .max(LARGE_BALANCE_FLOOR_SATS);
-        if f.hot_wallet_cap_sats > 0 && offchain > limit {
-            let detail = if f.payout == Payout::Set {
+        // Any balance above the floor is worth a line: a big pile of coins is
+        // costly to get out if the Ark server ever stops working (an emergency
+        // withdrawal pays network fees per coin). The wording differs when the
+        // balance is more than twice the kept amount (money is not moving on
+        // as it should) and when the owner chose to keep a lot here.
+        if f.hot_wallet_cap_sats > 0 && offchain > LARGE_BALANCE_FLOOR_SATS {
+            let unusual = offchain > f.hot_wallet_cap_sats.saturating_mul(2);
+            let first = if !unusual {
+                "You have set this server to keep a lot of money."
+            } else if f.payout == Payout::Set {
                 "More is held here than usual. Money is normally sent on to your own wallet by itself; look under Recent transfers on Home, or press Move my money now."
             } else {
-                "Move some to your own wallet. Set a withdrawal address in Settings so this happens automatically."
+                "Set a withdrawal address in Settings so money is sent on to your own wallet by itself."
             };
             push(
                 "balance",
                 Level::Warn,
                 "A large balance is sitting in the shop wallet",
-                detail,
+                &format!(
+                    "{first} If the Ark server ever stopped working, getting a large balance out costs real network fees, and more coins cost more. We recommend sending money on to an Ark mobile wallet such as Noah or Arké (use its Ark address as your withdrawal address) and setting \"How much to keep on this server\" in Settings below 5,000 sats, so money moves on more often."
+                ),
             );
         }
     }
@@ -598,9 +600,18 @@ mod tests {
         assert!(build(&f).iter().all(|x| x.id != "balance"));
         f.offchain_sats = Some(100_001);
         assert_eq!(find(&build(&f), "balance").level, Level::Warn);
-        // A large kept amount still uses twice that amount.
+        // A large kept amount used to silence the warning; it is exactly the
+        // case that should now say "keep less here".
         f.hot_wallet_cap_sats = 500_000;
         f.offchain_sats = Some(900_000);
+        let c = build(&f);
+        let line = find(&c, "balance");
+        assert_eq!(line.level, Level::Warn);
+        assert!(line.detail.contains("keep a lot"));
+        assert!(line.detail.contains("Noah"));
+        assert!(line.detail.contains("5,000"));
+        // Under the floor nothing is said, whatever the kept amount.
+        f.offchain_sats = Some(100_000);
         assert!(build(&f).iter().all(|x| x.id != "balance"));
     }
 }

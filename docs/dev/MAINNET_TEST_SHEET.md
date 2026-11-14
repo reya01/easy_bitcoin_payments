@@ -55,14 +55,31 @@ without the money arriving.
 
 ## 3. Address checks (Settings, change back afterwards)
 
-Each of these must be **refused** with a clear message: a `tark1…` address, a
-`tb1…` address, your `ark1…` address with one character changed, a `1…` address
-with one character changed.
+**On the setup page** (try these on the new server's payout step, or on a spare
+fresh server): when you paste an address, a line appears under the box.
+
+- [ ] Your own `ark1…` address from your phone wallet: **Verified** (green).
+- [ ] Your `ark1…` address with one character changed: a red **danger** box (money
+      could be lost). Pressing Create is blocked until you tick "Use it anyway".
+      Do not tick it on the real server.
+- [ ] A `tark1…` address, and a `tb1…` address: red danger box that names
+      `ark.second.tech`, Noah (Android) and Arké (iPhone).
+- [ ] A valid Ark address from a **different Ark server** (if you can get one; a
+      Bark signet address will do): red danger box saying it is on a different Ark
+      server.
+- [ ] Pressing Create with an address that failed and the box ticked saves it, and
+      Home then shows the red "payout address refused" line (nothing is sent).
+      Fix the address in Settings afterwards.
+
+**In Settings** (changing the address later is still strict: a refusal, no tick-box).
+Each of these must be **refused** with a clear message: a `tark1…`, a `tb1…`, your
+`ark1…` with one character changed, a `1…` with one character changed.
 
 Each of these must be **accepted** (then put your `ark1…` back; a change waits a
 day, so cancel the pending change instead): a `bc1q…`, a `bc1p…`, a `1…`, a `3…`.
 
-- [ ] All refusals and acceptances as expected (write down any odd message).
+- [ ] All of the above as expected (write down any odd message, and whether the
+      wording told you what to do).
 
 ## 4. Record the server's terms
 

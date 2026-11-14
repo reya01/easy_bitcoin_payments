@@ -820,8 +820,25 @@ impl SettlementEngine {
         // Last line of defence: re-check the address at the moment of use (the
         // same checks as when it was saved: checksum, form, network). Anything
         // that fails is refused and shown on the dashboard, never sent.
-        if let Err(why) = crate::payout::check(&destination, &self.config.mode) {
-            let reason = format!("payout address refused: {why}");
+        let mut refused = crate::payout::check(&destination, &self.config.mode)
+            .err()
+            .map(|why| format!("payout address refused: {why}"));
+        // An Ark address for a different Ark server is never sent to: only a
+        // definite mismatch refuses; if the server key or the address cannot
+        // be read, barkd's own checks decide.
+        if refused.is_none() && crate::config::is_ark_destination(&destination) {
+            if let Ok(Some(key)) = self.client.ark_server_pubkey().await {
+                if crate::payout::ark_address_on_server(&destination, &key) == Some(false) {
+                    refused = Some(
+                        format!(
+                            "payout address refused: it is an Ark address on a different Ark server than this wallet uses, so nothing was sent. {} Then save the new address under Settings.",
+                            crate::payout::ark_server_advice(&self.config.mode)
+                        ),
+                    );
+                }
+            }
+        }
+        if let Some(reason) = refused {
             tracing::error!(%reason, "sweep refused");
             report.sweep_refused = Some(reason.clone());
             let already = {

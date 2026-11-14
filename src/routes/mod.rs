@@ -127,6 +127,7 @@ pub fn router(state: AppState) -> Router {
         .route("/setup/verify-code", post(setup::verify_code))
         .route("/setup/token", post(setup::set_token))
         .route("/setup/store", post(setup::create_store))
+        .route("/setup/check-payout", post(setup::check_payout))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             setup::setup_token_guard,
@@ -171,9 +172,11 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/invoices",
             post(invoices::create).get(invoices::list),
         )
+        .route("/api/v1/invoices.csv", get(invoices::export_csv))
         .route("/api/v1/invoices/{id}", get(invoices::get_one))
         .route("/api/v1/invoices/{id}/cancel", post(invoices::cancel))
         .route("/api/v1/admin/status", get(admin::status))
+        .route("/api/v1/admin/settlements", get(admin::settlements))
         .route(
             "/api/v1/stores/webhook",
             axum::routing::put(stores::set_webhook),

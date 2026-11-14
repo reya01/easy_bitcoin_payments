@@ -147,8 +147,10 @@ pub fn list(
     status: Option<InvoiceStatus>,
     since: Option<i64>,
     limit: i64,
+    offset: i64,
 ) -> Result<Vec<Invoice>, AppError> {
     let limit = limit.clamp(1, 500);
+    let offset = offset.max(0);
 
     let mut sql = String::from("SELECT * FROM invoices WHERE store_id = ?1");
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(store_id.to_string())];
@@ -163,12 +165,33 @@ pub fn list(
     }
 
     args.push(Box::new(limit));
-    sql.push_str(&format!(" ORDER BY created_at DESC LIMIT ?{}", args.len()));
+    sql.push_str(&format!(
+        " ORDER BY created_at DESC, id LIMIT ?{}",
+        args.len()
+    ));
+    args.push(Box::new(offset));
+    sql.push_str(&format!(" OFFSET ?{}", args.len()));
 
     let mut stmt = conn.prepare(&sql)?;
     let params: Vec<&dyn rusqlite::ToSql> = args.iter().map(|arg| arg.as_ref()).collect();
     let rows = stmt.query_map(params.as_slice(), row_to_invoice)?;
 
+    let mut invoices = Vec::new();
+    for row in rows {
+        invoices.push(row?);
+    }
+    Ok(invoices)
+}
+
+/// Every invoice of a store, oldest first, for the CSV export. Capped so a
+/// huge history cannot exhaust memory; the export says when it was cut.
+pub const EXPORT_MAX_ROWS: i64 = 100_000;
+
+pub fn export_all(conn: &Connection, store_id: &str) -> Result<Vec<Invoice>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM invoices WHERE store_id = ?1 ORDER BY created_at ASC, id LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(rusqlite::params![store_id, EXPORT_MAX_ROWS], row_to_invoice)?;
     let mut invoices = Vec::new();
     for row in rows {
         invoices.push(row?);
@@ -1246,10 +1269,55 @@ mod tests {
         .unwrap();
 
         let pending = db
-            .call(move |conn| list(conn, &store_id, Some(InvoiceStatus::Pending), None, 50))
+            .call(move |conn| list(conn, &store_id, Some(InvoiceStatus::Pending), None, 50, 0))
             .await
             .unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].id, "inv_1");
+    }
+
+    #[tokio::test]
+    async fn list_pages_without_gaps_or_repeats_and_export_has_everything() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| {
+            for i in 0..25 {
+                insert(conn, &new_invoice(&sid, &format!("inv_{i:02}"), 1000 + i))?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let sid = store_id.clone();
+        let (p1, p2, p3, p4, all) = db
+            .call(move |conn| {
+                Ok((
+                    list(conn, &sid, None, None, 10, 0)?,
+                    list(conn, &sid, None, None, 10, 10)?,
+                    list(conn, &sid, None, None, 10, 20)?,
+                    list(conn, &sid, None, None, 10, 30)?,
+                    export_all(conn, &sid)?,
+                ))
+            })
+            .await
+            .unwrap();
+        assert_eq!((p1.len(), p2.len(), p3.len(), p4.len()), (10, 10, 5, 0));
+        let mut ids: Vec<String> = p1
+            .iter()
+            .chain(&p2)
+            .chain(&p3)
+            .map(|i| i.id.clone())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 25, "no row repeated or missed across pages");
+        assert_eq!(all.len(), 25);
+        // A negative offset is treated as the first page.
+        let sid = store_id.clone();
+        let neg = db
+            .call(move |conn| list(conn, &sid, None, None, 10, -5))
+            .await
+            .unwrap();
+        assert_eq!(neg.len(), 10);
     }
 }

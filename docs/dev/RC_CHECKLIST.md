@@ -155,9 +155,10 @@ barkd stays on 0.8.0 during alpha; moving to the latest Bark is its own piece of
       customer for the order plus the quoted fee and counts a payment of the shop's own
       Lightning invoice as paid in full. Confirm on mainnet (signet's fee is 0) what the
       wallet history reports as received, and that orders show Paid.
-- [ ] **Ark payout address on a different Ark server.** Sweeps to it fail forever. Refuse
-      it when saved by comparing the server key inside the address with the wallet's own
-      server (needs the exact mainnet address format confirmed first).
+- [x] **Ark payout address on a different Ark server.** Done: the setup page flags it and
+      sweeps refuse it, with a message naming the right server and wallets. Still to try
+      once on signet: an address from another Ark server, and a good one that must say
+      "Verified".
 - [ ] **Renewal fees.** Extra renewals of coins the wallet flags now stay inside the free
       window. Confirm the mainnet fee table and coin lifetime parse as expected, whether
       renewing merges small coins, and show renewal fees paid on Home.

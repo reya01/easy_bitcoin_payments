@@ -973,6 +973,14 @@ impl BarkdClient {
         Ok(flex::str_field(&v, &["network"]).map(|n| n.to_lowercase()))
     }
 
+    /// The Ark server's public key (`server_pubkey` in ark-info), hex. The
+    /// first 4 bytes of its SHA-256 appear in every Ark address made for that
+    /// server (see `payout::ark_server_tag`).
+    pub async fn ark_server_pubkey(&self) -> Result<Option<String>, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(flex::str_field(&v, &["server_pubkey"]).map(|k| k.trim().to_lowercase()))
+    }
+
     /// Whether the wallet is connected to its ASP (health endpoint).
     // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn connected(&self) -> Result<ConnectedStatus, WalletError> {

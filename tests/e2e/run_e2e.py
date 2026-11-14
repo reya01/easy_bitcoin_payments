@@ -342,17 +342,17 @@ def main():
             page.click("#btn-store")
             assert "does not look like an Ark address" in page.inner_text("#store-error")
             page.select_option("#payout-kind", "onchain")
-            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh")
+            page.fill("#payout", "tark1pem36wcfpqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq3ueu6c")
             page.click("#btn-store")
             assert "looks like an Ark address" in page.inner_text("#store-error")
             page.select_option("#payout-kind", "ark")
             before = page.inner_text("#store-error")
-            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjX")
+            page.fill("#payout", "tark1pem36wcfpqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq3ueu6X")
             page.click("#btn-store")
             wait_for(lambda: page.inner_text("#store-error") != before, "server rejects a bad address")
             err = page.inner_text("#store-error")
             assert "[object" not in err and len(err) > 10, err
-            page.fill("#payout", "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh")
+            page.fill("#payout", "tark1pem36wcfpqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq3ueu6c")
             page.click("#btn-store")
             page.wait_for_selector("#store-secrets:not(.hidden)")
             state["api_key"] = page.inner_text("#api-key").strip()
@@ -759,7 +759,7 @@ def main():
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
             page.wait_for_selector("#po-go")
-            first = "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
+            first = "tark1pem36wcfpqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq3ueu6c"
             second = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
             wait_for(lambda: first in page.inner_text("#po-now"), "address from the wizard shown")
             page.fill("#po-addr", second)

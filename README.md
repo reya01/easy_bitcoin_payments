@@ -53,6 +53,10 @@ Being honest about this matters more than sounding safe.
 
 The longer lists are in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) and [docs/dev/SHOP_COMPROMISE.md](docs/dev/SHOP_COMPROMISE.md).
 
+## Continuous security review
+
+Security of merchant funds is our primary design constraint, not an afterthought. This repository is under continuous, layered review: automated code-level scanning of every commit with independent multi-model verification of flagged findings, active triage of all public issues *and* privately submitted security reports, and weekly deep audits. Confirmed serious issues — especially anything that could put funds at risk — are escalated immediately with repeated alerts until resolved. We intentionally don't publish scan schedules, model choices, or coverage details; what you can rely on is that the review never stops.
+
 ## Get started (beginner path)
 
 A small DigitalOcean server and a WooCommerce shop. No terminal needed.

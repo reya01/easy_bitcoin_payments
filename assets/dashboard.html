@@ -106,6 +106,9 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   </div>
   <h2>Recent payments</h2>
   <div class="card" id="orders"></div>
+  <div class="btns" style="margin-top:12px"><button id="csv-go" type="button">Download all payments (CSV)</button></div>
+  <p class="muted">A spreadsheet file with every payment, oldest first: date, order number, status, amounts and the dollar rate used. It opens in Excel, Numbers or Google Sheets.</p>
+  <p class="msg hidden" id="csv-msg"></p>
 </section>
 
 <section id="v-alerts" class="hidden">
@@ -194,6 +197,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <h3>How much to keep on this server</h3>
       <p class="muted" id="cap-now"></p>
       <label for="cap-new">New amount to keep (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
+      <div class="muted" id="cap-usd"></div>
       <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
       <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
@@ -304,6 +308,30 @@ function row(a, b, cls) { var r = el("div", "", "row"); r.appendChild(el("span",
 function say(id, text, bad) { var m = $(id); m.textContent = text; m.className = "msg " + (bad ? "bad" : "ok"); }
 function when(s) { if (!s) return ""; var d = new Date(s); return isNaN(d) ? s : d.toLocaleString(); }
 
+// Long lists show one short page at a time, newest first, with Newer / Older
+// buttons. Each list asks for one row more than a page so it knows whether an
+// older page exists.
+var PAGE = { orders: 0, deliveries: 0, audit: 0, sweeps: 0, upkeep: 0 };
+var PAGE_SIZE = { orders: 15, deliveries: 15, audit: 15, sweeps: 10, upkeep: 10 };
+function pageQuery(key) { return "limit=" + (PAGE_SIZE[key] + 1) + "&offset=" + (PAGE[key] * PAGE_SIZE[key]); }
+// True (after asking again for page 1) when the page we were on no longer exists.
+function pageGone(key, count, reload) {
+  if (count === 0 && PAGE[key] > 0) { PAGE[key] = 0; reload(); return true; }
+  return false;
+}
+// Draws the Newer / Older bar under a list (nothing when one page is all there is).
+function pagerFor(box, key, count, reload) {
+  var more = count > PAGE_SIZE[key];
+  if (PAGE[key] === 0 && !more) return false;
+  var bar = el("div", "", "pager"); bar.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-top:12px";
+  var newer = el("button", "\u2190 Newer", "small"); newer.type = "button"; newer.disabled = PAGE[key] === 0;
+  newer.addEventListener("click", function () { PAGE[key] = Math.max(0, PAGE[key] - 1); reload(); });
+  var older = el("button", "Older \u2192", "small"); older.type = "button"; older.disabled = !more;
+  older.addEventListener("click", function () { PAGE[key]++; reload(); });
+  bar.appendChild(newer); bar.appendChild(el("span", "Page " + (PAGE[key] + 1), "muted")); bar.appendChild(older);
+  box.appendChild(bar);
+}
+
 function api(method, path, body) {
   var h = { "accept": "application/json" };
   if (body !== undefined) h["content-type"] = "application/json";
@@ -324,11 +352,11 @@ function show(name) {
   views.forEach(function (v) { $("v-" + v).classList.toggle("hidden", v !== name); });
   var tabs = document.querySelectorAll("#tabs button");
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("on", tabs[i].getAttribute("data-v") === name);
-  if (name === "home") loadHome();
-  if (name === "orders") loadOrders();
+  if (name === "home") { PAGE.sweeps = 0; PAGE.upkeep = 0; loadHome(); }
+  if (name === "orders") { PAGE.orders = 0; loadOrders(); }
   if (name === "alerts") loadAlerts();
-  if (name === "hooks") { loadDeliveries(); loadKeylock(); }
-  if (name === "set") { loadAudit(); loadPayout(); }
+  if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
+  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); }
   if (name === "home" || name === "set") { loadPhone(); loadTwofa(); }
   if (name === "home") loadRecon();
 }
@@ -564,15 +592,24 @@ function loadHome() {
     if (!n) a.appendChild(el("span", "Nothing needs your attention.", "ok"));
     a.appendChild(row("Open orders", String(c.invoices_pending || 0)));
     var b = $("alert-badge"); var open = c.unmatched_payments_open || 0; b.textContent = String(open); b.classList.toggle("hidden", !open);
-    var sw = $("sweeps"), up = $("upkeep"); clear(sw); clear(up);
-    var isUpkeep = function (x) { return x.kind === "renew" || x.kind === "consolidate"; };
-    var line = function (x) { return row(when(x.created_at) + " · " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " · " + x.status); };
-    var all = s.recent_settlements || [];
-    all.filter(function (x) { return !isUpkeep(x); }).slice(0, 5).forEach(function (x) { sw.appendChild(line(x)); });
-    all.filter(isUpkeep).slice(0, 3).forEach(function (x) { up.appendChild(line(x)); });
-    if (!sw.firstChild) sw.appendChild(el("span", "None yet.", "muted"));
-    if (!up.firstChild) up.appendChild(el("span", "None yet.", "muted"));
+    loadSettlementLists();
   }).catch(function (e) { var h = $("health"); clear(h); h.appendChild(el("span", e.message, "bad")); });
+}
+
+var settleLine = function (x) { return row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status); };
+function loadSettlementList(group, key, boxId) {
+  api("GET", "/api/v1/admin/settlements?group=" + group + "&" + pageQuery(key)).then(function (list) {
+    var box = $(boxId); clear(box);
+    var again = function () { loadSettlementList(group, key, boxId); };
+    if (pageGone(key, list.length, again)) return;
+    list.slice(0, PAGE_SIZE[key]).forEach(function (x) { box.appendChild(settleLine(x)); });
+    if (!list.length) box.appendChild(el("span", "None yet.", "muted"));
+    pagerFor(box, key, list.length, again);
+  }).catch(function (e) { $(boxId).textContent = e.message; });
+}
+function loadSettlementLists() {
+  loadSettlementList("transfers", "sweeps", "sweeps");
+  loadSettlementList("upkeep", "upkeep", "upkeep");
 }
 
 $("tp-go").addEventListener("click", function () {
@@ -593,16 +630,49 @@ function tpPreview() {
 }
 $("tp-sats").addEventListener("input", tpPreview);
 
+// Under the keep amount: what it is worth in dollars, from the last saved
+// rate (no new lookup). Shown once typing pauses, or when the box is left.
+var capTimer = null;
+function capPreview() {
+  var n = parseInt($("cap-new").value, 10);
+  $("cap-usd").textContent = n > 0 && USD > 0 ? "That is " + fmtSats(n) + "." : "";
+}
+$("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
+$("cap-new").addEventListener("change", function () { clearTimeout(capTimer); capPreview(); });
+
 function loadOrders() {
-  api("GET", "/api/v1/invoices?limit=30").then(function (list) {
+  api("GET", "/api/v1/invoices?" + pageQuery("orders")).then(function (list) {
+    if (pageGone("orders", list.length, loadOrders)) return;
     var o = $("orders"); clear(o);
-    list.forEach(function (i) {
+    list.slice(0, PAGE_SIZE.orders).forEach(function (i) {
       var label = (i.fiat_amount ? i.fiat_currency + " " + i.fiat_amount : fmtSats(i.amount_sats));
-      o.appendChild(row(label + " · " + when(i.created_at), i.status, i.status === "paid" || i.status === "overpaid" ? "ok" : ""));
+      o.appendChild(row(label + " \u00b7 " + when(i.created_at), i.status, i.status === "paid" || i.status === "overpaid" ? "ok" : ""));
     });
     if (!list.length) o.appendChild(el("span", "No payments yet.", "muted"));
+    pagerFor(o, "orders", list.length, loadOrders);
   }).catch(function (e) { $("orders").textContent = e.message; });
 }
+
+$("csv-go").addEventListener("click", function () {
+  var b = $("csv-go"); b.disabled = true; $("csv-msg").className = "msg hidden";
+  fetch("/api/v1/invoices.csv", { credentials: "same-origin" })
+    .catch(function () { throw new Error("Can't reach your server right now. Try again in a minute."); })
+    .then(function (r) {
+      if (r.status === 401) { signedOut(); throw new Error("Please sign in again."); }
+      if (!r.ok) throw new Error("The server could not make the file (error " + r.status + ").");
+      return r.blob();
+    })
+    .then(function (blob) {
+      var a = document.createElement("a"), url = URL.createObjectURL(blob), d = new Date();
+      var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+      a.href = url; a.download = "ebp-payments-" + d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + ".csv";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+      say("csv-msg", "Your file is downloading.");
+    })
+    .catch(function (e) { say("csv-msg", e.message, true); })
+    .then(function () { b.disabled = false; });
+});
 
 function loadAlerts() {
   api("GET", "/api/v1/unmatched-payments").then(function (list) {
@@ -623,9 +693,10 @@ function loadAlerts() {
 }
 
 function loadDeliveries() {
-  api("GET", "/api/v1/webhook-deliveries?limit=20").then(function (list) {
+  api("GET", "/api/v1/webhook-deliveries?" + pageQuery("deliveries")).then(function (list) {
+    if (pageGone("deliveries", list.length, loadDeliveries)) return;
     var d = $("deliveries"); clear(d);
-    list.forEach(function (x) {
+    list.slice(0, PAGE_SIZE.deliveries).forEach(function (x) {
       var r = row(x.event + " · " + when(x.created_at), x.status, x.status === "delivered" ? "ok" : x.status === "failed" ? "bad" : "");
       if (x.status === "failed" || x.status === "delivered") {
         var b = el("button", "Resend", "small"); b.type = "button"; b.style.marginLeft = "8px";
@@ -635,6 +706,7 @@ function loadDeliveries() {
       d.appendChild(r);
     });
     if (!list.length) d.appendChild(el("span", "No notifications sent yet.", "muted"));
+    pagerFor(d, "deliveries", list.length, loadDeliveries);
   }).catch(function (e) { $("deliveries").textContent = e.message; });
 }
 
@@ -781,7 +853,7 @@ $("po-go").addEventListener("click", function () {
 function saveCap(value, btn) {
   btn.disabled = true;
   api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
-    $("cap-new").value = ""; $("cap-pw").value = ""; $("cap-code").value = "";
+    $("cap-new").value = ""; $("cap-usd").textContent = ""; $("cap-pw").value = ""; $("cap-code").value = "";
     say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + ".");
     loadPayout();
   }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
@@ -971,10 +1043,12 @@ function showRecovery(codes) {
 }
 
 function loadAudit() {
-  api("GET", "/api/v1/audit-log?limit=15").then(function (list) {
+  api("GET", "/api/v1/audit-log?" + pageQuery("audit")).then(function (list) {
+    if (pageGone("audit", list.length, loadAudit)) return;
     var a = $("audit"); clear(a);
-    list.forEach(function (x) { a.appendChild(row(String(x.action).replace(/[._]/g, " "), when(x.created_at))); });
+    list.slice(0, PAGE_SIZE.audit).forEach(function (x) { a.appendChild(row(String(x.action).replace(/[._]/g, " "), when(x.created_at))); });
     if (!list.length) a.appendChild(el("span", "Nothing yet.", "muted"));
+    pagerFor(a, "audit", list.length, loadAudit);
   }).catch(function (e) { $("audit").textContent = e.message; });
 }
 

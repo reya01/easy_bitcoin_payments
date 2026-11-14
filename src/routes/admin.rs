@@ -58,6 +58,60 @@ async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), AppError
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct SettlementsQuery {
+    /// `transfers` (money sent to the owner) or `upkeep` (renewals and tidy-ups).
+    pub group: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// `GET /api/v1/admin/settlements?group=&limit=&offset=` — one page of the
+/// wallet's transfers or upkeep, newest first.
+pub async fn settlements(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<SettlementsQuery>,
+) -> Result<Json<Vec<Value>>, AppError> {
+    authorize(&state, &headers).await?;
+    let upkeep = match q.group.as_deref() {
+        Some("upkeep") => true,
+        Some("transfers") | None => false,
+        Some(other) => return Err(AppError::BadRequest(format!("unknown group: {other}"))),
+    };
+    let limit = q.limit.unwrap_or(10).clamp(1, 200);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let rows = state
+        .db
+        .call(move |conn| {
+            let sql = if upkeep {
+                "SELECT kind, amount_sats, destination, status, detail, created_at
+                 FROM settlements WHERE kind IN ('renew', 'consolidate')
+                 ORDER BY created_at DESC, id LIMIT ?1 OFFSET ?2"
+            } else {
+                "SELECT kind, amount_sats, destination, status, detail, created_at
+                 FROM settlements WHERE kind NOT IN ('renew', 'consolidate')
+                 ORDER BY created_at DESC, id LIMIT ?1 OFFSET ?2"
+            };
+            let mut stmt = conn.prepare(sql)?;
+            let rows = stmt
+                .query_map(params![limit, offset], |row| {
+                    Ok(json!({
+                        "kind": row.get::<_, String>(0)?,
+                        "amount_sats": row.get::<_, i64>(1)?,
+                        "destination": row.get::<_, Option<String>>(2)?,
+                        "status": row.get::<_, String>(3)?,
+                        "detail": row.get::<_, Option<String>>(4)?,
+                        "created_at": to_rfc3339(row.get::<_, i64>(5)?),
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    Ok(Json(rows))
+}
+
 pub async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,

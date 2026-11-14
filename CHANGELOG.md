@@ -3,6 +3,8 @@
 ## Unreleased
 
 - **Long lists on the admin page are now paged, and payments can be downloaded as a CSV.** Recent payments, the shop notification log and Security activity show 15 rows at a time, and Recent transfers and Routine upkeep on Home show 10, with **Newer** and **Older** buttons and a page number, so a busy shop stays manageable and old history is reachable (before, each list showed only its newest rows and no older ones). **Payments → Download all payments (CSV)** saves every payment, oldest first (date, paid date, invoice and order number, status, sats, dollar amount and rate), up to 100,000 rows; text from the shop that starts with `=`, `+`, `-` or `@` is defused so a spreadsheet never runs it as a formula. New: `offset` on `GET /api/v1/invoices`, `GET /api/v1/invoices.csv`, `GET /api/v1/admin/settlements`.
+- **Settings shows the dollar value of the keep amount you type.** Under "New amount to keep (sats)" a line says, for example, "That is 5,000 sats ($3.35)" once you pause typing or leave the box. It uses the last saved exchange rate, with no new lookup, and shows nothing when no rate is known.
+- **The "large balance" warning now says what to do.** Above 100,000 sats held on the server, Home shows a yellow line (before, it stayed quiet when the keep amount was large) recommending that you send money on to an Ark mobile wallet such as Noah or Arké and set "How much to keep on this server" below 5,000 sats, because getting a large balance out in an emergency costs network fees for every coin.
 
 ## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
 

@@ -197,6 +197,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <h3>How much to keep on this server</h3>
       <p class="muted" id="cap-now"></p>
       <label for="cap-new">New amount to keep (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
+      <div class="muted" id="cap-usd"></div>
       <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
       <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
@@ -629,6 +630,16 @@ function tpPreview() {
 }
 $("tp-sats").addEventListener("input", tpPreview);
 
+// Under the keep amount: what it is worth in dollars, from the last saved
+// rate (no new lookup). Shown once typing pauses, or when the box is left.
+var capTimer = null;
+function capPreview() {
+  var n = parseInt($("cap-new").value, 10);
+  $("cap-usd").textContent = n > 0 && USD > 0 ? "That is " + fmtSats(n) + "." : "";
+}
+$("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
+$("cap-new").addEventListener("change", function () { clearTimeout(capTimer); capPreview(); });
+
 function loadOrders() {
   api("GET", "/api/v1/invoices?" + pageQuery("orders")).then(function (list) {
     if (pageGone("orders", list.length, loadOrders)) return;
@@ -842,7 +853,7 @@ $("po-go").addEventListener("click", function () {
 function saveCap(value, btn) {
   btn.disabled = true;
   api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
-    $("cap-new").value = ""; $("cap-pw").value = ""; $("cap-code").value = "";
+    $("cap-new").value = ""; $("cap-usd").textContent = ""; $("cap-pw").value = ""; $("cap-code").value = "";
     say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + ".");
     loadPayout();
   }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });

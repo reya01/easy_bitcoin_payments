@@ -64,6 +64,10 @@ jobs:
       - name: Setup wizard states
         run: python3 tests/e2e/setup_wizard_states.py
 
+      # The admin page's confirmations, messages and retry buttons, server mocked.
+      - name: Admin page states
+        run: python3 tests/e2e/dashboard_states.py
+
       # Mistakes in settings or commands: a plain message, never a crash.
       - name: Startup and command-line mistakes
         run: python3 tests/e2e/startup_errors.py target/release/ebp

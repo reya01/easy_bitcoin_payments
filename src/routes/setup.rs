@@ -840,6 +840,42 @@ pub async fn create_wallet(
     )
     .await?;
 
+    // A wallet that was already there (made by hand, or an earlier wizard
+    // run) is adopted only if it really is on the chosen network: the mode
+    // saved below follows the wallet for good, and a real-money wallet under
+    // a play-money label would mislabel every amount and unlock the
+    // emergency withdrawal on real coins.
+    if outcome.already_exists {
+        // The same token the existence probe just used (none for a barkd
+        // that runs without one).
+        let client =
+            crate::wallet::barkd::BarkdClient::new(crate::wallet::barkd::BarkdConfig::new(
+                base_url.clone(),
+                token.clone().unwrap_or_default(),
+            ))
+            .ok();
+        let wallet_net = match client {
+            Some(c) => c.ark_network().await.ok().flatten(),
+            None => None,
+        };
+        let wants_real = network == "mainnet";
+        match wallet_net.as_deref() {
+            Some(net) if crate::wallet::barkd::is_mainnet_network(net) != wants_real => {
+                return Err(AppError::Conflict(format!(
+                    "This server already has a wallet on {}, but {} was chosen. The network cannot be changed: choose the wallet's network, or set up a new server.",
+                    if wants_real { "signet (play money)" } else { "real Bitcoin (mainnet)" },
+                    network
+                )));
+            }
+            Some(_) => {}
+            None => {
+                return Err(AppError::Internal(
+                    "A wallet already exists but its network could not be read, so it was not adopted. Check `docker compose logs barkd` and try again.".into(),
+                ));
+            }
+        }
+    }
+
     // Record progress. The mnemonic is NOT stored — it exists only in the
     // response below, once. A restore also records that the owner typed the
     // words (so they hold them) and said the paper copies exist; that stands

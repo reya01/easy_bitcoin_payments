@@ -27,6 +27,15 @@ without pasting it.
 Known limits we already document are in `docs/KNOWN_ISSUES.md` and
 `docs/dev/archive/SECURITY_REVIEW_2026-11-05.md`.
 
+## Found a non-security bug?
+
+Something broken that isn't a security problem (setup trouble, a confusing
+screen, docs that are wrong)? Please open a regular
+[bug report](https://github.com/reya01/easy_bitcoin_payments/issues/new?title=Bug%3A%20%3Cone-line%20summary%3E&body=%23%23%20What%20happened%0A%0A%23%23%20What%20you%20expected%0A%0A%23%23%20Steps%20to%20reproduce%0A%0A%23%23%20Version%20%28from%20%60ebp%20--help%60%20or%20the%20admin%20page%29%0A%0A%23%23%20Anything%20else%3F%0A).
+Screenshots help a lot. **If it involves money movement, someone's keys or
+secrets, or bypassing sign-in, treat it as a vulnerability and use the private
+channel above instead** — even if you're not sure.
+
 ## What to expect
 
 We will acknowledge a report, tell you whether we agree it is a problem, and

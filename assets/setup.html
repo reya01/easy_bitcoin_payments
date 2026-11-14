@@ -119,7 +119,7 @@
     <span class="title">Easy Bitcoin Payments</span>
   </header>
 
-  <div class="banner hidden" id="test-banner" role="note">TEST MODE — signet. Play money; nothing here is real.</div>
+  <div class="banner hidden" id="test-banner" role="note">TEST MODE: play money (signet). Nothing here is real.</div>
 
   <div class="steps" aria-hidden="true">
     <span id="s1"></span><span id="s2"></span><span id="s3"></span><span id="s4"></span>
@@ -511,7 +511,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   function applyMode(mode) {
     els.testBanner.textContent = mode === "live"
       ? "REAL MONEY. Experimental: keep amounts small."
-      : "TEST MODE — signet. Play money; nothing here is real.";
+      : "TEST MODE: play money (signet). Nothing here is real.";
     els.testBanner.classList.remove("hidden");
     payoutHints = mode === "live" ? payoutHintsFor.live : payoutHintsFor.test;
     arkPrefixText = mode === "live" ? "ark1" : "tark1";

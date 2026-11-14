@@ -18,6 +18,7 @@ without the money arriving.
 
 ## Before you start
 
+- [ ] The signet checks in [RC3_CHECKS.md](RC3_CHECKS.md) are done (the payment page, setup page and admin page changes of rc3).
 - [ ] Your own Ark wallet on your phone (Arké or Noah) set to **Second's mainnet
       server** (`ark.second.tech`), with its own seed written down, and about
       10,000 sats in it or in another Lightning wallet to pay from.

@@ -1,5 +1,18 @@
 # UX Recommendations — Easy Bitcoin Payments
 
+> **ARCHIVED, 14 November 2026. Not a to-do list. Do not implement anything below without the owner asking for it again.**
+>
+> This was written by an outside AI review and then triaged by the owner. What happened:
+>
+> - **Done** (PRs #190 to #193): the checkout part-payment state, expiry and lost-connection guards, on-chain QR carrying the amount, one test-mode banner; the setup wizard items (Copy buttons, restore question, word counter, loading labels, changed-setup-code message, plain recovery note); the admin page confirmations, "Password changed" note, "Forgot your password?" link, retry cards and real doc links; the "When you'll need the Console" box and the signing-secret warning in the docs. Several items were changed on the way where the original wording would have been wrong or unsafe.
+> - **Decided against:** removing or changing the shopper-facing real-money banner (P1-C1); the live Home refresh (P1-M3); the README "No terminal" wording change (P1-T1, README part); the bitcoin symbol (P2-X1). Test-mode wording is "TEST MODE: play money (signet). Nothing here is real." everywhere, not the "practice money" string below.
+> - **Not scheduled:** every P2 and P3 item. They stay here only as history; propose them again if one becomes important.
+> - **Browser support** is Google Chrome and Brave only (see CONTRIBUTING.md); the "Definition of done" below mentions other browsers and is out of date.
+>
+> For what is current, read [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md) and [HANDOFF.md](../HANDOFF.md).
+
+---
+
 > **Scope guardrail — read first.** Everything in this document is presentation-layer work: copy, layout, disclosure, focus, display defaults, links, and documentation. Nothing here changes money movement, API contracts, custody, key handling, confirmation gates, or server behavior. Where a proper fix would need backend changes, the item says so and ships a copy-only version instead. The **Do NOT do** list at the end marks the tempting overreaches. If an item depends on data the current API doesn't return, ship the parts that don't need it and log the gap under "Maintainer follow-ups."
 
 ---

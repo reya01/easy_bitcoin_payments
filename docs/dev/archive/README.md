@@ -14,3 +14,4 @@ were done, but they are **not current**: for what is true and open now, read
 | [SECURITY_REVIEW_2026-11-05.md](SECURITY_REVIEW_2026-11-05.md) | Security review of 5 November 2026. |
 | [DROPLET_TEST_RESULTS_2026-11-08.md](DROPLET_TEST_RESULTS_2026-11-08.md) | Notes from the first DigitalOcean test on signet, 8 November 2026. |
 | [review-deepseek.md](review-deepseek.md), [review-glm.md](review-glm.md) | Early outside reviews of the spec. |
+| [UX_RECOMMENDATIONS.md](UX_RECOMMENDATIONS.md) | An outside AI's UX review (14 November 2026). Part done in PRs #190 to #193, the rest decided against or not scheduled. |

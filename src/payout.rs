@@ -875,17 +875,17 @@ pub(crate) mod tests {
         // Same server: verified.
         let v = assess(SAME_SERVER_A, "live", Some(second));
         assert_eq!(v.name(), "verified");
-        // Wallet address unknown: could not verify, still allowed.
+        // Server key unknown: could not verify, still allowed.
         let v = assess(SAME_SERVER_A, "live", None);
         assert_eq!(v.name(), "unverified");
         assert!(v.message().starts_with("Could not verify"));
-        // A reference that does not decode: could not verify, never "verified".
+        // A key that does not decode: could not verify, never "verified".
         assert_eq!(
-            assess(SAME_SERVER_A, "live", Some("tark1qabc")).name(),
+            assess(SAME_SERVER_A, "live", Some("nothex")).name(),
             "unverified"
         );
         // A different Ark server: failed.
-        assert_eq!(assess(ARK_A, "live", Some(SAME_SERVER_A)).name(), "failed");
+        assert_eq!(assess(ARK_A, "live", Some(second)).name(), "failed");
         // One character changed: the checksum fails.
         let mut typo = SAME_SERVER_A.to_string();
         let swap = if &typo[30..31] == "q" { "p" } else { "q" };

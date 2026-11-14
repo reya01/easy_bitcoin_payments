@@ -37,10 +37,9 @@ For developers (this folder):
 - [HANDOFF.md](HANDOFF.md): one-stop context for a new developer or agent.
 - [RC_CHECKLIST.md](RC_CHECKLIST.md), [SIGNET_DRILL.md](SIGNET_DRILL.md),
   [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md), [E2E_TESTING.md](E2E_TESTING.md): release and testing.
-- [PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md), [PHASE1_PLAN.md](PHASE1_PLAN.md),
-  [BETA_PLAN.md](BETA_PLAN.md), [BEGINNER_ROADMAP.md](BEGINNER_ROADMAP.md): plans and history.
-- [REVIEW_2026-11-05.md](REVIEW_2026-11-05.md), [SECURITY_REVIEW_2026-11-05.md](SECURITY_REVIEW_2026-11-05.md),
-  [BARK_AUDIT.md](BARK_AUDIT.md): reviews and audits.
+- [PHASE1_PLAN.md](PHASE1_PLAN.md): the barkd integration plan and its close-out block.
+- [BARK_AUDIT.md](BARK_AUDIT.md): the audit of the Bark wallet we build on.
+- [archive/](archive/README.md): finished plans, reviews and test notes, kept for history (Phase 0 spike, beta hardening, beginner roadmap, the 5 November reviews, the 8 November droplet test).
 - [WATCHER_DESIGN_NOTE.md](WATCHER_DESIGN_NOTE.md), [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md):
   design notes and the original spec.
 - [CONTRIBUTING.md](../../CONTRIBUTING.md), [ebp.example.toml](../../ebp.example.toml) (every config key), [LICENSE](../../LICENSE).

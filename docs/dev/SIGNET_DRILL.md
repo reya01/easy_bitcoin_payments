@@ -149,6 +149,6 @@ bug to fix before enabling the rail.
 
 - Fix every FAIL before turning on the on-chain rail by default.
 - Trim the defensive parsing in `src/wallet/barkd.rs` for shapes the drill
-  proved are not real (listed in `docs/dev/REVIEW_2026-11-05.md`).
+  proved are not real (listed in `docs/dev/archive/REVIEW_2026-11-05.md`).
 - Delete the throwaway server so billing stops (`START_HERE.md`
   Part 8).

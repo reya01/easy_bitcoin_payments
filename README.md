@@ -75,43 +75,11 @@ WooCommerce is the supported, first-class shop. Shopify is planned for a much la
 
 ## How it compares to BTCPay Server
 
-BTCPay Server is the established self-hosted Bitcoin payment processor, and it is
-the right tool for many merchants. EBP shares its mission (self-hosted, you hold
-the keys, no middleman) but aims at a different merchant.
+BTCPay Server is the established self-hosted Bitcoin payment processor, and it is the right tool for many merchants. EBP shares its mission (self-hosted, you hold the keys, no middleman) but aims at a merchant who wants **no node, no channels and no liquidity to manage**, and a setup a beginner can finish.
 
-| | BTCPay Server | EBP |
-| --- | --- | --- |
-| Stack | C#/.NET, years of accumulated features | Rust, a single binary plus SQLite |
-| Payment rails | Lightning channels and on-chain | Ark (Lightning and on-chain also supported) |
-| Inbound liquidity | You must arrange it | None needed |
-| Bitcoin node | Full node required | None |
-| Upkeep | Chain sync, channel management, several services | One server, no chain sync |
-| Money on the server | Lightning keys and channel funds | A small capped "till", swept to your wallet automatically |
-| Setup | Sysadmin-grade | Paste one block of text, no terminal |
-| Lightning trust | No third party on the payment path | Depends on the Ark server |
-| Features | POS, crowdfunding, pay buttons, plugins | Invoice API, checkout page, WooCommerce plugin |
-| Maturity | Thousands of merchants in production | Pre-release, unaudited |
-| Managed from | Desktop first | Phone friendly |
+We do **not** claim EBP is more secure than BTCPay Server. It is **lower risk, on purpose**: the server only ever holds a small amount of money (about 2,000 sats at most with the default settings, because every payment is swept to your own wallet within minutes), so less is in harm's way. A smaller prize is not a stronger vault; it is a different bet. If you want maximum trust-minimization, or you already run a node, use BTCPay.
 
-**Where BTCPay wins:** real Lightning channels with no third party in the payment
-path, years of production use, and a much broader ecosystem. If you want maximum
-trust-minimization, or you already run a node, use BTCPay.
-
-**Where EBP wins:** no node, no channels and no liquidity to manage; setup a
-beginner can finish; and a smaller loss if the server is ever compromised.
-
-We do **not** claim EBP is more secure than BTCPay Server. It is **lower risk, on
-purpose**: the server only ever holds a small amount of money, so less is in harm's
-way. A smaller prize is not a stronger vault; it is a different bet.
-
-For example, set your payout address to an Ark wallet on your phone. Every payment
-is swept off the server within minutes once at least 1,000 sats are above the
-1,000 it keeps, so with the default settings the server holds about 2,000 sats at
-most at any moment. Then, if your wallet
-supports it, have the phone wallet move funds to regular on-chain Bitcoin once they
-pass a threshold you choose. You hold the keys the whole way, and as your balance
-grows, more of it sits in colder storage. The full, blunt comparison:
-[docs/dev/TECHNICAL.md](docs/dev/TECHNICAL.md#ebp-vs-btcpay-server-an-honest-comparison).
+The full, blunt comparison, with a side-by-side table: [docs/dev/TECHNICAL.md](docs/dev/TECHNICAL.md#ebp-vs-btcpay-server-an-honest-comparison).
 
 ## More
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Settings shows the dollar value of the keep amount you type.** Under "New amount to keep (sats)" a line says, for example, "That is 5,000 sats ($3.35)" once you pause typing or leave the box. It uses the last saved exchange rate, with no new lookup, and shows nothing when no rate is known.
+
 ## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
 
 - **Choose signet or mainnet on the setup page.** The Create your wallet step has a Network box: Signet (play money) is the default, Mainnet (real bitcoin, experimental) is the other choice. Mainnet shows a real-money warning and needs a tick-box; the page says the choice is permanent and switching needs a new server. The choice is saved with the wallet and always wins over `EBP_MODE` (which now only sets the page's default); the server restarts once at the end of setup to apply it. A backup from a server on the other network is refused when restoring. No command line needed.

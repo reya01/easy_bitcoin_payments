@@ -43,6 +43,10 @@ button:disabled{opacity:.5}
 #po-kinds div{margin-top:10px}
 .secret{font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;word-break:break-all;background:var(--bg);border:1px dashed var(--line);border-radius:10px;padding:10px;margin:6px 0}
 .msg{margin:10px 0;font-size:14px}
+#dlg-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.dlg{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:var(--radius);padding:18px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.dlg h2{margin:0 0 8px;font-size:17px}.dlg p{margin:0 0 6px;font-size:15px}
+button.danger{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:600}
 #po-now,#po-pending{overflow-wrap:anywhere}
 nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--bg);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
 nav button{flex:1;min-width:0;border:0;border-radius:0;min-height:56px;padding:0 2px;background:none;font-size:12px;color:var(--muted)}
@@ -62,7 +66,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 <section id="v-login" class="hidden">
   <h2>Sign in</h2>
   <div class="card">
-    <p class="msg hidden" id="nopw">No admin password has been set yet. Finish the setup page, or reset it from your server's Console: <code>cd /opt/ebp &amp;&amp; docker compose exec ebp ebp admin set-password</code></p>
+    <p class="msg hidden" id="nopw">No admin password has been set yet. Finish the setup page, or reset it from your payment server's Console: <code>cd /opt/ebp &amp;&amp; docker compose exec ebp ebp admin set-password</code> (<a class="docs-link" data-doc="forgot" target="_blank" rel="noopener noreferrer">step-by-step guide</a>)</p>
+    <p class="msg ok hidden" id="login-note" role="status"></p>
     <form id="login-form">
       <label for="pw">Admin password</label>
       <input type="password" id="pw" autocomplete="current-password">
@@ -73,7 +78,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       </div>
       <div class="btns"><button class="primary" type="submit" id="login-btn">Sign in</button></div>
     </form>
-    <p class="msg bad hidden" id="login-err"></p>
+    <p class="msg bad hidden" id="login-err" role="alert"></p>
+    <p class="muted"><strong>Forgot your password?</strong> You can set a new one from your payment server's Console (at your hosting company, not your WooCommerce site). It takes about 2 minutes and the guide walks you through it. <a id="forgot-link" target="_blank" rel="noopener noreferrer">Show me how</a></p>
   </div>
 </section>
 
@@ -305,7 +311,76 @@ var views = ["login", "home", "orders", "alerts", "hooks", "set"];
 function el(tag, text, cls) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
 function row(a, b, cls) { var r = el("div", "", "row"); r.appendChild(el("span", a)); r.appendChild(el("span", b, cls || "")); return r; }
-function say(id, text, bad) { var m = $(id); m.textContent = text; m.className = "msg " + (bad ? "bad" : "ok"); }
+// Where the guides live (rendered on GitHub). One map, so every reference is a real link.
+var DOCS_BASE = "https://github.com/reya01/easy_bitcoin_payments/blob/main/docs/";
+var DOCS = {
+  forgot: DOCS_BASE + "IF_SOMETHING_LOOKS_WRONG.md#2-you-think-someone-saw-your-recovery-words-or-your-admin-password",
+  wrong: DOCS_BASE + "IF_SOMETHING_LOOKS_WRONG.md",
+  known: DOCS_BASE + "KNOWN_ISSUES.md"
+};
+function docLink(key, text) { var a = el("a", text); a.href = DOCS[key]; a.target = "_blank"; a.rel = "noopener noreferrer"; return a; }
+document.querySelectorAll("[data-doc]").forEach(function (a) { a.href = DOCS[a.getAttribute("data-doc")]; });
+$("forgot-link").href = DOCS.forgot;
+// Messages are announced to screen readers: problems as alerts, the rest as status.
+// "Known issues in the docs" becomes a real link.
+function say(id, text, bad) {
+  var m = $(id); m.textContent = "";
+  text = String(text); var phrase = "Known issues in the docs", i = text.indexOf(phrase);
+  if (i >= 0) {
+    m.appendChild(document.createTextNode(text.slice(0, i)));
+    m.appendChild(docLink("known", phrase));
+    m.appendChild(document.createTextNode(text.slice(i + phrase.length)));
+  } else { m.textContent = text; }
+  m.className = "msg " + (bad ? "bad" : "ok");
+  m.setAttribute("role", bad ? "alert" : "status");
+}
+// One in-page confirmation for every action that cannot be undone. (The browser's own
+// confirm() box is blocked in some in-app browsers, which made guarded buttons do nothing.)
+// Resolves true only when the confirm button is pressed.
+function askConfirm(o) {
+  return new Promise(function (resolve) {
+    var before = document.activeElement;
+    var back = el("div", "", ""); back.id = "dlg-back";
+    var dlg = el("div", "", "dlg"); dlg.setAttribute("role", "alertdialog"); dlg.setAttribute("aria-modal", "true");
+    dlg.setAttribute("aria-labelledby", "dlg-title"); dlg.setAttribute("aria-describedby", "dlg-body");
+    var h = el("h2", o.title); h.id = "dlg-title";
+    var b = el("p", o.body); b.id = "dlg-body";
+    var btns = el("div", "", "btns");
+    var no = el("button", o.cancel || "Cancel"); no.type = "button";
+    var yes = el("button", o.ok || "Confirm", o.danger === false ? "primary" : "danger"); yes.type = "button";
+    btns.appendChild(no); btns.appendChild(yes);
+    dlg.appendChild(h); dlg.appendChild(b); dlg.appendChild(btns); back.appendChild(dlg);
+    function done(v) {
+      document.removeEventListener("keydown", key, true);
+      if (back.parentNode) back.parentNode.removeChild(back);
+      try { if (before && before.focus) before.focus(); } catch (e) {}
+      resolve(v);
+    }
+    function key(e) {
+      if (e.key === "Escape") { e.preventDefault(); done(false); }
+      else if (e.key === "Tab") {
+        // keep focus inside the box
+        var first = no, last = yes;
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    no.addEventListener("click", function () { done(false); });
+    yes.addEventListener("click", function () { done(true); });
+    back.addEventListener("click", function (e) { if (e.target === back) done(false); });
+    document.addEventListener("keydown", key, true);
+    document.body.appendChild(back);
+    no.focus();
+  });
+}
+// A card that could not load says so, with a way to try again, instead of staying silent.
+function retryCard(box, text, again) {
+  clear(box); box.classList.remove("hidden");
+  box.appendChild(el("p", text, "bad"));
+  var b = el("button", "Try again", "small"); b.type = "button";
+  b.addEventListener("click", function () { b.disabled = true; again(); });
+  box.appendChild(b);
+}
 function when(s) { if (!s) return ""; var d = new Date(s); return isNaN(d) ? s : d.toLocaleString(); }
 
 // Long lists show one short page at a time, newest first, with Newer / Older
@@ -360,7 +435,7 @@ function show(name) {
   if (name === "home" || name === "set") { loadPhone(); loadTwofa(); }
   if (name === "home") loadRecon();
 }
-function signedOut() { csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
+function signedOut() { var n = $("login-note"); if (pwChanged) { n.textContent = "Password changed. Sign in with your new password."; n.classList.remove("hidden"); pwChanged = false; } else { n.classList.add("hidden"); } csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
 
 function boot() {
@@ -414,7 +489,7 @@ function loadVersion() {
       var a = el("a", "What changed in this version"); a.href = v.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer";
       u.appendChild(a);
     }
-  }).catch(function () {});
+  }).catch(function () { retryCard($("update"), "We couldn't check for updates.", loadVersion); });
 }
 
 // ---- Weekly check against your own wallet ----
@@ -463,9 +538,12 @@ function loadRecon() {
     d.appendChild(el("summary", "It doesn't match"));
     d.appendChild(el("p", "1. In Settings, press \"Pause new payments\". Then in your shop, turn off the Bitcoin payment method (WooCommerce: Settings, Payments, Bitcoin, untick Enable).", "muted"));
     d.appendChild(el("p", "2. Do not delete anything on the server; it may help work out what happened.", "muted"));
-    d.appendChild(el("p", "3. Turn the server off at your hosting company, then follow \"If something looks wrong\" in the docs (IF_SOMETHING_LOOKS_WRONG.md) before you do anything else. Never type your recovery words anywhere while fixing this.", "muted"));
+    var p3 = el("p", "3. Turn the server off at your hosting company, then follow ", "muted");
+    p3.appendChild(docLink("wrong", "\"If something looks wrong\""));
+    p3.appendChild(document.createTextNode(" before you do anything else. Never type your recovery words anywhere while fixing this."));
+    d.appendChild(p3);
     host.appendChild(d);
-  }).catch(function () {});
+  }).catch(function () { retryCard($("recon"), "We couldn't check your backup.", loadRecon); });
 }
 
 // ---- Phone alerts (optional, via the free ntfy app) ----
@@ -556,9 +634,13 @@ function loadPhone() {
     renderPhone(h, a, true);
     h.classList.toggle("hidden", a.state !== "undecided");
     renderPhone(s, a, false);
-  }).catch(function () {});
+  }).catch(function () {
+    retryCard($("phone-home"), "We couldn't check your alert settings.", loadPhone);
+    retryCard($("phone-set"), "We couldn't check your alert settings.", loadPhone);
+  });
 }
 
+var pwChanged = false;
 var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wallet (Ark)", sweep_onchain: "Transfer to your wallet (on-chain)", sweep_refused: "Transfer blocked: payout address problem", renew: "Routine wallet upkeep", consolidate: "Tidy-up", offboard: "Withdrawal" };
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
@@ -718,8 +800,15 @@ function hook(body, doneMsg) {
   }).catch(function (e) { say("hook-msg", e.message, true); });
 }
 $("hook-save").addEventListener("click", function () { var u = $("hook-url").value.trim(); if (!u) return say("hook-msg", "Enter your shop's webhook address first.", true); hook({ url: u }, "Saved."); });
-$("hook-rotate").addEventListener("click", function () { var u = $("hook-url").value.trim(); if (!u) return say("hook-msg", "Enter the webhook address first.", true); hook({ url: u, rotate_secret: true }, "New secret made. Update your shop with it."); });
-$("hook-off").addEventListener("click", function () { hook({ url: null }, "Notifications turned off."); });
+$("hook-rotate").addEventListener("click", function () {
+  var u = $("hook-url").value.trim(); if (!u) return say("hook-msg", "Enter the webhook address first.", true);
+  askConfirm({ title: "Make a new signing secret?", body: "The current secret stops working immediately. Your WooCommerce site (a different website from this admin page) will not hear about payments until the new secret is pasted into its Bitcoin settings.", cancel: "Keep current", ok: "Make new secret" })
+    .then(function (yes) { if (yes) hook({ url: u, rotate_secret: true }, "New secret made. Update your shop with it."); });
+});
+$("hook-off").addEventListener("click", function () {
+  askConfirm({ title: "Turn off payment notifications?", body: "This payment server will stop telling your WooCommerce site (a different website from this admin page) when a payment arrives, so paid orders there will stay unpaid until you save the address again.", cancel: "Keep on", ok: "Turn off" })
+    .then(function (yes) { if (yes) hook({ url: null }, "Notifications turned off."); });
+});
 
 $("hook-test").addEventListener("click", function () {
   var btn = $("hook-test"); btn.disabled = true;
@@ -741,15 +830,17 @@ $("hook-test").addEventListener("click", function () {
 });
 
 $("rotate").addEventListener("click", function () {
-  if (!confirm("Make a new API key? The current key stops working immediately, so your shop will need the new one.")) return;
-  api("POST", "/api/v1/stores/rotate-key", {}).then(function (r) {
-    $("newkey").textContent = r.api_key || ""; $("key-box").classList.remove("hidden"); say("rotate-msg", "Done. Copy the key now — it can't be shown again.");
-  }).catch(function (e) { say("rotate-msg", e.message, true); });
+  askConfirm({ title: "Make a new API key?", body: "The current key stops working immediately, so your WooCommerce site (a different website from this admin page) cannot take payments until the new key is pasted into its Bitcoin settings. The new key is shown only once.", cancel: "Keep current", ok: "Make new key" }).then(function (yes) {
+    if (!yes) return;
+    api("POST", "/api/v1/stores/rotate-key", {}).then(function (r) {
+      $("newkey").textContent = r.api_key || ""; $("key-box").classList.remove("hidden"); say("rotate-msg", "Done. Copy the key now — it can't be shown again.");
+    }).catch(function (e) { say("rotate-msg", e.message, true); });
+  });
 });
 
 $("pw-save").addEventListener("click", function () {
   api("POST", "/admin/password", { current: $("pw-cur").value, "new": $("pw-new").value, code: $("pw-code").value }).then(function () {
-    $("pw-cur").value = ""; $("pw-new").value = ""; signedOut();
+    $("pw-cur").value = ""; $("pw-new").value = ""; pwChanged = true; signedOut();
   }).catch(function (e) { say("pw-msg", e.message, true); });
 });
 
@@ -811,11 +902,13 @@ $("ck-go").addEventListener("click", function () {
 });
 
 $("sweep-go").addEventListener("click", function () {
-  if (!window.confirm("Move everything in the till to your payout address now?")) return;
-  $("sweep-go").disabled = true;
-  api("POST", "/admin/sweep", {}).then(function (r) {
-    say("sweep-msg", r.swept_sats ? "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." : (r.note || "Nothing to move right now."));
-  }).catch(function (e) { say("sweep-msg", e.message, true); }).then(function () { $("sweep-go").disabled = false; });
+  askConfirm({ title: "Move your money now?", body: "Everything in the till is sent to your payout address now.", cancel: "Not now", ok: "Move it", danger: false }).then(function (yes) {
+    if (!yes) return;
+    $("sweep-go").disabled = true;
+    api("POST", "/admin/sweep", {}).then(function (r) {
+      say("sweep-msg", r.swept_sats ? "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." : (r.note || "Nothing to move right now."));
+    }).catch(function (e) { say("sweep-msg", e.message, true); }).then(function () { $("sweep-go").disabled = false; });
+  });
 });
 
 function loadPayout() {
@@ -1121,7 +1214,10 @@ function exAction(path, extra, button) {
   }).catch(function (e) { say("ex-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
 }
 $("ex-start").addEventListener("click", function () { exAction("/admin/exit/start", { understood: $("ex-ok").checked }, $("ex-start")); });
-$("ex-stop").addEventListener("click", function () { exAction("/admin/exit/cancel", {}, $("ex-stop")); });
+$("ex-stop").addEventListener("click", function () {
+  askConfirm({ title: "Stop the emergency withdrawal?", body: "Exits that can still be stopped are stopped. Any that are too far along carry on, and network fees already paid are not returned.", cancel: "Keep going", ok: "Stop" })
+    .then(function (yes) { if (yes) exAction("/admin/exit/cancel", {}, $("ex-stop")); });
+});
 $("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
 $("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
 

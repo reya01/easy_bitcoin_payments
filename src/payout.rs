@@ -310,6 +310,25 @@ pub fn ark_server_tag(address: &str) -> Option<[u8; 4]> {
     bytes.get(..4)?.try_into().ok()
 }
 
+/// The tag that Ark addresses for this server carry: the first 4 bytes of
+/// SHA-256 of the server's compressed public key (hex, from ark-info).
+/// Confirmed against Second's mainnet server and five of its addresses.
+pub fn server_tag_from_pubkey(pubkey_hex: &str) -> Option<[u8; 4]> {
+    use sha2::{Digest, Sha256};
+    let key = hex::decode(pubkey_hex.trim()).ok()?;
+    if key.len() != 33 {
+        return None;
+    }
+    let digest = Sha256::digest(&key);
+    digest.get(..4)?.try_into().ok()
+}
+
+/// Is this Ark address for the server with this public key? `None` when
+/// either cannot be read (then we do not know, and say so).
+pub fn ark_address_on_server(address: &str, server_pubkey_hex: &str) -> Option<bool> {
+    Some(ark_server_tag(address)? == server_tag_from_pubkey(server_pubkey_hex)?)
+}
+
 /// What we could find out about a payout address, for the setup page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
@@ -336,12 +355,12 @@ impl Verdict {
     }
 }
 
-/// Judge a payout address. `wallet_ark_address` is an Ark address made by
-/// this server's own wallet (`None` when it could not be fetched); an Ark
-/// payout address must belong to the same Ark server. Nothing here can tell
+/// Judge a payout address. `server_pubkey` is the wallet's Ark server key
+/// from ark-info (`None` when it could not be fetched); an Ark payout address
+/// must belong to that server. Nothing here can tell
 /// whether the owner controls the address: only that it is well formed and on
 /// the right network and server.
-pub fn assess(input: &str, mode: &str, wallet_ark_address: Option<&str>) -> Verdict {
+pub fn assess(input: &str, mode: &str, server_pubkey: Option<&str>) -> Verdict {
     let address = match check(input, mode) {
         Ok(a) => a,
         Err(why) => return Verdict::Failed(why),
@@ -352,16 +371,13 @@ pub fn assess(input: &str, mode: &str, wallet_ark_address: Option<&str>) -> Verd
                 .into(),
         );
     }
-    let (Some(theirs), Some(reference)) = (
-        ark_server_tag(&address),
-        wallet_ark_address.and_then(ark_server_tag),
-    ) else {
+    let Some(same) = server_pubkey.and_then(|k| ark_address_on_server(&address, k)) else {
         return Verdict::Unverified(
             "Could not verify: the address is well formed, but we could not compare it with your wallet's Ark server, so we do not know that it works with this server."
                 .into(),
         );
     };
-    if theirs == reference {
+    if same {
         Verdict::Verified(
             "Verified: a well-formed Ark address on the same Ark server as this wallet. We cannot see whether you control it, so check it is yours."
                 .into(),
@@ -837,9 +853,27 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_address_tag_is_derived_from_the_server_key() {
+        // Second's mainnet server_pubkey (ark-info, 12 Nov 2026).
+        let second = "0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5";
+        assert_eq!(ark_address_on_server(SAME_SERVER_A, second), Some(true));
+        assert_eq!(ark_address_on_server(SAME_SERVER_B, second), Some(true));
+        assert_eq!(ark_address_on_server(ARK_A, second), Some(false));
+        // The mailbox key is a different key: no match.
+        let mailbox = "037bb26bfe7a819c2285f4cfdba63e1d806cb37d04915f17447c76140c34cf73a9";
+        assert_eq!(ark_address_on_server(SAME_SERVER_A, mailbox), Some(false));
+        assert_eq!(ark_address_on_server(SAME_SERVER_A, "nothex"), None);
+        assert_eq!(
+            ark_address_on_server("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", second),
+            None
+        );
+    }
+
+    #[test]
     fn the_verdict_says_verified_unverified_or_failed() {
+        let second = "0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5";
         // Same server: verified.
-        let v = assess(SAME_SERVER_A, "live", Some(SAME_SERVER_B));
+        let v = assess(SAME_SERVER_A, "live", Some(second));
         assert_eq!(v.name(), "verified");
         // Wallet address unknown: could not verify, still allowed.
         let v = assess(SAME_SERVER_A, "live", None);
@@ -856,9 +890,9 @@ pub(crate) mod tests {
         let mut typo = SAME_SERVER_A.to_string();
         let swap = if &typo[30..31] == "q" { "p" } else { "q" };
         typo.replace_range(30..31, swap);
-        assert_eq!(assess(&typo, "live", Some(SAME_SERVER_B)).name(), "failed");
+        assert_eq!(assess(&typo, "live", Some(second)).name(), "failed");
         // A play-money address on a real-money server: failed.
-        assert_eq!(assess(TARK_A, "live", Some(SAME_SERVER_B)).name(), "failed");
+        assert_eq!(assess(TARK_A, "live", Some(second)).name(), "failed");
         // A good Bitcoin address: verified as well formed.
         assert_eq!(
             assess("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "live", None).name(),

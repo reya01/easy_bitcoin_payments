@@ -4,7 +4,6 @@
     {"method": "POST", "path": "/wallet/create", "sends": ["network", "ark_server"], "reads": []},
     {"method": "GET",  "path": "/wallet/mnemonic", "reads": ["mnemonic"]},
     {"method": "POST", "path": "/wallet/addresses/next", "reads": ["address"]},
-    {"method": "GET",  "path": "/wallet/addresses/index/{index}", "reads": ["address"]},
     {"method": "POST", "path": "/onchain/addresses/next", "reads": ["address"]},
     {"method": "GET",  "path": "/wallet/balance", "reads": ["spendable_sat", "needs_refresh_sat", "pending_lightning_send_sat", "claimable_lightning_receive_sat", "pending_in_round_sat", "pending_board_sat", "pending_arkoor_send_sat", "pending_offboard_sat", "pending_exit_sat"]},
     {"method": "GET",  "path": "/onchain/balance", "reads": ["total_sat", "trusted_spendable_sat", "confirmed_sat", "trusted_pending_sat", "untrusted_pending_sat"]},

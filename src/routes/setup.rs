@@ -1341,15 +1341,16 @@ pub async fn check_payout(
 ) -> Result<Json<CheckPayoutResponse>, AppError> {
     ensure_wizard_open(&state).await?;
     let mode = wizard_mode(&state).await?;
-    // The wallet's own first Ark address names its Ark server. If the wallet
-    // cannot be reached we say "could not verify", never "verified".
+    // The wallet's Ark server key decides which Ark addresses belong to it.
+    // If the wallet cannot be reached we say "could not verify", never
+    // "verified".
     let reference = match (crate::managed_barkd::get(), barkd_base_url(&state.config)) {
         (Some(m), Some(base)) => match m.token().await {
             Ok(token) => {
                 match crate::wallet::barkd::BarkdClient::new(
                     crate::wallet::barkd::BarkdConfig::new(base, token),
                 ) {
-                    Ok(client) => client.ark_address_at(0).await.ok(),
+                    Ok(client) => client.ark_server_pubkey().await.ok().flatten(),
                     Err(_) => None,
                 }
             }

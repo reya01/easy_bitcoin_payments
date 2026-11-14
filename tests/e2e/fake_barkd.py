@@ -241,8 +241,6 @@ def handle(method, path, query, body):
     if path == "/wallet/addresses/next":
         S["n_addr"] += 1
         return 200, {"address": "tark1q" + hashlib.sha256(b"ark%d" % S["n_addr"]).hexdigest()[:40]}
-    if path.startswith("/wallet/addresses/index/"):
-        return 200, {"address": "tark1q" + hashlib.sha256(b"ark0").hexdigest()[:40]}
     if path == "/onchain/addresses/next":
         S["n_addr"] += 1
         prog = hashlib.sha256(b"btc%d" % S["n_addr"]).digest()[:20]

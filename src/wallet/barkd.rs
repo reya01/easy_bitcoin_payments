@@ -80,7 +80,6 @@ use super::{
 const PATH_CREATE_WALLET: &str = "/wallet/create";
 /// Fresh Ark receive address. POST.
 const PATH_ADDRESS_NEXT: &str = "/wallet/addresses/next";
-const PATH_ADDRESS_INDEX: &str = "/wallet/addresses/index";
 /// Fresh on-chain receive address. POST.
 const PATH_ONCHAIN_ADDRESS_NEXT: &str = "/onchain/addresses/next";
 /// On-chain and off-chain balances. GET. VERIFIED (barkd 0.8.0, signet,
@@ -541,19 +540,6 @@ impl BarkdClient {
         })
     }
 
-    /// An Ark address this wallet already made, by its number (0 is the
-    /// first). Used to learn which Ark server the wallet is on; it does not
-    /// create a new address. Falls back to a fresh one if none exists yet.
-    pub async fn ark_address_at(&self, index: u32) -> Result<String, WalletError> {
-        let v: Json = match self.get(&format!("{PATH_ADDRESS_INDEX}/{index}")).await {
-            Ok(v) => v,
-            Err(_) => return self.ark_address().await,
-        };
-        flex::str_field(&v, &["address", "ark_address"]).ok_or_else(|| {
-            WalletError::Rejected("barkd address response had no address field".to_string())
-        })
-    }
-
     /// Fresh on-chain receive address.
     // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn onchain_address(&self) -> Result<String, WalletError> {
@@ -985,6 +971,14 @@ impl BarkdClient {
     pub async fn ark_network(&self) -> Result<Option<String>, WalletError> {
         let v: Json = self.get(PATH_ARK_INFO).await?;
         Ok(flex::str_field(&v, &["network"]).map(|n| n.to_lowercase()))
+    }
+
+    /// The Ark server's public key (`server_pubkey` in ark-info), hex. The
+    /// first 4 bytes of its SHA-256 appear in every Ark address made for that
+    /// server (see `payout::ark_server_tag`).
+    pub async fn ark_server_pubkey(&self) -> Result<Option<String>, WalletError> {
+        let v: Json = self.get(PATH_ARK_INFO).await?;
+        Ok(flex::str_field(&v, &["server_pubkey"]).map(|k| k.trim().to_lowercase()))
     }
 
     /// Whether the wallet is connected to its ASP (health endpoint).

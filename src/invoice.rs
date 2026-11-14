@@ -67,6 +67,18 @@ pub fn topup_window_closed(
     Ok(first.is_some_and(|f| detected_at > f + TOPUP_WINDOW_SECS))
 }
 
+/// When an invoice that has received a partial payment stops accepting a
+/// top-up: its first recorded payment + [`TOPUP_WINDOW_SECS`], and never past
+/// the invoice's own expiry. `None` while nothing has been paid yet.
+pub fn topup_closes_at(conn: &Connection, invoice: &Invoice) -> Result<Option<i64>, AppError> {
+    let first: Option<i64> = conn.query_row(
+        "SELECT MIN(detected_at) FROM payments WHERE invoice_id = ?1",
+        params![invoice.id],
+        |r| r.get(0),
+    )?;
+    Ok(first.map(|f| (f + TOPUP_WINDOW_SECS).min(invoice.expires_at)))
+}
+
 pub const MAX_INVOICE_SATS: i64 = 2_100_000_000_000_000;
 
 pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> {
@@ -1017,6 +1029,36 @@ mod tests {
             .unwrap();
         assert!(!inside);
         assert!(outside);
+    }
+
+    #[tokio::test]
+    async fn topup_closes_at_is_none_until_paid_then_first_payment_plus_window() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        let inv = db
+            .call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+        let i2 = inv.clone();
+        assert_eq!(
+            db.call(move |conn| topup_closes_at(conn, &i2))
+                .await
+                .unwrap(),
+            None
+        );
+        let first = obs("inv_1", "ark", 400, Some("vtxo_1"));
+        let at = first.detected_at;
+        db.call(move |conn| record_payment(conn, &first))
+            .await
+            .unwrap();
+        let got = db
+            .call(move |conn| topup_closes_at(conn, &inv))
+            .await
+            .unwrap()
+            .unwrap();
+        // The window is the first payment + 15 minutes, but never past expiry.
+        assert!(got <= at + TOPUP_WINDOW_SECS);
+        assert!(got > at);
     }
 
     #[tokio::test]

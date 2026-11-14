@@ -424,7 +424,7 @@ Test mode: "This server runs on play money — send play-money coins." Mainnet: 
 
 ## Definition of done
 
-- [ ] Every changed screen exercised on iPhone Safari (primary) and Android Chrome.
+- [ ] Every changed screen exercised in Google Chrome and Brave (desktop and phone width). Other browsers are not supported (see CONTRIBUTING.md).
 - [ ] VoiceOver pass: wizard announces "Step {n} of 4" and errors; checkout tabs operable; dashboard nav announces the active tab.
 - [ ] Keyboard-only: setup and dashboard fully operable; focus lands on section headings after every swap.
 - [ ] `git diff` touches only `assets/*.html`, `docs/*.md`, `README.md`, and new static assets (manifest, icon).

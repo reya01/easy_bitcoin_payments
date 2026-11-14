@@ -169,8 +169,17 @@ def main():
             if copied(a) != shown(a): pr.append("Copy should follow Ark")
             pg.click("#tab-chain")
             if shown(a) != "tb1qfakefakefakefakefake": pr.append(f"on-chain tab should show the plain address only, saw {shown(a)[:40]}")
-            if copied(a) != "tb1qfakefakefakefakefake": pr.append("Copy should copy just the on-chain address")
+            CHAIN_URI = "bitcoin:tb1qfakefakefakefakefake?amount=0.00001500"
+            if copied(a) != CHAIN_URI: pr.append(f"Copy should copy the on-chain link with the amount, saw {copied(a)}")
+            if pg.get_attribute("#open-wallet", "href") != CHAIN_URI: pr.append("the wallet button and Copy must carry the same on-chain link")
+            if not pg.is_visible("#copy-addr"): pr.append("on-chain needs a 'Copy address only' button")
+            pg.evaluate("window.__copied = null")
+            pg.click("#copy-addr"); pg.wait_for_timeout(100)
+            if pg.evaluate("window.__copied") != "tb1qfakefakefakefakefake": pr.append("'Copy address only' should copy just the address")
             if "bitcoin:" in shown(a): pr.append("the on-chain choice must not include the combined code")
+            pg.click("#tab-ark")
+            if pg.is_visible("#copy-addr"): pr.append("'Copy address only' belongs to on-chain only")
+            pg.click("#tab-chain")
             pg.click("#tab-ln")
             if copied(a) != BOLT: pr.append("Copy should follow back to Lightning")
 
@@ -196,6 +205,55 @@ def main():
         def c_usd_unknown(a, pr):
             pg = a["page"]
             if "$" in pg.inner_text("#amount") or "(" in pg.inner_text("#sats"): pr.append("no dollars when the price is unknown")
+
+
+        TOPUP = {"status": "underpaid", "amount_sats": 1500, "received_sats": 600, "remaining_sats": 900,
+                 "topup_window_open": True, "topup_closes_at_unix": int(time.time()) + 600}
+        TOPUP_INV = dict(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}, onchain_enabled=True, onchain_address="tb1qfakefakefakefakefake")
+
+        def c_topup(a, pr):
+            pg = a["page"]
+            has(a, pr, "part-paid headline", "Part paid: 900 sats to go")
+            has(a, pr, "overpay guard", "Don't send the full amount again")
+            if not a["card"](): pr.append("pay details stay visible during a top-up")
+            has(a, pr, "headline shows only what is missing", "900 sats to go", pg.inner_text("#amount"))
+            has(a, pr, "received line", "600 sats of 1,500 sats received", pg.inner_text("#sats"))
+            has(a, pr, "countdown is the top-up window", "Time left to send the rest", pg.inner_text("#countdown"))
+            if pg.is_visible("#tab-ln") or pg.is_visible("#tab-bip321"): pr.append("Lightning and the one-code link carry the full amount and must be hidden during a top-up")
+            if pg.get_attribute("#tab-ark", "aria-selected") != "true": pr.append("Ark should be selected for the top-up")
+            if not shown(a).startswith("tark1"): pr.append(f"the Ark address should be shown, saw {shown(a)[:30]}")
+            has(a, pr, "says what to type", "type in 900 sats.", pg.inner_text("#method"))
+            pg.click("#other summary")
+            pg.click("#tab-chain")
+            want = "bitcoin:tb1qfakefakefakefakefake?amount=0.00000900"
+            if copied(a) != want: pr.append(f"on-chain top-up must carry only the missing amount, saw {copied(a)}")
+
+        def c_topup_lapsed(a, pr):
+            has(a, pr, "lapsed headline", "the rest didn't come in time")
+            has(a, pr, "reference", "inv_test")
+            if a["card"](): pr.append("no pay details once the top-up window has closed")
+            if "send" in a["status"]().lower().replace("send exactly", "") and "full amount" in a["status"]().lower(): pr.append("must not ask for more money")
+            has(a, pr, "headline back to the total", "1,500 sats", a["page"].inner_text("#amount") + " " + a["page"].inner_text("#sats"))
+
+        def c_offline_expired(a, pr):
+            a["page"].wait_for_timeout(3500)
+            has(a, pr, "expired while offline", "Don't send money to it")
+            if a["card"](): pr.append("a dead QR must not stay payable when we cannot reach the server")
+
+        def c_offline_expired_recovers(a, pr):
+            a["page"].wait_for_timeout(5000)
+            if not a["card"](): pr.append("the server's answer (still open) must win over the local clock")
+            has(a, pr, "waiting text is back", "Waiting for your payment")
+
+        def c_lost(a, pr):
+            a["page"].wait_for_timeout(1200)
+            has(a, pr, "connection lost", "Can't reach the store's server")
+            has(a, pr, "advice", "before sending anything")
+            if not a["card"](): pr.append("pay details stay while only the connection is lost")
+
+        def c_lost_clears(a, pr):
+            a["page"].wait_for_timeout(5000)
+            has(a, pr, "message clears when the server answers", "Waiting for your payment")
 
         cases = [
             ("pending: waiting message, pay details shown", invoice(), [{"status": "pending", "onchain_confirmations": None}], c_pending),
@@ -223,6 +281,20 @@ def main():
             ("a shop pricing in dollars does not repeat dollars", invoice(usd_per_btc=40000.0), [{"status": "pending"}], c_usd_shop_in_dollars),
             ("a euro shop still gets the dollar figure", invoice(fiat_currency="EUR", fiat_amount="1.20", amount_sats=1500, usd_per_btc=88000.0), [{"status": "pending"}], c_usd_euro_shop),
             ("no price known: no dollars, nothing broken", invoice(fiat_currency=None, fiat_amount=None, usd_per_btc=None), [{"status": "pending"}], c_usd_unknown),
+        ]
+        cases += [
+            ("underpaid with an open top-up window: part paid, amount missing, overpay guard, only rails that take a top-up",
+             invoice(**TOPUP_INV), [TOPUP], c_topup),
+            ("underpaid after the window closed: honest message with a reference, no pay details",
+             invoice(**TOPUP_INV), [dict(TOPUP, topup_window_open=False)], c_topup_lapsed),
+            ("offline past expiry: the QR is hidden and the page says not to pay",
+             invoice(expires_at_unix=int(time.time()) - 20), ["abort"], c_offline_expired),
+            ("offline past expiry, then the server says still open: the server wins",
+             invoice(expires_at_unix=int(time.time()) - 20), ["abort", "abort", "abort", "abort", {"status": "pending"}], c_offline_expired_recovers),
+            ("two failed polls: says the connection is lost",
+             invoice(), ["abort", "abort", "abort", "abort"], c_lost),
+            ("the lost-connection message clears when the server answers again",
+             invoice(), ["abort", "abort", "abort", {"status": "pending"}], c_lost_clears),
         ]
         for name, j, st, chk in cases:
             ok &= run_case(pw, name, j, st, chk)

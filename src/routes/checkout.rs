@@ -91,10 +91,29 @@ pub async fn status(
     } else {
         None
     };
+    // Part-paid invoices: how much has arrived, how much is still missing and
+    // whether a top-up is still accepted, so the page can say so honestly.
+    // Additive: older pages ignore these fields.
+    let underpaid = inv.status == crate::models::InvoiceStatus::Underpaid;
+    let topup_closes_at = if underpaid {
+        let inv_for_window = inv.clone();
+        app.db
+            .call(move |c| invoice::topup_closes_at(c, &inv_for_window))
+            .await?
+    } else {
+        None
+    };
+    let now = crate::util::now_unix();
     Ok(Json(serde_json::json!({
         "status": inv.status.as_str(),
         "onchain_confirmations": seen_depth,
         "onchain_confirmations_required": app.config.onchain_min_confirmations,
+        "amount_sats": inv.amount_sats,
+        "received_sats": inv.paid_sats,
+        "remaining_sats": underpaid.then(|| (inv.amount_sats - inv.paid_sats).max(0)),
+        "topup_window_open": underpaid.then(|| topup_closes_at.is_some_and(|t| now <= t)),
+        "topup_closes_at_unix": topup_closes_at,
+        "expires_at_unix": inv.expires_at,
     })))
 }
 

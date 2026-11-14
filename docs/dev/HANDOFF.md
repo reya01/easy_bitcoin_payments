@@ -51,14 +51,14 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
 
 1. [README.md](../../README.md) — what this is, quickstart, API, config.
 2. [docs/dev/PHASE1_PLAN.md](PHASE1_PLAN.md) — Phase 1 tasks and close-out status.
-3. [docs/dev/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions/log.
+3. [docs/dev/archive/PHASE0_SPIKE_PLAN.md](archive/PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions/log.
 4. [docs/START_HERE.md](../START_HERE.md) — the beginner install.
 5. [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md) — open issues and debug procedures.
 6. [docs/START_HERE.md](../START_HERE.md) — beginner AWS + iPhone walkthrough.
 7. [CONTRIBUTING.md](../../CONTRIBUTING.md) — build, test, contribution rules.
 8. [ebp.example.toml](../../ebp.example.toml) — every config key.
 9. [RC_CHECKLIST.md](RC_CHECKLIST.md) — what CI proves, what a person must still do, how to cut a release candidate.
-10. [BETA_PLAN.md](BETA_PLAN.md) — history of the first hardening pass (not a to-do list).
+10. [BETA_PLAN.md](archive/BETA_PLAN.md) — history of the first hardening pass (not a to-do list).
 11. [SECURITY.md](../../SECURITY.md) and [SILENT_PAYMENTS.md](../SILENT_PAYMENTS.md) — reporting, and why payout cannot use silent payment addresses.
 
 ## Architecture decisions and WHY
@@ -152,7 +152,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
 
 ## Phase plan
 
-- **Phase 0:** [docs/dev/PHASE0_SPIKE_PLAN.md](PHASE0_SPIKE_PLAN.md) — Bark/barkd
+- **Phase 0:** [docs/dev/archive/PHASE0_SPIKE_PLAN.md](archive/PHASE0_SPIKE_PLAN.md) — Bark/barkd
   spike questions, commands, and observed outputs.
 - **Phase 1:** [docs/dev/PHASE1_PLAN.md](PHASE1_PLAN.md) — barkd integration,
   watcher, expiry queue, settlement engine, setup wizard, live shape pinning.

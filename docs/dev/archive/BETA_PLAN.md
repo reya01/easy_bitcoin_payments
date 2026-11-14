@@ -3,8 +3,8 @@
 **Historical record, not a to-do list.** This is the ledger of the first
 hardening pass (the `beta-hardening` branch, PR #1, which is merged). It is kept
 so people can see what each fix was for. For what is open now, read
-[KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and [RC_CHECKLIST.md](RC_CHECKLIST.md). For
-how the project is put together, read [HANDOFF.md](HANDOFF.md).
+[KNOWN_ISSUES.md](../../KNOWN_ISSUES.md) and [RC_CHECKLIST.md](../RC_CHECKLIST.md). For
+how the project is put together, read [HANDOFF.md](../HANDOFF.md).
 
 The pass was written in a sandbox with no crates.io access, so CI was the
 compiler. Table rows below describe the code as it was when each row was
@@ -41,5 +41,5 @@ are in `CHANGELOG.md`.
 | Webhook secrets stored in plaintext | Done: encrypted at rest (`src/secrets.rs`). |
 | Setup token mandatory | Until setup is finished, the server generates a setup code at each start when none is configured (`src/main.rs`), and the wizard asks for it. |
 | Compose published port 8080 on all interfaces; no automatic TLS | Compose now binds to loopback by default; `./scripts/start.sh --https` (or `--domain`) adds an automatic padlock address. |
-| Live signet on-chain receive drill, then consider turning the rail on | **Still open.** The rail stays off by default. See [SIGNET_DRILL.md](SIGNET_DRILL.md). |
-| Human gates: UX review, release tag, CHANGELOG sign-off, WooCommerce scope | **Still open.** See [RC_CHECKLIST.md](RC_CHECKLIST.md). |
+| Live signet on-chain receive drill, then consider turning the rail on | **Still open.** The rail stays off by default. See [SIGNET_DRILL.md](../SIGNET_DRILL.md). |
+| Human gates: UX review, release tag, CHANGELOG sign-off, WooCommerce scope | **Still open.** See [RC_CHECKLIST.md](../RC_CHECKLIST.md). |

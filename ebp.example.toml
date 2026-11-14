@@ -104,7 +104,7 @@ trust_proxy_headers = false
 # Offer the on-chain rail at checkout. OFF by default in the beta: barkd's
 # on-chain receive entry in /wallet/history is not yet verified by a live
 # drill. Turn on (or EBP_ONCHAIN_RAIL_ENABLED=true) after running the signet
-# drill in docs/dev/BETA_PLAN.md. Off = no on-chain tab / URI path / address.
+# drill in docs/dev/archive/BETA_PLAN.md. Off = no on-chain tab / URI path / address.
 onchain_rail_enabled = false
 # Blocks an on-chain payment needs before it counts as paid. Minimum 1: an
 # unconfirmed payment can be replaced (RBF) by the sender, so it never counts.

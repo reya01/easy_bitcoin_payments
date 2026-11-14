@@ -103,8 +103,8 @@ scripts/install.sh              # latest
 ```
 
 "Latest" means the newest *full* release. GitHub does not count release candidates
-such as `0.2.0-rc1`, so while only candidates exist give the exact version:
-`scripts/install.sh 0.2.0-rc1`. The installer detects the architecture and verifies
+such as `0.2.0-rc2`, so while only candidates exist give the exact version:
+`scripts/install.sh 0.2.0-rc2`. The installer detects the architecture and verifies
 the tarball against `SHA256SUMS`. That file is itself signed (sigstore, keyless); to
 check the signature too (optional, advanced; needs [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 

@@ -12,7 +12,7 @@ packages:
   - docker-compose-v2
 runcmd:
   # This installs the latest tested version ("main"). Leave it as it is
-  # unless we tell you to use a specific release (for example v0.2.0-rc1);
+  # unless we tell you to use a specific release (for example v0.2.0-rc2);
   # then change "main" to that name.
   - [ sh, -c, "git clone --depth 1 --branch main https://github.com/reya01/easy_bitcoin_payments.git /opt/ebp" ]
   - [ sh, -c, "/opt/ebp/scripts/vps-setup.sh > /var/log/ebp-vps-setup.log 2>&1" ]

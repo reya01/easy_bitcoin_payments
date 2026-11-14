@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Fixed: the emergency withdrawal's real-money lock now follows the wallet, not only the server's label.** It is locked when the server is in real-money mode *or* the wallet's Ark server reports real Bitcoin, and before it starts or sends the leftover it refuses if the wallet's network cannot be read. Before, a real-money wallet on a server labelled play money (possible when a wallet made by hand was adopted) would have unlocked it.
+- **Fixed: the setup page no longer adopts an existing wallet that is on the other network.** If a wallet is already there, its network is read and must match the network chosen; otherwise setup stops with a clear message instead of labelling a real-money wallet as play money (or the reverse) for good.
+
 ## 0.2.0-rc1 — release candidate: play money by default, real money experimental (13 November 2026)
 
 - **Choose signet or mainnet on the setup page.** The Create your wallet step has a Network box: Signet (play money) is the default, Mainnet (real bitcoin, experimental) is the other choice. Mainnet shows a real-money warning and needs a tick-box; the page says the choice is permanent and switching needs a new server. The choice is saved with the wallet and always wins over `EBP_MODE` (which now only sets the page's default); the server restarts once at the end of setup to apply it. A backup from a server on the other network is refused when restoring. No command line needed.

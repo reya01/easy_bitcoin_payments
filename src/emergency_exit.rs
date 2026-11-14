@@ -19,9 +19,16 @@ use serde_json::Value as Json;
 /// PR G step 11). Flip to `true` in its own reviewed change after the drill.
 pub const ENABLED_ON_MAINNET: bool = false;
 
-/// Why the option is switched off on this server, if it is.
-pub fn not_enabled_reason(mode: &str) -> Option<&'static str> {
-    (mode == "live" && !ENABLED_ON_MAINNET).then_some(
+/// Why the option is switched off on this server, if it is. Locked when the
+/// server is in real-money mode OR the wallet's Ark server is on real
+/// Bitcoin (`network` from ark-info): the two can disagree when a wallet
+/// made by hand was adopted by the wizard, and the lock must follow the coins,
+/// not the label. An unreadable network only leaves the mode to decide.
+pub fn not_enabled_reason(mode: &str, wallet_network: Option<&str>) -> Option<&'static str> {
+    let wallet_real = wallet_network
+        .map(crate::wallet::barkd::is_mainnet_network)
+        .unwrap_or(false);
+    ((mode == "live" || wallet_real) && !ENABLED_ON_MAINNET).then_some(
         "The emergency withdrawal is not switched on for real money yet: it is being tested with play money first. Until then, keep only small amounts on this server.",
     )
 }
@@ -275,8 +282,21 @@ mod tests {
 
     #[test]
     fn real_money_waits_for_the_signet_drill() {
-        assert!(not_enabled_reason("test").is_none());
-        assert_eq!(not_enabled_reason("live").is_some(), !ENABLED_ON_MAINNET);
+        assert!(not_enabled_reason("test", None).is_none());
+        assert!(not_enabled_reason("test", Some("signet")).is_none());
+        assert_eq!(
+            not_enabled_reason("live", None).is_some(),
+            !ENABLED_ON_MAINNET
+        );
+        assert_eq!(
+            not_enabled_reason("live", Some("signet")).is_some(),
+            !ENABLED_ON_MAINNET
+        );
+        // A real-money wallet under a play-money label is still real money.
+        assert_eq!(
+            not_enabled_reason("test", Some("bitcoin")).is_some(),
+            !ENABLED_ON_MAINNET
+        );
     }
 
     #[test]

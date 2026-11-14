@@ -23,6 +23,19 @@ fn client(state: &AppState) -> Result<BarkdClient, AppError> {
     BarkdClient::from_app_config(&state.config).map_err(AppError::from)
 }
 
+/// The real-money lock, judged by the mode and by the wallet's own network.
+/// With `strict` (before anything moves money) an unreadable network also
+/// refuses: the lock must not open because a request failed.
+async fn switched_off(state: &AppState, c: &BarkdClient, strict: bool) -> Option<&'static str> {
+    let net = c.ark_network().await.ok().flatten();
+    if strict && net.is_none() {
+        return Some(
+            "Could not confirm which network the wallet is on right now; try again in a minute.",
+        );
+    }
+    ee::not_enabled_reason(&state.config.mode, net.as_deref())
+}
+
 fn audit(conn: &rusqlite::Connection, action: &str, detail: &str) {
     if let Ok(Some(store)) = crate::store::first(conn) {
         let _ = crate::audit::record(conn, &store.id, action, Some(detail));
@@ -124,7 +137,7 @@ pub async fn status(
             .collect();
         ee::start_deadline(&expiries, delta)
     };
-    let refusal = match (ee::not_enabled_reason(&state.config.mode), ark_sats) {
+    let refusal = match (switched_off(&state, &c, false).await, ark_sats) {
         (Some(off), _) => Some(off.to_string()),
         (None, Some(a)) => ee::refusal(a, fee.as_ref()),
         (None, None) => {
@@ -223,7 +236,9 @@ pub async fn start(
     Json(req): Json<ExitRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
-    if let Some(off) = ee::not_enabled_reason(&state.config.mode) {
+    // Fast refusal by mode; the wallet's own network is checked again after
+    // sign-in, before the wallet is asked to move anything.
+    if let Some(off) = ee::not_enabled_reason(&state.config.mode, None) {
         return Err(AppError::BadRequest(off.into()));
     }
     if !req.understood {
@@ -234,6 +249,10 @@ pub async fn start(
     let payout = onchain_payout(&state).await;
     let destination = destination_from(&req, payout, &state.config.mode)?;
     authorize(&state, &headers, req.admin_password, req.code).await?;
+    let c = client(&state)?;
+    if let Some(off) = switched_off(&state, &c, true).await {
+        return Err(AppError::BadRequest(off.into()));
+    }
     let already = state
         .db
         .call(|c| crate::settings::get(c, ee::EXIT_STARTED_AT_KEY))
@@ -244,7 +263,6 @@ pub async fn start(
         ));
     }
 
-    let c = client(&state)?;
     let ark_sats = c.balances().await?.offchain_sats;
     let fee = c
         .exit_fee(Some(&destination))
@@ -405,7 +423,9 @@ pub async fn leftover(
     Json(req): Json<ExitRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
-    if let Some(off) = ee::not_enabled_reason(&state.config.mode) {
+    // Fast refusal by mode; the wallet's own network is checked again after
+    // sign-in, before the wallet is asked to move anything.
+    if let Some(off) = ee::not_enabled_reason(&state.config.mode, None) {
         return Err(AppError::BadRequest(off.into()));
     }
     let saved = state
@@ -415,6 +435,9 @@ pub async fn leftover(
     let (destination, _typed_now) = settled_destination(&req, saved, &state.config.mode)?;
     authorize(&state, &headers, req.admin_password, req.code).await?;
     let c = client(&state)?;
+    if let Some(off) = switched_off(&state, &c, true).await {
+        return Err(AppError::BadRequest(off.into()));
+    }
     let live = ee::parse_live(&c.exits_live().await?);
     if live.iter().any(|e| e.state != "claim-in-progress") {
         return Err(AppError::BadRequest(

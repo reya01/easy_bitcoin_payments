@@ -17,6 +17,8 @@ do not need a terminal.
 to be chosen before setup, so read [Real money (experimental)](#real-money-experimental)
 first if you want it.
 
+> **Browsers.** We only test with Google Chrome and Brave, with and without the Mullvad and Obscura VPNs. We do not plan to support other browsers, so please do not open issues about them.
+
 **You need**
 
 - A DigitalOcean account with a payment method (the server costs about $12 a month).

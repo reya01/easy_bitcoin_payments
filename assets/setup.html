@@ -141,10 +141,10 @@
       <input type="text" id="code" placeholder="ABCD-EFGH-JKLM" autocomplete="off" autocapitalize="characters" spellcheck="false">
       <button class="primary" id="btn-code" type="button">Continue</button>
     </div>
-    <div class="error hidden" id="code-error"></div>
+    <div class="error hidden" id="code-error" role="alert"></div>
   </section>
 
-  <section id="step-wallet">
+  <section id="step-wallet" class="hidden">
     <h1>Create your wallet</h1>
     <p class="sub">This server holds a small "till" wallet — like cash in a register — that receives payments and empties into your own wallet automatically. It runs as its own small program (called barkd) next to this server.</p>
     <div class="card">
@@ -165,17 +165,27 @@
       <button class="primary" id="btn-wallet" type="button">Create the wallet</button>
       <p class="note">Moving to a new server? <button class="link" id="btn-go-restore" type="button">Restore the wallet I already have, from my 12 words</button></p>
     </div>
-    <div class="error hidden" id="wallet-error"></div>
+    <div class="error hidden" id="wallet-error" role="alert"></div>
   </section>
 
   <section id="step-restore" class="hidden">
     <h1>Restore your wallet</h1>
     <p class="sub">Type the 12 recovery words you wrote down when you first set up your server. The wallet and the money in it come back from these words. Type them only here, nowhere else.</p>
     <div class="card">
+      <fieldset class="check" id="restore-kind" style="border:0;padding:0;margin:0 0 6px;display:block">
+        <legend style="font-weight:600;padding:0">Which kind of money did your old server use?</legend>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0"><input type="radio" name="restore-kind" id="restore-kind-signet" value="signet"> <span>Play money: it was a test server</span></label>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0"><input type="radio" name="restore-kind" id="restore-kind-mainnet" value="mainnet"> <span>Real money</span></label>
+      </fieldset>
       <p class="note" id="restore-net"></p>
+      <div class="check hidden" id="restore-mainnet-box">
+        <input type="checkbox" id="restore-mainnet-ok">
+        <label for="restore-mainnet-ok">I understand: real bitcoin, and this server stays on mainnet for good (switching needs a new server).</label>
+      </div>
       <label for="restore-words">Your 12 recovery words, in order, separated by spaces</label>
-      <textarea id="restore-words" rows="3" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="word1 word2 word3 …"></textarea>
-      <p class="note">The words are sent to your own server only, used once to rebuild the wallet, and never stored or logged. Coins can take a round or two (a few minutes on the practice network) to appear after a restore.</p>
+      <textarea id="restore-words" rows="3" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="word1 word2 word3 …" aria-describedby="restore-count"></textarea>
+      <p class="note" id="restore-count" aria-live="polite">0 of 12 words</p>
+      <p class="note">The words are sent to your own server only, used once to rebuild the wallet, and never stored or logged. Coins can take a round or two (a few minutes on play money, up to an hour on real money) to appear after a restore.</p>
       <div class="check">
         <input type="checkbox" id="restore-paper">
         <label for="restore-paper">My paper copy of these words still exists, in a safe place. It is my real backup.</label>
@@ -183,12 +193,13 @@
       <button class="primary" id="btn-restore" type="button" disabled>Restore my wallet</button>
       <button class="small" id="btn-restore-back" type="button">Back</button>
     </div>
-    <div class="error hidden" id="restore-error"></div>
+    <div class="error hidden" id="restore-error" role="alert"></div>
   </section>
 
   <section id="step-restorefile" class="hidden">
     <h1>Bring back your orders and settings</h1>
     <p class="sub">Your wallet is restored. If you also have the backup file you downloaded from your old server (it ends in <code>.ebpbackup</code>), pick it here to bring back your order history, your payout address, your admin password and your shop connection.</p>
+    <p class="note"><strong>Wallet restored.</strong> Your balance can show 0 for a while: coins take a round or two to appear (a few minutes on play money, up to an hour on real money). If it stays at 0 and your old server used the other kind of money, your coins are safe. Your money lives in your 12 words, not in this server. A server stays on the kind of money it was made for, so make a new server, choose the other kind, and restore the same 12 words there.</p>
     <div class="card">
       <label for="rf-file">Backup file</label>
       <input type="file" id="rf-file">
@@ -198,7 +209,7 @@
       <p class="note hidden" id="rf-working"></p>
       <button class="link" id="btn-rf-skip" type="button">I don't have a backup file &mdash; set up a new store instead</button>
     </div>
-    <div class="error hidden" id="rf-error"></div>
+    <div class="error hidden" id="rf-error" role="alert"></div>
   </section>
 
   <section id="step-backup" class="hidden">
@@ -214,7 +225,12 @@
       <p class="note hidden" id="reveal-bar"><span id="reveal-left"></span> <button class="small" id="btn-hide" type="button">Hide now</button></p>
       <p class="note hidden" id="words-manual"></p>
       <button class="primary hidden" id="btn-show-words" type="button" disabled>Show my recovery words</button>
-      <p class="note hidden" id="words-ceremony-note">Tap &ldquo;Show my recovery words&rdquo; to read the words straight from barkd&rsquo;s one-time <code>--expose-mnemonic</code> ceremony. EBP shows them once and never stores or logs them. After you confirm the backup, the command shown will restart barkd WITHOUT the flag.</p>
+      <div class="note hidden" id="words-ceremony-note">
+        <p style="margin:0">Tap &ldquo;Show my recovery words&rdquo; to see them. We show them once, then they&rsquo;re gone for good, even from us. Write them on paper and keep them somewhere safe: they are the only copy of your money.</p>
+        <details><summary>For your technical friend</summary>
+          <p>The words are read once from barkd&rsquo;s one-time <code>--expose-mnemonic</code> mode. After you confirm your backup, EBP restarts barkd without it. EBP never stores or logs the words.</p>
+        </details>
+      </div>
       <div class="check">
         <input type="checkbox" id="backup-check">
         <label for="backup-check">I wrote the words down on paper, twice, and stored the two copies in two separate safe places.</label>
@@ -227,7 +243,7 @@
         <button id="btn-quiz-back" type="button">Show the words again</button>
       </div>
     </div>
-    <div class="error hidden" id="backup-error"></div>
+    <div class="error hidden" id="backup-error" role="alert"></div>
   </section>
 
   <section id="step-token" class="hidden">
@@ -240,7 +256,7 @@
       <button class="primary" id="btn-token" type="button">Verify and save</button>
       <p class="note hidden" id="token-note"></p>
     </div>
-    <div class="error hidden" id="token-error"></div>
+    <div class="error hidden" id="token-error" role="alert"></div>
   </section>
 
   <section id="step-store" class="hidden">
@@ -275,17 +291,20 @@
       <p class="note">Payments land in a small "till" wallet on this server and are emptied to this address, which should belong to a wallet <strong>you</strong> control. You can add or change it later in Settings. Changing it later takes a day and needs your admin password, for safety.</p>
       <button class="primary" id="btn-store" type="button">Create the store</button>
       <div class="hidden" id="store-secrets">
-        <p class="note">API key — shown once, save it in a password manager:</p>
+        <p class="note"><strong>Shown once.</strong> Copy each of these into your password manager now. If you leave this page, they are gone for good.</p>
+        <p class="note">API key:</p>
         <div class="secret" id="api-key"></div>
+        <button class="small" type="button" data-copy="api-key">Copy API key</button>
         <div class="hidden" id="webhook-secret-box">
-          <p class="note">Webhook signing secret — shown once:</p>
+          <p class="note">Webhook signing secret:</p>
           <div class="secret" id="webhook-secret"></div>
+          <button class="small" type="button" data-copy="webhook-secret">Copy signing secret</button>
         </div>
         <p class="note hidden" id="webhook-secret-later">There is no signing secret yet. It is made later, when you connect your shop: in the admin page, open the <strong>Connect</strong> tab and follow the numbered steps.</p>
       </div>
       <button class="primary hidden" id="btn-done" type="button">Continue</button>
     </div>
-    <div class="error hidden" id="store-error"></div>
+    <div class="error hidden" id="store-error" role="alert"></div>
   </section>
 
   <section id="step-done" class="hidden">
@@ -484,7 +503,11 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
         if (res.status === 401 && data.error === "setup_token_required") {
           // Wrong or missing code: go back to the code screen.
           setupToken = "";
-          if (lastStatus) { show("code"); }
+          if (lastStatus) {
+            show("code");
+            // The code changes every time the server restarts; say so instead of just bouncing the page.
+            fail(els.codeError, "Your setup code is no longer valid (it changes whenever the server restarts). That's OK, your progress is saved. Enter the new code shown in your payment server's Console.");
+          }
         }
         if (!res.ok) {
           throw new Error(errorText(data) || (res.status === 429 ? "Too many tries. Wait a minute, then try again." : res.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + res.status + ")."));
@@ -560,7 +583,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       if (!status.managed) els.ceremonyNote.classList.remove("hidden");
       els.wordsManual.textContent = status.managed
         ? "Tap \"Show my recovery words\". They are shown once and never stored. Write them down on paper before you confirm."
-        : "Tap \"Show my recovery words\" to read the words straight from barkd's one-time --expose-mnemonic ceremony — they are shown once, never stored or logged. Write them down before you confirm.";
+        : "Tap \"Show my recovery words\". They are shown once and never stored or logged. Write them down on paper before you confirm.";
       els.wordsManual.classList.remove("hidden");
       return;
     }
@@ -585,6 +608,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   api("GET", "/setup/status")
     .then(resume)
     .catch(function (err) {
+      show("wallet");
       fail(els.walletError, "Could not read the setup status: " + err.message);
     });
 
@@ -631,6 +655,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     clearFail(els.walletError);
     if (mainnetBlocked(els.walletError)) return;
     els.btnWallet.disabled = true;
+    els.btnWallet.textContent = "Creating your wallet\u2026 this can take a minute";
     api("POST", "/setup/wallet", {
       asp_url: els.asp.value.trim(),
       network: els.network.value,
@@ -647,14 +672,14 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
           els.btnShowWords.classList.remove("hidden");
           els.ceremonyNote.classList.remove("hidden");
           els.wordsManual.textContent = result.manual_instructions ||
-            "Tap \"Show my recovery words\" below — it reads the words straight from barkd's one-time --expose-mnemonic ceremony.";
+            "Tap \"Show my recovery words\" below. They are shown once. Write them down on paper before you confirm.";
           els.wordsManual.classList.remove("hidden");
         }
         markStep(1);
         show("backup");
       })
       .catch(function (err) { fail(els.walletError, err.message); })
-      .finally(function () { els.btnWallet.disabled = false; });
+      .finally(function () { els.btnWallet.disabled = false; els.btnWallet.textContent = "Create the wallet"; });
   });
 
   // Restore from the 12 words. The words live only in this box and in one
@@ -664,20 +689,46 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   var btnRestore = document.getElementById("btn-restore");
   var restoreError = document.getElementById("restore-error");
   restorePaper.addEventListener("change", function () { btnRestore.disabled = !this.checked; });
+  // Count the words as they are typed or pasted (spaces and line breaks both separate words).
+  function restoreWordCount() { return restoreWords.value.split(/\s+/).filter(Boolean).length; }
+  function updateRestoreCount() {
+    var n = restoreWordCount(), el = document.getElementById("restore-count");
+    el.textContent = n + " of 12 words";
+    el.style.color = n === 12 ? "var(--ok)" : "";
+  }
+  restoreWords.addEventListener("input", updateRestoreCount);
   document.getElementById("btn-go-restore").addEventListener("click", function () {
     clearFail(els.walletError);
-    document.getElementById("restore-net").textContent = els.network.value === "mainnet"
-      ? "Restoring a REAL-MONEY wallet (mainnet). It must be the network your old server used. To change, press Back."
-      : "Restoring a play-money wallet (signet). If your old server used real money, press Back and choose mainnet.";
+    syncRestoreKind();
     show("restore");
   });
+  // The old server's kind of money is the one choice that cannot be undone, so it is asked in plain words.
+  // It drives the same Network box as the previous screen.
+  function syncRestoreKind() {
+    var main = els.network.value === "mainnet";
+    document.getElementById("restore-kind-signet").checked = !main;
+    document.getElementById("restore-kind-mainnet").checked = main;
+    document.getElementById("restore-mainnet-box").classList.toggle("hidden", !main);
+    document.getElementById("restore-mainnet-ok").checked = mainnetOk.checked;
+    document.getElementById("restore-net").textContent = main
+      ? "Restoring a real-money wallet (mainnet). Not sure? Your old dashboard showed a TEST MODE banner if it was play money."
+      : "Restoring a play-money wallet (signet). Not sure? Your old dashboard showed a TEST MODE banner if it was play money.";
+  }
+  document.querySelectorAll("input[name=restore-kind]").forEach(function (r) {
+    r.addEventListener("change", function () {
+      els.network.value = r.value; networkTouched = true; networkChanged(); syncRestoreKind();
+    });
+  });
+  document.getElementById("restore-mainnet-ok").addEventListener("change", function () { mainnetOk.checked = this.checked; });
   document.getElementById("btn-restore-back").addEventListener("click", function () {
-    restoreWords.value = ""; clearFail(restoreError); show("wallet");
+    restoreWords.value = ""; updateRestoreCount(); clearFail(restoreError); show("wallet");
   });
   btnRestore.addEventListener("click", function () {
     clearFail(restoreError);
     var words = restoreWords.value;
     if (!words.trim()) { fail(restoreError, "Type your recovery words first."); return; }
+    var wc = restoreWordCount();
+    if (wc !== 12) { fail(restoreError, "That's " + wc + " word" + (wc === 1 ? "" : "s") + ". Recovery words are always 12. Check your paper for a missed or extra word."); return; }
     if (mainnetBlocked(restoreError)) return;
     btnRestore.disabled = true;
     btnRestore.textContent = "Restoring… this can take a minute";
@@ -689,7 +740,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       paper_copies_exist: restorePaper.checked
     })
       .then(function () {
-        restoreWords.value = "";
+        restoreWords.value = ""; updateRestoreCount();
         return api("GET", "/setup/status");
       })
       .then(function (s) { resume(s, true); })
@@ -721,14 +772,14 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
           if (s && s.restore_refused) {
             clearInterval(timer);
             rfWorking.classList.add("hidden");
-            fail(rfError, "The server restarted but did not use your backup: " + s.restore_refused + ". Nothing was deleted. To try again, reload this page; you will need the new setup code shown where the server runs.");
+            fail(rfError, "The server restarted but did not use your backup: " + s.restore_refused + ". Nothing was deleted. To try again, reload this page; you will need the new setup code shown in your payment server's Console.");
           } else if (s && s.setup_complete) {
             clearInterval(timer);
             document.getElementById("done-restored").classList.remove("hidden");
             markStep(4); show("done");
           } else if (tries > 100) {
             clearInterval(timer);
-            fail(rfError, "The server is taking longer than expected to restart. Wait a minute, then reload this page.");
+            fail(rfError, "The server is taking longer than expected to restart. Wait a minute, then reload this page. You'll need the new setup code shown in your payment server's Console.");
           }
         })
         .catch(function () { /* still restarting */ });
@@ -930,10 +981,11 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       return;
     }
     els.btnStore.disabled = true;
+    els.btnStore.textContent = "Creating your store\u2026 this can take a minute";
     var checked = payoutVerdictFor === addr ? Promise.resolve(payoutVerdict) : checkPayout();
     checked.then(function (v) {
       if (v && v.verdict === "failed" && !document.getElementById("payout-risk-ok").checked) {
-        els.btnStore.disabled = false;
+        els.btnStore.disabled = false; els.btnStore.textContent = "Create the store";
         fail(els.storeError, "This address failed a check. Fix it, or tick the box under the address to use it anyway.");
         return null;
       }
@@ -957,7 +1009,21 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
         }
       })
       .catch(function (err) { fail(els.storeError, err.message); })
-      .finally(function () { els.btnStore.disabled = false; });
+      .finally(function () { els.btnStore.disabled = false; els.btnStore.textContent = "Create the store"; });
+  });
+
+  // Copy buttons next to one-time secrets (the text is read from the page at click time).
+  document.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest && e.target.closest("[data-copy]");
+    if (!b) return;
+    var src = document.getElementById(b.getAttribute("data-copy"));
+    if (!src || !src.textContent || !navigator.clipboard) return;
+    var label = b.getAttribute("data-label") || b.textContent;
+    b.setAttribute("data-label", label);
+    navigator.clipboard.writeText(src.textContent).then(function () {
+      b.textContent = "Copied";
+      setTimeout(function () { b.textContent = label; }, 1500);
+    }, function () {});
   });
 
   els.btnDone.addEventListener("click", function () {
@@ -977,7 +1043,7 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
       if (typeof hideWords === "function") hideWords();
       if (els.words) { els.words.textContent = ""; els.words.classList.add("hidden"); }
       if (els.wordsManual) { els.wordsManual.textContent = ""; }
-      var rw = document.getElementById("restore-words"); if (rw) { rw.value = ""; }
+      var rw = document.getElementById("restore-words"); if (rw) { rw.value = ""; updateRestoreCount(); }
       var rp = document.getElementById("rf-pw"); if (rp) { rp.value = ""; }
       if (els.apiKey) { els.apiKey.textContent = ""; }
       if (els.webhookSecret) { els.webhookSecret.textContent = ""; }

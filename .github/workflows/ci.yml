@@ -59,6 +59,11 @@ jobs:
       - name: Checkout page states
         run: python3 tests/e2e/checkout_states.py
 
+      # The setup wizard's new behaviours (restore question, word counter, Copy
+      # buttons, loading labels), server mocked.
+      - name: Setup wizard states
+        run: python3 tests/e2e/setup_wizard_states.py
+
       # Mistakes in settings or commands: a plain message, never a crash.
       - name: Startup and command-line mistakes
         run: python3 tests/e2e/startup_errors.py target/release/ebp

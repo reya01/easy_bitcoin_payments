@@ -209,7 +209,7 @@ Add a short "When you'll need the Console" box to `docs/START_HERE.md` listing f
 #### P1-T2 · One canonical test-mode banner `[S]`
 **Where:** all three screens' test-mode strings.
 **Do:** Use this exact string everywhere:
-> TEST MODE: practice money only. Nothing here is real.
+> TEST MODE: play money (signet). Nothing here is real.
 Operator surfaces (setup, dashboard) may append a muted second line `Network: {network}`. Identical words must mean an identical state — this is the one string a merchant must be able to trust blindly.
 **Trace:** DOC-4 · E1 (consistency rule).
 

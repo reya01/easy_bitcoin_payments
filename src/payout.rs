@@ -146,7 +146,8 @@ const SILENT_PAYMENT: &str = "that is a silent payment (BIP-352) address, which 
 const REAL_ADDRESS_ON_TEST_SERVER: &str =
     "this server is in test mode and only works with play-money (signet) coins, \
     but that looks like a real-Bitcoin address. Use a signet address (starts with tb1 or tark1); \
-    for an Ark address, use a wallet set to the play-money Ark server, ark.signet.2nd.dev";
+    for an Ark address you need a play-money Ark wallet: Noah and Arké only work with real money, \
+    so follow \"Test on signet\" in the Bark docs, https://second.tech/docs/getting-started/bark-cli/signet";
 const OLD_TEST_ADDRESS: &str =
     "that is an old-style test-network address, which this server does not use. \
     Use a signet address that starts with tb1 or tark1";
@@ -161,7 +162,7 @@ pub fn ark_server_advice(mode: &str) -> &'static str {
     if mode == "live" {
         "Your payout wallet must be set to Second's Ark server, ark.second.tech. Noah (Android) and Arké (iPhone) both work: open the wallet's settings, choose that server, then copy its Ark address (it starts with ark1) or use a regular Bitcoin address that starts with bc1."
     } else {
-        "This is a play-money server, so your payout wallet must be set to the play-money Ark server, ark.signet.2nd.dev, and its Ark address starts with tark1. A regular signet address (tb1…) also works."
+        "This is a play-money server, so your payout wallet must be a Bark wallet on the play-money Ark server, ark.signet.2nd.dev (its Ark addresses start with tark1). The Noah and Arké phone wallets only work with real money, not on signet: to make a play-money wallet follow \"Test on signet\" in the Bark docs, https://second.tech/docs/getting-started/bark-cli/signet . A regular signet address (tb1\u{2026}) also works."
     }
 }
 
@@ -932,8 +933,19 @@ pub(crate) mod tests {
         );
         // And the reverse names the play-money server.
         let e = check(SAME_SERVER_A, "test").unwrap_err();
-        assert!(e.contains("ark.signet.2nd.dev"), "{e}");
-        assert!(ark_server_advice("test").contains("ark.signet.2nd.dev"));
+        assert!(
+            e.contains("ark.signet.2nd.dev") || e.contains("Test on signet"),
+            "{e}"
+        );
+        assert!(
+            e.contains("https://second.tech/docs/getting-started/bark-cli/signet"),
+            "{e}"
+        );
+        let t = ark_server_advice("test");
+        assert!(t.contains("ark.signet.2nd.dev"));
+        assert!(t.contains("https://second.tech/docs/getting-started/bark-cli/signet"));
+        // Noah and Arké are never offered as a signet wallet.
+        assert!(t.contains("only work with real money"));
     }
 
     #[test]

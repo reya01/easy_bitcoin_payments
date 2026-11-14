@@ -72,6 +72,8 @@ The signing secret is how your shop knows a "payment received" message really
 came from your payment server. You get it by telling the server your shop's
 notification address. Do this in order, with both pages open:
 
+> **Before you save:** open your WooCommerce site's admin in another tab now. The signing secret appears only once on your payment server, and its box disappears when you leave that page.
+
 1. **On your WooCommerce site**, on the plugin's settings page, find **Your shop's
    notification address**. It is a web address under the boxes, for example
    `https://myshop.com/?wc-api=ebp_bitcoin`. Select it and copy it.

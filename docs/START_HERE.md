@@ -32,6 +32,14 @@ first if you want it.
 - Pen and paper (for 12 recovery words) and a password manager, open and ready.
 - About an hour, mostly waiting.
 
+> **When you'll need the Console.** Setup itself needs no terminal. A few things later use your payment server's **Console** (at your hosting company: in DigitalOcean, your Droplet, then **Console**; it is not your WooCommerce site). Each has a copy-paste guide:
+>
+> - You forgot your admin password: [reset it](IF_SOMETHING_LOOKS_WRONG.md#2-you-think-someone-saw-your-recovery-words-or-your-admin-password)
+> - You lost your phone (two-step sign-in) and have no backup codes: [same guide](IF_SOMETHING_LOOKS_WRONG.md#2-you-think-someone-saw-your-recovery-words-or-your-admin-password)
+> - You want to install a software update: [UPGRADING.md](UPGRADING.md)
+> - You want a fixed address (your own domain): [Later](#later)
+> - You want a first real-money test limited to 5,000 sats: [Real money](#real-money-experimental)
+
 ## 1. Copy the setup text
 
 DigitalOcean will ask for a block of setup text. Copy it first.

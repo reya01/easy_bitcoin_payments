@@ -9,6 +9,8 @@ labels: ""
 password, an API key, a signing secret, or your SETUP CODE.** If you are not sure,
 leave it out.
 
+> We only test with Google Chrome and Brave (with and without the Mullvad and Obscura VPNs) and do not plan to support other browsers. Please do not open issues about other browsers.
+
 ## What were you trying to do?
 (For example: "set up on DigitalOcean", "connect my WooCommerce shop", "pay a test order")
 

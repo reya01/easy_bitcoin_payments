@@ -47,6 +47,10 @@ no ability to fix a problem themselves. So:
 
 ## Ground rules
 
+- **Browsers.** The checkout page, setup page and admin page are tested only in Google
+  Chrome and Brave, with and without the Mullvad and Obscura VPNs. Other browsers are not
+  supported and issues about them will be closed; pull requests that break Chrome or Brave
+  are the ones that matter.
 - **Doc precedence.** For current status and operations, `README.md`,
   `docs/dev/HANDOFF.md`, and the close-out block in `docs/dev/PHASE1_PLAN.md` are
   authoritative. `spec.md` is the product intent; when the build supersedes a

@@ -241,21 +241,25 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <p class="msg hidden" id="ex-refusal"></p>
       <div id="ex-deposit" class="hidden">
         <h3>Step 1: put the fee money on the server</h3>
+        <div id="ex-fee-rows"></div>
+        <p class="msg" id="ex-fee-verdict"></p>
         <p class="muted" id="ex-deposit-need"></p>
-        <div class="btns"><button id="ex-get-addr" type="button">Show the deposit address</button></div>
         <div id="ex-addr-box" class="hidden">
-          <div class="secret" id="ex-addr"></div>
-          <div class="btns"><button class="small" type="button" data-copy="ex-addr">Copy</button></div>
+          <p><strong>Send it to this address on the server.</strong> It is a regular Bitcoin (on-chain) address, not an Ark address. Any wallet or exchange can send to it.</p>
+          <div class="secret" id="ex-addr">Getting the address…</div>
+          <div class="btns"><button class="small" type="button" data-copy="ex-addr">Copy</button><button class="small hidden" type="button" id="ex-get-addr">Try again</button></div>
           <div class="qrbox" id="ex-qr"></div>
         </div>
       </div>
       <div id="ex-auth" class="hidden">
         <label for="ex-dest">Your Bitcoin address (on-chain) where the money goes</label><input type="text" id="ex-dest" autocomplete="off" spellcheck="false">
+        <p class="msg muted" id="ex-dest-note">A regular Bitcoin (on-chain) address, not an Ark address.</p>
         <label for="ex-pw">Admin password</label><input type="password" id="ex-pw" autocomplete="current-password">
         <label for="ex-code">Code from your authenticator app</label><input type="text" id="ex-code" inputmode="numeric" autocomplete="off" placeholder="6 digits">
       </div>
       <div id="ex-start-box" class="hidden">
         <h3>Step 2: start</h3>
+        <div id="ex-checks" aria-live="polite"></div>
         <label><input type="checkbox" id="ex-ok"> I understand this is for emergencies, costs network fees and takes at least a day</label>
         <div class="btns"><button id="ex-start" type="button" disabled>Start the emergency withdrawal</button></div>
       </div>
@@ -641,11 +645,13 @@ function loadPhone() {
 }
 
 var pwChanged = false;
+var EBP_MODE = "";
 var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wallet (Ark)", sweep_onchain: "Transfer to your wallet (on-chain)", sweep_refused: "Transfer blocked: payout address problem", renew: "Routine wallet upkeep", consolidate: "Tidy-up", offboard: "Withdrawal" };
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
     var mb = $("mode-banner");
+    EBP_MODE = s.mode || "";
     if (s.mode === "live") { mb.textContent = "REAL MONEY. Experimental: keep amounts small."; mb.classList.remove("hidden"); }
     else if (s.mode === "test") { mb.textContent = "TEST MODE: play money (signet). Nothing here is real."; mb.classList.remove("hidden"); }
     loadVersion();
@@ -1146,11 +1152,73 @@ function loadAudit() {
 }
 
 // ---- Emergency withdrawal (Settings). Folded away; nothing starts on its own.
-var exState = null, exTimer = null;
+var exState = null, exTimer = null, exAddrShown = "", exAddrBusy = false;
+
+// A quick look at the address while typing. It cannot check the ending of an address
+// (the server does that when you press Start, before anything is spent), but it
+// catches the common mistakes at once: an Ark address, a test address on real money
+// (or the other way round), a silent payment address, or something that is not an address.
+function exCheckDest(raw) {
+  var v = (raw || "").trim(), l = v.toLowerCase();
+  var live = EBP_MODE === "live", test = EBP_MODE === "test";
+  var example = live ? " It starts with bc1, 1 or 3." : test ? " On this play-money server it starts with tb1." : "";
+  if (!v) return { ok: false, empty: true, text: "Type the regular Bitcoin (on-chain) address where the money should go." + example };
+  if (/^t?ark1/.test(l)) return { ok: false, text: "That is an Ark address. An emergency withdrawal leaves Ark, so it needs a regular Bitcoin (on-chain) address." + example };
+  if (/^t?sp1/.test(l)) return { ok: false, text: "Silent payment addresses cannot be used here. Use a regular Bitcoin (on-chain) address." + example };
+  if (live && (/^(tb1|bcrt1)/.test(l) || /^[mn2][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(v))) return { ok: false, text: "That is a test-network address, but this server uses real Bitcoin." + example };
+  if (test && (/^bc1/.test(l) || /^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(v))) return { ok: false, text: "That is a real-Bitcoin address, but this server uses play money." + example };
+  var bech = /^(bc1|tb1|bcrt1)[a-z0-9]{8,87}$/.test(l);
+  var legacy = /^[13mn2][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(v);
+  if (!bech && !legacy) return { ok: false, text: "That does not look like a Bitcoin address. Copy it again from your wallet, all of it." + example };
+  return { ok: true, text: "Looks like a regular Bitcoin address. The server checks it fully when you press Start, before anything is spent." };
+}
+function exChecklist() {
+  var s = exState, box = $("ex-checks"); if (!s) return;
+  var d = exCheckDest($("ex-dest").value);
+  var needed = s.deposit_needed_sats;
+  var waiting = s.onchain_pending_sats > 0 && s.fee && (s.onchain_confirmed_sats || 0) + s.onchain_pending_sats >= s.fee.broadcast_sat;
+  var items = [
+    { ok: needed === 0, text: needed === 0 ? "Fee money is on the server and confirmed."
+      : needed == null ? "The fee money needed could not be worked out just now. This page tries again every minute."
+      : waiting ? "Fee money was sent and is waiting for 1 confirmation. This can take a while; nothing else is needed."
+      : "Fee money: send at least " + fmtSats(needed) + " more to the address in Step 1." },
+    { ok: d.ok, text: d.text },
+    { ok: !!$("ex-pw").value, text: $("ex-pw").value ? "Admin password typed." : "Type your admin password." },
+    { ok: !!$("ex-code").value.trim(), text: $("ex-code").value.trim() ? "Code typed." : "Type the code from your authenticator app." },
+    { ok: $("ex-ok").checked, text: $("ex-ok").checked ? "You confirmed you understand." : "Tick the box above the button." }
+  ];
+  var left = items.filter(function (i) { return !i.ok; }).length;
+  clear(box);
+  var head = el("p", left ? "The button stays grey until these are done (" + left + " to go):" : "Everything is ready. Pressing the button starts the withdrawal.", left ? "muted" : "ok");
+  box.appendChild(head);
+  items.forEach(function (i) { box.appendChild(el("div", (i.ok ? "\u2713 " : "\u2717 ") + i.text, i.ok ? "ok" : "warn")); });
+}
 function exReady() {
   var s = exState;
+  var d = exCheckDest($("ex-dest").value);
+  var note = $("ex-dest-note");
+  note.textContent = d.empty ? "A regular Bitcoin (on-chain) address, not an Ark address." : d.text;
+  note.className = "msg " + (d.empty ? "muted" : d.ok ? "ok" : "bad");
   $("ex-start").disabled = !(s && s.allowed && s.two_step_on && s.deposit_needed_sats === 0 && !s.in_progress_since && !(s.live || []).length &&
-    $("ex-ok").checked && $("ex-pw").value && $("ex-code").value.trim() && $("ex-dest").value.trim());
+    $("ex-ok").checked && $("ex-pw").value && $("ex-code").value.trim() && d.ok);
+  exChecklist();
+}
+function exFetchAddr() {
+  if (exAddrBusy) return; exAddrBusy = true;
+  $("ex-get-addr").classList.add("hidden");
+  api("POST", "/admin/exit/deposit-address", {}).then(function (r) {
+    exAddrShown = r.address;
+    $("ex-addr").textContent = r.address;
+    var q = $("ex-qr"); clear(q);
+    try {
+      var img = document.createElement("img"); img.alt = "QR code for the deposit address";
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg("bitcoin:" + r.address));
+      q.appendChild(img);
+    } catch (e) {}
+  }).catch(function (e) {
+    $("ex-addr").textContent = "Could not get the address: " + e.message;
+    $("ex-get-addr").classList.remove("hidden");
+  }).then(function () { exAddrBusy = false; });
 }
 function loadExit() {
   api("POST", "/admin/exit/status", {}).then(function (s) {
@@ -1170,12 +1238,25 @@ function loadExit() {
     var canGo = !running && s.allowed && s.two_step_on;
     $("ex-deposit").classList.toggle("hidden", !canGo);
     if (canGo && s.fee) {
-      $("ex-deposit-need").textContent = s.deposit_needed_sats > 0
-        ? "The fees are paid from the server's own Bitcoin balance, which is normally empty. Send at least " + fmtSats(s.deposit_needed_sats) + " to the address below from any wallet or exchange, then wait for 1 confirmation. This page checks again every minute. (The final step's fee, about " + fmtSats(s.fee.claim_sat) + ", comes out of the money itself.)"
-        : "Enough fee money is on the server and confirmed.";
+      var needed = s.deposit_needed_sats, conf = s.onchain_confirmed_sats || 0, pend = s.onchain_pending_sats || 0;
+      var rows = $("ex-fee-rows"); clear(rows);
+      rows.appendChild(row("Fee money the server needs", fmtSats(s.fee.broadcast_sat)));
+      rows.appendChild(row("On the server now (confirmed)", fmtSats(conf)));
+      if (pend > 0) rows.appendChild(row("Sent, waiting for 1 confirmation", fmtSats(pend)));
+      rows.appendChild(row("Still to send", needed > 0 ? fmtSats(needed) : "nothing"));
+      var v = $("ex-fee-verdict");
+      if (needed === 0) { v.textContent = "\u2713 Enough: the fee money is on the server and confirmed."; v.className = "msg ok"; }
+      else if (conf + pend >= s.fee.broadcast_sat) { v.textContent = "\u2717 Not confirmed yet: the money was sent and is waiting for 1 confirmation. This page checks again every minute."; v.className = "msg warn"; }
+      else { v.textContent = "\u2717 Not enough yet: send at least " + fmtSats(needed) + " more to the address below."; v.className = "msg warn"; }
+      $("ex-deposit-need").textContent = needed > 0
+        ? "The fees are paid from the server's own Bitcoin balance, which is normally empty. Send from any wallet or exchange, then wait for 1 confirmation. (The final step's fee, about " + fmtSats(s.fee.claim_sat) + ", comes out of the money itself.)"
+        : "";
+      $("ex-addr-box").classList.toggle("hidden", !(needed > 0));
+      if (needed > 0 && !exAddrShown) exFetchAddr();
     }
     $("ex-start-box").classList.toggle("hidden", !canGo);
     $("ex-auth").classList.toggle("hidden", !(canGo || running || s.onchain_confirmed_sats > 0));
+    $("ex-dest").placeholder = EBP_MODE === "live" ? "bc1\u2026" : EBP_MODE === "test" ? "tb1\u2026" : "";
     if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
     $("ex-running").classList.toggle("hidden", !running);
     var list = $("ex-list"); clear(list);
@@ -1191,18 +1272,7 @@ $("ex-box").addEventListener("toggle", function () {
   if ($("ex-box").open) { loadExit(); exTimer = setInterval(loadExit, 60000); }
 });
 ["ex-ok", "ex-pw", "ex-code", "ex-dest"].forEach(function (id) { $(id).addEventListener("input", exReady); $(id).addEventListener("change", exReady); });
-$("ex-get-addr").addEventListener("click", function () {
-  api("POST", "/admin/exit/deposit-address", {}).then(function (r) {
-    $("ex-addr").textContent = r.address;
-    var q = $("ex-qr"); clear(q);
-    try {
-      var img = document.createElement("img"); img.alt = "QR code for the deposit address";
-      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg("bitcoin:" + r.address));
-      q.appendChild(img);
-    } catch (e) {}
-    $("ex-addr-box").classList.remove("hidden");
-  }).catch(function (e) { say("ex-msg", e.message, true); });
-});
+$("ex-get-addr").addEventListener("click", exFetchAddr);
 function exAction(path, extra, button) {
   var body = { admin_password: $("ex-pw").value, code: $("ex-code").value.trim(), destination: $("ex-dest").value.trim() };
   for (var k in extra) body[k] = extra[k];

@@ -208,6 +208,89 @@ def main():
             if p.get_attribute("#hook-msg", "role") != "alert": pr.append("problem messages should be announced")
 
         ok &= run_case(pw, "server-problem message links to Known issues and is announced", err_handler, c_docs)
+
+        # ---- Emergency withdrawal: fee money and why Start is grey ----
+        TB = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+        ARK = "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
+
+        def exit_handler(mode="test", confirmed=0, pending=0, needed=894):
+            def h(path, req, calls):
+                if path == "/api/v1/admin/status":
+                    return 200, {"checks": [], "counters": {}, "wallet": {}, "mode": mode, "usd_per_btc": 67000}
+                if path == "/admin/exit/status":
+                    return 200, {"min_exit_sats": 100000, "ark_sats": 500000, "fee": {"broadcast_sat": 894, "claim_sat": 28, "total_sat": 922, "txs_to_broadcast": 3},
+                                 "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": needed, "deadline": 1900000000,
+                                 "asp_connected": True, "two_step_on": True, "allowed": True, "refusal": None, "in_progress_since": None, "live": [],
+                                 "claimable": False, "destination": None}
+                if path == "/admin/exit/deposit-address":
+                    return 200, {"address": TB}
+                return signed_in(path, req, calls)
+            return h
+
+        def open_exit(p):
+            p.click('#tabs button[data-v="set"]')
+            p.evaluate("document.getElementById('ex-box').open = true")
+            p.wait_for_timeout(700)
+
+        def c_short(p, pr, calls):
+            open_exit(p)
+            want(pr, "needs line", p.inner_text("#ex-fee-rows"), "Fee money the server needs")
+            want(pr, "needed amount", p.inner_text("#ex-fee-rows"), "894")
+            want(pr, "what is there now", p.inner_text("#ex-fee-rows"), "On the server now (confirmed)")
+            want(pr, "still to send", p.inner_text("#ex-fee-rows"), "Still to send")
+            want(pr, "verdict says not enough", p.inner_text("#ex-fee-verdict"), "Not enough yet: send at least")
+            want(pr, "address shows without a click", p.inner_text("#ex-addr"), TB)
+            if not p.is_visible("#ex-qr img"): pr.append("the QR code for the deposit address should show")
+            want(pr, "says it is not an Ark address", p.inner_text("#ex-addr-box"), "not an Ark address")
+            if count(calls, "POST", "/admin/exit/deposit-address") != 1: pr.append("the address should be fetched once, not on every refresh")
+            want(pr, "grey explained up front", p.inner_text("#ex-checks"), "grey until these are done (5 to go)")
+            want(pr, "fee money is the first reason", p.inner_text("#ex-checks"), "send at least 894 sats")
+            p.fill("#ex-dest", ARK)
+            want(pr, "Ark address caught as you type", p.inner_text("#ex-dest-note"), "That is an Ark address")
+            want(pr, "and listed as a reason", p.inner_text("#ex-checks"), "That is an Ark address")
+            p.fill("#ex-dest", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
+            want(pr, "real address on play money", p.inner_text("#ex-dest-note"), "real-Bitcoin address, but this server uses play money")
+            p.fill("#ex-dest", "not an address")
+            want(pr, "nonsense caught", p.inner_text("#ex-dest-note"), "does not look like a Bitcoin address")
+            p.fill("#ex-dest", TB)
+            want(pr, "good address accepted", p.inner_text("#ex-dest-note"), "Looks like a regular Bitcoin address")
+            p.fill("#ex-pw", "correct horse battery staple"); p.fill("#ex-code", "123456"); p.check("#ex-ok")
+            if not p.is_disabled("#ex-start"): pr.append("Start must stay grey while the fee money is missing")
+            want(pr, "one reason left, and it is the fee money", p.inner_text("#ex-checks"), "(1 to go)")
+            want(pr, "reason names the amount", p.inner_text("#ex-checks"), "\u2717 Fee money: send at least 894 sats")
+
+        ok &= run_case(pw, "emergency withdrawal: fee money amounts, deposit address, and why Start is grey", exit_handler(), c_short)
+
+        def c_enough(p, pr, calls):
+            open_exit(p)
+            want(pr, "verdict says enough", p.inner_text("#ex-fee-verdict"), "Enough")
+            if p.is_visible("#ex-addr-box"): pr.append("no deposit address is needed once the fee money is there")
+            p.fill("#ex-dest", TB); p.fill("#ex-pw", "correct horse battery staple"); p.fill("#ex-code", "123456")
+            if not p.is_disabled("#ex-start"): pr.append("Start must wait for the tick-box")
+            want(pr, "tick-box is the one reason", p.inner_text("#ex-checks"), "Tick the box above the button")
+            p.check("#ex-ok")
+            if p.is_disabled("#ex-start"): pr.append("Start should be enabled when everything is done")
+            want(pr, "ready message", p.inner_text("#ex-checks"), "Everything is ready")
+
+        ok &= run_case(pw, "emergency withdrawal: enough fee money, Start turns on only when everything is done", exit_handler(confirmed=1200, needed=0), c_enough)
+
+        def c_wait(p, pr, calls):
+            open_exit(p)
+            want(pr, "waiting row", p.inner_text("#ex-fee-rows"), "Sent, waiting for 1 confirmation")
+            want(pr, "verdict says waiting, not missing", p.inner_text("#ex-fee-verdict"), "waiting for 1 confirmation")
+            want(pr, "checklist says waiting", p.inner_text("#ex-checks"), "waiting for 1 confirmation")
+
+        ok &= run_case(pw, "emergency withdrawal: money sent but not confirmed yet says so", exit_handler(confirmed=0, pending=900, needed=894), c_wait)
+
+        def c_live(p, pr, calls):
+            open_exit(p)
+            p.fill("#ex-dest", TB)
+            want(pr, "test address on real money", p.inner_text("#ex-dest-note"), "test-network address, but this server uses real Bitcoin")
+            want(pr, "tells them what to use", p.inner_text("#ex-dest-note"), "bc1")
+            p.fill("#ex-dest", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
+            want(pr, "real address accepted on real money", p.inner_text("#ex-dest-note"), "Looks like a regular Bitcoin address")
+
+        ok &= run_case(pw, "emergency withdrawal: on a real-money page a test address is caught", exit_handler(mode="live"), c_live)
     sys.exit(0 if ok else 1)
 
 

@@ -74,6 +74,33 @@ pub fn parse_fee(v: &Json) -> Option<ExitFee> {
     })
 }
 
+/// True when barkd's fee error means "these coins cannot be priced", not a
+/// passing glitch. Seen live on mainnet (drill F9) for coins received over
+/// Lightning: `Non-Standard VTXO ... exit chain is not relayable: ... below
+/// the dust limit`. Display only; it never lets an exit start.
+pub fn fee_cannot_be_priced(error: &str) -> bool {
+    let e = error.to_lowercase();
+    e.contains("non-standard vtxo")
+        || e.contains("not relayable")
+        || e.contains("below the dust limit")
+}
+
+/// [`refusal`], but when the fee estimate is missing because barkd cannot
+/// price some coins, say that instead of the generic "try again later".
+/// The answer is still a refusal either way.
+pub fn refusal_explained(
+    ark_sats: i64,
+    fee: Option<&ExitFee>,
+    fee_error: Option<&str>,
+) -> Option<String> {
+    if fee.is_none() && fee_error.is_some_and(fee_cannot_be_priced) {
+        return Some(
+            "The wallet cannot work out the fee yet for some of your coins. This happens with coins received over Lightning and may clear once they have been refreshed. An emergency withdrawal stays blocked until it can, so nothing is at risk. Try again later.".into(),
+        );
+    }
+    refusal(ark_sats, fee)
+}
+
 /// Why an exit must not start now, in words for the owner; `None` = allowed.
 /// Checked on the server when the exit is started, with a fresh estimate.
 pub fn refusal(ark_sats: i64, fee: Option<&ExitFee>) -> Option<String> {
@@ -213,6 +240,26 @@ mod tests {
         // No estimate: refused.
         let r = refusal(10_000_000, None).unwrap();
         assert!(r.contains("Could not estimate"), "{r}");
+    }
+
+    #[test]
+    fn unpriceable_coins_get_their_own_message() {
+        let live = "barkd returned HTTP 500: Failed to estimate emergency exit fee: Non-Standard VTXO x: exit chain is not relayable: the VTXO's own output is below the dust limit for its script type";
+        assert!(fee_cannot_be_priced(live));
+        assert!(!fee_cannot_be_priced("connection failed"));
+        let r = refusal_explained(10_000_000, None, Some(live)).unwrap();
+        assert!(r.contains("cannot work out the fee yet"), "{r}");
+        assert!(r.contains("nothing is at risk"), "{r}");
+        // Other failures keep the generic wording; still refused.
+        let r = refusal_explained(10_000_000, None, Some("connection failed")).unwrap();
+        assert!(r.contains("Could not estimate"), "{r}");
+        let r = refusal_explained(10_000_000, None, None).unwrap();
+        assert!(r.contains("Could not estimate"), "{r}");
+        // A good estimate is judged exactly as before.
+        assert_eq!(
+            refusal_explained(200_000, Some(&fee(100_000)), None),
+            refusal(200_000, Some(&fee(100_000)))
+        );
     }
 
     #[test]

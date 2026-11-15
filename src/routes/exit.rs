@@ -113,12 +113,9 @@ pub async fn status(
     let onchain = c.onchain_balance_raw().await.ok();
     let confirmed = onchain.as_ref().and_then(ee::confirmed_onchain_sats);
     let pending = onchain.as_ref().map(ee::pending_onchain_sats).unwrap_or(0);
-    let fee = c
-        .exit_fee(claim_to.as_deref())
-        .await
-        .ok()
-        .as_ref()
-        .and_then(ee::parse_fee);
+    let fee_answer = c.exit_fee(claim_to.as_deref()).await;
+    let fee_error = fee_answer.as_ref().err().map(|e| e.to_string());
+    let fee = fee_answer.ok().as_ref().and_then(ee::parse_fee);
     let connected = c.connected().await.ok().and_then(|x| x.connected);
     let live = c
         .exits_live()
@@ -139,7 +136,7 @@ pub async fn status(
     };
     let refusal = match (switched_off(&state, &c, false).await, ark_sats) {
         (Some(off), _) => Some(off.to_string()),
-        (None, Some(a)) => ee::refusal(a, fee.as_ref()),
+        (None, Some(a)) => ee::refusal_explained(a, fee.as_ref(), fee_error.as_deref()),
         (None, None) => {
             Some("Could not read the balance on the server right now; try again later.".into())
         }
@@ -264,13 +261,10 @@ pub async fn start(
     }
 
     let ark_sats = c.balances().await?.offchain_sats;
-    let fee = c
-        .exit_fee(Some(&destination))
-        .await
-        .ok()
-        .as_ref()
-        .and_then(ee::parse_fee);
-    if let Some(why) = ee::refusal(ark_sats, fee.as_ref()) {
+    let fee_answer = c.exit_fee(Some(&destination)).await;
+    let fee_error = fee_answer.as_ref().err().map(|e| e.to_string());
+    let fee = fee_answer.ok().as_ref().and_then(ee::parse_fee);
+    if let Some(why) = ee::refusal_explained(ark_sats, fee.as_ref(), fee_error.as_deref()) {
         return Err(AppError::BadRequest(why));
     }
     let Some(fee) = fee else {

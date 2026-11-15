@@ -65,8 +65,8 @@ Make a test order on **your WooCommerce site** priced at about 1,500 sats
 - [ ] **Address check.** At the payout step choose **Ark wallet** and paste
       `ark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqqnaa07n`
       (a real-money address). A red **Danger** box appears that reads as full
-      sentences (it starts "This server is in test mode…" and ends "…Test on signet
-      in the Bark docs." before "Bitcoin payments cannot be undone"). It still says
+      sentences (it starts "This server is in test mode…" and ends with the Bark docs
+      link and a full stop, before "Bitcoin payments cannot be undone"). It still says
       you can go on if you are only testing with play money. Do not press Create
       with it unless you want to see what ticking the box does on play money.
 - [ ] **Recovery-word note** reads in plain words; the technical detail is under

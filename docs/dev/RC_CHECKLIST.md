@@ -74,7 +74,10 @@ open box.
 2. Move the `Unreleased` section of `CHANGELOG.md` under a `0.1.0-rc1` heading,
    and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
-   so Home and the Plugins page show which build is running.
+   so Home and the Plugins page show which build is running. The release
+   workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
+   before building if any of these disagree with the tag (you can run it
+   yourself first).
 3. Tag `v0.1.0-rc1` on `main` and push it. The `-rc1` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.

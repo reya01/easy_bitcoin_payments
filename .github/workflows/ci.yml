@@ -68,6 +68,12 @@ jobs:
       - name: Admin page states
         run: python3 tests/e2e/dashboard_states.py
 
+      # Real-money (mainnet) wording and guards on the setup and admin pages,
+      # server mocked: the tick-box, the REAL MONEY banners, address hints and the
+      # danger box, the emergency withdrawal being off.
+      - name: Mainnet screens
+        run: python3 tests/e2e/mainnet_screens.py
+
       # Mistakes in settings or commands: a plain message, never a crash.
       - name: Startup and command-line mistakes
         run: python3 tests/e2e/startup_errors.py target/release/ebp

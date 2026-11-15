@@ -62,6 +62,13 @@ Make a test order on **your WooCommerce site** priced at about 1,500 sats
       Console: `cd /opt/ebp && docker compose restart`), then press a setup
       button. The page should go back to the code screen and say your code is no
       longer valid, your progress is saved, and where to find the new one.
+- [ ] **Address check.** At the payout step choose **Ark wallet** and paste
+      `ark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqqnaa07n`
+      (a real-money address). A red **Danger** box appears that reads as full
+      sentences (it starts "This server is in test mode…" and ends with the Bark docs
+      link and a full stop, before "Bitcoin payments cannot be undone"). It still says
+      you can go on if you are only testing with play money. Do not press Create
+      with it unless you want to see what ticking the box does on play money.
 - [ ] **Recovery-word note** reads in plain words; the technical detail is under
       **For your technical friend**.
 

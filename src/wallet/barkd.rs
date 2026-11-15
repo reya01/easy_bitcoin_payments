@@ -2177,12 +2177,10 @@ mod tests {
                 r#"{"message": "Insufficient money available. Needed 0.00000900 BTC but 0 BTC is available"}"#.to_string(),
             )
         });
-        let err = client(&base)
-            .balances()
-            .await
-            .err()
-            .expect("500 is an error")
-            .to_string();
+        let err = match client(&base).balances().await {
+            Ok(_) => panic!("a 500 must be an error"),
+            Err(e) => e.to_string(),
+        };
         assert!(err.contains("Needed 900 sats but 0 sats"), "{err}");
         assert!(!err.contains("BTC"), "{err}");
     }

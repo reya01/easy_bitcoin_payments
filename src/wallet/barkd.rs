@@ -92,22 +92,23 @@ const PATH_ONCHAIN_ADDRESS_NEXT: &str = "/onchain/addresses/next";
 const PATH_BALANCE: &str = "/wallet/balance";
 /// Confirmed on-chain balance — the emergency-exit reserve. GET.
 const PATH_ONCHAIN_BALANCE: &str = "/onchain/balance";
-// Pinned OpenAPI: GET /fees/onchain -> {fast,regular,slow}_sat_per_vb.
+/// On-chain fee rates ({fast,regular,slow}_sat_per_vb). GET.
 const PATH_FEES_ONCHAIN: &str = "/fees/onchain";
 /// VTXO list with per-VTXO expiry. GET. VERIFIED (same pass) empty
 /// shape: a bare JSON array `[]` — no wrapper object.
 const PATH_VTXOS: &str = "/wallet/vtxos";
 /// Cursored wallet history (the watcher's payment source). GET.
 const PATH_HISTORY: &str = "/history";
-/// Chain tip (height + timestamp) for expiry-height conversion. GET.
+/// On-chain transactions of the wallet. GET.
 const PATH_ONCHAIN_TRANSACTIONS: &str = "/onchain/transactions";
+/// Chain tip (height + timestamp) for expiry-height conversion. GET.
 const PATH_BITCOIN_TIP: &str = "/bitcoin/tip";
 /// Ark send (settlement sweep to a same-ASP destination). POST.
 const PATH_ARK_SEND: &str = "/wallet/send";
 /// Cooperative on-chain withdrawal of the whole Ark balance. POST.
 const PATH_OFFBOARD_ALL: &str = "/wallet/offboard/all";
 /// Offboard a chosen set of VTXOs (pinned OpenAPI OffboardVtxosRequest:
-/// required `vtxos`, optional `address`).
+/// required `vtxos`, optional `address`). POST.
 const PATH_OFFBOARD_VTXOS: &str = "/wallet/offboard/vtxos";
 /// Refresh every spendable VTXO in the next round. POST.
 const PATH_REFRESH_ALL: &str = "/wallet/refresh/all";
@@ -137,7 +138,7 @@ const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// is `{"connected": true}` — a bare boolean under `connected`, no
 /// wrapper object.
 const PATH_CONNECTED: &str = "/wallet/connected";
-/// The Ark server's terms (coin lifetime, refresh pricing). Read-only.
+/// The Ark server's terms (coin lifetime, refresh pricing). GET.
 const PATH_ARK_INFO: &str = "/wallet/ark-info";
 /// The wallet's recovery words. GET. VERIFIED (same pass): answers
 /// `{"mnemonic": "<12 words, space-separated>"}` — a single string

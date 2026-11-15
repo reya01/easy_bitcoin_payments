@@ -16,6 +16,26 @@ transfer or renewal that fails twice; any amount that differs between the server
 and your phone wallet; any warning about coins near expiry; any order marked paid
 without the money arriving.
 
+## If something goes wrong during the test
+
+Your money is in the wallet on the payment server, and **you hold its 12
+recovery words**, so it can always be restored (see
+[RESTORE_DRILL.md](../RESTORE_DRILL.md)). Do not retry anything in a hurry. Match
+what you see to a line below, write it down, then go to
+[IF_SOMETHING_LOOKS_WRONG.md](../IF_SOMETHING_LOOKS_WRONG.md).
+
+| What you see | What it means | What to do |
+|---|---|---|
+| Home shows **"payout address refused"** or a red **"Your payout address is not valid"** line | The address failed the safety check. **Nothing was sent.** | **Payment server `/admin`, Settings:** enter a correct address. Do not use "Use it anyway" on the real server. |
+| Red line **"This server is set to real money, but its wallet is play money"** (or the reverse) | The server's mode and its wallet do not match. | Take no payments. This is a stop condition: write it down and ask. |
+| A transfer shows **failed** | The server could not send. The money is still in the wallet. It tries again every 5 minutes. | If it fails twice, that is a stop condition: **Settings → Pause new payments**, write down the message shown, do not retry. |
+| You paid, but the checkout page still says waiting | Detection can take a minute or two. | Do not pay again. Check **Payments** and **Alerts → Payments that need you**. A payment that arrives after an order closed shows up there. |
+| An order is marked paid but your phone wallet shows nothing | Stop condition. | Press **Pause new payments** (Settings) and write down the order, the amounts and the times. |
+| You cannot open the server's pages | The server may be off or restarting (it restarts once after setup). | Wait a few minutes, then use **your hosting company's Console** to check the server is running. Do not delete the server: the money can be restored from the 12 words onto a new one. |
+
+What the server is expected to do when something fails, read from the code, is in
+[MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md).
+
 ## Before you start
 
 - [ ] The signet checks in [RC3_CHECKS.md](RC3_CHECKS.md) are done (the payment page, setup page and admin page changes of rc3).
@@ -54,33 +74,52 @@ without the money arriving.
 - [ ] **Payment server `/admin`:** sign in, turn on two-step sign-in.
 - [ ] **Home:** the real-money banner shows; no red "wallet is play money" line.
 
-## 3. Address checks (Settings, change back afterwards)
+## 3. Address checks (do these before any payment, so there is nothing to send)
 
-**On the setup page** (try these on the new server's payout step, or on a spare
-fresh server): when you paste an address, a line appears under the box.
+**Do all of step 3 before step 5.** Several checks below put someone else's
+address in Settings for a moment. A change to the payout address waits a day, but
+if it were left pending the server would then send your money there. With nothing
+on the server yet, that cannot cost anything. Cancel every pending change as soon
+as you have seen the result.
 
-- [ ] Your own `ark1…` address from your phone wallet: **Verified** (green).
-- [ ] Your `ark1…` address with one character changed: a red **danger** box (money
-      could be lost). Pressing Create is blocked until you tick "Use it anyway".
-      Do not tick it on the real server.
-- [ ] A `tark1…` address, and a `tb1…` address: red danger box that names
-      `ark.second.tech`, Noah (Android) and Arké (iPhone).
-- [ ] A valid Ark address from a **different Ark server** (if you can get one; a
-      Bark signet address will do): red danger box saying it is on a different Ark
-      server.
-- [ ] Pressing Create with an address that failed and the box ticked saves it, and
-      Home then shows the red "payout address refused" line (nothing is sent).
-      Fix the address in Settings afterwards.
+**On the setup page** (the payout step; the check runs when you paste an address,
+and a line or box appears under it). Nothing is saved until you press Create.
+The sample addresses are public test values: they belong to nobody you know, so
+never press Create with them.
 
-**In Settings** (changing the address later is still strict: a refusal, no tick-box).
-Each of these must be **refused** with a clear message: a `tark1…`, a `tb1…`, your
-`ark1…` with one character changed, a `1…` with one character changed.
+| Paste this | You should see |
+|---|---|
+| Your own `ark1…` address from your phone wallet | Green **"Verified: a well-formed Ark address on the same Ark server as this wallet"**. If it is amber **"Could not verify"** instead, the server could not read its own Ark server details: wait a minute, paste again, and write it down if it stays amber. |
+| Your `ark1…` address with **one character changed** in the middle | Red **Danger** box: "That address is not valid (a typo, or part of it is missing)". |
+| `tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh` | Red Danger box: "That is a test-network address, but this server works with real Bitcoin", naming `ark.second.tech`, Noah (Android) and Arké (iPhone). |
+| `tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx` | The same red Danger box (test-network address). Choose **On-chain** as the wallet type first. |
+| `ark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqqnaa07n` | Red Danger box: "This Ark address is on a different Ark server than the one this server uses, so money sent to it may never arrive". (Well formed, but made for another server.) |
+| `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4` (wallet type **On-chain**) | Green **"Verified: a well-formed Bitcoin address for this network"**. |
 
-Each of these must be **accepted** (then put your `ark1…` back; a change waits a
-day, so cancel the pending change instead): a `bc1q…`, a `bc1p…`, a `1…`, a `3…`.
+- [ ] Every row above shows what it should. The Danger box on a real-money server
+      must **not** say "if you are only testing with play money you can still go
+      on"; it says nothing is sent to an address that fails the check.
+- [ ] With a failed address and the tick-box **not** ticked, pressing **Create the
+      store** is refused ("This address failed a check").
+- [ ] Do **not** tick the box on the real server. (If you want to see what ticking
+      does, do it on a spare play-money server: the store is created, and Home then
+      shows the red "payout address refused" line. Nothing is ever sent to it.)
+
+**In Settings** (changing the address later is strict: a refusal, with no
+tick-box). Each of these must be **refused** with a clear message: the `tark1…`
+and `tb1…` samples above, your `ark1…` with one character changed, and
+`1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2` with its last character changed.
+
+Each of these must be **accepted**, as a pending change. **Cancel it straight
+away** with **Cancel the pending change**, then check Home shows no "payout
+address change is waiting" line: `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4`,
+`bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0`,
+`1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2`, `3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy`.
 
 - [ ] All of the above as expected (write down any odd message, and whether the
       wording told you what to do).
+- [ ] **Settings:** your own `ark1…` address is the active payout address again,
+      and nothing is pending.
 
 ## 4. Record the server's terms
 
@@ -146,6 +185,21 @@ day, so cancel the pending change instead): a `bc1q…`, a `bc1p…`, a `1…`, 
 - [ ] Around day 26 to 28: the 28-day coin was renewed inside the free window,
       no fee, no expiry warning.
 - [ ] At the end: **Settings → Move my money now**. Home shows 0 on the server.
+
+## Numbers to write down as you go
+
+| What | Where you find it | Your result |
+|---|---|---|
+| Rounds every ___ ; coin life ___ ; free renewal under ___ blocks | `drill_capture` file (step 4) | |
+| Lightning receive fee on the 500-sat payment | Phone wallet, or the invoice detail | |
+| Time from paying to **Paid** on the checkout page (Lightning) | Step 5 | |
+| Time from payment to arrival in your wallet (transfer) | Step 6 | |
+| Fee on that transfer, if any | Phone wallet vs. the amount sent | |
+| Smallest Ark transfer that worked | Step 6 / 7 | |
+| Time a renewal took ("requested" to "renewed") | Home → Routine upkeep | |
+| Any "failed" row, warning, or alert, with its exact wording | Home / phone | |
+| Emergency withdrawal fee estimate | Settings → Emergency | |
+| Where you hesitated or guessed | Anywhere | |
 
 ## Write down for Stage 5
 

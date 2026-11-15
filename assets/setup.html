@@ -284,7 +284,8 @@
         <div class="error hidden" id="payout-risk" role="alert">
           <strong>Danger: money sent to this address could be lost for good.</strong>
           <span id="payout-risk-why"></span> Bitcoin payments cannot be undone, and nobody can get lost money back.
-          If you are only testing with play money you can still go on.
+          <span id="payout-risk-test">If you are only testing with play money you can still go on.</span>
+          <span id="payout-risk-live" class="hidden">Nothing is sent to an address that fails this check: transfers to your wallet stay stopped until you correct the address in Settings. Do not tick the box below unless you are sure.</span>
           <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-weight:600"><input type="checkbox" id="payout-risk-ok" style="margin-top:3px"> <span>I understand this address failed a check and money sent to it could be lost. Use it anyway.</span></label>
         </div>
       </div>
@@ -441,7 +442,13 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     line.style.color = "";
     if (!v) return;
     if (v.verdict === "failed") {
-      document.getElementById("payout-risk-why").textContent = " " + v.message;
+      // The server's refusal reads as a sentence fragment ("that is a test-network
+      // address ... on iPhone"): start it with a capital and end it with a stop so
+      // the text after it does not run on.
+      var why = String(v.message || "").trim();
+      why = why.charAt(0).toUpperCase() + why.slice(1);
+      if (!/[.!?]$/.test(why)) why += ".";
+      document.getElementById("payout-risk-why").textContent = " " + why;
       risk.classList.remove("hidden");
     } else {
       line.textContent = (v.verdict === "verified" ? "\u2714 " : "\u26A0 ") + v.message;
@@ -538,6 +545,8 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     els.testBanner.classList.remove("hidden");
     payoutHints = mode === "live" ? payoutHintsFor.live : payoutHintsFor.test;
     arkPrefixText = mode === "live" ? "ark1" : "tark1";
+    document.getElementById("payout-risk-test").classList.toggle("hidden", mode === "live");
+    document.getElementById("payout-risk-live").classList.toggle("hidden", mode !== "live");
   }
   var networkTouched = false;
   var mainnetOk = document.getElementById("mainnet-ok");

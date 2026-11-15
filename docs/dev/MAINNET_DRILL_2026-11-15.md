@@ -115,7 +115,27 @@ no aggregate field (matches our pinned client).
 - All amounts/payments small; ASP = Second's production mainnet service — treat its
   responses as the consensus for EBP integration behavior
 
-## Suggested follow-up tests (need more sats)
+## Corrections after coding-AI review (2026-11-15)
+
+The coding AI correctly rejected the F8/F10 framing: **EBP's code never called the
+wrong endpoints** — `src/wallet/barkd.rs` already uses `/wallet/offboard/vtxos`,
+`/lightning/pay {destination}`, etc. Verification run on the live daemon:
+
+- `scripts/check_barkd_drift.sh` (code ↔ pinned spec): **29 constants, 0 method
+  mismatches**, 4 cosmetic warnings (constants missing an HTTP verb in their doc
+  comment — `PATH_OFFBOARD_VTXOS`, `PATH_ARK_INFO`, + 2).
+- Live-daemon probe (pinned spec ↔ live barkd 0.8.0, 73 paths): all present except
+  `GET /api/v1/wallet/debug-info` (genuinely not implemented on the daemon — spec is
+  ahead) and `GET /api/v1/wallet/mnemonic` (exists but returns
+  `{"message":"Mnemonic endpoint is disabled"}` — intentionally disabled by daemon
+  config, a security feature, not drift).
+- The real drift is **upstream**: second.tech's docs describe `POST /offboardings/start`,
+  which the live daemon does not implement (`/api/v1/offboardings/start` → 404;
+  the bare path serves the ASP's web UI). The drill finding stands as documentation
+  drift in Second's published docs — worth reporting upstream, not a code bug here.
+
+**Net:** no action items for this repo from F8/F10 beyond the doc-comment verb
+warnings.
 
 - Board ≥ 50k sats to verify board fees + round inclusion timing
 - Unilateral exit on a refreshed VTXO (F9) — measure real exit cost + duration

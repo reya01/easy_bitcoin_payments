@@ -109,12 +109,25 @@ def main():
             has(a, pr, "underpaid message", "part of your payment")
             if not a["card"](): pr.append("pay details stay while part-paid")
 
+        def wait_back_link(a):
+            # The first paint shows "Back to <shop>"; the next status poll adds
+            # "to try again". Wait for it instead of guessing a delay (a slow CI
+            # machine made a fixed wait flaky).
+            try:
+                a["page"].wait_for_function(
+                    "document.getElementById('back-link').textContent.indexOf('try again') >= 0",
+                    timeout=6000)
+            except Exception:  # noqa: BLE001  the check below reports what was there
+                pass
+
         def c_expired(a, pr):
+            wait_back_link(a)
             has(a, pr, "expired message", "expired")
             if a["card"](): pr.append("pay details must go away once expired")
             has(a, pr, "back link", "try again", a["back"]())
 
         def c_cancelled(a, pr):
+            wait_back_link(a)
             has(a, pr, "cancelled message", "cancelled")
             if a["card"](): pr.append("pay details must go away once cancelled")
             has(a, pr, "back link", "try again", a["back"]())

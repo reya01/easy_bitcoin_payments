@@ -52,3 +52,25 @@ flow should refresh first, then price, then start — in that order.
   claim lands, we test spending the exited funds from a **mnemonic-only
   restore** (no DB). If it fails, EBP's backup story must include the wallet DB
   file — a permanent-loss scenario if the docs/wizard don't say so.
+
+## Claim + completion results (2026-11-16, measured)
+
+| Step | Result |
+|---|---|
+| Timelock elapsed | claimable at block 976,179; the claim fired at exactly that height (~24h after exit confirmation, as estimated — 143 blocks) |
+| Claim execution | `POST /exits/claim/all {destination: <owner BTC address>}` → **"Exit claimed successfully"** |
+| Where the funds landed | **directly at the owner's BTC address** (~99,186 sats) — the claim pays the destination, not the wallet; the owner confirmed receipt |
+| Exit-side history entry | `bark.exit`, `successful`, `intended = effective = -99,186`, `offchain_fee_sat: 0` (the exit fees were paid by the CPFP funding at broadcast, not as a movement fee) |
+| Failed refresh round observed | `bark.round`, `failed`, `offchain_fee_sat: 213` — a refresh attempt burned a 213-sat fee even when the round FAILED (fee not refunded) |
+| Wallet DB still required | the exited funds landed at an EXTERNAL address only because we claimed to one; spending exited funds to a wallet-internal address would still require the wallet DB — DB-backup test pending (needs a fresh exit) |
+
+**Complete exit lifecycle cost (measured):** exit fee estimate 116 sats + CPFP
+funding 352 sats (consumed) + claim tx fee + failed-round 213 = **~700 sats on
+~99,000 sats (~0.7%)**, wall-clock: exit start → both txs confirmed ~40 min
+(with CPFP), claim +24h timelock.
+
+**EBP build recommendations (final):** (1) gate the emergency-withdrawal UI on
+`fundable` + an on-chain reserve of ≥500 sats; (2) describe the exit as
+"~24h to your wallet, non-cancellable after broadcast"; (3) refresh → price →
+start, in that order; (4) claim directly to the merchant's external BTC address
+when they trigger an exit — it works and skips a hop.

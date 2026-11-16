@@ -143,7 +143,9 @@ pub async fn status(
             .collect();
         ee::start_deadline(&expiries, delta)
     };
-    let refusal = match (switched_off(&state, &c, false).await, ark_sats) {
+    let off = switched_off(&state, &c, false).await;
+    let reserve_target = ee::reserve_target(fee.as_ref());
+    let refusal = match (off, ark_sats) {
         (Some(off), _) => Some(off.to_string()),
         (None, Some(a)) => ee::refusal_explained(a, fee.as_ref(), fee_error.as_deref()),
         (None, None) => {
@@ -160,6 +162,7 @@ pub async fn status(
         "fee": fee,
         "onchain_confirmed_sats": confirmed,
         "onchain_pending_sats": pending,
+        "fundable": fee.as_ref().and_then(|f| f.fundable),
         "deposit_needed_sats": fee.map(|f| ee::deposit_still_needed(&f, confirmed.unwrap_or(0))),
         "deadline": deadline,
         "asp_connected": connected,
@@ -167,6 +170,10 @@ pub async fn status(
         "allowed": refusal.is_none(),
         "refusal": refusal,
         "unpriceable": unpriceable,
+        "switched_off": off.is_some(),
+        "reserve_min_sats": ee::RESERVE_MIN_SATS,
+        "reserve_target_sats": reserve_target,
+        "reserve_high_sats": ee::reserve_high(reserve_target),
         "preparing_since": preparing_since,
         "in_progress_since": started_at,
         "live": live_view,
@@ -358,6 +365,10 @@ pub async fn start(
         return Err(AppError::BadRequest(format!(
             "The network fees are paid from the server's own on-chain balance, which needs {need} more confirmed sats. Send them to the deposit address shown on this page, wait for 1 confirmation, then try again."
         )));
+    }
+
+    if let Some(why) = ee::start_blocker(&fee) {
+        return Err(AppError::BadRequest(why));
     }
 
     c.start_exit_all().await?;

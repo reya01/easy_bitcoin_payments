@@ -229,6 +229,12 @@ pub async fn status(
     facts.offchain_sats = wallet.get("offchain_sats").and_then(Value::as_i64);
     facts.needs_refresh_sats = wallet.get("needs_refresh_sats").and_then(Value::as_i64);
     facts.asp_connected = wallet.get("asp_connected").and_then(Value::as_bool);
+    facts.onchain_sats = wallet.get("onchain_sats").and_then(Value::as_i64);
+    facts.exit_available = crate::emergency_exit::not_enabled_reason(
+        &state.config.mode,
+        wallet.get("network").and_then(Value::as_str),
+    )
+    .is_none();
     facts.live = state.config.mode == "live";
     if let Ok((started, claimable)) = state
         .db

@@ -280,6 +280,25 @@ def main():
             want(pr, "verdict says waiting, not missing", p.inner_text("#ex-fee-verdict"), "waiting for 1 confirmation")
             want(pr, "checklist says waiting", p.inner_text("#ex-checks"), "waiting for 1 confirmation")
 
+        def fundable_handler():
+            base = exit_handler(confirmed=1500, needed=0)
+            def h(path, req, calls):
+                if path == "/admin/exit/status":
+                    code, body = base(path, req, calls)
+                    body["fundable"] = False
+                    return code, body
+                return base(path, req, calls)
+            return h
+
+        def c_unfundable(p, pr, calls):
+            open_exit(p)
+            p.fill("#ex-dest", TB); p.fill("#ex-pw", "pw"); p.fill("#ex-code", "123456"); p.check("#ex-ok")
+            want(pr, "says the wallet does not count it", p.inner_text("#ex-fee-verdict"), "Not usable yet")
+            want(pr, "checklist says so", p.inner_text("#ex-checks"), "does not count it as usable")
+            if not p.is_disabled("#ex-start"): pr.append("Start must stay grey while the wallet says it cannot fund the withdrawal")
+
+        ok &= run_case(pw, "emergency withdrawal: the wallet's own cannot-fund warning keeps Start grey", fundable_handler(), c_unfundable)
+
         ok &= run_case(pw, "emergency withdrawal: money sent but not confirmed yet says so", exit_handler(confirmed=0, pending=900, needed=894), c_wait)
 
         def c_live(p, pr, calls):
@@ -314,6 +333,53 @@ def main():
             if not p.is_disabled("#ex-start"): pr.append("Start must stay grey while the fee cannot be worked out")
 
         ok &= run_case(pw, "emergency withdrawal: unpriceable coins are refreshed automatically, with a hover explanation", unpriceable_handler(), c_unpriceable)
+
+        def preset_handler(switched_off=False, mode="test", confirmed=0, pending=0):
+            base = exit_handler(mode=mode)
+            def h(path, req, calls):
+                if path == "/admin/exit/status":
+                    return 200, {"min_exit_sats": 100000, "ark_sats": 5000, "fee": {"broadcast_sat": 300, "claim_sat": 50, "total_sat": 350, "txs_to_broadcast": 1},
+                                 "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": 0, "deadline": 1900000000,
+                                 "asp_connected": True, "two_step_on": True, "allowed": False, "refusal": "Not worth it right now.", "unpriceable": False,
+                                 "switched_off": switched_off, "reserve_min_sats": 1500, "reserve_target_sats": 5000, "reserve_high_sats": 10000, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
+                return base(path, req, calls)
+            return h
+
+        def c_preset(p, pr, calls):
+            open_exit(p)
+            want(pr, "optional heading", p.inner_text("#ex-deposit"), "Set aside fee money now (optional)")
+            want(pr, "the minimum", p.inner_text("#ex-fee-rows"), "1,500")
+            want(pr, "the recommendation", p.inner_text("#ex-fee-rows"), "5,000")
+            want(pr, "the recommendation range", p.inner_text("#ex-fee-rows"), "10,000")
+            want(pr, "still to send", p.inner_text("#ex-fee-rows"), "Still to send")
+            want(pr, "optional wording", p.inner_text("#ex-fee-verdict"), "Optional: send at least")
+            want(pr, "address shows", p.inner_text("#ex-addr"), TB)
+            want(pr, "hover explains the sweep promise", p.get_attribute("#ex-deposit-need", "title") or "", "never touch this money")
+            if not p.is_disabled("#ex-start") if p.is_visible("#ex-start") else False: pr.append("Start must stay grey")
+
+        ok &= run_case(pw, "emergency withdrawal: fee money can be set aside ahead of time, optional", preset_handler(), c_preset)
+
+        def c_preset_done(p, pr, calls):
+            open_exit(p)
+            want(pr, "done", p.inner_text("#ex-fee-verdict"), "Set aside")
+            if p.is_visible("#ex-addr-box"): pr.append("no address needed once it is set aside")
+            if count(calls, "POST", "/admin/exit/deposit-address") != 0: pr.append("no address should be fetched when none is needed")
+            want(pr, "leftover button explained", p.inner_text("#ex-left-box"), "takes back the fee money")
+
+        ok &= run_case(pw, "emergency withdrawal: fee money already set aside", preset_handler(confirmed=5000), c_preset_done)
+
+        def c_preset_min(p, pr, calls):
+            open_exit(p)
+            want(pr, "enough to start", p.inner_text("#ex-fee-verdict"), "Enough to start a withdrawal today")
+            want(pr, "still suggests more", p.inner_text("#ex-fee-verdict"), "safer")
+
+        ok &= run_case(pw, "emergency withdrawal: above the minimum but below the recommendation", preset_handler(confirmed=2000), c_preset_min)
+
+        def c_off(p, pr, calls):
+            open_exit(p)
+            if p.is_visible("#ex-deposit"): pr.append("no fee-money prompt where the withdrawal is switched off")
+
+        ok &= run_case(pw, "emergency withdrawal: switched off on real money shows no fee-money prompt", preset_handler(switched_off=True, mode="live"), c_off)
     sys.exit(0 if ok else 1)
 
 

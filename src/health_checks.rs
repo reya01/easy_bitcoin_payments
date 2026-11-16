@@ -57,6 +57,11 @@ pub struct Facts {
     pub needs_refresh_sats: Option<i64>,
     /// Offline-spendable balance and the configured safety cap.
     pub offchain_sats: Option<i64>,
+    /// Regular Bitcoin on the server: the money an emergency withdrawal
+    /// pays its network fees from.
+    pub onchain_sats: Option<i64>,
+    /// An emergency withdrawal can be used on this server (not switched off).
+    pub exit_available: bool,
     pub hot_wallet_cap_sats: i64,
     pub unmatched_open: i64,
     pub webhooks_failed: i64,
@@ -240,6 +245,29 @@ pub fn build(f: &Facts) -> Vec<Check> {
             "The server could not refresh the price for over an hour. It keeps using the last price it had and tries again every ten minutes. If this stays for a day, dollar amounts disappear and payment requests priced in a currency are refused.",
         ),
         Some(_) => {}
+    }
+
+    // Fee money for an emergency withdrawal: only worth mentioning when the
+    // withdrawal is available and there is enough on the server to need it.
+    if f.exit_available && f.offchain_sats.unwrap_or(0) >= crate::emergency_exit::MIN_EXIT_SATS {
+        if f.onchain_sats.unwrap_or(0) >= crate::emergency_exit::RESERVE_MIN_SATS {
+            push(
+                "reserve",
+                Level::Ok,
+                "Emergency fee money is set aside",
+                "Some regular Bitcoin is on the server to pay the network fees of an emergency withdrawal. Automatic withdrawals never touch it. If fees rise, 5,000 to 10,000 sats is the safer amount.",
+            );
+        } else {
+            push(
+                "reserve",
+                Level::Warn,
+                "Emergency fee money is not set aside (optional)",
+                &format!(
+                    "An emergency withdrawal pays its network fees from regular Bitcoin held on the server, and the server has almost none. Setting aside at least {} sats (5,000 to 10,000 is recommended, in case fees rise) means you can start one at any time. Open Settings, Emergency to get the address.",
+                    crate::emergency_exit::RESERVE_MIN_SATS
+                ),
+            );
+        }
     }
 
     if f.unmatched_open > 0 {
@@ -450,6 +478,29 @@ mod tests {
         c.iter()
             .find(|x| x.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    #[test]
+    fn emergency_fee_money_is_mentioned_only_when_it_matters() {
+        let mut f = healthy();
+        f.offchain_sats = Some(500_000);
+        // Withdrawal switched off (real money): nothing to say.
+        assert!(build(&f).iter().all(|c| c.id != "reserve"));
+        f.exit_available = true;
+        let c = build(&f);
+        assert_eq!(find(&c, "reserve").level, Level::Warn);
+        assert!(find(&c, "reserve").detail.contains("Settings, Emergency"));
+        f.onchain_sats = Some(1_499);
+        assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
+        assert!(find(&build(&f), "reserve")
+            .detail
+            .contains("5,000 to 10,000"));
+        f.onchain_sats = Some(1_500);
+        assert_eq!(find(&build(&f), "reserve").level, Level::Ok);
+        // Too little on the server to ever be worth an exit: stay quiet.
+        f.offchain_sats = Some(50_000);
+        f.onchain_sats = None;
+        assert!(build(&f).iter().all(|c| c.id != "reserve"));
     }
 
     #[test]

@@ -254,8 +254,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
         </div>
       </div>
       <div id="ex-auth" class="hidden">
-        <label for="ex-dest">Your Bitcoin address (on-chain) where the money goes</label><input type="text" id="ex-dest" autocomplete="off" spellcheck="false">
-        <p class="msg muted" id="ex-dest-note">A regular Bitcoin (on-chain) address, not an Ark address.</p>
+        <label for="ex-dest">A Bitcoin address (on-chain) in a wallet outside this server, where the money goes</label><input type="text" id="ex-dest" autocomplete="off" spellcheck="false">
+        <p class="msg muted" id="ex-dest-note">A regular Bitcoin (on-chain) address, not an Ark address, from a wallet you hold outside this server (a hardware wallet or your own wallet app). The money is sent straight there at the end, so it never needs to come back through this server.</p>
         <label for="ex-pw">Admin password</label><input type="password" id="ex-pw" autocomplete="current-password">
         <label for="ex-code">Code from your authenticator app</label><input type="text" id="ex-code" inputmode="numeric" autocomplete="off" placeholder="6 digits">
       </div>
@@ -1235,7 +1235,7 @@ function exReady() {
   var s = exState;
   var d = exCheckDest($("ex-dest").value);
   var note = $("ex-dest-note");
-  note.textContent = d.empty ? "A regular Bitcoin (on-chain) address, not an Ark address." : d.text;
+  note.textContent = d.empty ? "A regular Bitcoin (on-chain) address, not an Ark address, from a wallet you hold outside this server. The money is sent straight there." : d.text;
   note.className = "msg " + (d.empty ? "muted" : d.ok ? "ok" : "bad");
   $("ex-start").disabled = !(s && s.allowed && s.two_step_on && s.deposit_needed_sats === 0 && s.fundable !== false && !s.in_progress_since && !(s.live || []).length &&
     $("ex-ok").checked && $("ex-pw").value && $("ex-code").value.trim() && d.ok);

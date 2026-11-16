@@ -459,6 +459,9 @@ impl BarkdClient {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         let excerpt: String = body.trim().chars().take(256).collect();
+        // barkd words amounts in BTC decimals ("0.00004000 BTC"); the
+        // merchant sees sats everywhere else, so translate before display.
+        let excerpt = btc_amounts_to_sats(&excerpt);
         let detail = if excerpt.is_empty() {
             format!("HTTP {status}")
         } else {
@@ -2075,10 +2078,112 @@ pub(crate) mod mock {
     }
 }
 
+/// Parse a plain BTC decimal such as `0.00004000` or `0` into whole sats.
+/// Integer arithmetic only (no floats); more than 8 decimals, signs,
+/// exponents or overflow all return `None` so odd text is left untouched.
+fn btc_decimal_to_sats(token: &str) -> Option<i64> {
+    let (whole, frac) = match token.split_once('.') {
+        Some((w, f)) => (w, f),
+        None => (token, ""),
+    };
+    if whole.is_empty() || frac.len() > 8 {
+        return None;
+    }
+    if !whole.bytes().all(|b| b.is_ascii_digit()) || !frac.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let whole: i64 = whole.parse().ok()?;
+    let frac_padded = format!("{frac:0<8}");
+    let frac: i64 = frac_padded.parse().ok()?;
+    whole.checked_mul(100_000_000)?.checked_add(frac)
+}
+
+/// Rewrite every "`<btc-decimal> BTC`" in barkd error text as "`<n> sats`"
+/// (e.g. `Needed 0.00000900 BTC but 0 BTC is available` becomes
+/// `Needed 900 sats but 0 sats is available`). Display only: it never
+/// feeds a decision, and text it does not recognise passes through as is.
+pub(crate) fn btc_amounts_to_sats(text: &str) -> String {
+    let words: Vec<&str> = text.split(' ').collect();
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        let word = words[i];
+        if let Some(unit) = words.get(i + 1).and_then(|u| u.strip_prefix("BTC")) {
+            let (lead, number) = match word.strip_prefix('(') {
+                Some(rest) => ("(", rest),
+                None => ("", word),
+            };
+            if let Some(sats) = btc_decimal_to_sats(number) {
+                out.push(format!("{lead}{sats} sats{unit}"));
+                i += 2;
+                continue;
+            }
+        }
+        out.push(word.to_string());
+        i += 1;
+    }
+    out.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::mock;
     use super::*;
+
+    #[test]
+    fn btc_error_amounts_become_sats() {
+        // Observed on mainnet (barkd 0.8.0 drill, F10).
+        assert_eq!(
+            btc_amounts_to_sats(
+                "Insufficient money available. Needed 0.00999999 BTC but 0.00004000 BTC is available"
+            ),
+            "Insufficient money available. Needed 999999 sats but 4000 sats is available"
+        );
+        assert_eq!(
+            btc_amounts_to_sats("Needed 0.00000900 BTC but 0 BTC is available"),
+            "Needed 900 sats but 0 sats is available"
+        );
+        assert_eq!(
+            btc_amounts_to_sats(
+                "board amount is less than minimum board amount required by server (0.00050000 BTC)"
+            ),
+            "board amount is less than minimum board amount required by server (50000 sats)"
+        );
+    }
+
+    #[test]
+    fn btc_rewriter_leaves_other_text_alone() {
+        for text in [
+            "",
+            "HTTP 400: invalid destination",
+            "missing field `destination` at line 1 column 2",
+            "see BTC price",
+            "-1 BTC",
+            "1e3 BTC",
+            "0.123456789 BTC",
+            "x.5 BTC",
+        ] {
+            assert_eq!(btc_amounts_to_sats(text), text, "{text}");
+        }
+        assert_eq!(btc_amounts_to_sats("1 BTC"), "100000000 sats");
+        assert_eq!(btc_decimal_to_sats("99999999999999999999"), None);
+    }
+
+    #[tokio::test]
+    async fn rejected_error_shows_sats_not_btc() {
+        let (base, _) = mock::spawn(|_| {
+            (
+                500,
+                r#"{"message": "Insufficient money available. Needed 0.00000900 BTC but 0 BTC is available"}"#.to_string(),
+            )
+        });
+        let err = match client(&base).balances().await {
+            Ok(_) => panic!("a 500 must be an error"),
+            Err(e) => e.to_string(),
+        };
+        assert!(err.contains("Needed 900 sats but 0 sats"), "{err}");
+        assert!(!err.contains("BTC"), "{err}");
+    }
 
     fn client(base: &str) -> BarkdClient {
         BarkdClient::new(BarkdConfig::new(base, "test-token")).expect("client")

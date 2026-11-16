@@ -762,13 +762,21 @@ $("csv-go").addEventListener("click", function () {
     .then(function () { b.disabled = false; });
 });
 
+var ALERT_WHY = {
+  invoice_closed: "money arrived for an order that was already paid or closed (the customer may have paid twice) \u2014 refund the extra or handle it by hand",
+  invoice_expired: "money arrived after the payment window closed \u2014 fulfil the order by hand or refund",
+  paid_after_expiry: "money arrived after the payment window closed \u2014 fulfil the order by hand or refund",
+  topup_window_closed: "a top-up arrived too late to count toward the order \u2014 refund it or fulfil by hand",
+  onchain_rail_disabled: "money arrived by regular Bitcoin, which is switched off for this shop"
+};
+
 function loadAlerts() {
   api("GET", "/api/v1/unmatched-payments").then(function (list) {
     var u = $("unmatched"); clear(u);
     list.forEach(function (p) {
       var c = el("div", "", "card");
       c.appendChild(row(fmtSats(p.amount_sats) + " · " + ({ ark: "Ark", onchain: "regular Bitcoin", lightning: "Lightning" }[p.rail] || p.rail), p.resolved_at ? "handled" : "open", p.resolved_at ? "ok" : "bad"));
-      c.appendChild(el("div", "Why: " + String(p.reason).replace(/_/g, " ") + " · " + when(p.detected_at) + (p.order_id ? " · order " + p.order_id : ""), "muted"));
+      c.appendChild(el("div", "Why: " + (ALERT_WHY[p.reason] || String(p.reason).replace(/_/g, " ")) + " · " + when(p.detected_at) + (p.order_id ? " · order " + p.order_id : ""), "muted"));
       if (!p.resolved_at) {
         var b = el("button", "Mark as handled", "small"); b.type = "button"; b.style.marginTop = "8px";
         b.addEventListener("click", function () { b.disabled = true; api("POST", "/api/v1/unmatched-payments/" + encodeURIComponent(p.id) + "/resolve", {}).then(loadAlerts).catch(function (e) { b.textContent = e.message; }); });

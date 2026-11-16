@@ -19,7 +19,8 @@ Each line names where to look in the code.
   directions (`src/health_checks.rs`).
 - The emergency-withdrawal lock follows the coins: it applies when the mode is
   live **or** the wallet's network is real Bitcoin (`not_enabled_reason`). It is
-  off for mainnet (`ENABLED_ON_MAINNET = false`).
+  on for mainnet since 15 November 2026 (`ENABLED_ON_MAINNET = true`); the
+  lock code stays so the switch can be turned off again.
 - Limit: "real Bitcoin" is recognised by barkd's network name `bitcoin` (or
   `mainnet`). If a later barkd renamed it, a real wallet on a server set to play
   money would not be locked by the wallet check; Home would still be loud in the
@@ -87,8 +88,8 @@ Each line names where to look in the code.
   started elsewhere (for example carried in a restored wallet folder) is adopted,
   so Home shows the red line. If barkd cannot say whether one is running and one
   was started, the server stays paused.
-- On mainnet the section opens but says it is switched off, shows the estimate,
-  and the Start button stays disabled.
+- On mainnet the section behaves as on signet: estimate, fee money, the
+  100,000-sat floor, password plus two-step code, then Start.
 - Fee money (regular Bitcoin on the server): an exit needs about 350 sats of
   confirmed regular Bitcoin to broadcast even when the fee estimate says about
   100 (drill: an exit sat stuck for hours with none). The page asks for at least

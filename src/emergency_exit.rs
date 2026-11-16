@@ -15,9 +15,11 @@
 use serde::Serialize;
 use serde_json::Value as Json;
 
-/// Off on real money until the owner's signet drill has passed (MAINNET_PLAN
-/// PR G step 11). Flip to `true` in its own reviewed change after the drill.
-pub const ENABLED_ON_MAINNET: bool = false;
+/// On for real money since 15 November 2026, at the owner's request, after
+/// small live mainnet drills (exit started, broadcast, confirmed, claim
+/// scheduled; see docs/dev/EMERGENCY_EXIT_2026-11-15.md). Set to `false` to
+/// switch it off again on real money; the page then says so.
+pub const ENABLED_ON_MAINNET: bool = true;
 
 /// Why the option is switched off on this server, if it is. Locked when the
 /// server is in real-money mode OR the wallet's Ark server is on real
@@ -25,10 +27,13 @@ pub const ENABLED_ON_MAINNET: bool = false;
 /// made by hand was adopted by the wizard, and the lock must follow the coins,
 /// not the label. An unreadable network only leaves the mode to decide.
 pub fn not_enabled_reason(mode: &str, wallet_network: Option<&str>) -> Option<&'static str> {
+    if ENABLED_ON_MAINNET {
+        return None;
+    }
     let wallet_real = wallet_network
         .map(crate::wallet::barkd::is_mainnet_network)
         .unwrap_or(false);
-    ((mode == "live" || wallet_real) && !ENABLED_ON_MAINNET).then_some(
+    (mode == "live" || wallet_real).then_some(
         "The emergency withdrawal is not switched on for real money yet: it is being tested with play money first. Until then, keep only small amounts on this server.",
     )
 }
@@ -439,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn real_money_waits_for_the_signet_drill() {
+    fn the_real_money_switch_follows_the_flag() {
         assert!(not_enabled_reason("test", None).is_none());
         assert!(not_enabled_reason("test", Some("signet")).is_none());
         assert_eq!(

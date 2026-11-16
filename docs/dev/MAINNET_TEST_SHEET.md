@@ -172,11 +172,15 @@ address change is waiting" line: `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4`,
       server (set `EBP_MODE=live` there too, step 1 above), with only the kept
       1,000 sats at stake. Note any extra upkeep row right after the restore.
 
-## 11. Emergency withdrawal: look only
+## 11. Emergency withdrawal: look first
 
-- [ ] **Settings → Emergency:** open it. It says it is switched off on real
-      money, and shows the fee estimate. Write the estimate down. Do **not** try
-      to start one on mainnet.
+- [ ] **Settings → Emergency:** open it. It shows the fee estimate, the
+      "Set aside fee money now" box (minimum 1,500 sats; 5,000 to 10,000
+      recommended) and, if you hold under 100,000 sats on the server, a reason
+      it will not start (the 100,000-sat floor). Write the estimate down.
+- [ ] Starting one is a deliberate real-money test: do it only as in the
+      emergency-exit test plan, with two-step sign-in on, fee money confirmed,
+      and an amount you can afford to lose. It then takes about a day to claim.
 
 ## 12. Leave it running
 

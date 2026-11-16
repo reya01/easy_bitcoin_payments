@@ -157,7 +157,7 @@ You hold the keys, so the money on your payment server can be taken out without 
    The address you type here is fixed for this withdrawal: the claim and any left-over fee money go there and nowhere else. Your phone gets an alert when a withdrawal is started.
 4. When Home says it is **ready to claim** (and your phone alert, if on), press **Send to my address** in the same place. Then send any left-over fee money back with **Send leftover to my address**.
 
-The money in your own payout wallet is not on this server: that wallet's own app is responsible for its own emergency exits. On a real-money server this option stays switched off until it has been practised on play money.
+The money in your own payout wallet is not on this server: that wallet's own app is responsible for its own emergency exits. On a real-money server this option is switched on but new: it has only been tried in small tests, so keep only amounts you can afford to lose on the server, and set aside some fee money first (Settings, Emergency tells you how much).
 
 ## Practise once
 

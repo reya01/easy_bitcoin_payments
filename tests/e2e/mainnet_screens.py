@@ -7,7 +7,7 @@ tick-box, the banners say REAL MONEY, the address hints name ark.second.tech and
 the real-money prefixes (never play-money ones), a failing address shows the danger
 box (without the "only testing" line) and cannot be used without the tick, and the
 admin Home shows the red lines for a wrong-network wallet or bad payout address and
-says the emergency withdrawal is not switched on for real money.
+shows the emergency withdrawal as available but new (its floor and fee rules apply).
 Set SHOTS=/some/dir to also save screenshots.  Run: python3 tests/e2e/mainnet_screens.py
 """
 import json, os
@@ -196,7 +196,7 @@ def main():
                         checks.append({"id": "payout", "level": "bad", "title": "Your payout address is not valid", "detail": "Transfers to your own wallet are stopped until this is fixed."})
                     return 200, {"checks": checks, "counters": {}, "wallet": {"offchain_sats": 1200}, "mode": "live", "usd_per_btc": 67000, "version": "0.2.0"}
                 if path == "/admin/exit/status":
-                    return 200, {"allowed": False, "two_step_on": True, "refusal": "The emergency withdrawal is not switched on for real money yet: it is being tested with play money first. Until then, keep only small amounts on this server.", "live": [], "deposit_needed_sats": 0}
+                    return 200, {"allowed": False, "two_step_on": True, "refusal": "Not worth it right now. There is less than 100000 sats on the server (1200 sats), and taking it out on your own costs about 300 sats in network fees and a day or more.", "live": [], "deposit_needed_sats": 0}
                 return None
             return h
 
@@ -207,13 +207,13 @@ def main():
             want(pr, "bad payout line", p.inner_text("#health"), "payout address is not valid")
             p.click('#tabs button[data-v="set"]'); p.evaluate("document.getElementById('ex-box').open = true; document.getElementById('ex-box').dispatchEvent(new Event('toggle'))")
             p.wait_for_timeout(500)
-            want(pr, "the folded section no longer promises an exit on real money", p.evaluate("document.getElementById('ex-box').textContent"), "switched off on real-money servers")
+            want(pr, "the folded section says it is new on real money", p.evaluate("document.getElementById('ex-box').textContent"), "only been tried in small tests")
             ex = p.evaluate("document.getElementById('ex-refusal') ? document.getElementById('ex-refusal').textContent : ''")
-            want(pr, "emergency withdrawal says it is off for real money", ex, "not switched on for real money yet")
-            want(pr, "emergency withdrawal says keep small amounts", ex, "keep only small amounts")
+            want(pr, "emergency withdrawal says why it will not start now", ex, "less than 100000 sats")
+            refuse(pr, "emergency withdrawal is no longer called switched off", ex, "not switched on")
             if p.evaluate("document.getElementById('ex-start').disabled") is not True: pr.append("the Start button must stay disabled")
 
-        ok &= run_case(pw, "mainnet admin Home: banner, red lines, emergency withdrawal off", "/admin", DASH, h_home(True, True), c_home)
+        ok &= run_case(pw, "mainnet admin Home: banner, red lines, emergency withdrawal available with its floor", "/admin", DASH, h_home(True, True), c_home)
 
     print("ALL PASS" if ok else "SOME FAILED")
     raise SystemExit(0 if ok else 1)

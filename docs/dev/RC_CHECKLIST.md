@@ -95,7 +95,7 @@ For a release candidate with the mainnet changes, replace the signet-only line
 below with: "Play money (signet) is the default. Real bitcoin can be switched on
 (`EBP_MODE=live`, see START_HERE) but is experimental and not yet tried with real
 money: if you do, use only a few thousand sats you can afford to lose. The
-emergency withdrawal is switched off on real money for now."
+emergency withdrawal is new on real money and only tried in small tests."
 
 > **v0.1.0-rc1 — release candidate, play money only**
 >

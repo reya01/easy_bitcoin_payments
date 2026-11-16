@@ -524,7 +524,9 @@ function loadRecon() {
     } else {
       host = document.createElement("details");
       host.style.margin = "0";
-      host.appendChild(el("summary", "Weekly wallet check: done" + (r.last_checked_at ? " " + when(r.last_checked_at * 1000) : "") + ". Tap to check again."));
+      host.appendChild(el("summary", r.last_checked_at
+        ? "Weekly wallet check: done " + when(r.last_checked_at * 1000) + ". Tap to check again."
+        : "Weekly wallet check: your first one is due " + (r.next_due_at ? "on " + new Date(r.next_due_at * 1000).toLocaleDateString(undefined, { month: "long", day: "numeric" }) : "in about a week") + ". Tap to check now."));
       box.appendChild(host);
     }
     var days = r.days + " days";

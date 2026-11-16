@@ -109,3 +109,9 @@ Each line names where to look in the code.
 - Whether a transfer ever shows `failed` more than once.
 - Whether any coin appears under "too small to renew".
 - That the weekly check figures match the phone wallet exactly.
+- Whether the very first Lightning payment to a brand-new, empty till completes
+  within a minute or two. (Drill series 2: one empty wallet claimed in about 60
+  seconds, but three earlier payments to empty wallets stayed unclaimed for
+  hours. The cause looked like a missed notification, not emptiness itself, so
+  there is deliberately no "your till is empty" warning. If the first payment
+  hangs, note the time and tell the coding AI.)

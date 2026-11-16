@@ -116,6 +116,15 @@ pub async fn status(
     let fee_answer = c.exit_fee(claim_to.as_deref()).await;
     let fee_error = fee_answer.as_ref().err().map(|e| e.to_string());
     let fee = fee_answer.ok().as_ref().and_then(ee::parse_fee);
+    let unpriceable = fee.is_none() && fee_error.as_deref().is_some_and(ee::fee_cannot_be_priced);
+    let preparing_since = state
+        .db
+        .call(|conn| crate::settings::get(conn, ee::EXIT_PREPARE_AT_KEY))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|t| crate::util::now_unix() - t < ee::PREPARE_SHOWN_SECS);
     let connected = c.connected().await.ok().and_then(|x| x.connected);
     let live = c
         .exits_live()
@@ -157,11 +166,75 @@ pub async fn status(
         "two_step_on": two_step_on,
         "allowed": refusal.is_none(),
         "refusal": refusal,
+        "unpriceable": unpriceable,
+        "preparing_since": preparing_since,
         "in_progress_since": started_at,
         "live": live_view,
         "claimable": ee::any_claimable(&live),
         "destination": claim_to,
     })))
+}
+
+/// `POST /admin/exit/prepare` — ask the wallet to refresh its coins so an
+/// emergency withdrawal can be priced. The page calls this by itself when
+/// the fee cannot be worked out because of coins received over Lightning
+/// (drill: a refresh turns them into standard coins and the price appears).
+/// Not an exit: no coin leaves the wallet, and a refresh costs at most a few
+/// hundred sats. Behind the same real-money lock as the exit itself, only
+/// when the problem is really there, and at most once an hour.
+pub async fn prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    let c = client(&state)?;
+    if let Some(off) = switched_off(&state, &c, true).await {
+        return Err(AppError::BadRequest(off.to_string()));
+    }
+    let running = state
+        .db
+        .call(|conn| crate::settings::get(conn, ee::EXIT_STARTED_AT_KEY))
+        .await?
+        .is_some();
+    if running {
+        return Ok(Json(
+            json!({ "started": false, "why": "an emergency withdrawal is already running" }),
+        ));
+    }
+    let answer = c.exit_fee(None).await;
+    let unpriceable = answer
+        .as_ref()
+        .err()
+        .is_some_and(|e| ee::fee_cannot_be_priced(&e.to_string()));
+    if !unpriceable {
+        return Ok(Json(json!({ "started": false, "why": "not needed" })));
+    }
+    let now = crate::util::now_unix();
+    let last = state
+        .db
+        .call(|conn| crate::settings::get(conn, ee::EXIT_PREPARE_AT_KEY))
+        .await?
+        .and_then(|v| v.parse::<i64>().ok());
+    if let Some(wait) = ee::prepare_wait_secs(last, now) {
+        return Ok(Json(
+            json!({ "started": false, "why": "already asked recently", "retry_in_secs": wait }),
+        ));
+    }
+    // Record first: a failed attempt must not be retried every minute.
+    state
+        .db
+        .call(move |conn| {
+            crate::settings::set(conn, ee::EXIT_PREPARE_AT_KEY, &now.to_string())?;
+            audit(
+                conn,
+                "exit.prepare",
+                "refresh asked for so the exit fee can be worked out",
+            );
+            Ok(())
+        })
+        .await?;
+    c.refresh_all().await.map_err(AppError::from)?;
+    Ok(Json(json!({ "started": true })))
 }
 
 /// `POST /admin/exit/deposit-address` — the server's own on-chain address,

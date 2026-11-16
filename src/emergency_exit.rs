@@ -85,6 +85,23 @@ pub fn fee_cannot_be_priced(error: &str) -> bool {
         || e.contains("below the dust limit")
 }
 
+/// Settings key: unix time the server last asked the wallet to refresh coins
+/// so an emergency withdrawal can be priced.
+pub const EXIT_PREPARE_AT_KEY: &str = "exit_prepare_at";
+/// A refresh round on real money takes about an hour; do not ask again
+/// before then.
+pub const PREPARE_GAP_SECS: i64 = 50 * 60;
+/// How long the page keeps saying "getting your coins ready" after a refresh
+/// was asked for.
+pub const PREPARE_SHOWN_SECS: i64 = 2 * 3600;
+
+/// Seconds to wait before another refresh may be asked for; `None` = go.
+pub fn prepare_wait_secs(last_at: Option<i64>, now: i64) -> Option<i64> {
+    let last = last_at?;
+    let wait = last.saturating_add(PREPARE_GAP_SECS) - now;
+    (wait > 0).then_some(wait)
+}
+
 /// [`refusal`], but when the fee estimate is missing because barkd cannot
 /// price some coins, say that instead of the generic "try again later".
 /// The answer is still a refusal either way.
@@ -95,7 +112,7 @@ pub fn refusal_explained(
 ) -> Option<String> {
     if fee.is_none() && fee_error.is_some_and(fee_cannot_be_priced) {
         return Some(
-            "The wallet cannot work out the fee yet for some of your coins. This happens with coins received over Lightning and may clear once they have been refreshed. An emergency withdrawal stays blocked until it can, so nothing is at risk. Try again later.".into(),
+            "The wallet cannot work out the fee yet for some of your coins. This happens with coins received over Lightning. This page asks the server to refresh them automatically, which takes up to an hour on real money, and it updates by itself. An emergency withdrawal stays blocked until the fee can be worked out, so nothing is at risk.".into(),
         );
     }
     refusal(ark_sats, fee)
@@ -240,6 +257,20 @@ mod tests {
         // No estimate: refused.
         let r = refusal(10_000_000, None).unwrap();
         assert!(r.contains("Could not estimate"), "{r}");
+    }
+
+    #[test]
+    fn a_refresh_is_not_asked_for_twice_within_an_hour() {
+        assert_eq!(prepare_wait_secs(None, 1_000), None);
+        assert_eq!(
+            prepare_wait_secs(Some(1_000), 1_000 + 60),
+            Some(PREPARE_GAP_SECS - 60)
+        );
+        assert_eq!(
+            prepare_wait_secs(Some(1_000), 1_000 + PREPARE_GAP_SECS),
+            None
+        );
+        assert_eq!(prepare_wait_secs(Some(1_000), 1_000 + 99_999), None);
     }
 
     #[test]

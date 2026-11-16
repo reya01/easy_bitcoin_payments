@@ -322,16 +322,18 @@ def main():
                     return 200, {"min_exit_sats": 100000, "ark_sats": 5000, "fee": {"broadcast_sat": 300, "claim_sat": 50, "total_sat": 350, "txs_to_broadcast": 1},
                                  "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": 0, "deadline": 1900000000,
                                  "asp_connected": True, "two_step_on": True, "allowed": False, "refusal": "Not worth it right now.", "unpriceable": False,
-                                 "switched_off": switched_off, "reserve_target_sats": 1500, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
+                                 "switched_off": switched_off, "reserve_min_sats": 1500, "reserve_target_sats": 5000, "reserve_high_sats": 10000, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
                 return base(path, req, calls)
             return h
 
         def c_preset(p, pr, calls):
             open_exit(p)
             want(pr, "optional heading", p.inner_text("#ex-deposit"), "Set aside fee money now (optional)")
-            want(pr, "amount worth setting aside", p.inner_text("#ex-fee-rows"), "1,500")
+            want(pr, "the minimum", p.inner_text("#ex-fee-rows"), "1,500")
+            want(pr, "the recommendation", p.inner_text("#ex-fee-rows"), "5,000")
+            want(pr, "the recommendation range", p.inner_text("#ex-fee-rows"), "10,000")
             want(pr, "still to send", p.inner_text("#ex-fee-rows"), "Still to send")
-            want(pr, "optional wording", p.inner_text("#ex-fee-verdict"), "Optional: send about")
+            want(pr, "optional wording", p.inner_text("#ex-fee-verdict"), "Optional: send at least")
             want(pr, "address shows", p.inner_text("#ex-addr"), TB)
             want(pr, "hover explains the sweep promise", p.get_attribute("#ex-deposit-need", "title") or "", "never touch this money")
             if not p.is_disabled("#ex-start") if p.is_visible("#ex-start") else False: pr.append("Start must stay grey")
@@ -345,7 +347,14 @@ def main():
             if count(calls, "POST", "/admin/exit/deposit-address") != 0: pr.append("no address should be fetched when none is needed")
             want(pr, "leftover button explained", p.inner_text("#ex-left-box"), "takes back the fee money")
 
-        ok &= run_case(pw, "emergency withdrawal: fee money already set aside", preset_handler(confirmed=2000), c_preset_done)
+        ok &= run_case(pw, "emergency withdrawal: fee money already set aside", preset_handler(confirmed=5000), c_preset_done)
+
+        def c_preset_min(p, pr, calls):
+            open_exit(p)
+            want(pr, "enough to start", p.inner_text("#ex-fee-verdict"), "Enough to start a withdrawal today")
+            want(pr, "still suggests more", p.inner_text("#ex-fee-verdict"), "safer")
+
+        ok &= run_case(pw, "emergency withdrawal: above the minimum but below the recommendation", preset_handler(confirmed=2000), c_preset_min)
 
         def c_off(p, pr, calls):
             open_exit(p)

@@ -250,12 +250,12 @@ pub fn build(f: &Facts) -> Vec<Check> {
     // Fee money for an emergency withdrawal: only worth mentioning when the
     // withdrawal is available and there is enough on the server to need it.
     if f.exit_available && f.offchain_sats.unwrap_or(0) >= crate::emergency_exit::MIN_EXIT_SATS {
-        if f.onchain_sats.unwrap_or(0) >= crate::emergency_exit::RESERVE_TARGET_SATS {
+        if f.onchain_sats.unwrap_or(0) >= crate::emergency_exit::RESERVE_MIN_SATS {
             push(
                 "reserve",
                 Level::Ok,
                 "Emergency fee money is set aside",
-                "A little regular Bitcoin is on the server to pay the network fees of an emergency withdrawal. Automatic withdrawals never touch it.",
+                "Some regular Bitcoin is on the server to pay the network fees of an emergency withdrawal. Automatic withdrawals never touch it. If fees rise, 5,000 to 10,000 sats is the safer amount.",
             );
         } else {
             push(
@@ -263,8 +263,8 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 Level::Warn,
                 "Emergency fee money is not set aside (optional)",
                 &format!(
-                    "An emergency withdrawal pays its network fees from regular Bitcoin held on the server, and the server has almost none. Setting aside about {} sats now means you can start one at any time. Open Settings, Emergency to get the address.",
-                    crate::emergency_exit::RESERVE_TARGET_SATS
+                    "An emergency withdrawal pays its network fees from regular Bitcoin held on the server, and the server has almost none. Setting aside at least {} sats (5,000 to 10,000 is recommended, in case fees rise) means you can start one at any time. Open Settings, Emergency to get the address.",
+                    crate::emergency_exit::RESERVE_MIN_SATS
                 ),
             );
         }
@@ -490,7 +490,12 @@ mod tests {
         let c = build(&f);
         assert_eq!(find(&c, "reserve").level, Level::Warn);
         assert!(find(&c, "reserve").detail.contains("Settings, Emergency"));
-        f.onchain_sats = Some(2_000);
+        f.onchain_sats = Some(1_499);
+        assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
+        assert!(find(&build(&f), "reserve")
+            .detail
+            .contains("5,000 to 10,000"));
+        f.onchain_sats = Some(1_500);
         assert_eq!(find(&build(&f), "reserve").level, Level::Ok);
         // Too little on the server to ever be worth an exit: stay quiet.
         f.offchain_sats = Some(50_000);

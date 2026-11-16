@@ -36,14 +36,22 @@ pub fn not_enabled_reason(mode: &str, wallet_network: Option<&str>) -> Option<&'
 /// Fee money worth setting aside ahead of time (regular Bitcoin on the
 /// server). Drill series 2: an exit needed about 350 sats of confirmed
 /// on-chain money to broadcast; this leaves room for fee swings.
-pub const RESERVE_TARGET_SATS: i64 = 1_500;
+pub const RESERVE_MIN_SATS: i64 = 1_500;
+/// What to recommend: room for the fees to rise before it is needed.
+pub const RESERVE_RECOMMENDED_SATS: i64 = 5_000;
+pub const RESERVE_RECOMMENDED_HIGH_SATS: i64 = 10_000;
 
-/// The amount to suggest setting aside: the default, or twice the current
+/// The low end of the recommendation: the default, or twice the current
 /// broadcast-fee estimate when that is higher.
 pub fn reserve_target(fee: Option<&ExitFee>) -> i64 {
-    fee.map_or(RESERVE_TARGET_SATS, |f| {
-        RESERVE_TARGET_SATS.max(f.broadcast_sat.saturating_mul(2))
+    fee.map_or(RESERVE_RECOMMENDED_SATS, |f| {
+        RESERVE_RECOMMENDED_SATS.max(f.broadcast_sat.saturating_mul(2))
     })
+}
+
+/// The high end of the recommendation (twice the low end, at least 10,000).
+pub fn reserve_high(target: i64) -> i64 {
+    target.saturating_mul(2).max(RESERVE_RECOMMENDED_HIGH_SATS)
 }
 
 /// Below this many sats on the server an emergency withdrawal is refused.
@@ -274,10 +282,13 @@ mod tests {
 
     #[test]
     fn the_suggested_fee_reserve_follows_the_estimate() {
-        assert_eq!(reserve_target(None), RESERVE_TARGET_SATS);
-        assert_eq!(reserve_target(Some(&fee(500))), RESERVE_TARGET_SATS);
+        assert_eq!(reserve_target(None), RESERVE_RECOMMENDED_SATS);
+        assert_eq!(reserve_target(Some(&fee(500))), RESERVE_RECOMMENDED_SATS);
         // A busy fee market raises the suggestion.
-        assert!(reserve_target(Some(&fee(5_000))) > RESERVE_TARGET_SATS);
+        assert!(reserve_target(Some(&fee(5_000))) > RESERVE_RECOMMENDED_SATS);
+        assert_eq!(reserve_high(5_000), 10_000);
+        assert_eq!(reserve_high(12_000), 24_000);
+        assert!(RESERVE_MIN_SATS < RESERVE_RECOMMENDED_SATS);
     }
 
     #[test]

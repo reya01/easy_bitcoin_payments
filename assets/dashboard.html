@@ -1257,18 +1257,21 @@ function loadExit() {
     var fund = !running && !s.switched_off && !canGo;
     $("ex-deposit").classList.toggle("hidden", !(canGo || fund));
     if (fund) {
-      var tgt = s.reserve_target_sats || 1500, cf = s.onchain_confirmed_sats || 0, pd = s.onchain_pending_sats || 0;
+      var mn = s.reserve_min_sats || 1500, tgt = s.reserve_target_sats || 5000, hi = s.reserve_high_sats || 10000;
+      var cf = s.onchain_confirmed_sats || 0, pd = s.onchain_pending_sats || 0;
       var short = Math.max(0, tgt - cf);
       $("ex-fund-title").textContent = "Set aside fee money now (optional)";
       var frows = $("ex-fee-rows"); clear(frows);
-      frows.appendChild(row("Fee money worth setting aside", fmtSats(tgt)));
+      frows.appendChild(row("Minimum to start a withdrawal", fmtSats(mn)));
+      frows.appendChild(row("Recommended (fees can rise)", fmtSats(tgt) + " to " + fmtSats(hi)));
       frows.appendChild(row("On the server now (confirmed)", fmtSats(cf)));
       if (pd > 0) frows.appendChild(row("Sent, waiting for 1 confirmation", fmtSats(pd)));
       frows.appendChild(row("Still to send", short > 0 ? fmtSats(short) : "nothing"));
       var fv = $("ex-fee-verdict");
       if (short === 0) { fv.textContent = "\u2713 Set aside: the fee money is on the server and confirmed."; fv.className = "msg ok"; }
       else if (cf + pd >= tgt) { fv.textContent = "Sent, waiting for 1 confirmation. This page checks again every minute."; fv.className = "msg warn"; }
-      else { fv.textContent = "Optional: send about " + fmtSats(short) + " to the address below so an emergency withdrawal can start whenever you need it."; fv.className = "msg muted"; }
+      else if (cf >= mn) { fv.textContent = "\u2713 Enough to start a withdrawal today. Fees can rise, so " + fmtSats(tgt) + " to " + fmtSats(hi) + " is safer: send about " + fmtSats(short) + " more if you like."; fv.className = "msg ok"; }
+      else { fv.textContent = "Optional: send at least " + fmtSats(mn - cf) + " (" + fmtSats(tgt) + " to " + fmtSats(hi) + " is recommended) to the address below so an emergency withdrawal can start whenever you need it."; fv.className = "msg muted"; }
       var fn = $("ex-deposit-need");
       fn.textContent = "Why? The network fees of an emergency withdrawal are paid from regular Bitcoin held on the server, which is normally empty. Hover for details.";
       fn.title = "Automatic withdrawals only move Ark coins and never touch this money. You can take it back at any time with \u201cSend leftover to my address\u201d below (needs your password and code). Without it, you cannot start an emergency withdrawal on your own.";

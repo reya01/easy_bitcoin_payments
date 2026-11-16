@@ -89,6 +89,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
   <div class="card hidden" id="phone-home"></div>
   <div class="card hidden" id="recon"></div>
   <div class="card hidden" id="update"></div>
+  <div class="card hidden" id="test-prompt"></div>
   <h2>Is everything OK?</h2>
   <div class="card" id="health"></div>
   <h2>Needs attention</h2>
@@ -103,7 +104,8 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 <section id="v-orders" class="hidden">
   <h2>Try a payment</h2>
   <div class="card">
-    <p class="muted">Makes a payment request so you can see the checkout page. Pay it by scanning its QR code (or copying the payment details) with a wallet that can pay Lightning or Ark. Use the same kind of coins as this server: play-money coins on a test server. It shows up below once paid.</p>
+    <p class="muted">Makes a payment request so you can see the checkout page. It opens on Lightning: scan its QR code with any Lightning wallet. Use the same kind of coins as this server: play-money coins on a test server, real coins on a real-money one. It shows up below once paid.</p>
+    <p class="muted" id="tp-real">On a real-money server this is a real payment. The money lands on your server like any other sale and is paid out to your own wallet later in the usual way. You also need a few extra sats in your wallet for the Lightning network fee. If it has not turned Paid within about 2 minutes, wait a little and check again. Do not pay it a second time.</p>
     <label for="tp-sats">Amount in sats (a sat is one hundred-millionth of a bitcoin; 1000 is a tiny test amount)</label><input type="text" id="tp-sats" inputmode="numeric" value="1000">
     <div class="muted" id="tp-usd"></div>
     <div class="btns"><button class="primary" id="tp-go" type="button">Create a test payment request</button></div>
@@ -441,7 +443,7 @@ function show(name) {
   if (name === "home") loadRecon();
 }
 function signedOut() { var n = $("login-note"); if (pwChanged) { n.textContent = "Password changed. Sign in with your new password."; n.classList.remove("hidden"); pwChanged = false; } else { n.classList.add("hidden"); } csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
-function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show("home"); }
+function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show(location.hash === "#test" ? "orders" : "home"); if (location.hash === "#test") { try { $("tp-sats").focus(); } catch (e) {} } }
 
 function boot() {
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
@@ -648,6 +650,29 @@ function loadPhone() {
 var pwChanged = false;
 var EBP_MODE = "";
 var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wallet (Ark)", sweep_onchain: "Transfer to your wallet (on-chain)", sweep_refused: "Transfer blocked: payout address problem", renew: "Routine wallet upkeep", consolidate: "Tidy-up", offboard: "Withdrawal" };
+// Optional first-payment check on Home: shown until one payment has been paid
+// or the owner skips it. Never blocks anything. "Skip" is remembered only in this browser.
+var TEST_SKIP_KEY = "ebp_test_payment_skipped";
+function testSkipped() { try { return localStorage.getItem(TEST_SKIP_KEY) === "1"; } catch (e) { return false; } }
+function loadTestPrompt() {
+  var c = $("test-prompt");
+  if (testSkipped()) { c.classList.add("hidden"); return; }
+  Promise.all([api("GET", "/api/v1/invoices?status=paid&limit=1"), api("GET", "/api/v1/invoices?status=overpaid&limit=1")]).then(function (r) {
+    clear(c);
+    if (r[0].length || r[1].length) { c.classList.add("hidden"); return; }
+    c.appendChild(el("h3", "Test payment: not done yet (optional)"));
+    c.appendChild(el("p", "Pay yourself 1,000 sats over Lightning to check that your server really receives money. It takes about a minute. You need a Lightning wallet with a few spare sats for the network fee.", "muted"));
+    c.appendChild(el("p", EBP_MODE === "live" ? "This server uses real money. The 1,000 sats are a real payment: they land on your server like any other sale and are paid out to your own wallet later." : "This is a test server, so the coins are play money.", "muted"));
+    var b = el("div", "", "btns");
+    var go = el("button", "Try a test payment", "primary"); go.type = "button";
+    go.addEventListener("click", function () { show("orders"); try { $("tp-sats").value = "1000"; tpPreview(); $("tp-sats").focus(); } catch (e) {} });
+    var sk = el("button", "Skip for now", ""); sk.type = "button";
+    sk.addEventListener("click", function () { try { localStorage.setItem(TEST_SKIP_KEY, "1"); } catch (e) {} c.classList.add("hidden"); });
+    b.appendChild(go); b.appendChild(sk); c.appendChild(b);
+    c.classList.remove("hidden");
+  }).catch(function () { c.classList.add("hidden"); });
+}
+
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {
     var h = $("health"); clear(h);
@@ -658,6 +683,7 @@ function loadHome() {
     loadVersion();
     USD = s.usd_per_btc > 0 ? Number(s.usd_per_btc) : null;
     tpPreview();
+    loadTestPrompt();
     var w = s.wallet || {};
     var go = { late: "alerts", webhooks: "hooks", reserve: "set" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };

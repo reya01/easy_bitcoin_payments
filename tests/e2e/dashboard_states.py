@@ -380,6 +380,46 @@ def main():
             if p.is_visible("#ex-deposit"): pr.append("no fee-money prompt where the withdrawal is switched off")
 
         ok &= run_case(pw, "emergency withdrawal: switched off on real money shows no fee-money prompt", preset_handler(switched_off=True, mode="live"), c_off)
+
+        # --- optional first test payment on Home
+        def tp_handler(paid=False, mode="live"):
+            def h(path, req, calls):
+                if path == "/api/v1/admin/status":
+                    return 200, {"checks": [], "counters": {}, "wallet": {}, "mode": mode, "usd_per_btc": 67000}
+                if path == "/api/v1/invoices":
+                    return 200, ([{"id": "x", "status": "paid"}] if paid and "status=paid" in req.url else [])
+                return signed_in(path, req, calls)
+            return h
+
+        def c_tp_shown(p, pr, calls):
+            p.wait_for_timeout(300)
+            if not p.is_visible("#test-prompt"): pr.append("the optional test-payment card should show before any payment"); return
+            want(pr, "title says optional", p.inner_text("#test-prompt"), "not done yet (optional)")
+            want(pr, "says 1,000 sats", p.inner_text("#test-prompt"), "1,000 sats")
+            want(pr, "says Lightning", p.inner_text("#test-prompt"), "Lightning")
+            want(pr, "real money explained", p.inner_text("#test-prompt"), "real money")
+            p.click("#test-prompt button:text-is(\"Try a test payment\")"); p.wait_for_timeout(200)
+            if not p.is_visible("#v-orders"): pr.append("Try should open the Payments tab")
+            if p.input_value("#tp-sats") != "1000": pr.append("amount should be 1000")
+            p.click('#tabs button[data-v="home"]'); p.wait_for_timeout(300)
+            p.click("#test-prompt button:text-is(\"Skip for now\")")
+            if p.is_visible("#test-prompt"): pr.append("Skip should hide the card")
+            p.reload(); p.wait_for_timeout(500)
+            if p.is_visible("#test-prompt"): pr.append("a skipped card should stay hidden on reload")
+
+        ok &= run_case(pw, "test payment: optional card, try and skip", tp_handler(), c_tp_shown)
+
+        def c_tp_done(p, pr, calls):
+            p.wait_for_timeout(300)
+            if p.is_visible("#test-prompt"): pr.append("no test-payment card once a payment has been paid")
+
+        ok &= run_case(pw, "test payment: hidden once a payment is paid", tp_handler(paid=True), c_tp_done)
+
+        def c_tp_play(p, pr, calls):
+            p.wait_for_timeout(300)
+            want(pr, "play money wording", p.inner_text("#test-prompt"), "play money")
+
+        ok &= run_case(pw, "test payment: play-money wording on a test server", tp_handler(mode="test"), c_tp_play)
     sys.exit(0 if ok else 1)
 
 

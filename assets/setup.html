@@ -312,6 +312,11 @@
     <h1>Setup complete</h1>
     <p class="sub">Your server can now take payments. Open the dashboard to watch them arrive — and to see the till empty into your own wallet.</p>
     <div class="card"><a href="/admin">Open your admin page</a></div>
+    <div class="card" id="done-test">
+      <strong>Optional: try a test payment</strong>
+      <p class="note">Pay yourself 1,000 sats over Lightning to check that your server really receives money. It takes about a minute and needs a Lightning wallet with a few spare sats for the network fee. On a real-money server this is a real payment: it lands on your server like any other sale and is paid out to your own wallet later.</p>
+      <p><a href="/admin#test" id="done-test-go">Try a test payment</a> &nbsp;·&nbsp; <a href="/admin" id="done-test-skip">Skip for now</a></p>
+    </div>
     <p class="note hidden" id="done-restored">Restored from your backup. Sign in with the admin password you had when you downloaded it. Two-step sign-in is off after a restore: turn it on again in Settings, then download a fresh backup.</p>
     <p class="note">If the page stops answering for about a minute, the server is restarting to connect the wallet. Wait, then refresh.</p>
   </section>

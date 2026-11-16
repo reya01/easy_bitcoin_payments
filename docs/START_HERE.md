@@ -138,6 +138,8 @@ and use a password only, which is less secure, and turn it on later in
 
 ## 5. Make a test payment
 
+This step is optional but recommended. Setup's last page and the admin Home both offer a 1,000-sat Lightning test ("Try a test payment"), and you can skip it. On a real-money server it is a real payment: it lands on your server like any other sale and is paid out later. Keep a few spare sats in your wallet for the Lightning fee, and if it has not turned Paid in about 2 minutes, wait and check again rather than paying twice.
+
 1. Admin page → **Payments** → **Try a payment** → **Create a test payment
    request** → **Open the checkout page**. It shows a QR code, normally for a
    Lightning payment, with the amount in sats and its dollar value.

@@ -54,6 +54,19 @@ Each line names where to look in the code.
   automatic withdrawal failed" is sent once and repeats at most daily. The next attempt works from the live balance, so a retry never
   re-sends coins that already left.
 
+## Late and duplicate payments
+
+- The 20-minute countdown is the price lock, not the real limit: the Ark server
+  honours a Lightning invoice for 3 hours however short the expiry asked for
+  (drill series 2). So a payment of the **full** amount by Ark or Lightning that
+  arrives up to 3 hours after the countdown still completes the order (the audit
+  log gets `invoice.paid_late`; the shop plugin adds a "check stock" note if it
+  had already cancelled the order).
+- Still parked under Alerts for you to handle: a part payment after expiry, a
+  second payment on an order already paid (never credited twice), anything more
+  than 3 hours late, any payment on a cancelled order, and regular-Bitcoin
+  payments seen after the deadline.
+
 ## Renewal (keeping coins alive)
 
 - Coins are renewed from the server's own terms: inside the free window, never

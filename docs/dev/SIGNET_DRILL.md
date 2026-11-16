@@ -75,7 +75,7 @@ hide; quiz accepted wrong words.
 | 2.2 | Pay the exact amount over Ark | Paid within one poll interval; webhook `invoice.paid` arrives once |
 | 2.3 | Pay **less** | Status underpaid; remaining amount shown |
 | 2.4 | Pay **more** | Paid; surplus visible, nothing lost |
-| 2.5 | Pay after the invoice expired | Not credited; appears under Alerts as unmatched, with the amount |
+| 2.5 | Pay the **full** amount by Ark or Lightning after the invoice expired (within 3 hours) | The order still completes (a note says to check stock if the shop had cancelled it). To see the Alerts list instead, pay **part** of the amount after expiry, or pay more than 3 hours late: it appears under Alerts as unmatched, with the amount |
 | 2.6 | Restart the server mid-payment | Nothing lost or doubled after restart |
 
 **Run `scripts/drill_capture.sh` now.** In the saved `GET /api/v1/history`

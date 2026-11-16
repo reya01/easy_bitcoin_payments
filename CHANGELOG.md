@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Emergency withdrawal: clearer message when coins cannot be priced.** If the wallet cannot work out the exit fee because of coins received over Lightning, the page now says so in plain words instead of "try again later". The withdrawal stays blocked either way. Docs note that EBP never boards or pays Ark from regular Bitcoin funds, so the server's 50,000-sat board minimum cannot affect it.
+- **A full payment that arrives late now completes the order.** If a customer pays the whole amount by Ark or Lightning after the 20-minute countdown (the Ark server really honours Lightning invoices for 3 hours), the order is marked paid, with `invoice.paid_late` in the security activity list; a shop that had already cancelled the order is told to check stock. Part payments after expiry, extra payments on an order already paid (never counted twice), payments more than 3 hours late, payments on a cancelled order, and regular-Bitcoin payments after the deadline still go to "Payments that need you".
 
 ## 0.2.0-rc3 — release candidate: part-payment checkout, clearer setup and admin pages (14 November 2026)
 

@@ -259,18 +259,35 @@ impl PollingWatcher {
             }
 
             let address = payment.address.clone();
+            let seen_at = payment.detected_at;
             let invoice = self
                 .db
-                .call(move |conn| invoice::find_pending_by_address(conn, &address))
+                .call(move |conn| invoice::find_creditable_by_address(conn, &address, seen_at))
                 .await?;
             // R6: completed after the invoice's deadline (plus skew grace)?
             // Then it is a late payment even though `expire_due` has not
             // flipped the invoice yet; deterministic on the wallet's time.
             let mut late_reason: Option<&'static str> = None;
+            // A payment that covers the whole invoice on an instant rail
+            // (Ark, Lightning) still completes it for a few hours after the
+            // deadline: the ASP honours Lightning invoices for 3 hours.
             let invoice = invoice.filter(|i| {
                 if payment.detected_at > i.expires_at + invoice::LATE_PAYMENT_GRACE_SECS {
-                    late_reason = Some("paid_after_expiry");
-                    false
+                    let ok = invoice::late_full_payment_ok(
+                        i,
+                        payment.rail.as_str(),
+                        credited_amount(&payment, i),
+                        payment.detected_at,
+                    );
+                    if ok {
+                        tracing::info!(
+                            invoice_id = %i.id,
+                            "full payment arrived after the deadline; completing the order"
+                        );
+                    } else {
+                        late_reason = Some("paid_after_expiry");
+                    }
+                    ok
                 } else {
                     true
                 }
@@ -1159,6 +1176,164 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reason, "paid_after_expiry");
+    }
+
+    /// Expire `inv_1` as if its 20-minute countdown ended `ago` seconds back.
+    async fn expire_inv_1(db: &Db, ago: i64) {
+        db.call(move |c| {
+            c.execute(
+                "UPDATE invoices SET status = 'expired', expires_at = ?1 WHERE id = 'inv_1'",
+                [now_unix() - ago],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    fn late_watcher(db: &Db, payments: Vec<WalletPayment>) -> PollingWatcher {
+        PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments,
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        )
+    }
+
+    fn ark_payment(vtxo: &str, sats: i64) -> WalletPayment {
+        WalletPayment {
+            address: "ark1qinv_1".to_string(),
+            rail: Rail::Ark,
+            amount_sats: sats,
+            vtxo_id: Some(vtxo.to_string()),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        }
+    }
+
+    async fn count(db: &Db, sql: &'static str) -> i64 {
+        db.call(move |c| Ok(c.query_row(sql, [], |r| r.get(0))?))
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn full_payment_after_expiry_completes_the_order() {
+        let (db, store_id) = setup(vec![]).await;
+        expire_inv_1(&db, 600).await;
+        let watcher = late_watcher(&db, vec![ark_payment("v_late", 1000)]);
+        assert_eq!(watcher.tick().await.unwrap(), 1, "credited");
+        let inv = db
+            .call(move |c| invoice::get(c, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inv.status, InvoiceStatus::Paid);
+        assert_eq!(inv.paid_sats, 1000);
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            0
+        );
+        assert_eq!(
+            count(
+                &db,
+                "SELECT COUNT(*) FROM audit_log WHERE action = 'invoice.paid_late'"
+            )
+            .await,
+            1
+        );
+        // Polling the same history again changes nothing.
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn part_payment_after_expiry_is_still_parked() {
+        let (db, store_id) = setup(vec![]).await;
+        expire_inv_1(&db, 600).await;
+        let watcher = late_watcher(&db, vec![ark_payment("v_part", 400)]);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        let inv = db
+            .call(move |c| invoice::get(c, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inv.status, InvoiceStatus::Expired);
+        assert_eq!(inv.paid_sats, 0);
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn full_payment_long_after_expiry_is_parked() {
+        let (db, store_id) = setup(vec![]).await;
+        expire_inv_1(&db, 4 * 3600).await; // past the 3-hour late window
+        let watcher = late_watcher(&db, vec![ark_payment("v_vlate", 1000)]);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        let inv = db
+            .call(move |c| invoice::get(c, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inv.status, InvoiceStatus::Expired);
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn second_full_payment_after_a_late_completion_is_parked_as_extra() {
+        let (db, store_id) = setup(vec![]).await;
+        expire_inv_1(&db, 600).await;
+        let watcher = late_watcher(
+            &db,
+            vec![ark_payment("v_one", 1000), ark_payment("v_two", 1000)],
+        );
+        assert_eq!(watcher.tick().await.unwrap(), 1, "only the first counts");
+        let inv = db
+            .call(move |c| invoice::get(c, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inv.status, InvoiceStatus::Paid);
+        assert_eq!(inv.paid_sats, 1000, "never credited twice");
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_invoice_is_never_revived() {
+        let (db, store_id) = setup(vec![]).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET status = 'cancelled' WHERE id = 'inv_1'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let watcher = late_watcher(&db, vec![ark_payment("v_c", 1000)]);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        let inv = db
+            .call(move |c| invoice::get(c, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(inv.status, InvoiceStatus::Cancelled);
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            1
+        );
     }
 
     #[tokio::test]

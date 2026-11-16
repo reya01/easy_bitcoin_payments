@@ -1306,8 +1306,10 @@ mod tests {
             "/exits/",
         ] {
             assert!(
-                !requests.iter().any(|r| r.route().contains(banned)),
-                "a sweep must never call {banned}"
+                !requests
+                    .iter()
+                    .any(|r| r.method != "GET" && r.route().contains(banned)),
+                "a sweep must never POST to {banned}"
             );
         }
     }

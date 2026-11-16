@@ -240,7 +240,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
       <div id="ex-facts"></div>
       <p class="msg hidden" id="ex-refusal"></p>
       <div id="ex-deposit" class="hidden">
-        <h3>Step 1: put the fee money on the server</h3>
+        <h3 id="ex-fund-title">Step 1: put the fee money on the server</h3>
         <div id="ex-fee-rows"></div>
         <p class="msg" id="ex-fee-verdict"></p>
         <p class="muted" id="ex-deposit-need"></p>
@@ -270,6 +270,7 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
         <div class="btns"><button id="ex-claim" type="button" class="hidden">Send to my address</button><button id="ex-stop" type="button">Stop</button></div>
       </div>
       <div id="ex-left-box" class="hidden">
+        <p class="muted">This takes back the fee money on the server (the money set aside above), sending it to the address you typed.</p>
         <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
       </div>
       <p class="msg hidden" id="ex-msg"></p>
@@ -658,7 +659,7 @@ function loadHome() {
     USD = s.usd_per_btc > 0 ? Number(s.usd_per_btc) : null;
     tpPreview();
     var w = s.wallet || {};
-    var go = { late: "alerts", webhooks: "hooks" };
+    var go = { late: "alerts", webhooks: "hooks", reserve: "set" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };
     (s.checks || []).forEach(function (k) {
       var d = el("div", "", "check");
@@ -1250,7 +1251,33 @@ function loadExit() {
       api("POST", "/admin/exit/prepare", {}).then(function () { setTimeout(loadExit, 3000); }).catch(function () {});
     }
     var canGo = !running && s.allowed && s.two_step_on;
-    $("ex-deposit").classList.toggle("hidden", !canGo);
+    // Fee money can be set aside ahead of time, even when a withdrawal is not
+    // allowed right now (not enough on the server, fee unknown), but not on
+    // servers where the withdrawal is switched off.
+    var fund = !running && !s.switched_off && !canGo;
+    $("ex-deposit").classList.toggle("hidden", !(canGo || fund));
+    if (fund) {
+      var tgt = s.reserve_target_sats || 1500, cf = s.onchain_confirmed_sats || 0, pd = s.onchain_pending_sats || 0;
+      var short = Math.max(0, tgt - cf);
+      $("ex-fund-title").textContent = "Set aside fee money now (optional)";
+      var frows = $("ex-fee-rows"); clear(frows);
+      frows.appendChild(row("Fee money worth setting aside", fmtSats(tgt)));
+      frows.appendChild(row("On the server now (confirmed)", fmtSats(cf)));
+      if (pd > 0) frows.appendChild(row("Sent, waiting for 1 confirmation", fmtSats(pd)));
+      frows.appendChild(row("Still to send", short > 0 ? fmtSats(short) : "nothing"));
+      var fv = $("ex-fee-verdict");
+      if (short === 0) { fv.textContent = "\u2713 Set aside: the fee money is on the server and confirmed."; fv.className = "msg ok"; }
+      else if (cf + pd >= tgt) { fv.textContent = "Sent, waiting for 1 confirmation. This page checks again every minute."; fv.className = "msg warn"; }
+      else { fv.textContent = "Optional: send about " + fmtSats(short) + " to the address below so an emergency withdrawal can start whenever you need it."; fv.className = "msg muted"; }
+      var fn = $("ex-deposit-need");
+      fn.textContent = "Why? The network fees of an emergency withdrawal are paid from regular Bitcoin held on the server, which is normally empty. Hover for details.";
+      fn.title = "Automatic withdrawals only move Ark coins and never touch this money. You can take it back at any time with \u201cSend leftover to my address\u201d below (needs your password and code). Without it, you cannot start an emergency withdrawal on your own.";
+      $("ex-addr-box").classList.toggle("hidden", !(short > 0));
+      if (short > 0 && !exAddrShown) exFetchAddr();
+    } else if (canGo) {
+      $("ex-fund-title").textContent = "Step 1: put the fee money on the server";
+      $("ex-deposit-need").title = "";
+    }
     if (canGo && s.fee) {
       var needed = s.deposit_needed_sats, conf = s.onchain_confirmed_sats || 0, pend = s.onchain_pending_sats || 0;
       var rows = $("ex-fee-rows"); clear(rows);

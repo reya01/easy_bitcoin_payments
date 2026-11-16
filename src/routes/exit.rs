@@ -143,7 +143,9 @@ pub async fn status(
             .collect();
         ee::start_deadline(&expiries, delta)
     };
-    let refusal = match (switched_off(&state, &c, false).await, ark_sats) {
+    let off = switched_off(&state, &c, false).await;
+    let reserve_target = ee::reserve_target(fee.as_ref());
+    let refusal = match (off, ark_sats) {
         (Some(off), _) => Some(off.to_string()),
         (None, Some(a)) => ee::refusal_explained(a, fee.as_ref(), fee_error.as_deref()),
         (None, None) => {
@@ -167,6 +169,8 @@ pub async fn status(
         "allowed": refusal.is_none(),
         "refusal": refusal,
         "unpriceable": unpriceable,
+        "switched_off": off.is_some(),
+        "reserve_target_sats": reserve_target,
         "preparing_since": preparing_since,
         "in_progress_since": started_at,
         "live": live_view,

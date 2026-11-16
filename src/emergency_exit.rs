@@ -33,6 +33,19 @@ pub fn not_enabled_reason(mode: &str, wallet_network: Option<&str>) -> Option<&'
     )
 }
 
+/// Fee money worth setting aside ahead of time (regular Bitcoin on the
+/// server). Drill series 2: an exit needed about 350 sats of confirmed
+/// on-chain money to broadcast; this leaves room for fee swings.
+pub const RESERVE_TARGET_SATS: i64 = 1_500;
+
+/// The amount to suggest setting aside: the default, or twice the current
+/// broadcast-fee estimate when that is higher.
+pub fn reserve_target(fee: Option<&ExitFee>) -> i64 {
+    fee.map_or(RESERVE_TARGET_SATS, |f| {
+        RESERVE_TARGET_SATS.max(f.broadcast_sat.saturating_mul(2))
+    })
+}
+
 /// Below this many sats on the server an emergency withdrawal is refused.
 pub const MIN_EXIT_SATS: i64 = 100_000;
 /// The Ark balance must be at least this many times the projected fees.
@@ -257,6 +270,14 @@ mod tests {
         // No estimate: refused.
         let r = refusal(10_000_000, None).unwrap();
         assert!(r.contains("Could not estimate"), "{r}");
+    }
+
+    #[test]
+    fn the_suggested_fee_reserve_follows_the_estimate() {
+        assert_eq!(reserve_target(None), RESERVE_TARGET_SATS);
+        assert_eq!(reserve_target(Some(&fee(500))), RESERVE_TARGET_SATS);
+        // A busy fee market raises the suggestion.
+        assert!(reserve_target(Some(&fee(5_000))) > RESERVE_TARGET_SATS);
     }
 
     #[test]

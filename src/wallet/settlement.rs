@@ -1257,6 +1257,61 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn money_on_the_server_for_emergency_fees_is_never_moved_by_a_sweep() {
+        // 20,000 sats of regular Bitcoin sit on the server (the money an
+        // emergency withdrawal would pay its fees from). A sweep, manual or
+        // automatic, may only offboard Ark coins: nothing may touch that balance.
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 150000}"#.to_string()),
+            "/api/v1/fees/onchain" => (200, r#"{"fast_sat_per_vb": 20, "regular_sat_per_vb": 10, "slow_sat_per_vb": 5}"#.to_string()),
+            "/api/v1/wallet/offboard/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"), 100_000),
+        );
+        engine.tick().await.unwrap();
+        engine.sweep_now().await.unwrap();
+
+        let requests = recorded.lock().unwrap();
+        let moving: Vec<String> = requests
+            .iter()
+            .filter(|r| r.method != "GET")
+            .map(|r| r.route().to_string())
+            .filter(|r| r != "/api/v1/onchain/sync")
+            .collect();
+        assert!(
+            moving.iter().all(|r| r == "/api/v1/wallet/offboard/vtxos"),
+            "a sweep may only offboard Ark coins, saw {moving:?}"
+        );
+        for banned in [
+            "/onchain/drain",
+            "/onchain/send",
+            "/wallet/offboard/all",
+            "/exits/",
+        ] {
+            assert!(
+                !requests.iter().any(|r| r.route().contains(banned)),
+                "a sweep must never call {banned}"
+            );
+        }
+    }
+
     #[test]
     fn vtxo_selection_covers_the_excess_largest_first() {
         use crate::wallet::barkd::Vtxo;

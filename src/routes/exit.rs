@@ -197,9 +197,9 @@ pub async fn prepare(
         .await?
         .is_some();
     if running {
-        return Ok(
+        return Ok(Json(
             json!({ "started": false, "why": "an emergency withdrawal is already running" }),
-        );
+        ));
     }
     let answer = c.exit_fee(None).await;
     let unpriceable = answer
@@ -207,7 +207,7 @@ pub async fn prepare(
         .err()
         .is_some_and(|e| ee::fee_cannot_be_priced(&e.to_string()));
     if !unpriceable {
-        return Ok(json!({ "started": false, "why": "not needed" }));
+        return Ok(Json(json!({ "started": false, "why": "not needed" })));
     }
     let now = crate::util::now_unix();
     let last = state
@@ -216,9 +216,9 @@ pub async fn prepare(
         .await?
         .and_then(|v| v.parse::<i64>().ok());
     if let Some(wait) = ee::prepare_wait_secs(last, now) {
-        return Ok(
+        return Ok(Json(
             json!({ "started": false, "why": "already asked recently", "retry_in_secs": wait }),
-        );
+        ));
     }
     // Record first: a failed attempt must not be retried every minute.
     state
@@ -234,7 +234,7 @@ pub async fn prepare(
         })
         .await?;
     c.refresh_all().await.map_err(AppError::from)?;
-    Ok(json!({ "started": true }))
+    Ok(Json(json!({ "started": true })))
 }
 
 /// `POST /admin/exit/deposit-address` — the server's own on-chain address,

@@ -212,6 +212,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/sweep", post(payout::sweep_now))
         .route("/admin/exit/status", post(exit::status))
         .route("/admin/exit/deposit-address", post(exit::deposit_address))
+        .route("/admin/exit/prepare", post(exit::prepare))
         .route("/admin/alerts/status", post(alerts::get))
         .route("/admin/alerts/enable", post(alerts::enable))
         .route("/admin/alerts/disable", post(alerts::disable))

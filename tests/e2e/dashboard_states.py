@@ -291,6 +291,29 @@ def main():
             want(pr, "real address accepted on real money", p.inner_text("#ex-dest-note"), "Looks like a regular Bitcoin address")
 
         ok &= run_case(pw, "emergency withdrawal: on a real-money page a test address is caught", exit_handler(mode="live"), c_live)
+
+        def unpriceable_handler():
+            base = exit_handler()
+            def h(path, req, calls):
+                if path == "/admin/exit/status":
+                    return 200, {"min_exit_sats": 100000, "ark_sats": 500000, "fee": None, "onchain_confirmed_sats": 0, "onchain_pending_sats": 0,
+                                 "deposit_needed_sats": None, "deadline": 1900000000, "asp_connected": True, "two_step_on": True, "allowed": False,
+                                 "refusal": "The wallet cannot work out the fee yet for some of your coins. This page asks the server to refresh them automatically.",
+                                 "unpriceable": True, "preparing_since": None, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
+                if path == "/admin/exit/prepare":
+                    return 200, {"started": True}
+                return base(path, req, calls)
+            return h
+
+        def c_unpriceable(p, pr, calls):
+            open_exit(p)
+            p.wait_for_timeout(3500)  # the page re-reads after asking for the refresh
+            want(pr, "says why the fee is missing", p.inner_text("#ex-refusal"), "cannot work out the fee yet")
+            want(pr, "hover explains more", p.get_attribute("#ex-refusal", "title") or "", "Lightning")
+            if count(calls, "POST", "/admin/exit/prepare") != 1: pr.append("the refresh should be asked for once by itself, not on every refresh of the page")
+            if not p.is_disabled("#ex-start"): pr.append("Start must stay grey while the fee cannot be worked out")
+
+        ok &= run_case(pw, "emergency withdrawal: unpriceable coins are refreshed automatically, with a hover explanation", unpriceable_handler(), c_unpriceable)
     sys.exit(0 if ok else 1)
 
 

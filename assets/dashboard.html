@@ -1228,6 +1228,7 @@ function exFetchAddr() {
     $("ex-get-addr").classList.remove("hidden");
   }).then(function () { exAddrBusy = false; });
 }
+var exPrepared = false;
 function loadExit() {
   api("POST", "/admin/exit/status", {}).then(function (s) {
     exState = s;
@@ -1241,8 +1242,13 @@ function loadExit() {
     var running = !!s.in_progress_since || live.length > 0;
     var r = $("ex-refusal");
     if (!running && !s.two_step_on) { r.textContent = "Turn on two-step sign-in (above) first: an emergency withdrawal needs your password and a code from your authenticator app."; r.className = "msg bad"; }
-    else if (!running && s.refusal) { r.textContent = s.refusal; r.className = "msg bad"; }
+    else if (!running && s.refusal) { r.textContent = s.refusal; r.className = s.unpriceable ? "msg warn" : "msg bad"; }
     else { r.className = "msg hidden"; }
+    r.title = s.unpriceable ? "Coins that arrived over Lightning cannot be priced for an emergency withdrawal until a refresh turns them into standard coins. A refresh costs at most a few hundred sats and nothing leaves your server." : "";
+    if (s.unpriceable && !running && !exPrepared && !s.preparing_since) {
+      exPrepared = true;
+      api("POST", "/admin/exit/prepare", {}).then(function () { setTimeout(loadExit, 3000); }).catch(function () {});
+    }
     var canGo = !running && s.allowed && s.two_step_on;
     $("ex-deposit").classList.toggle("hidden", !canGo);
     if (canGo && s.fee) {

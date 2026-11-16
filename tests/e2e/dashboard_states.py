@@ -420,6 +420,30 @@ def main():
             want(pr, "play money wording", p.inner_text("#test-prompt"), "play money")
 
         ok &= run_case(pw, "test payment: play-money wording on a test server", tp_handler(mode="test"), c_tp_play)
+
+        # --- weekly wallet check: a new server waits a week
+        def recon_handler(due, last, nxt):
+            def h(path, req, calls):
+                if path == "/admin/reconcile/status":
+                    return 200, {"paid_orders": 2, "swept_sats": 0, "due": due, "days": 7, "paid_sats": 2000, "last_checked_at": last, "next_due_at": nxt}
+                return signed_in(path, req, calls)
+            return h
+
+        def c_recon_wait(p, pr, calls):
+            p.wait_for_timeout(300)
+            t = p.inner_text("#recon")
+            want(pr, "says the first check is not due yet", t, "your first one is due")
+            want(pr, "offers a check now", t, "Tap to check now")
+            if "Time for your weekly wallet check" in t: pr.append("a new server must not be told it is time yet")
+            if "done" in t.lower(): pr.append("must not say 'done' when no check has happened")
+
+        ok &= run_case(pw, "weekly wallet check: not due in a server's first week", recon_handler(False, None, 1900000000), c_recon_wait)
+
+        def c_recon_due(p, pr, calls):
+            p.wait_for_timeout(300)
+            want(pr, "due card", p.inner_text("#recon"), "Time for your weekly wallet check")
+
+        ok &= run_case(pw, "weekly wallet check: due after a week", recon_handler(True, None, 1700000000), c_recon_due)
     sys.exit(0 if ok else 1)
 
 

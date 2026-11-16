@@ -23,16 +23,35 @@ pub struct Summary {
     /// Sats this server says it sent on to the payout address in the window.
     pub swept_sats: i64,
     pub last_checked_at: Option<i64>,
-    /// Time for the weekly check: there is something to compare and it has
-    /// not been checked for a week.
+    /// When this server was set up (its store was created). The first weekly
+    /// check is due a week after this, not at the first payment.
+    pub started_at: Option<i64>,
+    /// When the next check falls due: a week after the last check, or after
+    /// setup if there has not been one yet.
+    pub next_due_at: Option<i64>,
+    /// Time for the weekly check: there is something to compare and a week
+    /// has passed since the last check (or since setup, for the first one).
     pub due: bool,
 }
 
-pub fn is_due(last_checked: Option<i64>, now: i64, paid_orders: i64, swept_sats: i64) -> bool {
+/// The moment a week is counted from: the last check, or setup for a server
+/// that has never been checked.
+fn baseline(last_checked: Option<i64>, started_at: Option<i64>) -> Option<i64> {
+    last_checked.or(started_at)
+}
+
+pub fn is_due(
+    last_checked: Option<i64>,
+    started_at: Option<i64>,
+    now: i64,
+    paid_orders: i64,
+    swept_sats: i64,
+) -> bool {
     if paid_orders == 0 && swept_sats == 0 {
         return false;
     }
-    match last_checked {
+    match baseline(last_checked, started_at) {
+        // No record of when the server started: ask rather than stay silent.
         None => true,
         Some(t) => now - t >= WINDOW_SECS,
     }
@@ -56,13 +75,17 @@ pub fn summary(conn: &Connection, now: i64) -> Result<Summary, AppError> {
         |r| r.get(0),
     )?;
     let last_checked_at = settings::get(conn, KEY)?.and_then(|v| v.parse::<i64>().ok());
+    let started_at: Option<i64> =
+        conn.query_row("SELECT MIN(created_at) FROM stores", [], |r| r.get(0))?;
     Ok(Summary {
         since,
         paid_orders,
         paid_sats,
         swept_sats,
         last_checked_at,
-        due: is_due(last_checked_at, now, paid_orders, swept_sats),
+        started_at,
+        next_due_at: baseline(last_checked_at, started_at).map(|t| t + WINDOW_SECS),
+        due: is_due(last_checked_at, started_at, now, paid_orders, swept_sats),
     })
 }
 
@@ -78,14 +101,45 @@ mod tests {
     #[test]
     fn due_only_when_there_is_something_to_compare_and_a_week_has_passed() {
         let now = 10_000_000;
-        assert!(!is_due(None, now, 0, 0), "nothing to compare yet");
-        assert!(is_due(None, now, 1, 0), "never checked");
+        let old = Some(now - WINDOW_SECS - 1);
+        let young = Some(now - 3600);
+        assert!(!is_due(None, old, now, 0, 0), "nothing to compare yet");
         assert!(
-            is_due(None, now, 0, 500),
+            is_due(None, old, now, 1, 0),
+            "never checked, a week since setup"
+        );
+        assert!(
+            is_due(None, old, now, 0, 500),
             "money was sent on, never checked"
         );
-        assert!(!is_due(Some(now - 3600), now, 5, 5), "checked an hour ago");
-        assert!(is_due(Some(now - WINDOW_SECS), now, 5, 5), "a week ago");
+        assert!(
+            !is_due(None, young, now, 1, 500),
+            "a new server waits a week before the first check"
+        );
+        assert!(
+            !is_due(None, Some(now - WINDOW_SECS + 60), now, 3, 3),
+            "one minute short of a week since setup"
+        );
+        assert!(
+            is_due(None, Some(now - WINDOW_SECS), now, 3, 3),
+            "exactly a week"
+        );
+        assert!(
+            is_due(None, None, now, 1, 0),
+            "no setup time on record: ask"
+        );
+        assert!(
+            !is_due(Some(now - 3600), old, now, 5, 5),
+            "checked an hour ago"
+        );
+        assert!(
+            is_due(Some(now - WINDOW_SECS), old, now, 5, 5),
+            "a week ago"
+        );
+        assert!(
+            !is_due(Some(now - 3600), None, now, 5, 5),
+            "a recent check counts even with no setup time"
+        );
     }
 
     #[tokio::test]
@@ -122,9 +176,18 @@ mod tests {
             let s = summary(c, now)?;
             assert_eq!((s.paid_orders, s.paid_sats, s.swept_sats), (3, 12777, 4000));
             assert!(s.due && s.last_checked_at.is_none());
+            assert_eq!(s.started_at, Some(1));
+            assert_eq!(s.next_due_at, Some(1 + WINDOW_SECS));
             mark_checked(c, now)?;
             let s = summary(c, now)?;
             assert!(!s.due && s.last_checked_at == Some(now));
+            assert_eq!(s.next_due_at, Some(now + WINDOW_SECS));
+            // A server set up just now is not due yet, even with money to compare.
+            c.execute("UPDATE stores SET created_at = ?1", params![now - 60])?;
+            c.execute("DELETE FROM settings WHERE key = ?1", params![KEY])?;
+            let s = summary(c, now)?;
+            assert!(!s.due, "a brand-new server waits a week");
+            assert_eq!(s.next_due_at, Some(now - 60 + WINDOW_SECS));
             Ok(())
         })
         .await

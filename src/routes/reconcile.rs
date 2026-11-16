@@ -22,6 +22,7 @@ fn view(s: &rc::Summary) -> Value {
         "paid_sats": s.paid_sats,
         "swept_sats": s.swept_sats,
         "last_checked_at": s.last_checked_at,
+        "next_due_at": s.next_due_at,
         "due": s.due,
     })
 }

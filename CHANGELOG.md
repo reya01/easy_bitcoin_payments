@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Emergency withdrawal: clearer message when coins cannot be priced.** If the wallet cannot work out the exit fee because of coins received over Lightning, the page now says so in plain words instead of "try again later". The withdrawal stays blocked either way. Docs note that EBP never boards or pays Ark from regular Bitcoin funds, so the server's 50,000-sat board minimum cannot affect it.
+
 ## 0.2.0-rc3 — release candidate: part-payment checkout, clearer setup and admin pages (14 November 2026)
 
 - **Admin page: confirmations, clearer messages, no silent failures.** Making a new signing secret, turning off payment notifications, making a new API key, stopping an emergency withdrawal and "Move my money now" now ask in the page first, with plain buttons ("Keep current" / "Make new secret"), and each says that the other side is your WooCommerce site, a different website from the admin page. (The browser's own pop-up box, which some in-app browsers block, is no longer used, so a guarded button can no longer silently do nothing.) After changing your password the sign-in screen says "Password changed. Sign in with your new password." The sign-in screen has "Forgot your password?" with a link to the reset guide, which says it happens in your payment server's Console. The weekly check, the update check and the phone-alert card say "We couldn't check ..." with a Try again button when they cannot load, instead of showing nothing. "Known issues in the docs" and "If something looks wrong" are real links. Problem messages are announced to screen readers.

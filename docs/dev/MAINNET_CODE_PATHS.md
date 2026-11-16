@@ -77,6 +77,19 @@ Each line names where to look in the code.
 - On mainnet the section opens but says it is switched off, shows the estimate,
   and the Start button stays disabled.
 
+## Rails and minimums (from the 2026-11-15 drills)
+
+- EBP never boards and never pays an Ark address out of regular Bitcoin funds,
+  so the wallet's "no auto-board" behaviour and the server's 50,000-sat
+  minimum board cannot hit any EBP flow. Sweeps move whole Ark coins
+  (`/wallet/offboard/vtxos`); the on-chain reserve only pays exit fees.
+  If a future change adds boarding, it must skip anything under 50,000 sats.
+- On the emergency-exit page, coins received over Lightning may not be
+  priceable until they are refreshed (barkd answers "Non-Standard VTXO ...
+  not relayable"). The page says so in plain words and keeps the Start button
+  blocked (it fails closed). Whether a refresh clears it is not yet confirmed
+  live.
+
 ## What to watch on test day
 
 - The first green or amber verdict on your own `ark1…` address (step 3).

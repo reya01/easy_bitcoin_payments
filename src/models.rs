@@ -60,6 +60,9 @@ impl InvoiceStatus {
                 | (Underpaid, Overpaid)
                 | (Underpaid, Underpaid)
                 | (Underpaid, Expired)
+                // A full Ark/Lightning payment inside the late window.
+                | (Expired, Paid)
+                | (Expired, Overpaid)
         )
     }
 }
@@ -201,12 +204,20 @@ mod tests {
         for terminal in [Paid, Overpaid, Expired, Cancelled] {
             assert!(terminal.is_terminal());
             for next in [Pending, Paid, Underpaid, Overpaid, Expired, Cancelled] {
+                // The one exception: an expired invoice completes when the
+                // whole amount arrives late on an instant rail.
+                if terminal == Expired && matches!(next, Paid | Overpaid) {
+                    continue;
+                }
                 assert!(
                     !terminal.can_transition_to(next),
                     "{terminal} must not reach {next}"
                 );
             }
         }
+        assert!(Expired.can_transition_to(Paid));
+        assert!(Expired.can_transition_to(Overpaid));
+        assert!(!Expired.can_transition_to(Underpaid));
         assert!(!Pending.is_terminal());
         assert!(!Underpaid.is_terminal());
     }

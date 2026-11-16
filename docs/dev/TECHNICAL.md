@@ -170,7 +170,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
-| `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Late payments that arrived after an invoice expired/closed (needs merchant action) (**admin session only**) |
+| `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Payments that could not complete an order: part payments after expiry, extra payments on a paid order, or anything more than 3 hours late (needs merchant action) (**admin session only**) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled (**admin session only**; the shop's API key is refused) |
 | `GET` | `/api/v1/webhook-deliveries?status=&limit=&offset=` | Webhook delivery log (this store) (**admin session only**) |
 | `POST` | `/api/v1/webhook-deliveries/{id}/resend` | Queue a delivery again (**admin session only**) |

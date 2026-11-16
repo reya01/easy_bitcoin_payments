@@ -46,6 +46,29 @@ pub fn status_after_payment(paid_total: i64, amount_due: i64) -> InvoiceStatus {
 /// happened to run first.
 pub const LATE_PAYMENT_GRACE_SECS: i64 = 120;
 
+/// How long past `expires_at` an Ark or Lightning payment that covers the
+/// whole invoice still completes it. Measured on mainnet (drill series 2):
+/// the ASP honours a Lightning invoice for 3 hours however short the
+/// requested expiry, so a customer can truly pay long after the 20-minute
+/// countdown ends. The sats amount was fixed when the invoice was made, so
+/// the shop is paid in full; the cap bounds how long the exchange rate
+/// can drift. Part payments and on-chain payments are never revived.
+pub const LATE_FULL_PAYMENT_SECS: i64 = 3 * 60 * 60;
+
+/// May a payment of `credited` sats seen at `detected_at` on `rail` still
+/// complete `invoice` after its deadline? Only a payment that brings the
+/// total to the full amount, on an instant rail, inside the late window.
+pub fn late_full_payment_ok(
+    invoice: &Invoice,
+    rail: &str,
+    credited: i64,
+    detected_at: i64,
+) -> bool {
+    rail != "onchain"
+        && detected_at <= invoice.expires_at.saturating_add(LATE_FULL_PAYMENT_SECS)
+        && invoice.paid_sats.saturating_add(credited) >= invoice.amount_sats
+}
+
 /// How long after its FIRST partial payment an underpaid invoice still
 /// accepts a top-up. Short on purpose: most payments are Lightning/Ark and
 /// arrive in seconds, and the rate lock bounds it further (an invoice never
@@ -425,6 +448,31 @@ pub fn find_pending_by_address(
     .map_err(Into::into)
 }
 
+/// Like [`find_pending_by_address`], but an `expired` invoice inside the
+/// late-payment window ([`LATE_FULL_PAYMENT_SECS`] past its deadline at
+/// `detected_at`) is found too, so a full late payment can complete it.
+/// Open invoices win over expired ones. The caller still decides whether
+/// the payment qualifies ([`late_full_payment_ok`]).
+pub fn find_creditable_by_address(
+    conn: &Connection,
+    address: &str,
+    detected_at: i64,
+) -> Result<Option<Invoice>, AppError> {
+    conn.query_row(
+        "SELECT * FROM invoices
+         WHERE (status IN ('pending', 'underpaid')
+                OR (status = 'expired' AND ?2 <= expires_at + ?3))
+           AND (ark_address = ?1 OR onchain_address = ?1
+                OR id = (SELECT invoice_id FROM ln_invoices
+                         WHERE bolt11 = ?1 LIMIT 1))
+         ORDER BY (status = 'expired'), created_at DESC LIMIT 1",
+        params![address, detected_at, LATE_FULL_PAYMENT_SECS],
+        row_to_invoice,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// Is this Ark address already attached to a payment request that can still
 /// be paid? Two open requests must never share one: a payment could then be
 /// credited to the wrong order.
@@ -671,10 +719,16 @@ pub fn record_payment(
         return Ok(None);
     };
 
-    if !matches!(
-        current.status,
-        InvoiceStatus::Pending | InvoiceStatus::Underpaid
-    ) {
+    // An expired invoice is revived only by a full Ark/Lightning payment
+    // inside the late window; anything else on it stays parked by the watcher.
+    let revived = current.status == InvoiceStatus::Expired
+        && late_full_payment_ok(&current, rail, amount_sats, detected_at);
+    if !revived
+        && !matches!(
+            current.status,
+            InvoiceStatus::Pending | InvoiceStatus::Underpaid
+        )
+    {
         return Ok(None);
     }
 
@@ -740,6 +794,15 @@ pub fn record_payment(
         params![invoice_id],
         row_to_invoice,
     )?;
+
+    if revived {
+        crate::audit::record(
+            &tx,
+            &updated.store_id,
+            "invoice.paid_late",
+            Some(invoice_id),
+        )?;
+    }
 
     tx.commit()?;
 

@@ -40,6 +40,8 @@ pub const RESERVE_MIN_SATS: i64 = 1_500;
 /// What to recommend: room for the fees to rise before it is needed.
 pub const RESERVE_RECOMMENDED_SATS: i64 = 5_000;
 pub const RESERVE_RECOMMENDED_HIGH_SATS: i64 = 10_000;
+const _: () = assert!(RESERVE_MIN_SATS < RESERVE_RECOMMENDED_SATS);
+const _: () = assert!(RESERVE_RECOMMENDED_SATS < RESERVE_RECOMMENDED_HIGH_SATS);
 
 /// The low end of the recommendation: the default, or twice the current
 /// broadcast-fee estimate when that is higher.
@@ -307,7 +309,6 @@ mod tests {
         assert!(reserve_target(Some(&fee(5_000))) > RESERVE_RECOMMENDED_SATS);
         assert_eq!(reserve_high(5_000), 10_000);
         assert_eq!(reserve_high(12_000), 24_000);
-        assert!(RESERVE_MIN_SATS < RESERVE_RECOMMENDED_SATS);
     }
 
     #[test]

@@ -25,6 +25,7 @@ main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;al
 .back{margin:16px 0 0;text-align:center}.back a{display:inline-block;padding:12px 18px;border-radius:var(--radius);border:1px solid var(--line);color:inherit;text-decoration:none}.back a.done{border-color:var(--ok);color:var(--ok);font-weight:600}
 .status.ok{border-color:var(--ok);color:var(--ok)}.status.warn{border-color:var(--warn);color:var(--warn)}.status.err{border-color:var(--err);color:var(--err)}
 .tip{border-bottom:1px dotted var(--muted);cursor:help}
+.ark-amount{margin:0 0 14px;padding:14px;border:2px solid var(--accent);border-radius:12px;text-align:center}.ark-amount .aa-top{font-size:15px;font-weight:650;margin:0 0 4px}.ark-amount .aa-num{font-size:34px;line-height:1.15;font-weight:800;margin:2px 0 6px;overflow-wrap:anywhere}.ark-amount .aa-why{font-size:13px;color:var(--muted);margin:0 0 8px}.ark-amount .btn{margin-top:4px}
 .method{margin:0 0 12px;font-size:14px;color:var(--muted);text-align:center}.method b{color:var(--fg)}
 .lead{margin:0 0 12px;font-size:15px}.lead b{font-weight:650}
 .btn{display:block;width:100%;padding:14px 16px;border-radius:var(--radius);border:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:16px;text-align:center;text-decoration:none;cursor:pointer;margin-top:10px}
@@ -45,6 +46,12 @@ details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px
 <div class="countdown" id="countdown" title="Bitcoin's price moves, so the store holds today's price for a short time."></div>
 <section class="card" id="pay-card">
 <p class="lead"><b>Pay from your Bitcoin wallet app.</b> Scan this code with it, or tap the button below if you are on your phone.</p>
+<div class="ark-amount hidden" id="ark-amount" role="note">
+<p class="aa-top">Your wallet will ask how much to send. Type exactly:</p>
+<p class="aa-num" id="ark-sats"></p>
+<p class="aa-why">An Ark code does not carry the amount, so you have to enter it yourself.</p>
+<button class="btn small" id="copy-ark-amount" type="button">Copy the number</button>
+</div>
 <div class="qr" id="qr">Use the button below to pay.</div>
 <p class="method" id="method"></p>
 <p class="ln-fee hidden" id="ln-fee"></p>
@@ -156,6 +163,11 @@ function render() {
   drawQr(s.copyValue);
   els.copyAddr.classList.toggle("hidden", !shown || s.copyValue === shown);
   if (link) { els.open.href = link; els.open.classList.remove("hidden"); } else { els.open.classList.add("hidden"); }
+  // Ark: the code has no amount in it, so the payer must type it. Make that the loudest thing on the card.
+  var arkDue = s.part ? s.part.remaining : (s.data ? Number(s.data.amount_sats) : 0);
+  var showArk = !!shown && s.tab === "ark" && arkDue > 0;
+  $("ark-amount").classList.toggle("hidden", !showArk);
+  if (showArk) { $("ark-sats").textContent = arkDue.toLocaleString("en-US") + " sats"; s.arkDue = arkDue; }
   if (s.part && shown && s.tab === "ark") {
     els.method.textContent = "Paying the rest with Ark. Your wallet asks for the amount: type in " + s.part.remaining.toLocaleString("en-US") + " sats.";
   } else if (s.part && shown) {
@@ -188,6 +200,7 @@ function copyText(t, btn, label) {
 // tapping the visible address, or "Copy address only", copies just the address.
 els.addr.addEventListener("click", function () { copyText(els.addr.textContent, els.copyAddr.classList.contains("hidden") ? els.copy : els.copyAddr, els.copyAddr.classList.contains("hidden") ? "Copy payment details" : "Copy address only"); });
 els.copy.addEventListener("click", function () { copyText(s.copyValue || els.addr.textContent, els.copy, "Copy payment details"); });
+$("copy-ark-amount").addEventListener("click", function () { copyText(String(s.arkDue || ""), $("copy-ark-amount"), "Copy the number"); });
 els.copyAddr.addEventListener("click", function () { copyText(els.addr.textContent, els.copyAddr, "Copy address only"); });
 // Once a payment is finished (paid, expired or cancelled) the pay details go
 // away, so nobody sends money to a request that is no longer open.

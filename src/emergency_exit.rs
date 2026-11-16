@@ -69,6 +69,11 @@ pub const EXIT_CLAIMABLE_KEY: &str = "exit_claimable";
 /// `EmergencyExitFeeEstimateResponse`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ExitFee {
+    /// barkd's own verdict: can the wallet pay for the exit transactions
+    /// right now? `Some(false)` is a hard stop (mainnet drill: an exit sat
+    /// stuck for hours with no confirmed on-chain money, and the broadcast
+    /// needed 352 sats although the fee estimate said 99). `None` = not said.
+    pub fundable: Option<bool>,
     /// CPFP fees to broadcast the exit transactions, including barkd's fee
     /// margin. Paid from the server's confirmed on-chain balance: the amount
     /// the owner must deposit first.
@@ -88,6 +93,7 @@ pub fn parse_fee(v: &Json) -> Option<ExitFee> {
     let claim_sat = int("claim_fee_sat")?;
     let total_sat = int("total_fee_sat").unwrap_or(broadcast_sat + claim_sat);
     Some(ExitFee {
+        fundable: v.get("fundable").and_then(Json::as_bool),
         broadcast_sat,
         claim_sat,
         total_sat: total_sat.max(broadcast_sat + claim_sat),
@@ -164,8 +170,20 @@ pub fn refusal(ark_sats: i64, fee: Option<&ExitFee>) -> Option<String> {
 
 /// How many more confirmed on-chain sats the server needs before the exit
 /// fees are covered (0 = enough).
+///
+/// The fee estimate alone is not enough: the exit transactions are paid for
+/// through a child transaction that needed 352 sats when the estimate said
+/// 99. So the floor is [`RESERVE_MIN_SATS`].
 pub fn deposit_still_needed(fee: &ExitFee, confirmed_onchain_sats: i64) -> i64 {
-    (fee.broadcast_sat - confirmed_onchain_sats.max(0)).max(0)
+    (fee.broadcast_sat.max(RESERVE_MIN_SATS) - confirmed_onchain_sats.max(0)).max(0)
+}
+
+/// A reason an exit must not start although the amounts look fine: the wallet
+/// says it cannot fund the exit (`fundable: false`).
+pub fn start_blocker(fee: &ExitFee) -> Option<String> {
+    (fee.fundable == Some(false)).then(|| {
+        "The wallet says it cannot pay for this withdrawal yet: it needs confirmed fee money (regular Bitcoin) on the server, and does not see enough. If you just sent some, wait for 1 confirmation and try again.".to_string()
+    })
 }
 
 /// The confirmed-only on-chain balance (`confirmed_sat`). Exit fees can only
@@ -254,6 +272,7 @@ mod tests {
 
     fn fee(total: i64) -> ExitFee {
         ExitFee {
+            fundable: None,
             broadcast_sat: total - 100.min(total),
             claim_sat: 100.min(total),
             total_sat: total,
@@ -335,6 +354,7 @@ mod tests {
         assert_eq!(
             parse_fee(&v),
             Some(ExitFee {
+                fundable: Some(false),
                 broadcast_sat: 4200,
                 claim_sat: 800,
                 total_sat: 5000,
@@ -357,6 +377,7 @@ mod tests {
     #[test]
     fn the_deposit_covers_the_broadcast_fees_from_confirmed_coins_only() {
         let f = ExitFee {
+            fundable: None,
             broadcast_sat: 4200,
             claim_sat: 800,
             total_sat: 5000,
@@ -365,6 +386,32 @@ mod tests {
         assert_eq!(deposit_still_needed(&f, 0), 4200);
         assert_eq!(deposit_still_needed(&f, 4000), 200);
         assert_eq!(deposit_still_needed(&f, 9000), 0);
+        // A tiny estimate still asks for the floor (drill: estimate 99, needed 352).
+        let tiny = ExitFee {
+            broadcast_sat: 99,
+            claim_sat: 17,
+            total_sat: 116,
+            ..f
+        };
+        assert_eq!(deposit_still_needed(&tiny, 0), RESERVE_MIN_SATS);
+        assert_eq!(deposit_still_needed(&tiny, 352), RESERVE_MIN_SATS - 352);
+        assert_eq!(deposit_still_needed(&tiny, RESERVE_MIN_SATS), 0);
+        // The wallet's own "cannot fund this" is a hard stop.
+        assert!(start_blocker(&ExitFee {
+            fundable: Some(false),
+            ..tiny
+        })
+        .is_some());
+        assert!(start_blocker(&ExitFee {
+            fundable: Some(true),
+            ..tiny
+        })
+        .is_none());
+        assert!(start_blocker(&ExitFee {
+            fundable: None,
+            ..tiny
+        })
+        .is_none());
         let bal: Json = serde_json::from_str(
             r#"{"total_sat": 6000, "trusted_spendable_sat": 6000, "immature_sat": 0,
                 "trusted_pending_sat": 2000, "untrusted_pending_sat": 500, "confirmed_sat": 4000}"#,

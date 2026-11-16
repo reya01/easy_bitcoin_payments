@@ -1187,7 +1187,8 @@ function exChecklist() {
   var needed = s.deposit_needed_sats;
   var waiting = s.onchain_pending_sats > 0 && s.fee && (s.onchain_confirmed_sats || 0) + s.onchain_pending_sats >= s.fee.broadcast_sat;
   var items = [
-    { ok: needed === 0, text: needed === 0 ? "Fee money is on the server and confirmed."
+    { ok: needed === 0 && s.fundable !== false, text: needed === 0 && s.fundable === false ? "Fee money is on the server, but the wallet does not count it as usable yet. This page tries again every minute."
+      : needed === 0 ? "Fee money is on the server and confirmed."
       : needed == null ? "The fee money needed could not be worked out just now. This page tries again every minute."
       : waiting ? "Fee money was sent and is waiting for 1 confirmation. This can take a while; nothing else is needed."
       : "Fee money: send at least " + fmtSats(needed) + " more to the address in Step 1." },
@@ -1208,7 +1209,7 @@ function exReady() {
   var note = $("ex-dest-note");
   note.textContent = d.empty ? "A regular Bitcoin (on-chain) address, not an Ark address." : d.text;
   note.className = "msg " + (d.empty ? "muted" : d.ok ? "ok" : "bad");
-  $("ex-start").disabled = !(s && s.allowed && s.two_step_on && s.deposit_needed_sats === 0 && !s.in_progress_since && !(s.live || []).length &&
+  $("ex-start").disabled = !(s && s.allowed && s.two_step_on && s.deposit_needed_sats === 0 && s.fundable !== false && !s.in_progress_since && !(s.live || []).length &&
     $("ex-ok").checked && $("ex-pw").value && $("ex-code").value.trim() && d.ok);
   exChecklist();
 }
@@ -1289,7 +1290,8 @@ function loadExit() {
       if (pend > 0) rows.appendChild(row("Sent, waiting for 1 confirmation", fmtSats(pend)));
       rows.appendChild(row("Still to send", needed > 0 ? fmtSats(needed) : "nothing"));
       var v = $("ex-fee-verdict");
-      if (needed === 0) { v.textContent = "\u2713 Enough: the fee money is on the server and confirmed."; v.className = "msg ok"; }
+      if (needed === 0 && s.fundable === false) { v.textContent = "Not usable yet: the wallet does not count the fee money as usable. This page checks again every minute."; v.className = "msg warn"; }
+      else if (needed === 0) { v.textContent = "\u2713 Enough: the fee money is on the server and confirmed."; v.className = "msg ok"; }
       else if (conf + pend >= s.fee.broadcast_sat) { v.textContent = "\u2717 Not confirmed yet: the money was sent and is waiting for 1 confirmation. This page checks again every minute."; v.className = "msg warn"; }
       else { v.textContent = "\u2717 Not enough yet: send at least " + fmtSats(needed) + " more to the address below."; v.className = "msg warn"; }
       $("ex-deposit-need").textContent = needed > 0

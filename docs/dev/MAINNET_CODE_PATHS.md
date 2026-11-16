@@ -89,6 +89,16 @@ Each line names where to look in the code.
   was started, the server stays paused.
 - On mainnet the section opens but says it is switched off, shows the estimate,
   and the Start button stays disabled.
+- Fee money (regular Bitcoin on the server): an exit needs about 350 sats of
+  confirmed regular Bitcoin to broadcast even when the fee estimate says about
+  100 (drill: an exit sat stuck for hours with none). The page asks for at least
+  1,500 sats and recommends 5,000 to 10,000 in case fees rise. It can be set
+  aside ahead of time (Settings, Emergency; Home shows a line), automatic
+  withdrawals never touch it, and "Send leftover to my address" takes it back.
+  If barkd reports it cannot fund the exit (`fundable: false`), Start stays grey
+  and the server refuses.
+- An exit is day-scale: about a day of waiting after the exit transactions
+  confirm, then a claim. It survives a server restart.
 
 ## Rails and minimums (from the 2026-11-15 drills)
 

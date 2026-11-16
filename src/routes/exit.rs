@@ -162,6 +162,7 @@ pub async fn status(
         "fee": fee,
         "onchain_confirmed_sats": confirmed,
         "onchain_pending_sats": pending,
+        "fundable": fee.as_ref().and_then(|f| f.fundable),
         "deposit_needed_sats": fee.map(|f| ee::deposit_still_needed(&f, confirmed.unwrap_or(0))),
         "deadline": deadline,
         "asp_connected": connected,
@@ -364,6 +365,10 @@ pub async fn start(
         return Err(AppError::BadRequest(format!(
             "The network fees are paid from the server's own on-chain balance, which needs {need} more confirmed sats. Send them to the deposit address shown on this page, wait for 1 confirmation, then try again."
         )));
+    }
+
+    if let Some(why) = ee::start_blocker(&fee) {
+        return Err(AppError::BadRequest(why));
     }
 
     c.start_exit_all().await?;

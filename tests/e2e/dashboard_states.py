@@ -280,6 +280,25 @@ def main():
             want(pr, "verdict says waiting, not missing", p.inner_text("#ex-fee-verdict"), "waiting for 1 confirmation")
             want(pr, "checklist says waiting", p.inner_text("#ex-checks"), "waiting for 1 confirmation")
 
+        def fundable_handler():
+            base = exit_handler(confirmed=1500, needed=0)
+            def h(path, req, calls):
+                if path == "/admin/exit/status":
+                    code, body = base(path, req, calls)
+                    body["fundable"] = False
+                    return code, body
+                return base(path, req, calls)
+            return h
+
+        def c_unfundable(p, pr, calls):
+            open_exit(p)
+            p.fill("#ex-dest", TB); p.fill("#ex-pw", "pw"); p.fill("#ex-code", "123456"); p.check("#ex-ok")
+            want(pr, "says the wallet does not count it", p.inner_text("#ex-fee-verdict"), "Not usable yet")
+            want(pr, "checklist says so", p.inner_text("#ex-checks"), "does not count it as usable")
+            if not p.is_disabled("#ex-start"): pr.append("Start must stay grey while the wallet says it cannot fund the withdrawal")
+
+        ok &= run_case(pw, "emergency withdrawal: the wallet's own cannot-fund warning keeps Start grey", fundable_handler(), c_unfundable)
+
         ok &= run_case(pw, "emergency withdrawal: money sent but not confirmed yet says so", exit_handler(confirmed=0, pending=900, needed=894), c_wait)
 
         def c_live(p, pr, calls):

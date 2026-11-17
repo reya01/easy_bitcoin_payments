@@ -34,16 +34,23 @@ mainnet" does not apply to them:
 
 - Emergency exit: automatic refresh before pricing, the optional "set aside
   fee money" box, the 1,500-sat floor with 5,000 to 10,000 recommended, the
-  hard stop when the wallet cannot fund the exit, the outside-wallet wording.
-- Amounts in error messages shown in sats, clearer Alerts wording.
+  hard stop when the wallet cannot fund the exit, the outside-wallet wording,
+  and the lower 50,000-sat minimum.
+- Settings tab: every section folded to a heading, a one-sentence summary and
+  an Expand button.
+- Phone alerts: the Home "Set up now" button leading to the steps, and the QR
+  code removed. Copy-and-paste setup and a test alert worked on a real phone
+  (16 November); the "open in ntfy" tap link is still untried.
 - The optional first test payment (setup page and Home; the live server already
-  had paid payments, so the Home card stayed hidden) and the phone-alerts
-  setup fix (Set up now leads to the steps in Settings).
+  had paid payments, so the Home card stayed hidden).
+- Amounts in error messages shown in sats, clearer Alerts wording, and a
+  checkout fix so the link back to the shop keeps the right wording.
 
-The next real-money session should look at these: set up phone alerts from
-Home after updating; set up a fresh server and look at the test-payment prompt
-on its setup page and Home; and, when there is enough on the server, open the
-emergency-exit page.
+The next real-money session should look at these: update the server and look
+at the folded Settings tab; set up phone alerts from Home; set up a fresh
+server and look at the test-payment prompt on its setup page and Home (a play
+money server shows the same screens); and, when there is enough on the server,
+open the emergency-exit page.
 
 ## 3. Still open
 

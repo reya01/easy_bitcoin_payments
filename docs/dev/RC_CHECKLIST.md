@@ -1,5 +1,10 @@
 # Release candidate checklist
 
+> For the first release meant to be tried with real money, start with
+> [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md): what is confirmed on
+> mainnet, what is not, and the decisions left. This file still holds the release
+> steps and the signet-era notes.
+
 Goal of the first tag: a **release candidate** (`v0.1.0-rc1`) that testers can
 install with play money (signet) and that has a documented, short list of
 things it does not do. **Not** a "ready for real money" release.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Easy Bitcoin Payments for WooCommerce
  * Description:       Accept Bitcoin in WooCommerce through your own Easy Bitcoin Payments server.
- * Version:           0.2.0-rc3
+ * Version:           0.2.0-rc4
  * Requires at least: 6.2
  * Requires PHP:      7.4
  * License:           MIT
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EBP_BITCOIN_VERSION', '0.2.0-rc3' );
+define( 'EBP_BITCOIN_VERSION', '0.2.0-rc4' );
 define( 'EBP_BITCOIN_FILE', __FILE__ );
 
 add_action(

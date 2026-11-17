@@ -13,7 +13,8 @@ do not need a terminal.
 > recovery words.** Describe what you see instead, or hide those values first.
 
 **This page sets up a test server with play money (signet).** Real bitcoin
-(mainnet) is possible but experimental and not yet tried with real money; it has
+(mainnet) is possible and has been tried end to end with small amounts of real
+money, but it is still experimental; it has
 to be chosen before setup, so read [Real money (experimental)](#real-money-experimental)
 first if you want it.
 
@@ -190,8 +191,8 @@ one network when you press **Create wallet**. To use real bitcoin:
    server's Console** (log in as `root`): `cd /opt/ebp`, then
    `echo "EBP_MAX_INVOICE_SATS=5000" >> .env`, then `./scripts/start.sh`.
 4. Test with a product priced under one dollar. Keep only small amounts on this
-   server: the emergency withdrawal (Settings) is new on real money and has only
-   been tried in small tests.
+   server: the emergency withdrawal (Settings) has been run once from start to
+   finish on real money (about a day, about 0.7% in fees) but is new.
 
 At the end of setup the server restarts once by itself to switch to real
 money; if the page stops answering for about a minute, wait, then refresh.

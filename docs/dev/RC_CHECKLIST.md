@@ -75,14 +75,15 @@ open box.
 1. `main` is green and the manual **Release dry run** (Actions → release → Run
    workflow, on `main`) is green. Download the `dry-run-release-files` artifact
    and look at it: one `ebp-*.tar.gz` (x86-64), the plugin zip, `SHA256SUMS`.
-2. Move the `Unreleased` section of `CHANGELOG.md` under a `0.1.0-rc1` heading,
-   and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
+2. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
+   heading (for the next one, `0.2.0-rc4`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
    so Home and the Plugins page show which build is running. The release
    workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
    before building if any of these disagree with the tag (you can run it
    yourself first).
-3. Tag `v0.1.0-rc1` on `main` and push it. The `-rc1` suffix makes the workflow
+3. Tag the new version (for example `v0.2.0-rc4`) on `main` and push it. The
+   `-rcN` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.
 4. Watch the release run. Then check: assets present, `SHA256SUMS` matches,
@@ -95,32 +96,35 @@ open box.
 
 ## 5. Draft release notes (edit after the drills)
 
-For a release candidate with the mainnet changes, replace the signet-only line
-below with: "Play money (signet) is the default. Real bitcoin can be switched on
-(`EBP_MODE=live`, see START_HERE) but is experimental and not yet tried with real
-money: if you do, use only a few thousand sats you can afford to lose. The
-emergency withdrawal is new on real money and only tried in small tests."
+Draft for the first release candidate that has been tried with real money. The
+facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md).
 
-> **v0.1.0-rc1 — release candidate, play money only**
+> **v0.2.0-rc4 — release candidate: first real-money tests**
 >
-> Easy Bitcoin Payments takes Bitcoin payments (over Ark) into a wallet you
-> control, with a WooCommerce plugin and a no-terminal DigitalOcean install.
+> Easy Bitcoin Payments takes Bitcoin payments (Lightning and Ark) into a wallet
+> you control, with a WooCommerce plugin and a no-terminal DigitalOcean install.
 >
-> **Please test with signet coins only. Do not use real bitcoin.**
+> Play money (signet) is the default. Real bitcoin can be switched on
+> (`EBP_MODE=live`, see `docs/START_HERE.md`) and has been used end to end on a
+> small scale: payments over Lightning and Ark, a WooCommerce shop, payouts to
+> the owner's own wallet, and a full emergency withdrawal. It is still
+> experimental. Use only an amount you can afford to lose, keep payments small
+> (the server can cap each one), and read `docs/KNOWN_ISSUES.md` first. The
+> emergency withdrawal takes at least a day, needs a little regular Bitcoin on
+> the server for fees (at least 1,500 sats), and should pay an address in a
+> wallet you hold outside the server (minimum 50,000 sats).
 >
-> What works (tested automatically): setup wizard, payments (Ark, and on-chain
-> when you turn it on), underpay/overpay handling, webhooks, WooCommerce
-> checkout and order updates, encrypted backup and restore, upgrades that keep
-> your data, phone alerts, a weekly own-wallet check, a shop-side warning if the
-> payment server stops answering or orders stop being paid.
+> New since rc3: a late full payment still completes the
+> order, an Ark amount box at checkout, an optional first test payment, a
+> weekly wallet check that starts a week after setup, a Settings tab with every
+> section folded, and a phone-alerts setup that leads to its steps.
 >
-> Not yet verified by a person on live infrastructure: the real-wallet signet
-> run, a real DigitalOcean server, phone alerts on a real phone.
+> Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >
 > Not included: Shopify, Lightning payouts, refunds, automatic updates.
 >
-> Install: `docs/START_HERE.md` (no terminal) or `docs/START_HERE.md`.
-> Verify the download with the checksums and signature in this release.
+> Install: `docs/START_HERE.md` (no terminal). Verify the download with the
+> checksums and signature in this release.
 
 ## 6. When live mode exists
 

@@ -193,6 +193,7 @@ or show customers a wrong address. So:
   PHP version; ask your host if it includes that update.
 - Turn on automatic updates for WordPress, WooCommerce and plugins; remove plugins
   you do not use; use two-step sign-in on WordPress admin accounts.
+- Keep third-party scripts on your shop to a minimum (analytics, chat, A/B testing, tag managers), and ask your host or developer about a strict Content Security Policy. A hacked script vendor can change what visitors see on your shop; see [KEEPING_WORDPRESS_SAFE.md](KEEPING_WORDPRESS_SAFE.md).
 - Never install WordPress or other PHP on the payment server.
 - Optional: on your payment server's **Connect** tab, limit the API key to your shop's
   server address; and in Settings you can pause new payments instantly.

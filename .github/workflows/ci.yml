@@ -29,6 +29,9 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
+      - name: SQL values are bound, never pasted into the query text
+        run: python3 scripts/check_sql_safety.py
+
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 

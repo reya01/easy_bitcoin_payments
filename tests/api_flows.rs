@@ -2791,3 +2791,156 @@ fn the_settings_page_folds_the_emergency_withdrawal_away_behind_a_warning() {
         ..page.find("<section id=\"v-orders\"").unwrap()];
     assert!(!home.contains("ex-"), "not on Home");
 }
+
+/// Text that looks like SQL, a script or a spreadsheet formula must be kept
+/// as plain text: stored and read back exactly, never run, never matching
+/// other rows, and the tables must survive it.
+#[tokio::test]
+async fn hostile_text_is_kept_as_plain_text_and_never_runs_as_code() {
+    let (base, state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+
+    let hostile = [
+        "wc-1'; DROP TABLE invoices; --",
+        "' OR '1'='1",
+        "1); DELETE FROM stores; --",
+        "x' || (SELECT api_key_hash FROM stores LIMIT 1) || '",
+        "\" OR \"\"=\"",
+        "100%",
+        "a_b\\c",
+        "<script>alert(1)</script>",
+        "=HYPERLINK(\"http://example.invalid\",\"x\")",
+        "wc-1",
+    ];
+    let mut made: Vec<(String, String, i64)> = Vec::new(); // (order, invoice id, sats)
+    for (n, order) in hostile.iter().enumerate() {
+        let sats = 1_000 + n as i64;
+        let (status, body) = create(&client, &base, &key, order, sats).await;
+        assert!(
+            status == 201 || status == 400,
+            "{order:?} must be accepted or refused, never a server error (got {status})"
+        );
+        if status == 201 {
+            made.push((
+                order.to_string(),
+                body["id"].as_str().unwrap().to_string(),
+                sats,
+            ));
+        }
+    }
+    assert!(made.len() >= 8, "ordinary-looking hostile text is accepted");
+
+    // Every one reads back exactly as sent.
+    for (order, id, _) in &made {
+        let got = client
+            .get(format!("{base}/api/v1/invoices/{id}"))
+            .header("host", "localhost")
+            .bearer_auth(&key)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(got.status(), 200);
+        let json: serde_json::Value = got.json().await.unwrap();
+        assert_eq!(json["order_id"].as_str(), Some(order.as_str()));
+    }
+
+    // The tables are all still there and nothing extra appeared or vanished.
+    let (invoices, stores) = state
+        .db
+        .call(|c| {
+            let i: i64 = c.query_row("SELECT COUNT(*) FROM invoices", [], |r| r.get(0))?;
+            let s: i64 = c.query_row("SELECT COUNT(*) FROM stores", [], |r| r.get(0))?;
+            Ok((i, s))
+        })
+        .await
+        .unwrap();
+    assert_eq!(invoices as usize, made.len());
+    assert_eq!(stores, 1);
+
+    // The same hostile order and amount is the same payment (idempotent) ...
+    let (order, id, sats) = made
+        .iter()
+        .find(|(o, _, _)| o == "' OR '1'='1")
+        .expect("the quote-and-OR text is accepted as an ordinary order id");
+    let (again, body) = create(&client, &base, &key, order, *sats).await;
+    assert_eq!(again, 200);
+    assert_eq!(body["id"].as_str(), Some(id.as_str()));
+    // ... but a quote or % in one order id never matches another order.
+    let (plain_status, plain) = create(&client, &base, &key, "wc-2", *sats).await;
+    assert_eq!(plain_status, 201, "a different order is a new payment");
+    assert_ne!(plain["id"].as_str(), Some(id.as_str()));
+
+    // Hostile text in a URL path or a key finds nothing and breaks nothing.
+    for path in [
+        "/api/v1/invoices/%27%20OR%20%271%27%3D%271",
+        "/i/%27%20OR%20%271%27%3D%271/json",
+        "/i/%27%3B%20DROP%20TABLE%20invoices%3B--/status",
+    ] {
+        let r = client
+            .get(format!("{base}{path}"))
+            .header("host", "localhost")
+            .bearer_auth(&key)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            r.status().as_u16() == 404 || r.status().as_u16() == 400,
+            "{path} gave {}",
+            r.status()
+        );
+    }
+    let bad_key = client
+        .get(format!("{base}/api/v1/invoices/{}", made[0].1))
+        .header("host", "localhost")
+        .bearer_auth("' OR '1'='1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad_key.status(), 401);
+
+    // The customer's checkout data is JSON with a JSON content type and
+    // nosniff, so script text in an order id is data, not markup; the
+    // checkout page itself never echoes it.
+    let script_invoice = made
+        .iter()
+        .find(|(o, _, _)| o.contains("<script>"))
+        .expect("the script text is accepted as an ordinary order id");
+    let json = client
+        .get(format!("{base}/i/{}/json", script_invoice.1))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert!(json.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("application/json"));
+    assert_eq!(json.headers()["x-content-type-options"], "nosniff");
+    let page = client
+        .get(format!("{base}/i/{}", script_invoice.1))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(!page.contains("<script>alert(1)</script>"));
+
+    // A spreadsheet formula in an order id is defused in the CSV export.
+    let csv = client
+        .get(format!("{base}/api/v1/invoices.csv"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        csv.contains("'=HYPERLINK"),
+        "formula is prefixed with a quote"
+    );
+    assert!(!csv.contains(",=HYPERLINK") && !csv.contains("\"=HYPERLINK"));
+}

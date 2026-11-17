@@ -90,8 +90,8 @@ workflow, published by immutable digest (there is deliberately no `latest` tag),
 signed keylessly with sigstore/cosign, and carry build provenance and an SBOM. The
 release notes list the digest and the exact `cosign verify` command. To pin a
 deployment, use `image: ghcr.io/<owner>/<repo>@sha256:<digest>`. Releases are cut by
-pushing a `v*` tag, which builds the x86_64 and aarch64 binaries, `SHA256SUMS`, the
-GitHub release and the multi-arch image. Maintainer to-do (a repository setting):
+pushing a `v*` tag, which builds the x86_64 binary (x86-64 only for now; ARM is planned
+for v1.0), `SHA256SUMS`, the GitHub release and the image. Maintainer to-do (a repository setting):
 protect the `v*` tag pattern so only maintainers can create release tags. The release
 workflow has not been run yet; run it on a test tag before the first real release.
 

@@ -6,12 +6,11 @@
 # publish step CI performs.
 #
 # Usage:
-#   scripts/release.sh                                  # both targets
+#   scripts/release.sh                                  # the default target
 #   scripts/release.sh x86_64-unknown-linux-musl        # one target
 #
-# aarch64 on an x86_64 host needs a cross toolchain — the workflow avoids
-# that by building on a native arm64 runner; locally, either run this on
-# an arm64 box or use `cross`:
+# Releases are x86_64 only for now (ARM returns at v1.0). To build an aarch64
+# binary yourself, run this on an arm64 box or use `cross`:
 #   cargo install cross
 #   CROSS_BUILD=1 scripts/release.sh aarch64-unknown-linux-musl
 set -euo pipefail
@@ -21,7 +20,7 @@ cd "$(dirname "$0")/.."
 if [ $# -gt 0 ]; then
   TARGETS=("$@")
 else
-  TARGETS=(x86_64-unknown-linux-musl aarch64-unknown-linux-musl)
+  TARGETS=(x86_64-unknown-linux-musl)
 fi
 
 DIST="dist"
@@ -51,4 +50,4 @@ echo "CI publishes these on a v* tag push (nothing here publishes):"
 echo "  git tag v0.1.0 && git push origin v0.1.0"
 echo "The workflow then creates the GitHub release (tarballs + SHA256SUMS)"
 echo "and pushes ghcr.io/<owner>/<repo>:v0.1.0 (no moving 'latest' tag, on purpose)"
-echo "for amd64+arm64, signed by digest."
+echo "for amd64, signed by digest."

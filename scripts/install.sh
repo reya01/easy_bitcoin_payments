@@ -14,11 +14,11 @@ REPO="reya01/easy_bitcoin_payments"
 
 case "$(uname -s).$(uname -m)" in
   Linux.x86_64 | Linux.amd64) TARGET="x86_64-unknown-linux-musl" ;;
-  Linux.aarch64 | Linux.arm64) TARGET="aarch64-unknown-linux-musl" ;;
   *)
     echo "error: unsupported platform $(uname -s) $(uname -m) — the release"
-    echo "ships x86_64 and aarch64 Linux musl binaries; on anything else"
-    echo "build from source: https://github.com/${REPO}"
+    echo "ships an x86_64 Linux musl binary only for now (ARM support is planned"
+    echo "for v1.0); on anything else build from source:"
+    echo "https://github.com/${REPO}"
     exit 1
     ;;
 esac

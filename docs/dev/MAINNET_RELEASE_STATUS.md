@@ -49,10 +49,6 @@ emergency-exit page.
 
 Needs a real-money test or an answer from someone else:
 
-- Spending exited coins into a wallet kept on the server needs the wallet's
-  database file (not yet tested). The guide now tells owners to send the claim
-  to an outside wallet, which avoids this path; the backup guide already says
-  the database file, not only the 12 words, carries an exit in progress.
 - Lightning claims depend on mailbox notifications; a missed one stayed stuck
   for hours in the drills. Ask Second how claims are issued and whether a
   missed one can be retried.
@@ -64,10 +60,19 @@ Needs a real-money test or an answer from someone else:
   small coins start losing a real share.
 - A first payment on an empty till: kept as a note in the test sheet only.
 
+Decided (16 November 2026):
+
+- Spending exited coins into a wallet kept on the server needs the wallet's
+  database file and is untested. Closed by wording: the screen and guide tell
+  owners to send the claim to an outside wallet, which the real exit test showed
+  works directly. The backup guide already says the database file carries an
+  exit in progress.
+- The emergency-exit floor is 50,000 sats (was 100,000): a full real exit cost
+  about 700 sats. Moving money to the payout address stays the better first
+  choice.
+
 Decisions for the owner:
 
-- The 100,000-sat floor for emergency exits. The measured total cost was about
-  700 sats, so a lower floor is defensible; how low is the owner's call.
 - Public name, security reports setting, protected tags, stale branches
   (`RC_CHECKLIST.md` section 3).
 - Held pull requests: Dependabot #163, #165, #166 and docs PR #150.

@@ -218,7 +218,7 @@ def main():
                 if path == "/api/v1/admin/status":
                     return 200, {"checks": [], "counters": {}, "wallet": {}, "mode": mode, "usd_per_btc": 67000}
                 if path == "/admin/exit/status":
-                    return 200, {"min_exit_sats": 100000, "ark_sats": 500000, "fee": {"broadcast_sat": 894, "claim_sat": 28, "total_sat": 922, "txs_to_broadcast": 3},
+                    return 200, {"min_exit_sats": 50000, "ark_sats": 500000, "fee": {"broadcast_sat": 894, "claim_sat": 28, "total_sat": 922, "txs_to_broadcast": 3},
                                  "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": needed, "deadline": 1900000000,
                                  "asp_connected": True, "two_step_on": True, "allowed": True, "refusal": None, "in_progress_since": None, "live": [],
                                  "claimable": False, "destination": None}
@@ -315,7 +315,7 @@ def main():
             base = exit_handler()
             def h(path, req, calls):
                 if path == "/admin/exit/status":
-                    return 200, {"min_exit_sats": 100000, "ark_sats": 500000, "fee": None, "onchain_confirmed_sats": 0, "onchain_pending_sats": 0,
+                    return 200, {"min_exit_sats": 50000, "ark_sats": 500000, "fee": None, "onchain_confirmed_sats": 0, "onchain_pending_sats": 0,
                                  "deposit_needed_sats": None, "deadline": 1900000000, "asp_connected": True, "two_step_on": True, "allowed": False,
                                  "refusal": "The wallet cannot work out the fee yet for some of your coins. This page asks the server to refresh them automatically.",
                                  "unpriceable": True, "preparing_since": None, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
@@ -338,7 +338,7 @@ def main():
             base = exit_handler(mode=mode)
             def h(path, req, calls):
                 if path == "/admin/exit/status":
-                    return 200, {"min_exit_sats": 100000, "ark_sats": 5000, "fee": {"broadcast_sat": 300, "claim_sat": 50, "total_sat": 350, "txs_to_broadcast": 1},
+                    return 200, {"min_exit_sats": 50000, "ark_sats": 5000, "fee": {"broadcast_sat": 300, "claim_sat": 50, "total_sat": 350, "txs_to_broadcast": 1},
                                  "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": 0, "deadline": 1900000000,
                                  "asp_connected": True, "two_step_on": True, "allowed": False, "refusal": "Not worth it right now.", "unpriceable": False,
                                  "switched_off": switched_off, "reserve_min_sats": 1500, "reserve_target_sats": 5000, "reserve_high_sats": 10000, "in_progress_since": None, "live": [], "claimable": False, "destination": None}

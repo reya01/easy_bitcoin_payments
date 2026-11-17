@@ -19,7 +19,7 @@ DASH = open(os.path.join(ROOT, "assets", "dashboard.html")).read()
 QR = open(os.path.join(ROOT, "assets", "qr.js")).read()
 ORIGIN = "http://ebp.test"
 SHOTS = os.environ.get("SHOTS")
-ARK_OK = "ark1pu6h30w3zqqp925mq7na5tp0g9e38dr0ehcm5knhn3t54nyn5vv96stcu993fkxpzqyp68xugqvak7kyzzpjeuwg8sa0083yvkts40sl0vah9wa9z9sl8ulcdexg9g"
+ARK_OK = "ark1pu6h30ws3zgf3g9gkzuvpjxsmrsw3u8eqyy3zxfp9ycnjs2f29vkz6t30xqcnyve5x5mrwwpe8ganc0f78aqyzsjrg3z5v36gf99yknzdfe84q52j2d2924srr43da"
 
 # The wording below is the server's (src/payout.rs); the page only shows it.
 VERDICTS = {

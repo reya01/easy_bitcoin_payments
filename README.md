@@ -1,13 +1,16 @@
 # Easy Bitcoin Payments
 
-**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **testing**: play money by default, real bitcoin only in tiny amounts.
+**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **testing**: play money by default, real bitcoin only in small amounts.
 
-> **⚠ EXPERIMENTAL: NOT FOR REAL FUNDS.** This is pre-release software. Its wallet
-> integration has not been audited and no independent security audit has been
-> completed. Use signet (play money, the default). Real bitcoin (mainnet) can be
-> switched on (`EBP_MODE=live`, see [START_HERE.md](docs/START_HERE.md#real-money-experimental))
-> but has not yet been tried with real money: if you do, use only a few thousand
-> sats you can afford to lose.
+> **⚠ EXPERIMENTAL: NOT FOR PRODUCTION USE.** This is pre-release software. Its
+> wallet integration has not been audited and no independent security audit has
+> been completed. Play money (signet) is the default. Real bitcoin (mainnet) can
+> be switched on (`EBP_MODE=live`, see [START_HERE.md](docs/START_HERE.md#real-money-experimental))
+> and has been tried end to end with small amounts of real money (Lightning and
+> Ark payments, a WooCommerce shop, payouts to the owner's own wallet and a full
+> emergency withdrawal; results in [docs/dev/MAINNET_RELEASE_STATUS.md](docs/dev/MAINNET_RELEASE_STATUS.md)),
+> but it is still experimental and not ready for production: keep only a few
+> thousand sats on a server, an amount you can afford to lose.
 
 ## Goals
 

@@ -570,9 +570,29 @@ function renderPhone(box, a, onHome) {
     box.appendChild(el("strong", "Get alerts on your phone?"));
     box.appendChild(el("p", "If something needs you (the payment wallet is unreachable, a payment can't be matched to an order, a withdrawal fails) we can send a short message to your phone. Messages never contain amounts or addresses. It's free and takes about a minute.", "muted"));
     var btns = el("div", "", "btns");
-    btns.appendChild(phoneBtn("Set up phone alerts", function () { phoneAct("/admin/alerts/enable", {}, function () { loadPhone(); }); }));
-    btns.appendChild(phoneBtn("No thanks", function () { phoneAct("/admin/alerts/disable", {}, function () { loadPhone(); }); }, true));
+    // Home only asks the question. The steps (topic name, QR code, test alert) live in
+    // Settings, so after "Set up" we take the owner there instead of letting the card vanish.
+    var hmsg = el("p", "", "msg hidden"); hmsg.id = "phone-home-msg";
+    var both = [];
+    function hfail(e) {
+      both.forEach(function (x) { x.disabled = false; });
+      hmsg.className = "msg bad"; hmsg.textContent = (e && e.message) ? e.message : "That didn't work. Please try again.";
+    }
+    var yes = phoneBtn("Set up phone alerts", function () {
+      both.forEach(function (x) { x.disabled = true; });
+      phoneAct("/admin/alerts/enable", {}, function (e) {
+        if (e) return hfail(e);
+        loadPhone(true);
+      });
+    });
+    var no = phoneBtn("No thanks", function () {
+      both.forEach(function (x) { x.disabled = true; });
+      phoneAct("/admin/alerts/disable", {}, function (e) { if (e) return hfail(e); loadPhone(); });
+    }, true);
+    both.push(yes, no);
+    btns.appendChild(yes); btns.appendChild(no);
     box.appendChild(btns);
+    box.appendChild(hmsg);
     return;
   }
   if (onHome) return;
@@ -637,12 +657,16 @@ function renderPhone(box, a, onHome) {
   d.appendChild(sv);
   box.appendChild(d);
 }
-function loadPhone() {
+function loadPhone(openSteps) {
   api("POST", "/admin/alerts/status", {}).then(function (a) {
     var h = $("phone-home"), s = $("phone-set");
     renderPhone(h, a, true);
     h.classList.toggle("hidden", a.state !== "undecided");
     renderPhone(s, a, false);
+    if (openSteps && a.state === "on") {
+      show("set");
+      try { s.scrollIntoView({ block: "start" }); } catch (e) {}
+    }
   }).catch(function () {
     retryCard($("phone-home"), "We couldn't check your alert settings.", loadPhone);
     retryCard($("phone-set"), "We couldn't check your alert settings.", loadPhone);

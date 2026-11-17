@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Phone alerts: "Set up phone alerts" on Home now visibly does something.** The card used to vanish while the steps (topic name, QR code, test alert) sat in the Settings tab, so it looked like nothing happened. It now takes you to those steps, and if setup fails it says why and lets you try again.
 - **Admin page: pressing Pause can no longer be undone on screen by a slow start-up check.** If the page's first session check answered after you pressed Pause, the page could show payments as on while the server had them paused. The page now ignores an older answer that arrives after your click. Also made two flaky browser tests wait for what they check instead of a fixed delay.
 - **Emergency withdrawal: the screen and guide now tell owners to send the money to a wallet outside the server.** The claim pays the typed address directly (confirmed on mainnet), so using an outside wallet avoids the one untested path (spending exited coins from a wallet kept on the server, which would need the wallet database file). Wording only; no behavior change.
 - **Emergency withdrawal: first complete mainnet test recorded.** A ~99,000-sat exit ran start to finish on real money: broadcast and confirmed in about 40 minutes, claimable after the predicted ~24 hours, and the claim paid the owner's own Bitcoin address directly. Total cost about 700 sats (0.7%). Docs updated; no code change, the existing flow already matched the findings. Still open: spending exited coins from the 12 words without the wallet database.

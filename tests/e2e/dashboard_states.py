@@ -474,6 +474,38 @@ def main():
 
         ok &= run_case(pw, "pause: a late start-up answer cannot undo the click", pause_race, c_pause_race)
 
+
+        # --- phone alerts: "Set up" must visibly lead somewhere
+        def phone_handler(fail):
+            state = {"s": "undecided"}
+            def h(path, req, calls):
+                if path == "/admin/alerts/status":
+                    return 200, {"state": state["s"], "server": "https://ntfy.sh", "default_server": "https://ntfy.sh", "topic": "ebp-faketopic123", "activity": "daily"}
+                if path == "/admin/alerts/enable":
+                    if fail: return 500, {"error": {"message": "Could not reach the alerts server."}}
+                    state["s"] = "on"; return 200, {"ok": True}
+                if path == "/admin/alerts/disable":
+                    state["s"] = "off"; return 200, {"ok": True}
+                return signed_in(path, req, calls)
+            return h
+
+        def c_phone_ok(p, pr, calls):
+            p.wait_for_timeout(300)
+            if not p.is_visible("#phone-home"): pr.append("the alerts question should show on Home"); return
+            p.click("#phone-home button:text-is(\"Set up phone alerts\")"); p.wait_for_timeout(600)
+            if not p.is_visible("#v-set"): pr.append("Set up should take the owner to Settings, where the steps are")
+            if not p.is_visible("#phone-topic"): pr.append("the topic name should be visible after Set up")
+            want(pr, "steps are shown", p.inner_text("#phone-set"), "install the free")
+
+        def c_phone_fail(p, pr, calls):
+            p.wait_for_timeout(300)
+            p.click("#phone-home button:text-is(\"Set up phone alerts\")"); p.wait_for_timeout(500)
+            if not p.is_visible("#phone-home"): pr.append("on failure the card must stay so the owner can retry")
+            want(pr, "failure explained", p.inner_text("#phone-home"), "Could not reach the alerts server")
+            if p.is_disabled("#phone-home button:text-is(\"Set up phone alerts\")"): pr.append("the button must work again after a failure")
+
+        ok &= run_case(pw, "phone alerts: Set up leads to the steps in Settings", phone_handler(False), c_phone_ok)
+        ok &= run_case(pw, "phone alerts: a failed Set up says so and can be retried", phone_handler(True), c_phone_fail)
     sys.exit(0 if ok else 1)
 
 

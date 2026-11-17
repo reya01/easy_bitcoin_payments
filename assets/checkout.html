@@ -206,6 +206,7 @@ els.copyAddr.addEventListener("click", function () { copyText(els.addr.textConte
 // away, so nobody sends money to a request that is no longer open.
 function closeCard() { $("pay-card").classList.add("hidden"); els.cd.textContent = ""; s.deadline = 0; s.topupDeadline = 0; }
 function goBackLabel(text) {
+  s.backText = text;
   if (s.back) { els.backLink.textContent = text; els.back.classList.remove("hidden"); }
 }
 // The big amount: the whole price, or (while part-paid) only what is still missing.
@@ -242,7 +243,8 @@ fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "applicat
     if (d.return_url && /^https?:\/\//i.test(d.return_url)) {
       s.back = d.return_url;
       els.backLink.href = d.return_url;
-      goBackLabel("Back to " + (d.store_name || "the shop"));
+      // If a status answer already chose the wording (it can beat this one), keep it.
+      goBackLabel(s.backText || "Back to " + (d.store_name || "the shop"));
     }
     var satTip = "sats are tiny pieces of a bitcoin: 100 million sats make one bitcoin.";
     setTotals();

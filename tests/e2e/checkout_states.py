@@ -27,7 +27,7 @@ def invoice(**kw):
     return d
 
 
-def run_case(pw, name, json_resp, statuses, checks, width=360):
+def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0):
     """json_resp: dict, 404, or 'abort'. statuses: list of dicts / codes / 'abort', used in order, last repeats."""
     b = pw.chromium.launch()
     ctx = b.new_context(viewport={"width": width, "height": 780})
@@ -57,6 +57,12 @@ def run_case(pw, name, json_resp, statuses, checks, width=360):
             return route.fulfill(status=200, content_type="application/json", body=json.dumps(r))
         return route.fulfill(status=200, content_type="text/html", body=HTML)
 
+    if json_delay_ms:
+        # Hold only the payment-details answer inside the page, so the status answer lands first.
+        p.add_init_script("""(function(){var f=window.fetch;window.fetch=function(u){
+          var r=f.apply(this,arguments);
+          return /\\/json(\\?|$)/.test(String(u)) ? r.then(function(x){return new Promise(function(ok){setTimeout(function(){ok(x)},%d)})}) : r;
+        };})();""" % json_delay_ms)
     p.route(ORIGIN + "/**", handler)
     p.goto(ORIGIN + "/i/inv_test")
     p.wait_for_timeout(1500)
@@ -328,6 +334,11 @@ def main():
         ]
         for name, j, st, chk in cases:
             ok &= run_case(pw, name, j, st, chk)
+        # The paid answer can beat the payment details to the page: the link must still say "Done".
+        ok &= run_case(pw, "paid answer arrives before the payment details: 'Done' link still wins",
+                       invoice(), [{"status": "paid"}], c_paid, json_delay_ms=700)
+        ok &= run_case(pw, "cancelled answer arrives before the payment details: 'try again' link still wins",
+                       invoice(), [{"status": "cancelled"}], c_cancelled, json_delay_ms=700)
         ok &= run_case(pw, "narrow phone (320 px) fits", invoice(store_name="A very long shop name " * 6), [{"status": "pending"}], c_pending, width=320)
     sys.exit(0 if ok else 1)
 

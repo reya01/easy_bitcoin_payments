@@ -45,7 +45,8 @@ open box.
       until the second round (with WooCommerce) is done.
 - [ ] **WooCommerce on a real shop host** (not the CI one), with the plugin zip
       from the dry run.
-- [ ] **Phone alerts** with the real ntfy app: scan the QR code, send a test.
+- [ ] **Phone alerts** with the real ntfy app: type or paste the topic into the app, send a test (the QR code was removed;
+      the "open in ntfy" tap link is still untried).
 - [ ] **Backup restore on a second machine**, from a file downloaded through the
       browser.
 - [ ] **A newcomer reads `START_HERE.md`** and gets to a paid test order without
@@ -76,13 +77,13 @@ open box.
    workflow, on `main`) is green. Download the `dry-run-release-files` artifact
    and look at it: one `ebp-*.tar.gz` (x86-64), the plugin zip, `SHA256SUMS`.
 2. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
-   heading (for the next one, `0.2.0-rc4`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
+   heading (for example `0.2.0-rc5`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
    so Home and the Plugins page show which build is running. The release
    workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
    before building if any of these disagree with the tag (you can run it
    yourself first).
-3. Tag the new version (for example `v0.2.0-rc4`) on `main` and push it. The
+3. Tag the new version (for example `v0.2.0-rc5`) on `main` and push it. The
    `-rcN` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.
@@ -91,7 +92,8 @@ open box.
    command, and the verify command works on your machine.
 5. Install that release on a fresh server exactly as `START_HERE.md` says, using
    the digest-pinned image.
-6. Only then tell testers. Final `v0.1.0` comes after the checklist in
+6. Only then tell testers. The final release (`v0.2.0`, the number these candidates are
+   candidates for) comes after the checklist in
    section 2 is fully ticked; the dashboard will tell rc users when it exists.
 
 ## 5. Draft release notes (edit after the drills)
@@ -99,7 +101,7 @@ open box.
 Draft for the first release candidate that has been tried with real money. The
 facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md).
 
-> **v0.2.0-rc4 — release candidate: first real-money tests**
+> **v0.2.0-rc5 — release candidate: brighter look, success mascots**
 >
 > Easy Bitcoin Payments takes Bitcoin payments (Lightning and Ark) into a wallet
 > you control, with a WooCommerce plugin and a no-terminal DigitalOcean install.
@@ -114,10 +116,13 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 > the server for fees (at least 1,500 sats), and should pay an address in a
 > wallet you hold outside the server (minimum 50,000 sats).
 >
-> New since rc3: a late full payment still completes the
-> order, an Ark amount box at checkout, an optional first test payment, a
-> weekly wallet check that starts a week after setup, a Settings tab with every
-> section folded, and a phone-alerts setup that leads to its steps.
+> New since rc4: a brighter, friendlier checkout page and admin page (colour,
+> thick outlines, a bottom tab bar with icons, a mint "paid" page), and four
+> small animated scenes after a paid checkout. Styling and built-in pictures
+> only: no payment, wallet, sweep or backup logic changed. The pictures are part
+> of the program and cannot be uploaded or replaced while the server runs. The
+> new look has been through automated tests only and has not yet been seen on a
+> live server.
 >
 > Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >

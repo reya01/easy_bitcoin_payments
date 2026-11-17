@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Phone alerts: removed the QR code from the setup steps.** Scanning it with a phone gave "no usable data": it held an `ntfy://` link that camera and scanner apps do not open, and the ntfy app has no scanner of its own. Copying the topic name into the app (shown with a Copy button) works and is the way; the "open in ntfy" tap link stays for use on the phone itself.
 - **Emergency withdrawal: the minimum on the server is now 50,000 sats (was 100,000)** (owner's decision, 16 November 2026). A full real exit cost about 700 sats (0.7%), so fees are lower than first feared. Moving your money to your payout address is still the better first choice; the exit is the last resort. The twice-the-fees rule, the fee-money requirement and the other safeguards are unchanged.
 - **Checkout page: the link back to the shop could keep the wrong wording.** If the "paid" or "cancelled" answer reached the page before the payment details did, the link read "Back to <shop>" instead of "Done: return to <shop>" or "... to try again". The page now keeps the wording the status answer chose. This was also the cause of a flaky browser test; two new tests force that order.
 - **Phone alerts: "Set up phone alerts" on Home now visibly does something.** The card used to vanish while the steps (topic name, QR code, test alert) sat in the Settings tab, so it looked like nothing happened. It now takes you to those steps, and if setup fails it says why and lets you try again.

@@ -444,6 +444,36 @@ def main():
             want(pr, "due card", p.inner_text("#recon"), "Time for your weekly wallet check")
 
         ok &= run_case(pw, "weekly wallet check: due after a week", recon_handler(True, None, 1700000000), c_recon_due)
+
+        # --- a slow start-up session answer must not undo a Pause click
+        def pause_race(path, req, calls):
+            if path == "/admin/session":
+                return 200, {"authenticated": True, "csrf": "x", "twofa": False, "paused": False}
+            if path == "/admin/pause":
+                return 200, {"paused": True}
+            return signed_in(path, req, calls)
+
+        def c_pause_race(p, pr, calls):
+            # Hold the next session check (opening Settings starts one), click Pause,
+            # then let the old answer in.
+            p.evaluate("""() => { const real = window.fetch; window.__held = false; window.__release = null;
+              window.fetch = function (u, o) {
+                if (String(u).indexOf('/admin/session') >= 0 && !window.__held) {
+                  window.__held = true;
+                  return new Promise(function (res) { window.__release = function () { res(real.call(window, u, o)); }; });
+                }
+                return real.call(window, u, o);
+              }; }""")
+            p.click('#tabs button[data-v="set"]')
+            p.wait_for_function("window.__held === true", timeout=5000)
+            p.get_by_role("button", name="Pause new payments").click()
+            p.wait_for_function("document.getElementById('pause-card').textContent.indexOf('Paused') >= 0", timeout=5000)
+            p.evaluate("window.__release && window.__release()")
+            p.wait_for_timeout(600)
+            if "Paused" not in p.inner_text("#pause-card"): pr.append("a late session answer must not undo the owner's Pause click")
+
+        ok &= run_case(pw, "pause: a late start-up answer cannot undo the click", pause_race, c_pause_race)
+
     sys.exit(0 if ok else 1)
 
 

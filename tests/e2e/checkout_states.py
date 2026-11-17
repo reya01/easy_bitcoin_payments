@@ -99,6 +99,14 @@ def main():
         def c_paid(a, pr):
             has(a, pr, "paid message", "Paid. Thank you")
             if a["card"](): pr.append("pay details must go away once paid")
+            # The first paint says "Back to <shop>"; the label turns into "Done" when the
+            # status poll lands. Wait for it instead of reading at once (slow CI flaked).
+            try:
+                a["page"].wait_for_function(
+                    "document.getElementById('back-link').textContent.indexOf('Done') >= 0",
+                    timeout=6000)
+            except Exception:  # noqa: BLE001  the check below reports what was there
+                pass
             has(a, pr, "return link", "Done", a["back"]())
 
         def c_over(a, pr):

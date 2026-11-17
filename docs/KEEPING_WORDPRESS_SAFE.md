@@ -29,6 +29,27 @@ and a few minutes a month.
 6. **Back up the shop itself** (orders, products, pages). This is separate from the
    backup of your payment server ([RECIPE_BACKUP.md](RECIPE_BACKUP.md)).
 
+7. **Treat other people's scripts on your shop as a risk.** Analytics, chat,
+   A/B testing, tag managers and ad tools each load JavaScript from someone else
+   into your pages. If that company is hacked, its code runs in your visitors'
+   browsers, and on your own domain it can read forms and change what a page says.
+   This happened on 16 November 2026: attackers used a flaw at an A/B-testing
+   vendor (Optimizely) to push code to 178 well-known sites, which copied card
+   details, swapped crypto wallet addresses and stole cookies
+   ([Help Net Security](https://www.helpnetsecurity.com/2026/11/17/optimizely-vulnerability-malicious-javascript/)).
+   Keep such scripts to a minimum, remove the ones you no longer use, and ask your
+   host or developer about a strict **Content Security Policy** that lists only the
+   places your pages may load scripts from. Do not allow `unsafe-eval`, and
+   remember that allowing a vendor's address also allows whatever that vendor
+   serves. Check the shop's checkout and cart pages first, because that is where
+   skimmers go.
+
+   Your customers pay on the EBP checkout page on your payment server, not on
+   your shop. That page loads no third-party scripts at all and refuses to be
+   framed, so a script on your shop cannot change the amount or address shown
+   there. It could still send a customer to a fake page, which is why the
+   steps above matter.
+
 ## Do this now and then
 
 - Read the WordPress admin notices and any email from the EBP plugin. The plugin

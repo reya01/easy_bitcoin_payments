@@ -7,7 +7,8 @@
 //! network fees, from the server's own CONFIRMED on-chain balance). So it is
 //! a last resort: nothing here ever starts on its own, and the server refuses
 //! an exit that is not worth it (owner rule, 12 November 2026: at least
-//! 100,000 sats AND at least twice the projected fees).
+//! 100,000 sats AND at least twice the projected fees; the floor was lowered
+//! to 50,000 sats on 16 November 2026 after a real exit cost about 700 sats).
 //!
 //! Pure rules live here; the barkd calls are in `wallet::barkd` and the HTTP
 //! handlers in `routes::exit`.
@@ -62,7 +63,7 @@ pub fn reserve_high(target: i64) -> i64 {
 }
 
 /// Below this many sats on the server an emergency withdrawal is refused.
-pub const MIN_EXIT_SATS: i64 = 100_000;
+pub const MIN_EXIT_SATS: i64 = 50_000;
 /// The Ark balance must be at least this many times the projected fees.
 pub const MIN_FEE_MULTIPLE: i64 = 2;
 
@@ -288,10 +289,16 @@ mod tests {
     }
 
     #[test]
-    fn refused_below_100k_or_below_twice_the_fees() {
-        // Owner rule, 12 Nov 2026.
-        let r = refusal(99_999, Some(&fee(10))).unwrap();
-        assert!(r.contains("less than 100000 sats"), "{r}");
+    fn refused_below_50k_or_below_twice_the_fees() {
+        // Owner rule, 12 Nov 2026; floor lowered from 100,000 to 50,000 on 16 Nov 2026.
+        let r = refusal(49_999, Some(&fee(10))).unwrap();
+        assert!(r.contains("less than 50000 sats"), "{r}");
+        assert_eq!(refusal(50_000, Some(&fee(10))), None);
+        assert_eq!(
+            refusal(99_999, Some(&fee(10))),
+            None,
+            "the old 100,000 floor no longer applies"
+        );
         let r = refusal(200_000, Some(&fee(100_001))).unwrap();
         assert!(r.contains("too high compared with"), "{r}");
         assert!(

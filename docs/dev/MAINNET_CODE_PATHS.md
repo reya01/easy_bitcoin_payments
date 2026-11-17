@@ -89,7 +89,7 @@ Each line names where to look in the code.
   so Home shows the red line. If barkd cannot say whether one is running and one
   was started, the server stays paused.
 - On mainnet the section behaves as on signet: estimate, fee money, the
-  100,000-sat floor, password plus two-step code, then Start.
+  50,000-sat floor, password plus two-step code, then Start.
 - Fee money (regular Bitcoin on the server): an exit needs about 350 sats of
   confirmed regular Bitcoin to broadcast even when the fee estimate says about
   100 (drill: an exit sat stuck for hours with none). The page asks for at least

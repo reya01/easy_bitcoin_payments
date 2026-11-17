@@ -498,9 +498,11 @@ mod tests {
         f.onchain_sats = Some(1_500);
         assert_eq!(find(&build(&f), "reserve").level, Level::Ok);
         // Too little on the server to ever be worth an exit: stay quiet.
-        f.offchain_sats = Some(50_000);
+        f.offchain_sats = Some(crate::emergency_exit::MIN_EXIT_SATS - 1);
         f.onchain_sats = None;
         assert!(build(&f).iter().all(|c| c.id != "reserve"));
+        f.offchain_sats = Some(crate::emergency_exit::MIN_EXIT_SATS);
+        assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
     }
 
     #[test]

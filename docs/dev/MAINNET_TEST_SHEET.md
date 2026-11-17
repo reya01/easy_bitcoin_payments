@@ -176,8 +176,8 @@ address change is waiting" line: `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4`,
 
 - [ ] **Settings → Emergency:** open it. It shows the fee estimate, the
       "Set aside fee money now" box (minimum 1,500 sats; 5,000 to 10,000
-      recommended) and, if you hold under 100,000 sats on the server, a reason
-      it will not start (the 100,000-sat floor). Write the estimate down.
+      recommended) and, if you hold under 50,000 sats on the server, a reason
+      it will not start (the 50,000-sat floor). Write the estimate down.
 - [ ] Starting one is a deliberate real-money test: do it only as in the
       emergency-exit test plan, with two-step sign-in on, fee money confirmed,
       and an amount you can afford to lose. It then takes about a day to claim.

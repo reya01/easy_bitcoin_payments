@@ -278,6 +278,7 @@ pub fn router(state: AppState) -> Router {
                 .with_state(state.clone()),
         )
         .route("/assets/qr.js", get(checkout::qr_js))
+        .route("/assets/mascot/{name}", get(checkout::mascot))
         .route("/api/v1/health", get(health::health))
         .merge(setup)
         .merge(gated)

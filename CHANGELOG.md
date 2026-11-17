@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Four animated mascots celebrate a paid checkout.** When a payment is paid, the checkout page now shows one of four little scenes (a knight slicing a dollar bill, a saucer beaming down coins, a gentleman tipping his hat, an acrobat in a handstand), picked from the payment id so a refresh shows the same one. They move a little and stop for anyone who has reduced motion turned on. The pictures are built into the program and served read-only from a fixed list: there is no way to upload or replace an image while the server runs, any other name is a 404, and a new test proves it. No wording changed and the Content-Security-Policy is untouched.
 - **A brighter, friendlier checkout page.** The page customers pay on now has a warm cream background (a deep purple one in dark mode), thick outlines with hard shadows, a big price, a yellow "price held" timer, a bright orange "Open in my wallet app" button, tinted messages for waiting, part-paid and expired, and a mint page with confetti once paid. Styling only: every word, button and element id is unchanged, the page still loads no outside fonts or scripts, and the Content-Security-Policy is untouched. The checkout tests all still pass. The dashboard follows in a separate change.
 
 ## 0.2.0-rc4 — release candidate: first real-money tests, folded Settings, emergency withdrawal on real money (17 November 2026)

@@ -335,6 +335,13 @@ conversion, database migrations, and the watcher's payment application path.
   anything already swept to your wallet. Sweeps go out automatically on the
   hot cap and ahead of VTXO expiry. A
   compromised server can steal at most the float.
+- **No uploads, ever, while the server runs.** The only pictures EBP shows are the
+  success mascots in `assets/mascot/`, compiled into the program and served from a
+  fixed list of seven names (`GET /assets/mascot/<name>.png`). No route accepts a file,
+  an unknown name is a plain 404, and every other method gets 405. The checkout page
+  picks one of four mascots from the payment id and only ever builds image addresses
+  from that fixed set. A test (`mascot_art_is_built_in_read_only_and_cannot_be_uploaded`)
+  guards this. To change the art, change the files in the repository and release a new build.
 
 ---
 

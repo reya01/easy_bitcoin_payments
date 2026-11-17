@@ -27,7 +27,7 @@ def invoice(**kw):
     return d
 
 
-def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0):
+def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0, inv_id="inv_test"):
     """json_resp: dict, 404, or 'abort'. statuses: list of dicts / codes / 'abort', used in order, last repeats."""
     b = pw.chromium.launch()
     ctx = b.new_context(viewport={"width": width, "height": 780})
@@ -40,6 +40,11 @@ def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0):
         path = route.request.url[len(ORIGIN):]
         if path == "/assets/qr.js":
             return route.fulfill(status=200, content_type="application/javascript", body=QR)
+        if path.startswith("/assets/mascot/"):
+            fn = os.path.join(ROOT, "assets", "mascot", os.path.basename(path))
+            if os.path.isfile(fn):
+                return route.fulfill(status=200, content_type="image/png", body=open(fn, "rb").read())
+            return route.fulfill(status=404, body="")
         if path.endswith("/json"):
             if json_resp == "abort":
                 return route.abort()
@@ -64,7 +69,7 @@ def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0):
           return /\\/json(\\?|$)/.test(String(u)) ? r.then(function(x){return new Promise(function(ok){setTimeout(function(){ok(x)},%d)})}) : r;
         };})();""" % json_delay_ms)
     p.route(ORIGIN + "/**", handler)
-    p.goto(ORIGIN + "/i/inv_test")
+    p.goto(ORIGIN + "/i/" + inv_id)
     p.wait_for_timeout(1500)
     api = {
         "status": lambda: p.inner_text("#status"),
@@ -340,6 +345,38 @@ def main():
         ok &= run_case(pw, "cancelled answer arrives before the payment details: 'try again' link still wins",
                        invoice(), [{"status": "cancelled"}], c_cancelled, json_delay_ms=700)
         ok &= run_case(pw, "narrow phone (320 px) fits", invoice(store_name="A very long shop name " * 6), [{"status": "pending"}], c_pending, width=320)
+
+        # Success mascot: one of four, picked from the payment id (same hash as the page).
+        def pick(i):
+            h = 0
+            for ch in i:
+                h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+            return h % 4
+        names = ["sir", "ufo", "fancy", "acrobat"]
+        ids = {}
+        for n in range(1000):
+            ids.setdefault(pick(f"inv_m{n}"), f"inv_m{n}")
+            if len(ids) == 4:
+                break
+        for v, iid in sorted(ids.items()):
+            def c_mascot(a, pr, v=v):
+                pg = a["page"]
+                if not pg.is_visible("#mascot"): pr.append("the mascot must show once paid")
+                if pg.get_attribute("#mascot", "data-v") != names[v]: pr.append(f"expected the {names[v]} mascot, saw {pg.get_attribute('#mascot', 'data-v')}")
+                bad = pg.evaluate("Array.prototype.filter.call(document.querySelectorAll('#mascot img'), function (i) { return !(i.complete && i.naturalWidth > 0); }).length")
+                if bad: pr.append(f"{bad} mascot picture(s) did not load")
+                if pg.evaluate("document.querySelectorAll('#mascot img').length") < 1: pr.append("no mascot pictures")
+                srcs = pg.evaluate("Array.prototype.map.call(document.querySelectorAll('#mascot img'), function (i) { return new URL(i.src).pathname; })")
+                if any(not s_.startswith("/assets/mascot/") for s_ in srcs): pr.append(f"mascot loads something else: {srcs}")
+                has(a, pr, "paid message still shown", "Paid. Thank you")
+            ok &= run_case(pw, f"paid: the {names[v]} mascot shows, its pictures load and are the built-in ones",
+                           invoice(), [{"status": "paid"}], c_mascot, inv_id=iid)
+        def c_nomascot(a, pr):
+            if a["page"].is_visible("#mascot"): pr.append("the mascot must stay hidden until paid")
+        ok &= run_case(pw, "pending: no mascot yet", invoice(), [{"status": "pending"}], c_nomascot)
+        def c_nomascot_exp(a, pr):
+            if a["page"].is_visible("#mascot"): pr.append("the mascot must not show on an expired payment")
+        ok &= run_case(pw, "expired: no mascot", invoice(status="expired"), [{"status": "expired"}], c_nomascot_exp)
     sys.exit(0 if ok else 1)
 
 

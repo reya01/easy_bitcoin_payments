@@ -41,6 +41,30 @@ body:has(.status.ok) main::before{content:"";display:block;height:44px;margin-bo
 details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px;font-weight:600;padding:6px 0}
 .tab-help{margin:0 0 12px;font-size:14px;color:var(--muted)}.help p{margin:6px 0 12px;font-size:14px;color:var(--muted)}.help b{color:var(--fg)}
 .test-banner{margin:14px 0 14px;padding:10px 14px;border:2px solid var(--line);border-radius:12px;background:var(--sun);color:#1d1530;font-size:13px;font-weight:700;text-align:center}.hidden{display:none!important}
+.mascot{position:relative;width:min(340px,100%);aspect-ratio:1/1;margin:14px auto 0;overflow:hidden}.mascot img{position:absolute;left:0;top:0;width:100%;height:100%}
+@keyframes mc-slash{0%,34%{transform:rotate(0)}44%,58%{transform:rotate(-32deg)}78%,100%{transform:rotate(0)}}
+@keyframes mc-bill-top{0%{opacity:0;transform:none}8%,44%{opacity:1;transform:none}74%,100%{opacity:0;transform:translate(10%,-48%) rotate(10deg)}}
+@keyframes mc-bill-bot{0%{opacity:0;transform:none}8%,44%{opacity:1;transform:none}74%,100%{opacity:0;transform:translate(-10%,52%) rotate(-10deg)}}
+@keyframes mc-streak{0%,43%{opacity:0;transform:rotate(-6deg) scaleX(.2)}47%{opacity:1;transform:rotate(-6deg) scaleX(1)}58%,100%{opacity:0;transform:rotate(-6deg) scaleX(1)}}
+@keyframes mc-bob{0%,100%{transform:translateY(0) rotate(-1.5deg)}50%{transform:translateY(-2.6%) rotate(1.5deg)}}
+@keyframes mc-beam{0%,100%{opacity:.7;transform:scaleY(.97)}50%{opacity:1;transform:scaleY(1)}}
+@keyframes mc-coin{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1;transform:translateY(8%) scale(1)}85%{opacity:1;transform:translateY(390%) scale(1)}100%{opacity:0;transform:translateY(430%) scale(.8)}}
+@keyframes mc-hat{0%,18%{transform:rotate(0)}34%,52%{transform:rotate(9deg)}70%,100%{transform:rotate(0)}}
+@keyframes mc-bow{0%,18%{transform:rotate(0)}34%,52%{transform:rotate(-1.6deg)}70%,100%{transform:rotate(0)}}
+@keyframes mc-twinkle{0%,28%{opacity:0;transform:scale(.3)}40%{opacity:1;transform:scale(1)}56%,100%{opacity:0;transform:scale(.3)}}
+@keyframes mc-balance{0%,100%{transform:rotate(-3.5deg)}50%{transform:rotate(3.5deg)}}
+@keyframes mc-pop{0%,100%{opacity:0;transform:scale(.3)}35%,65%{opacity:1;transform:scale(1)}}
+.mc-arm{transform-origin:73% 33.5%;animation:mc-slash 4s ease-in-out infinite}
+.mc-bill{position:absolute;left:34.7%;top:16.5%;width:30.6%;height:13.5%;opacity:0}.mc-bill b{position:absolute;inset:0;background:#8fd16b;border:3px solid #1d1530;border-radius:5px}.mc-bill b::before{content:"";position:absolute;inset:3px;border:1.5px solid #1d1530;border-radius:3px}.mc-bill b::after{content:"$";position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #1d1530;border-radius:50%;background:#d8f5ec;color:#1d1530;font:700 13px/18px -apple-system,Helvetica,Arial,sans-serif;text-align:center}
+.mc-bill.t{clip-path:polygon(0 0,100% 0,100% 42%,0 58%);animation:mc-bill-top 4s ease-in infinite}.mc-bill.b{clip-path:polygon(0 58%,100% 42%,100% 100%,0 100%);animation:mc-bill-bot 4s ease-in infinite}
+.mc-streak{position:absolute;left:29.4%;top:22.6%;width:41%;height:4px;border:2px solid #1d1530;border-radius:4px;background:#ffd23f;opacity:0;transform-origin:100% 50%;animation:mc-streak 4s ease-out infinite}
+.mc-bob{animation:mc-bob 2.6s ease-in-out infinite}.mc-beam{transform-origin:50% 61.5%;animation:mc-beam 1.3s ease-in-out infinite}
+.mc-coin{position:absolute;top:63%;width:7.6%;aspect-ratio:1/1;border:2px solid #1d1530;border-radius:50%;background:#ff8a00;color:#fff;font:700 13px/1 -apple-system,Helvetica,Arial,sans-serif;display:flex;align-items:center;justify-content:center;opacity:0;animation:mc-coin 2.4s ease-in infinite}.mc-coin::after{content:"\20BF"}
+.mc-bow{position:absolute;inset:0;transform-origin:50% 96%;animation:mc-bow 3.4s ease-in-out infinite}.mc-hat{transform-origin:72.2% 30.2%;animation:mc-hat 3.4s ease-in-out infinite}
+.mc-acro{transform-origin:64% 92%;animation:mc-balance 2.2s ease-in-out infinite}
+.mc-star{position:absolute;width:6%;aspect-ratio:1/1;background:#1d1530;clip-path:polygon(50% 0,63% 37%,100% 50%,63% 63%,50% 100%,37% 63%,0 50%,37% 37%);opacity:0}.mc-star::after{content:"";position:absolute;inset:11%;background:var(--c);clip-path:polygon(50% 0,63% 37%,100% 50%,63% 63%,50% 100%,37% 63%,0 50%,37% 37%)}
+.mc-star.tw{animation:mc-twinkle 3.4s ease-in-out infinite}.mc-star.pp{animation:mc-pop 2.2s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.mascot *{animation:none!important}.mc-bill,.mc-streak,.mc-coin,.mc-star{opacity:0!important}}
 </style>
 </head>
 <body>
@@ -50,6 +74,7 @@ details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px
 <div class="amount" id="amount">—</div>
 <div class="sats" id="sats"></div>
 <div class="countdown" id="countdown" title="Bitcoin's price moves, so the store holds today's price for a short time."></div>
+<div class="mascot hidden" id="mascot" aria-hidden="true"></div>
 <section class="card" id="pay-card">
 <p class="lead"><b>Pay from your Bitcoin wallet app.</b> Scan this code with it, or tap the button below if you are on your phone.</p>
 <div class="ark-amount hidden" id="ark-amount" role="note">
@@ -308,6 +333,40 @@ function showPart(b) {
   setTotals(); render();
   setStatusRich("Part paid: " + fmtSats(remaining) + " to go.", " Send exactly the rest to this same payment before the timer runs out, and it completes on its own.", "Already sent some? Don't send the full amount again. That would overpay.", "warn");
 }
+// Success picture: one of four mascots, picked from the payment id (a refresh shows the same one).
+// The art is part of the server program (/assets/mascot/*, read-only, fixed list); this code only
+// builds image elements with those fixed names and never takes a name or address from anywhere else.
+function showMascot() {
+  var box = $("mascot");
+  if (!box || s.mascot) return;
+  s.mascot = true;
+  var h = 0;
+  for (var i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
+  var v = h % 4;
+  function img(name, cls) { var e = document.createElement("img"); e.src = "/assets/mascot/" + name + ".png"; e.alt = ""; if (cls) e.className = cls; return e; }
+  function node(cls, left, top, width, color, delay) {
+    var e = document.createElement("div"); e.className = cls;
+    if (left) e.style.left = left; if (top) e.style.top = top; if (width) e.style.width = width;
+    if (color) e.style.setProperty("--c", color); if (delay) e.style.animationDelay = delay;
+    return e;
+  }
+  function bill(cls) { var e = node("mc-bill " + cls); e.appendChild(document.createElement("b")); return e; }
+  if (v === 0) {
+    box.appendChild(img("sir-body")); box.appendChild(img("sir-arm", "mc-arm"));
+    box.appendChild(bill("t")); box.appendChild(bill("b")); box.appendChild(node("mc-streak"));
+  } else if (v === 1) {
+    box.appendChild(img("ufo-beam", "mc-beam")); box.appendChild(img("ufo-top", "mc-bob"));
+    box.appendChild(node("mc-coin", "44.1%", null, null, null, "0s")); box.appendChild(node("mc-coin", "51.8%", null, null, null, ".8s")); box.appendChild(node("mc-coin", "47.9%", null, null, null, "1.6s"));
+  } else if (v === 2) {
+    var bow = node("mc-bow"); bow.appendChild(img("fancy-body")); bow.appendChild(img("fancy-hat", "mc-hat")); box.appendChild(bow);
+    box.appendChild(node("mc-star tw", "19.4%", "8.2%", "7.6%", "#ffd23f", ".05s")); box.appendChild(node("mc-star tw", "11.8%", "21.8%", "5.3%", "#ff7a8c", ".25s")); box.appendChild(node("mc-star tw", "84.7%", "5.3%", "5.9%", "#5b3df5", ".15s"));
+  } else {
+    box.appendChild(img("acro", "mc-acro"));
+    box.appendChild(node("mc-star pp", "10.6%", "20.6%", "7%", "#ffd23f", ".1s")); box.appendChild(node("mc-star pp", "85.9%", "32.4%", "5.3%", "#ff7a8c", ".5s")); box.appendChild(node("mc-star pp", "79.4%", "8.8%", "5.9%", "#5b3df5", ".9s"));
+  }
+  box.setAttribute("data-v", ["sir", "ufo", "fancy", "acrobat"][v]);
+  box.classList.remove("hidden");
+}
 function poll() {
   fetch("/i/" + encodeURIComponent(id) + "/status", { headers: { "accept": "application/json" } })
     .then(function (r) { return r.ok ? r.json() : null; })
@@ -324,6 +383,7 @@ function poll() {
         setStatus("Paid. Thank you! " + (b.status === "overpaid" ? "You sent a little extra, so please contact the store about the difference. " : "") + "Bitcoin payments cannot be reversed, so any refund is up to the store.", "ok");
         els.backLink.classList.add("done"); goBackLabel("Done: return to " + (s.data && s.data.store_name ? s.data.store_name : "the shop"));
         closeCard();
+        showMascot();
         return stop();
       }
       if (b.status === "underpaid") {

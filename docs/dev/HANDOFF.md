@@ -120,7 +120,7 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
   the real build, and runs a usage smoke test — the stub-ship failure class
   that caused the 22h restart-loop cannot ship again
   ([docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md) has the full forensic record).
-- **CI**: builds BOTH release architectures (amd64 + arm64 via QEMU),
+- **CI**: builds the release image for amd64 only (arm64 dropped on 17 Nov 2026 as too slow; planned back at v1.0),
   shellchecks every shipped script, clippy `-D warnings`, drift check,
   tests. Verify CI is GREEN after every push — it once went red for a day
   unnoticed.

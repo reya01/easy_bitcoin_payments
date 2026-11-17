@@ -25,8 +25,8 @@ what to check first.
 | Scripts and blueprints | shellcheck, cloud-init validity, Render blueprint safety rules |
 | barkd API drift | Our client matches barkd 0.8.0's published API |
 | Dependency audit | Known-vulnerability scan |
-| Docker image | Builds for amd64 and arm64 |
-| Release dry run (manual) | Builds both binaries, packages the plugin, checksums, smoke-tests the binary; publishes and signs nothing |
+| Docker image | Builds for amd64 (x86-64 only for now; arm64 returns at v1.0) |
+| Release dry run (manual) | Builds the binary, packages the plugin, checksums, smoke-tests the binary; publishes and signs nothing |
 
 ## 2. What CI cannot prove (a person must do these)
 
@@ -74,8 +74,7 @@ open box.
 
 1. `main` is green and the manual **Release dry run** (Actions → release → Run
    workflow, on `main`) is green. Download the `dry-run-release-files` artifact
-   and look at it: two `ebp-*.tar.gz`, the plugin zip, `SHA256SUMS`.
-   The image job takes well over half an hour (arm64 under emulation).
+   and look at it: one `ebp-*.tar.gz` (x86-64), the plugin zip, `SHA256SUMS`.
 2. Move the `Unreleased` section of `CHANGELOG.md` under a `0.1.0-rc1` heading,
    and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),

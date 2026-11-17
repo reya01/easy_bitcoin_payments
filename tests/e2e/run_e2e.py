@@ -423,6 +423,7 @@ def main():
             # A backup made while two-step is on must not carry its secret or
             # backup codes (the password alone opens the file).
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#bk-go")
             page.fill("#bk-admin", ADMIN_PW)
             page.fill("#bk-code", totp_code(secret, cur + 1))
@@ -442,6 +443,7 @@ def main():
             con.close()
             # Turn it off again (so the rest of the run signs in with the password only).
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.locator("#twofa-card").get_by_role("button", name="Turn off", exact=True).click()
             page.wait_for_selector("#tf-off-pw")
             page.fill("#tf-off-pw", ADMIN_PW)
@@ -695,6 +697,7 @@ def main():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#bk-go")
             bk_pw = ADMIN_PW  # one password: the file is locked with the admin password
             page.fill("#bk-admin", ADMIN_PW)
@@ -726,6 +729,7 @@ def main():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#pw-save")
             page.fill("#pw-cur", "definitely not the password")
             page.fill("#pw-new", newpw)
@@ -743,6 +747,7 @@ def main():
             page.click("#login-btn")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#pw-save")
             page.fill("#pw-cur", newpw)
             page.fill("#pw-new", ADMIN_PW)
@@ -758,6 +763,7 @@ def main():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#po-go")
             first = "tark1pem36wcfpqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq3ueu6c"
             second = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
@@ -777,6 +783,7 @@ def main():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#cap-go")
             wait_for(lambda: "(the default)" in page.inner_text("#cap-now"), "default amount shown")
             assert not page.is_visible("#cap-reset"), "no reset button while on the default"
@@ -805,6 +812,7 @@ def main():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.get_by_role("button", name="Pause new payments").click()
             wait_for(lambda: "Paused" in page.inner_text("#pause-card"), "paused")
             page.click('#tabs button[data-v="home"]')

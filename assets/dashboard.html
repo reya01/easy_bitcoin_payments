@@ -1006,8 +1006,12 @@ $("po-cancel").addEventListener("click", function () {
 });
 
 // ---- Pause new payments (added because of the PHP2Shell bugs that can take over a PHP shop; see docs/dev/SHOP_COMPROMISE.md) ----
+// Counts the owner's own pause/resume clicks, so a slower, older answer from the
+// start-up session check can never overwrite what they just did.
+var pauseClicks = 0;
 function setPaused(p, btn) {
   if (btn) btn.disabled = true;
+  pauseClicks++;
   api("POST", "/admin/pause", { paused: p }).then(function () { paused = p; renderPause(); })
     .catch(function (e) { say("pause-msg", e.message, true); if (btn) btn.disabled = false; });
 }
@@ -1052,9 +1056,10 @@ function applyTwofa(on, declined) {
   for (var i = 0; i < f.length; i++) f[i].classList.toggle("hidden", !on);
 }
 function loadTwofa() {
+  var clicksAtStart = pauseClicks;
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
     applyTwofa(!!s.twofa, !!s.twofa_declined);
-    paused = !!s.paused; renderPause();
+    if (clicksAtStart === pauseClicks) { paused = !!s.paused; renderPause(); }
     renderPrompt();
     if (!twofaBusy) renderTwofaCard();
   }).catch(function () {});

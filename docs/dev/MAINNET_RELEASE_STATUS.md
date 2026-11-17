@@ -18,7 +18,10 @@ repository. Results are described in words.
 | Ark payment, 1,000 sats | Paid; full amount held | owner's run |
 | Shop link-up (real WooCommerce store), then two small orders, one Lightning and one Ark (about 154 sats each) | Both orders paid and the shop received the payment notices ("Your shop is receiving payment notices") | owner's run, 15 Nov |
 | Sweep to the owner's own Ark wallet | 1,000 sats arrived | owner's run |
-| Routine upkeep (coin renewal) | A 1,000-sat renewal completed with no visible loss; a later 554-sat one was still "requested" when last seen | owner's run (check it) |
+| Routine upkeep (coin renewal) | Three renewals (1,000, 554 and 754 sats) all completed; the held balance fell by about 5 sats in total | owner's run, 16 Nov |
+| Late full payment: a 1,000-sat Lightning invoice paid after its 20-minute countdown ended (the page showed Expired first) | Expired order turned Paid within about two minutes of paying | owner's run, 16 Nov |
+| Ark checkout: the new "type this exact amount" box (309 sats), typed into Arké | Box clear and prominent; order paid and the shop was notified | owner's run, 16 Nov |
+| Weekly wallet check on a new server; Pause and Resume; test notification; payments CSV; backup download and check | All worked: the check waited until 22 November, pausing refused new payments, the CSV matched every payment, the backup held 6 files | owner's run, 16 Nov |
 | Receive fees on Lightning | Receiver pays nothing at any size; EBP's crediting rule is correct | `LIGHTNING_RECEIVE_FEES_2026-11-15.md` |
 | Duplicate and late payments, stuck claims, fee ranges, board and offboard sizes | Measured; code changed to match (late full payment now completes) | `SERIES2_TESTS_2026-11-15.md`, `MAINNET_DRILL_RESPONSE.md` |
 | Wallet restore from the 12 words, crash recovery | Worked (about a second) | `MAINNET_DRILL_2026-11-15_round2.md` |
@@ -29,19 +32,18 @@ repository. Results are described in words.
 These have not been seen on a live server yet. Each is small, but "tested on
 mainnet" does not apply to them:
 
-- Late full payment completes an expired order (within 3 hours of expiry).
 - Emergency exit: automatic refresh before pricing, the optional "set aside
   fee money" box, the 1,500-sat floor with 5,000 to 10,000 recommended, the
   hard stop when the wallet cannot fund the exit, the outside-wallet wording.
 - Amounts in error messages shown in sats, clearer Alerts wording.
-- Optional first test payment (setup page and Home), the weekly wallet check
-  starting 7 days after setup, the Pause fix, and the bigger "type this amount"
-  box for Ark payments.
+- The optional first test payment (setup page and Home; the live server already
+  had paid payments, so the Home card stayed hidden) and the phone-alerts
+  setup fix (Set up now leads to the steps in Settings).
 
-The next real-money session should look at these, in this order: pay an Ark
-invoice and read the new amount box; open Home on a fresh server and check the
-weekly check is quiet; pay a full invoice after its 20-minute countdown and see
-it complete.
+The next real-money session should look at these: set up phone alerts from
+Home after updating; set up a fresh server and look at the test-payment prompt
+on its setup page and Home; and, when there is enough on the server, open the
+emergency-exit page.
 
 ## 3. Still open
 
@@ -56,10 +58,10 @@ Needs a real-money test or an answer from someone else:
   missed one can be retried.
 - Does a refresh clear the "cannot price the exit" error inside EBP's own
   flow (seen by hand, not through the page)?
-- Renewal cost: the wallet-flagged Lightning coins are refreshed at once
-  (they cannot be swept otherwise) and a refresh costs 0 to 213 sats. Watch
-  the 554-sat renewal; if small coins lose a large share to this, the rule
-  needs a cost guard.
+- Renewal cost looks small: wallet-flagged Lightning coins are refreshed at
+  once and a refresh can cost 0 to 213 sats in the drills, but three real
+  renewals cost about 5 sats in total. Keep watching; add a cost guard only if
+  small coins start losing a real share.
 - A first payment on an empty till: kept as a note in the test sheet only.
 
 Decisions for the owner:

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A brighter, friendlier checkout page.** The page customers pay on now has a warm cream background (a deep purple one in dark mode), thick outlines with hard shadows, a big price, a yellow "price held" timer, a bright orange "Open in my wallet app" button, tinted messages for waiting, part-paid and expired, and a mint page with confetti once paid. Styling only: every word, button and element id is unchanged, the page still loads no outside fonts or scripts, and the Content-Security-Policy is untouched. The checkout tests all still pass. The dashboard follows in a separate change.
+
 ## 0.2.0-rc4 — release candidate: first real-money tests, folded Settings, emergency withdrawal on real money (17 November 2026)
 
 - **Releases are x86-64 only for now: ARM (arm64) builds are dropped.** The release image and the release binary are built for ordinary x86-64 servers, which is what the DigitalOcean guides use. ARM support is planned to return at v1.0 stability. Building for ARM under emulation made every release and CI run much slower, and ARM use is expected to be small at first. On an ARM machine `scripts/install.sh` now says so and points to building from source. This is a decision by the owner (17 November 2026); `docs/KNOWN_ISSUES.md` has the note.

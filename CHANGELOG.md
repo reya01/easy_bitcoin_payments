@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0-rc4 — release candidate: first real-money tests, folded Settings, emergency withdrawal on real money (17 November 2026)
+
 - **Releases are x86-64 only for now: ARM (arm64) builds are dropped.** The release image and the release binary are built for ordinary x86-64 servers, which is what the DigitalOcean guides use. ARM support is planned to return at v1.0 stability. Building for ARM under emulation made every release and CI run much slower, and ARM use is expected to be small at first. On an ARM machine `scripts/install.sh` now says so and points to building from source. This is a decision by the owner (17 November 2026); `docs/KNOWN_ISSUES.md` has the note.
 - **Docs: the warnings now say mainnet has been tried.** The README banner, the plugin readme, `KNOWN_ISSUES.md`, `TECHNICAL.md` and the mainnet plan no longer say real money is untried. They say what was run (Lightning and Ark payments, a real shop, sweeps, renewals, wallet restore, one emergency withdrawal) and still say the software is experimental, not audited and not for production.
 - **Protection against SQL injection and pasted-in text, checked on every change.** A new integration test sends SQL, script and spreadsheet-formula text through order ids and lookups and checks it is stored as plain text, never matches other orders, never runs, and leaves every table intact. A new CI check (`scripts/check_sql_safety.py`) fails the build if any Rust code builds SQL by pasting values into the query text instead of using bound parameters; five reviewed exceptions (fixed constants and literal table names) are listed with reasons. The shop-safety guide gains a section on third-party scripts on the shop, prompted by the 16 November 2026 Optimizely attack.

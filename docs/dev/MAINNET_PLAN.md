@@ -2,6 +2,8 @@
 
 Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main` at `d3197c3` (`v0.1.0-rc1`). This is a plan, agreed with the owner on 11 November 2026. Nothing in it is built yet except the sweep threshold of 1,000 sats. Whoever does the work follows it in order and stops to report when reality differs from it.
 
+**Status, 17 November 2026:** Stages 4 and 5 have been run with small real money (15 and 16 November). The results are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md); the rest of this page is the plan as agreed on 11 November and is kept as history.
+
 **Goal:** the same features that work on signet today, working on Bitcoin mainnet with very small amounts of real money, plus a documented and tested way to get everything back after losing the server. No other new features and no new dependencies.
 
 ## Owner decisions already made

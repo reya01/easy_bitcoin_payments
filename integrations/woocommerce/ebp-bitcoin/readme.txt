@@ -10,7 +10,7 @@ Accept Bitcoin in WooCommerce through your own Easy Bitcoin Payments server. Exp
 
 == Description ==
 
-**This is an experimental test version.** Use a payment server in test mode (play-money signet coins). A real-money payment server is possible but not yet tried with real bitcoin: keep amounts tiny.
+**This is an experimental test version.** Use a payment server in test mode (play-money signet coins). A real-money payment server is possible and has been tried with small amounts of real bitcoin, but it is still experimental and not for production: keep amounts tiny.
 
 This plugin adds a "Bitcoin" payment method to WooCommerce. It does not handle any money itself. It talks to **your own** Easy Bitcoin Payments server, which holds a small wallet that is emptied to a wallet you control.
 
@@ -59,7 +59,7 @@ To a small wallet on your own payment server, which is emptied to the payout add
 
 = Can I use it for real money? =
 
-Not for real sales yet. A payment server can be set to real money for a first test with tiny amounts (a product under one dollar); it has not yet been tried with real bitcoin. See the project repository for the checklist before a real release.
+Not for production yet. A payment server can be set to real money for tests with small amounts (a product under one dollar). It has been tried with small amounts of real bitcoin, including real orders on a WooCommerce shop, but it is experimental and has not been audited. See the project repository for the checklist before a real release.
 
 = Why does a paid order stay "On hold"? =
 

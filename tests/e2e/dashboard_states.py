@@ -496,6 +496,8 @@ def main():
             if not p.is_visible("#v-set"): pr.append("Set up should take the owner to Settings, where the steps are")
             if not p.is_visible("#phone-topic"): pr.append("the topic name should be visible after Set up")
             want(pr, "steps are shown", p.inner_text("#phone-set"), "install the free")
+            if p.locator("#phone-set img").count(): pr.append("no QR code in the phone-alert steps (a scanner cannot open ntfy:// links)")
+            want(pr, "tap link kept", p.inner_text("#phone-set"), "open in ntfy")
 
         def c_phone_fail(p, pr, calls):
             p.wait_for_timeout(300)

@@ -570,7 +570,7 @@ function renderPhone(box, a, onHome) {
     box.appendChild(el("strong", "Get alerts on your phone?"));
     box.appendChild(el("p", "If something needs you (the payment wallet is unreachable, a payment can't be matched to an order, a withdrawal fails) we can send a short message to your phone. Messages never contain amounts or addresses. It's free and takes about a minute.", "muted"));
     var btns = el("div", "", "btns");
-    // Home only asks the question. The steps (topic name, QR code, test alert) live in
+    // Home only asks the question. The steps (topic name, test alert) live in
     // Settings, so after "Set up" we take the owner there instead of letting the card vanish.
     var hmsg = el("p", "", "msg hidden"); hmsg.id = "phone-home-msg";
     var both = [];
@@ -610,15 +610,9 @@ function renderPhone(box, a, onHome) {
   var c = el("button", "Copy"); c.type = "button"; c.setAttribute("data-copy", "phone-topic"); box.appendChild(c);
   box.appendChild(el("p", "Keep this topic private: anyone who knows it could read your alerts.", "muted"));
   var link = "ntfy://" + host + "/" + a.topic;
-  var q = el("p", "Or on the same phone, tap: ", "muted");
+  var q = el("p", "On the same phone as the ntfy app, you can instead tap: ", "muted");
   var ln = el("a", "open in ntfy"); ln.href = link; q.appendChild(ln);
   box.appendChild(q);
-  try {
-    var img = document.createElement("img");
-    img.alt = "QR code for the alerts topic"; img.width = 160; img.height = 160;
-    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(window.ebpQrSvg(link));
-    box.appendChild(img);
-  } catch (e) {}
   var msg = el("p", "", "msg hidden"); msg.id = "phone-msg";
   var row2 = el("div", "", "btns");
   row2.appendChild(phoneBtn("Send a test alert", function (b) {

@@ -700,6 +700,99 @@ async fn qr_script_is_served_same_origin_and_checkout_uses_it() {
 }
 
 #[tokio::test]
+async fn mascot_art_is_built_in_read_only_and_cannot_be_uploaded() {
+    let (base, _state, _store_id, key) = serve().await;
+    let client = reqwest::Client::new();
+    let names = [
+        "sir-body",
+        "sir-arm",
+        "ufo-top",
+        "ufo-beam",
+        "fancy-body",
+        "fancy-hat",
+        "acro",
+    ];
+    let mut originals = Vec::new();
+    for name in names {
+        let r = client
+            .get(format!("{base}/assets/mascot/{name}.png"))
+            .header("host", "localhost")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "{name}");
+        assert_eq!(
+            r.headers()["content-type"].to_str().unwrap(),
+            "image/png",
+            "{name}"
+        );
+        let body = r.bytes().await.unwrap();
+        assert!(
+            body.starts_with(&[0x89, b'P', b'N', b'G']),
+            "{name} is a PNG"
+        );
+        originals.push(body);
+    }
+    // Only the fixed names exist; anything else (odd spellings, path tricks) is a plain 404.
+    for bad in [
+        "nope.png",
+        "sir-body",
+        "SIR-BODY.PNG",
+        "..%2Fqr.js",
+        "%2e%2e%2f%2e%2e%2fCargo.toml",
+        "sir-body.png%00",
+    ] {
+        let r = client
+            .get(format!("{base}/assets/mascot/{bad}"))
+            .header("host", "localhost")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 404, "{bad}");
+    }
+    // Nothing can add or replace an image, even with the store's own API key.
+    for method in [
+        reqwest::Method::POST,
+        reqwest::Method::PUT,
+        reqwest::Method::PATCH,
+        reqwest::Method::DELETE,
+    ] {
+        for target in ["sir-body.png", "brand-new.png"] {
+            let r = client
+                .request(method.clone(), format!("{base}/assets/mascot/{target}"))
+                .header("host", "localhost")
+                .bearer_auth(&key)
+                .body(vec![0x89, b'P', b'N', b'G'])
+                .send()
+                .await
+                .unwrap();
+            assert!(
+                r.status() == 405 || r.status() == 404,
+                "{method} {target} gave {}",
+                r.status()
+            );
+        }
+    }
+    // The pictures are unchanged afterwards, and no new name appeared.
+    for (name, before) in names.iter().zip(originals) {
+        let r = client
+            .get(format!("{base}/assets/mascot/{name}.png"))
+            .header("host", "localhost")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.bytes().await.unwrap(), before, "{name} changed");
+    }
+    let r = client
+        .get(format!("{base}/assets/mascot/brand-new.png"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 404);
+}
+
+#[tokio::test]
 async fn delivery_log_resend_and_audit_trail_are_store_scoped() {
     let (base, state, store_id, key) = serve().await;
     let client = reqwest::Client::new();

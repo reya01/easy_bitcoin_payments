@@ -26,6 +26,32 @@ pub async fn qr_js() -> impl axum::response::IntoResponse {
     )
 }
 
+/// The success-screen mascot art (`assets/mascot/*.png`). The pictures are compiled into the
+/// program and served from this fixed list only: there is deliberately no way to add, replace or
+/// upload an image while the server runs, and any other name is a plain 404. GET only (the
+/// router answers every other method with 405). Public, cacheable.
+pub async fn mascot(
+    Path(name): Path<String>,
+) -> Result<impl axum::response::IntoResponse, AppError> {
+    let bytes: &'static [u8] = match name.as_str() {
+        "sir-body.png" => include_bytes!("../../assets/mascot/sir-body.png"),
+        "sir-arm.png" => include_bytes!("../../assets/mascot/sir-arm.png"),
+        "ufo-top.png" => include_bytes!("../../assets/mascot/ufo-top.png"),
+        "ufo-beam.png" => include_bytes!("../../assets/mascot/ufo-beam.png"),
+        "fancy-body.png" => include_bytes!("../../assets/mascot/fancy-body.png"),
+        "fancy-hat.png" => include_bytes!("../../assets/mascot/fancy-hat.png"),
+        "acro.png" => include_bytes!("../../assets/mascot/acro.png"),
+        _ => return Err(AppError::NotFound),
+    };
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "image/png"),
+            (axum::http::header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
+    ))
+}
+
 pub async fn page() -> Html<&'static str> {
     Html(include_str!("../../assets/checkout.html"))
 }

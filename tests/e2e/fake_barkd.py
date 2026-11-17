@@ -258,6 +258,8 @@ def handle(method, path, query, body):
             "pending_lightning_send_sat": z,
             "pending_offboard_sat": z,
         }
+    if path == "/onchain/sync":
+        return 200, {}
     if path == "/onchain/balance":
         c = S["onchain_confirmed"]
         return 200, {
@@ -471,9 +473,12 @@ class H(BaseHTTPRequestHandler):
                 VIOLATIONS.append(f"{method} {path}: fake has no handler")
                 return self._send(501, {"message": "not implemented in fake"})
             code, obj = res
-            rsp = (op.get("responses") or {}).get(str(code), {}).get("content", {}).get("application/json", {}).get("schema")
+            rsp_def = (op.get("responses") or {}).get(str(code), {})
+            rsp = rsp_def.get("content", {}).get("application/json", {}).get("schema")
             if rsp is not None:
                 _check(obj, rsp, f"response {method} {path} {code}")
+            elif "content" not in rsp_def and not obj:
+                pass  # the spec says this answer has no body (e.g. POST /onchain/sync): an empty one is right
             else:
                 VIOLATIONS.append(f"{method} {path}: spec defines no {code} response body")
             return self._send(code, obj)

@@ -92,8 +92,13 @@ release notes list the digest and the exact `cosign verify` command. To pin a
 deployment, use `image: ghcr.io/<owner>/<repo>@sha256:<digest>`. Releases are cut by
 pushing a `v*` tag, which builds the x86_64 binary (x86-64 only for now; ARM is planned
 for v1.0), `SHA256SUMS`, the GitHub release and the image. Maintainer to-do (a repository setting):
-protect the `v*` tag pattern so only maintainers can create release tags. The release
-workflow has not been run yet; run it on a test tag before the first real release.
+protect the `v*` tag pattern so only maintainers can create release tags.
+
+What these checks do and do not prove: the signatures and provenance show that this
+repository's release workflow built and signed the files. They do not show that a
+particular person vouches for them, so trust in a release rests on the workflow and on
+the GitHub account that controls it. A signature made with a maintainer's own key,
+published somewhere other than GitHub, is planned for the final release.
 
 **Bare binary** (self-hosters without Docker):
 

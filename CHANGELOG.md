@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Small tidy-ups from an outside code review.** The play-money signet workflow now uses the same version (6.1.0) of the cache action to save the payer wallet as to restore it (they had drifted apart), the repository address in `Cargo.toml` points at this repository, and `UPGRADING.md` says plainly that release signatures prove the release workflow built the files, not that a named person vouches for them. No program behaviour changed.
+
 ## 0.2.0-rc5 — release candidate: brighter checkout and dashboard, success mascots (17 November 2026)
 
 - **What is in rc5.** Only the new look and the built-in mascot pictures. No payment, wallet, sweep, renewal, backup or emergency-withdrawal logic changed since rc4. The look and the mascots have been through CI and browser tests only, not yet seen on a live server.

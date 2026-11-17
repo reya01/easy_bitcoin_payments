@@ -32,6 +32,16 @@ input[type=text],input[type=password],input[type=url],input[type=tel]{width:100%
 select{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 select option{background:var(--bg);color:var(--fg)}
 details{margin-top:12px}
+.fold-sum{margin:2px 0 8px;color:var(--muted);font-size:14px}
+details.fold{margin-top:0}
+details.fold>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--line);border-radius:10px;font-weight:600;cursor:pointer;background:var(--bg)}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::before{content:"\25B8"}
+details.fold[open]>summary::before{content:"\25BE"}
+details.fold>summary .fc{display:none}
+details.fold[open]>summary .fo{display:none}
+details.fold[open]>summary .fc{display:inline}
+details.fold[open]>summary{margin-bottom:10px}
 summary{cursor:pointer;min-height:44px;padding:10px 0}
 button{font:inherit;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
 button.primary{background:var(--accent);border-color:var(--accent);color:#1a1100;font-weight:600}
@@ -174,12 +184,23 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
 
 <section id="v-set" class="hidden">
   <h2>Pause new payments</h2>
+  <p class="fold-sum">Stops customers from starting new Bitcoin payments if you think something is wrong.</p>
+  <details class="fold" id="fold-pause"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card" id="pause-card"></div>
+  </details>
   <h2>Two-step sign-in (2FA)</h2>
+  <p class="fold-sum">Adds a 6-digit code from an app on your phone to your admin password.</p>
+  <details class="fold" id="fold-2fa"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card" id="twofa-card"></div>
+  </details>
   <h2>Phone alerts</h2>
+  <p class="fold-sum">Sends a short message to your phone if something needs you.</p>
+  <details class="fold" id="fold-phone"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card" id="phone-set"></div>
+  </details>
   <h2>Change admin password</h2>
+  <p class="fold-sum">Change the password you use to sign in here.</p>
+  <details class="fold" id="fold-password"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card">
     <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
     <label for="pw-new">New password (16+ characters)</label><input type="password" id="pw-new" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
@@ -188,7 +209,10 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="pw-save" type="button">Change password</button></div>
     <p class="msg hidden" id="pw-msg"></p>
   </div>
+  </details>
   <h2>Where your money goes</h2>
+  <p class="fold-sum">Sets the address your payments are sent to and how much stays on this server.</p>
+  <details class="fold" id="fold-payout"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card">
     <p class="muted">The small till wallet on this server is emptied to this address, which should belong to a wallet <strong>you</strong> control. Changing it takes effect after a safety delay and needs your admin password, so a stolen login cannot redirect your money quickly.</p>
     <div id="po-now" class="muted">Loading…</div>
@@ -218,7 +242,10 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     </div>
     <p class="msg hidden" id="po-msg"></p>
   </div>
+  </details>
   <h2>Download a backup</h2>
+  <p class="fold-sum">Saves an encrypted copy of your orders, settings and wallet files.</p>
+  <details class="fold" id="fold-backup"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card">
     <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
     <label for="bk-admin">Admin password</label><input type="password" id="bk-admin" autocomplete="current-password">
@@ -226,7 +253,10 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="bk-go" type="button">Download encrypted backup</button></div>
     <p class="msg hidden" id="bk-msg"></p>
   </div>
+  </details>
   <h2>Check a backup</h2>
+  <p class="fold-sum">Tests that a backup file you saved opens, without changing anything.</p>
+  <details class="fold" id="fold-check"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card">
     <p class="muted">Pick a backup file you saved and type its password (the admin password you had when you downloaded it). This only opens the file to show that it works and what it holds. Nothing is changed, and the file is not kept.</p>
     <label for="ck-file">Backup file</label><input type="file" id="ck-file">
@@ -234,10 +264,11 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
     <div class="btns"><button id="ck-go" type="button">Check this backup</button></div>
     <p class="msg hidden" id="ck-msg"></p>
   </div>
+  </details>
   <h2 class="bad">Emergency: withdraw without the Ark server</h2>
-  <div class="card">
-    <details id="ex-box">
-      <summary>Open only in an emergency</summary>
+  <p class="fold-sum">A last resort to take your money out on your own if the Ark server is gone or refuses to help. Open it only in an emergency.</p>
+  <details class="fold" id="ex-box"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+    <div class="card">
       <div class="warnbox"><strong>For emergencies only.</strong> You always hold the keys to this money, so this lets you take it out on your own even if the Ark server is gone or refuses to help. On real money it is new: it has only been tried in small tests so far, so keep only amounts you can afford to lose on this server. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use <strong>Move my money now</strong> instead: it is cheaper and faster.</div>
       <div id="ex-facts"></div>
       <p class="msg hidden" id="ex-refusal"></p>
@@ -276,10 +307,13 @@ nav button.on{color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--acc
         <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
       </div>
       <p class="msg hidden" id="ex-msg"></p>
-    </details>
-  </div>
+    </div>
+  </details>
   <h2>Security activity</h2>
+  <p class="fold-sum">A log of sign-ins and changes to your settings.</p>
+  <details class="fold" id="fold-audit"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
   <div class="card" id="audit"></div>
+  </details>
 </section>
 </main>
 
@@ -430,6 +464,10 @@ function api(method, path, body) {
     });
 }
 
+// Settings sections start folded; open the one a link or button is sending the owner to.
+function openFold(id) {
+  try { var e = $(id); var d = e && e.closest("details.fold"); if (d) d.open = true; } catch (x) {}
+}
 function show(name) {
   views.forEach(function (v) { $("v-" + v).classList.toggle("hidden", v !== name); });
   var tabs = document.querySelectorAll("#tabs button");
@@ -658,7 +696,7 @@ function loadPhone(openSteps) {
     h.classList.toggle("hidden", a.state !== "undecided");
     renderPhone(s, a, false);
     if (openSteps && a.state === "on") {
-      show("set");
+      show("set"); openFold("phone-set");
       try { s.scrollIntoView({ block: "start" }); } catch (e) {}
     }
   }).catch(function () {
@@ -1101,13 +1139,13 @@ function renderPrompt() {
   box.appendChild(el("strong", "Add a second lock to your account"));
   box.appendChild(el("p", "Right now only your password protects this page. With two-step sign-in you also type a 6-digit code from an app on your phone, so someone who finds out your password still can't get in or change where your money goes. It takes about two minutes.", "muted"));
   var btns = el("div", "", "btns");
-  btns.appendChild(button("Turn on (recommended)", function () { show("set"); startTwofaForm(); $("twofa-card").scrollIntoView(); }, "primary"));
+  btns.appendChild(button("Turn on (recommended)", function () { show("set"); openFold("twofa-card"); startTwofaForm(); $("twofa-card").scrollIntoView(); }, "primary"));
   btns.appendChild(button("Skip, use password only", function () {
     clear(box);
     box.appendChild(el("strong", "Use password only?"));
     var w = el("p", LESS_SECURE, "muted warnbox"); box.appendChild(w);
     var b2 = el("div", "", "btns");
-    b2.appendChild(button("Turn on instead (recommended)", function () { show("set"); startTwofaForm(); $("twofa-card").scrollIntoView(); }, "primary"));
+    b2.appendChild(button("Turn on instead (recommended)", function () { show("set"); openFold("twofa-card"); startTwofaForm(); $("twofa-card").scrollIntoView(); }, "primary"));
     b2.appendChild(button("Skip anyway", function (b) {
       b.disabled = true;
       api("POST", "/admin/2fa/skip", {}).then(function () { applyTwofa(false, true); renderPrompt(); renderTwofaCard(); }).catch(function (e) { b.disabled = false; w.textContent = e.message; });

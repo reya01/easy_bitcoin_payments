@@ -2774,7 +2774,10 @@ fn the_settings_page_folds_the_emergency_withdrawal_away_behind_a_warning() {
         .find("Emergency: withdraw without the Ark server")
         .unwrap();
     let rest = &page[i..];
-    assert!(rest.contains("<details id=\"ex-box\">"), "folded away");
+    assert!(
+        rest.contains("<details class=\"fold\" id=\"ex-box\">"),
+        "folded away"
+    );
     assert!(rest.contains("For emergencies only."));
     assert!(rest.contains("Move my money now"));
     assert!(

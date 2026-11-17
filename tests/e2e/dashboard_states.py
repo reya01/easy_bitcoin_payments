@@ -139,6 +139,7 @@ def main():
 
         def c_pw(p, pr, calls):
             p.click('#tabs button[data-v="set"]')
+            p.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             p.fill("#pw-cur", "old"); p.fill("#pw-new", "new password that is long enough")
             p.click("#pw-save"); p.wait_for_timeout(300)
             if not p.is_visible("#v-login"): pr.append("should go back to sign-in")
@@ -229,6 +230,7 @@ def main():
 
         def open_exit(p):
             p.click('#tabs button[data-v="set"]')
+            p.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             p.evaluate("document.getElementById('ex-box').open = true")
             p.wait_for_timeout(700)
 
@@ -465,6 +467,7 @@ def main():
                 return real.call(window, u, o);
               }; }""")
             p.click('#tabs button[data-v="set"]')
+            p.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             p.wait_for_function("window.__held === true", timeout=5000)
             p.get_by_role("button", name="Pause new payments").click()
             p.wait_for_function("document.getElementById('pause-card').textContent.indexOf('Paused') >= 0", timeout=5000)
@@ -508,6 +511,27 @@ def main():
 
         ok &= run_case(pw, "phone alerts: Set up leads to the steps in Settings", phone_handler(False), c_phone_ok)
         ok &= run_case(pw, "phone alerts: a failed Set up says so and can be retried", phone_handler(True), c_phone_fail)
+
+        # --- Settings: every section is a heading, one sentence and an Expand button
+        def c_settings_folded(p, pr, calls):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            folds = p.query_selector_all("#v-set details.fold")
+            if len(folds) != 9: pr.append(f"expected 9 folded sections, saw {len(folds)}")
+            for d in folds:
+                if d.evaluate("e => e.open"): pr.append("every section must start folded: " + (d.get_attribute("id") or "?"))
+                sentence = d.evaluate("e => e.previousElementSibling && e.previousElementSibling.className")
+                if sentence != "fold-sum": pr.append("a one-sentence summary must sit between the heading and the button: " + (d.get_attribute("id") or "?"))
+                if "Expand" not in d.query_selector("summary").inner_text(): pr.append("the button should say Expand: " + (d.get_attribute("id") or "?"))
+            if p.is_visible("#pause-card") or p.is_visible("#pw-save") or p.is_visible("#bk-go"):
+                pr.append("section contents must be hidden until expanded")
+            p.click("#fold-pause > summary"); p.wait_for_timeout(200)
+            if not p.is_visible("#pause-card"): pr.append("Expand should show the section")
+            if "Collapse" not in p.inner_text("#fold-pause > summary"): pr.append("the button should say Collapse once open")
+            if p.is_visible("#pw-save"): pr.append("opening one section must not open the others")
+            p.click("#fold-pause > summary"); p.wait_for_timeout(200)
+            if p.is_visible("#pause-card"): pr.append("Collapse should hide it again")
+
+        ok &= run_case(pw, "settings: nine folded sections, each with a one-line summary and Expand", signed_in, c_settings_folded)
     sys.exit(0 if ok else 1)
 
 

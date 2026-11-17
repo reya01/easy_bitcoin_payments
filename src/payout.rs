@@ -851,9 +851,11 @@ pub(crate) mod tests {
         assert!(check("tark1qw508d6qejxtdg4y5r3zarvary0c5xw7k", "test").is_err());
     }
 
-    // Two addresses made by throwaway mainnet test wallets on Second's server.
-    const SAME_SERVER_A: &str = "ark1pu6h30w3zqqp925mq7na5tp0g9e38dr0ehcm5knhn3t54nyn5vv96stcu993fkxpzqyp68xugqvak7kyzzpjeuwg8sa0083yvkts40sl0vah9wa9z9sl8ulcdexg9g";
-    const SAME_SERVER_B: &str = "ark1pu6h30w3zqqpsgvg9tfp333jaffnfye2q0lase00lkl4wg4h2c5x5hytk0jeycn3zqyp9kccnvcewvcznplaqzmurtq6sggy8zmxerejhdcpwcukycpfdf6sy0sp9h";
+    // Two made-up addresses (not any real wallet's). Their first bytes carry the
+    // tag of Second's public server key, so they count as "on Second's server";
+    // the rest of each payload is a fixed filler pattern.
+    const SAME_SERVER_A: &str = "ark1pu6h30ws3zgf3g9gkzuvpjxsmrsw3u8eqyy3zxfp9ycnjs2f29vkz6t30xqcnyve5x5mrwwpe8ganc0f78aqyzsjrg3z5v36gf99yknzdfe84q52j2d2924srr43da";
+    const SAME_SERVER_B: &str = "ark1pu6h30w3zyvjz2f389q5j52ev95hz7vp3xgengdfkxuurjw3m8s7nu06qg9pyx3z9ger5sj22fdxy6nj02pg4y56524t9wkzetfd4ch27tasxzcnrv3jkvec7pu79c";
 
     #[test]
     fn addresses_of_one_ark_server_share_a_tag_and_others_do_not() {

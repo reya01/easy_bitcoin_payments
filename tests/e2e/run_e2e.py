@@ -406,6 +406,7 @@ def main():
             assert len(codes) == 10, codes
             page.get_by_role("button", name="I saved them").click()
             wait_for(lambda: "Backup codes left: 10" in page.inner_text("#twofa-card"), "turned on, 10 backup codes")
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             assert page.is_visible("#bk-code"), "protected actions now ask for a code"
             # Sign out and back in: the password alone is no longer enough.
             page.click("#logout")

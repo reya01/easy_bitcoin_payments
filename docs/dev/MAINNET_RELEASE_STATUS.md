@@ -45,6 +45,13 @@ mainnet" does not apply to them:
   had paid payments, so the Home card stayed hidden).
 - Amounts in error messages shown in sats, clearer Alerts wording, and a
   checkout fix so the link back to the shop keeps the right wording.
+- The brighter look on the checkout page and the admin page (colour, thick
+  outlines, bottom tab bar with icons, mint "paid" page; styling only, every
+  word and element id unchanged), and the four animated "paid" scenes with
+  their built-in, read-only pictures (added after rc4, 17 November). Looked at
+  in screenshots against a stub server and covered by the browser tests, not
+  yet on a live server or a real phone. Worth a look in light and dark mode:
+  Home, Settings, the checkout waiting, paid and expired pages.
 
 The next real-money session should look at these: update the server and look
 at the folded Settings tab; set up phone alerts from Home; set up a fresh

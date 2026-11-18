@@ -876,7 +876,11 @@ function renderTwofaCard() {
     var left = el("p", "", "muted"); box.appendChild(left);
     api("POST", "/admin/2fa/status", {}).then(function (s) { left.textContent = "Backup codes left: " + s.recovery_left + " of 10."; }).catch(function () {});
     var out = el("div"); box.appendChild(out);
-    box.appendChild(el("div", "", "btns")).appendChild(button("Turn off", function () {
+    var reveal = el("div", "", "btns");
+    box.appendChild(reveal).appendChild(button("Turn off", function () {
+      // The form below has its own confirm button, so this one goes away (a second
+      // "Turn off" next to it looked like two ways to do the same thing).
+      reveal.classList.add("hidden");
       clear(out);
       out.appendChild(el("p", LESS_SECURE, "muted warnbox"));
       out.appendChild(field("tf-off-pw", "Admin password", "password"));
@@ -888,6 +892,7 @@ function renderTwofaCard() {
           .then(function () { applyTwofa(false, true); renderPrompt(); renderTwofaCard(); })
           .catch(function (e) { say("tf-msg", e.message, true); btn.disabled = false; });
       }));
+      b.appendChild(button("Cancel", function () { renderTwofaCard(); }));
       out.appendChild(b);
       var m = el("p", "", "msg hidden"); m.id = "tf-msg"; out.appendChild(m);
     }));

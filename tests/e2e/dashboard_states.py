@@ -576,7 +576,9 @@ def main():
             p.wait_for_timeout(300)
             if not p.is_visible("#phone-home"): pr.append("the alerts question should show on Home"); return
             p.click("#phone-home button:text-is(\"Set up phone alerts\")"); p.wait_for_timeout(600)
-            if not p.is_visible("#v-set"): pr.append("Set up should take the owner to Settings, where the steps are")
+            if not p.is_visible("#v-alerts"): pr.append("Set up should take the owner to the Alerts tab, where the steps are")
+            if p.locator("#v-set #phone-set").count(): pr.append("phone alerts must not also sit in Settings")
+            if not p.is_visible("#phone-set"): pr.append("the phone alerts section should be opened for the owner")
             if not p.is_visible("#phone-topic"): pr.append("the topic name should be visible after Set up")
             want(pr, "steps are shown", p.inner_text("#phone-set"), "install the free")
             if p.locator("#phone-set img").count(): pr.append("no QR code in the phone-alert steps (a scanner cannot open ntfy:// links)")
@@ -589,29 +591,37 @@ def main():
             want(pr, "failure explained", p.inner_text("#phone-home"), "Could not reach the alerts server")
             if p.is_disabled("#phone-home button:text-is(\"Set up phone alerts\")"): pr.append("the button must work again after a failure")
 
-        ok &= run_case(pw, "phone alerts: Set up leads to the steps in Settings", phone_handler(False), c_phone_ok)
+        ok &= run_case(pw, "phone alerts: Set up leads to the steps on the Alerts tab", phone_handler(False), c_phone_ok)
         ok &= run_case(pw, "phone alerts: a failed Set up says so and can be retried", phone_handler(True), c_phone_fail)
 
-        # --- Settings: every section is a heading, one sentence and an Expand button
+        # --- Settings: every section is one folded row: a title and one sentence
         def c_settings_folded(p, pr, calls):
-            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(500)
             folds = p.query_selector_all("#v-set details.fold")
-            if len(folds) != 9: pr.append(f"expected 9 folded sections, saw {len(folds)}")
+            if len(folds) != 8: pr.append(f"expected 8 folded sections, saw {len(folds)}")
             for d in folds:
-                if d.evaluate("e => e.open"): pr.append("every section must start folded: " + (d.get_attribute("id") or "?"))
-                sentence = d.evaluate("e => e.previousElementSibling && e.previousElementSibling.className")
-                if sentence != "fold-sum": pr.append("a one-sentence summary must sit between the heading and the button: " + (d.get_attribute("id") or "?"))
-                if "Expand" not in d.query_selector("summary").inner_text(): pr.append("the button should say Expand: " + (d.get_attribute("id") or "?"))
+                name = d.get_attribute("id") or "?"
+                if d.evaluate("e => e.open"): pr.append("every section must start folded: " + name)
+                if not d.query_selector("summary .ft").inner_text().strip(): pr.append("a folded row needs a title: " + name)
+                if not d.query_selector("summary .fs").inner_text().strip().endswith("."): pr.append("a folded row needs a one-sentence summary: " + name)
+                if d.query_selector("summary .fo") or d.query_selector("summary .fc"): pr.append("no Expand/Collapse words any more, the whole row opens it: " + name)
+                if d.evaluate("e => e.previousElementSibling && e.previousElementSibling.tagName === 'H2' && e.previousElementSibling.textContent !== 'Settings'"): pr.append("the title must be inside the row, not a separate heading: " + name)
+            if p.locator("#v-set #fold-phone").count(): pr.append("phone alerts belong on the Alerts tab, not in Settings")
             if p.is_visible("#pause-card") or p.is_visible("#pw-save") or p.is_visible("#bk-go"):
-                pr.append("section contents must be hidden until expanded")
+                pr.append("section contents must be hidden until opened")
+            row = p.evaluate("() => document.querySelector('#fold-pause > summary').getBoundingClientRect().height")
+            if row > 120: pr.append(f"a folded row should be compact, it is {row}px tall")
             p.click("#fold-pause > summary"); p.wait_for_timeout(200)
-            if not p.is_visible("#pause-card"): pr.append("Expand should show the section")
-            if "Collapse" not in p.inner_text("#fold-pause > summary"): pr.append("the button should say Collapse once open")
+            if not p.is_visible("#pause-card"): pr.append("clicking the row should show the section")
+            want(pr, "the sentence stays on the row", p.inner_text("#fold-pause > summary"), "Stops customers")
             if p.is_visible("#pw-save"): pr.append("opening one section must not open the others")
             p.click("#fold-pause > summary"); p.wait_for_timeout(200)
-            if p.is_visible("#pause-card"): pr.append("Collapse should hide it again")
+            if p.is_visible("#pause-card"): pr.append("clicking again should hide it")
+            p.click('#tabs button[data-v="alerts"]'); p.wait_for_timeout(400)
+            if not p.is_visible("#fold-phone > summary"): pr.append("the Alerts tab should have a folded Phone alerts row")
+            if p.evaluate("e => e.open", p.query_selector("#fold-phone")): pr.append("Phone alerts should start folded")
 
-        ok &= run_case(pw, "settings: nine folded sections, each with a one-line summary and Expand", signed_in, c_settings_folded)
+        ok &= run_case(pw, "settings: eight compact folded rows with one sentence each, phone alerts on the Alerts tab", signed_in, c_settings_folded)
 
         # --- late and unmatched payments: money that arrived for an order that
         # could no longer take it must be visible, explained and markable.
@@ -674,7 +684,7 @@ def main():
             return json.loads([c for c in calls if c[1] == path][-1][2] or "{}")
 
         def open_folds(p):
-            p.evaluate("document.querySelectorAll('#v-set details.fold, #keylock-box').forEach(function(d){d.open=true})")
+            p.evaluate("document.querySelectorAll('#v-set details.fold, #v-alerts details.fold, #keylock-box').forEach(function(d){d.open=true})")
 
         def c_resume_off(p, pr, calls):
             p.wait_for_timeout(500)
@@ -722,7 +732,7 @@ def main():
 
         def phone_check(twofa):
             def c(p, pr, calls):
-                p.click('#tabs button[data-v="set"]'); open_folds(p); p.wait_for_timeout(500)
+                p.click('#tabs button[data-v="alerts"]'); open_folds(p); p.wait_for_timeout(500)
                 if p.is_visible("#phone-code") != twofa: pr.append(f"the alerts code box should be {'shown' if twofa else 'hidden'}")
                 p.click('#phone-set button:text-is("Turn phone alerts off")'); p.wait_for_timeout(400)
                 if twofa:

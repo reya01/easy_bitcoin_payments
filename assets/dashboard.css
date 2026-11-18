@@ -25,16 +25,17 @@ input[type=text],input[type=password],input[type=url],input[type=tel]{width:100%
 select{width:100%;font:inherit;padding:12px;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--fg)}
 select option{background:var(--bg);color:var(--fg)}
 details{margin-top:12px}
-.fold-sum{margin:2px 0 8px;color:var(--muted);font-size:14px}
-details.fold{margin-top:0}
-details.fold>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:2px solid var(--line);border-radius:12px;font-weight:700;cursor:pointer;background:var(--card)}
+details.fold{margin:8px 0 0}
+details.fold>summary{list-style:none;display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 16px;border:2px solid var(--line);border-radius:12px;cursor:pointer;background:var(--card)}
 details.fold>summary::-webkit-details-marker{display:none}
-details.fold>summary::before{content:"\25B8"}
-details.fold[open]>summary::before{content:"\25BE"}
-details.fold>summary .fc{display:none}
-details.fold[open]>summary .fo{display:none}
-details.fold[open]>summary .fc{display:inline}
+details.fold>summary .fx{flex:1;min-width:0;display:flex;flex-direction:column}
+details.fold>summary .ft{font-weight:700;overflow-wrap:anywhere}
+details.fold>summary .ft.bad{color:var(--bad)}
+details.fold>summary .fs{font-size:14px;font-weight:400;color:var(--muted);line-height:1.35;margin-top:2px}
+details.fold>summary::after{content:"\25B8"}
+details.fold[open]>summary::after{content:"\25BE"}
 details.fold[open]>summary{margin-bottom:10px}
+#unmatched+details.fold{margin-top:16px}
 summary{cursor:pointer;min-height:44px;padding:10px 0}
 button{font:inherit;font-weight:600;min-height:44px;padding:0 16px;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
 button.primary{background:var(--accent);color:#1d1530;font-weight:700;box-shadow:0 3px 0 var(--shadow)}

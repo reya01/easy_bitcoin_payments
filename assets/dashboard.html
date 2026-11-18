@@ -94,6 +94,7 @@
       <p class="muted">If your shop's website were ever hacked, this key is what an attacker would get. You can limit the key to your shop's server address so it is useless anywhere else. Ask your hosting company for your shop's outgoing IP address. Shared hosts sometimes change it, which would stop checkout until you update it here.</p>
       <label for="kl-addr">Your shop's address (for example 203.0.113.7; leave empty for no limit)</label>
       <input type="text" id="kl-addr" autocomplete="off" spellcheck="false">
+      <div class="needcode hidden"><label for="kl-code">Code from your authenticator app</label><input type="text" id="kl-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="kl-save" type="button">Save</button></div>
       <p class="msg hidden" id="kl-msg"></p>
       <p class="muted hidden" id="kl-blocked"></p>

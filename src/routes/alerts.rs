@@ -2,8 +2,10 @@
 //! session; the topic name is only ever returned here.
 //!
 //! * `POST /admin/alerts/status`   — state, topic and server (POST so the CSRF check applies)
-//! * `POST /admin/alerts/enable`   — turn on (optional own `server`)
-//! * `POST /admin/alerts/disable`  — opt out
+//! * `POST /admin/alerts/enable`   — turn on (optional own `server`; a code is
+//!   needed only for an own server, and only when two-step sign-in is on)
+//! * `POST /admin/alerts/disable`  — opt out (a code is needed only to turn off
+//!   alerts that are working, and only when two-step sign-in is on)
 //! * `POST /admin/alerts/activity` — how to hear about payments: daily (default), each or off
 //! * `POST /admin/alerts/test`     — send a test alert
 
@@ -15,7 +17,7 @@ use serde_json::{json, Value};
 
 use crate::alerts as al;
 use crate::error::AppError;
-use crate::routes::admin_session::require_session;
+use crate::routes::admin_session::{check_second_step, require_session};
 use crate::routes::AppState;
 
 async fn view(state: &AppState) -> Result<Json<Value>, AppError> {
@@ -48,6 +50,9 @@ pub async fn get(
 #[derive(Deserialize, Default)]
 pub struct EnableRequest {
     pub server: Option<String>,
+    /// Authenticator code, needed only to use an own server.
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 pub async fn enable(
@@ -56,6 +61,13 @@ pub async fn enable(
     Json(req): Json<EnableRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    // Sending alerts to another server is the one change here that could
+    // hide trouble from the owner, so it asks for the second step. Turning
+    // alerts on with the default server never does.
+    let own_server = req.server.as_deref().is_some_and(|s| !s.trim().is_empty());
+    if own_server {
+        check_second_step(&state, req.code.clone()).await?;
+    }
     let server = req.server;
     state
         .db
@@ -83,11 +95,29 @@ pub async fn activity(
     view(&state).await
 }
 
+#[derive(Deserialize, Default)]
+pub struct DisableRequest {
+    /// Authenticator code, needed only to turn off alerts that are working.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
 pub async fn disable(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Json(req): Json<DisableRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    // Saying "no thanks" to the first question, or turning off alerts that were
+    // already off, needs nothing. Switching off alerts that work asks for the
+    // second step (when it is on), because silence is what an attacker wants.
+    let working = state
+        .db
+        .call(|c| Ok(al::state(c)? == al::State::On))
+        .await?;
+    if working {
+        check_second_step(&state, req.code).await?;
+    }
     state.db.call(|c| al::disable(c)).await?;
     view(&state).await
 }

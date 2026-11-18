@@ -575,6 +575,91 @@ def main():
             if p.query_selector_all("#unmatched button:text-is(\"Mark as handled\")"): pr.append("no button should be left once everything is handled")
 
         ok &= run_case(pw, "late payments: counted on Home, listed and explained in Alerts, can be marked handled", unmatched_handler, c_unmatched)
+        # --- the second step: a code is only ever asked for while two-step
+        # sign-in is on, so nobody without it meets a box they cannot fill in.
+        def second_step_handler(twofa, paused=False, alerts="on"):
+            def h(path, req, calls):
+                if path == "/admin/session":
+                    return 200, {"authenticated": True, "csrf": "tok", "password_set": True, "twofa": twofa, "paused": paused}
+                body = json.loads(req.post_data) if req.post_data else {}
+                needs_code = path in ("/admin/keylock/save", "/admin/alerts/disable") or (path == "/admin/pause" and not body.get("paused"))
+                if twofa and needs_code and not body.get("code"):
+                    return 400, {"error": {"message": "Enter the 6-digit code from your authenticator app."}}
+                if path == "/admin/pause": return 200, {"paused": body.get("paused")}
+                if path in ("/admin/keylock/save", "/admin/keylock/status"):
+                    return 200, {"addresses": [], "last_blocked_address": None, "last_blocked_at": None}
+                if path == "/admin/alerts/status":
+                    return 200, {"state": alerts, "server": "https://ntfy.sh", "default_server": "https://ntfy.sh", "topic": "ebp-faketopic123", "activity": "daily"}
+                if path == "/admin/alerts/disable": return 200, {"ok": True}
+                return signed_in(path, req, calls)
+            return h
+
+        def last_body(calls, path):
+            return json.loads([c for c in calls if c[1] == path][-1][2] or "{}")
+
+        def open_folds(p):
+            p.evaluate("document.querySelectorAll('#v-set details.fold, #keylock-box').forEach(function(d){d.open=true})")
+
+        def c_resume_off(p, pr, calls):
+            p.wait_for_timeout(500)
+            if not p.is_visible("#paused-card"): pr.append("the paused banner should show on Home"); return
+            if p.is_visible("#paused-card input"): pr.append("no code box while two-step sign-in is off")
+            p.click('#paused-card button:text-is("Resume payments")'); p.wait_for_timeout(400)
+            if p.is_visible("#paused-card"): pr.append("Resume must work without a code when two-step sign-in is off")
+
+        def c_resume_on(p, pr, calls):
+            p.wait_for_timeout(500)
+            if not p.is_visible("#paused-card input"): pr.append("the code box should show while two-step sign-in is on"); return
+            p.click('#paused-card button:text-is("Resume payments")'); p.wait_for_timeout(400)
+            want(pr, "asked for the code, on Home where the button is", p.inner_text("#paused-card"), "6-digit code")
+            if not p.is_visible("#paused-card"): pr.append("still paused after a refused Resume")
+            if p.is_disabled('#paused-card button:text-is("Resume payments")'): pr.append("the button must work again after a refusal")
+            p.fill("#paused-card input", "123456"); p.click('#paused-card button:text-is("Resume payments")'); p.wait_for_timeout(400)
+            if p.is_visible("#paused-card"): pr.append("Resume should work with the code")
+            if last_body(calls, "/admin/pause").get("code") != "123456": pr.append("the code must be sent with Resume")
+
+        ok &= run_case(pw, "second step: Resume asks for no code without two-step sign-in", second_step_handler(False, paused=True), c_resume_off)
+        ok &= run_case(pw, "second step: Resume asks for the code, on Home, with two-step sign-in", second_step_handler(True, paused=True), c_resume_on)
+
+        def c_pause_free(p, pr, calls):
+            p.click('#tabs button[data-v="set"]'); open_folds(p); p.wait_for_timeout(300)
+            if p.is_visible("#pause-card input"): pr.append("Pause is the emergency button: it must never ask for a code")
+            p.click('#pause-card button:text-is("Pause new payments")'); p.wait_for_timeout(400)
+            want(pr, "paused", p.inner_text("#pause-card"), "Paused")
+
+        ok &= run_case(pw, "second step: Pause never asks for a code, even with two-step sign-in", second_step_handler(True), c_pause_free)
+
+        def keylock_check(twofa):
+            def c(p, pr, calls):
+                p.click('#tabs button[data-v="hooks"]'); open_folds(p); p.wait_for_timeout(300)
+                if p.is_visible("#kl-code") != twofa: pr.append(f"the shop-address code box should be {'shown' if twofa else 'hidden'}")
+                p.fill("#kl-addr", "203.0.113.7"); p.click("#kl-save"); p.wait_for_timeout(400)
+                if twofa:
+                    want(pr, "asked for the code", p.inner_text("#kl-msg"), "6-digit code")
+                    p.fill("#kl-code", "654321"); p.click("#kl-save"); p.wait_for_timeout(400)
+                    if last_body(calls, "/admin/keylock/save").get("code") != "654321": pr.append("the code must be sent with the address lock")
+                want(pr, "saved", p.inner_text("#kl-msg"), "Saved")
+            return c
+
+        ok &= run_case(pw, "second step: shop-address lock saves with no code box when two-step sign-in is off", second_step_handler(False), keylock_check(False))
+        ok &= run_case(pw, "second step: shop-address lock asks for the code when two-step sign-in is on", second_step_handler(True), keylock_check(True))
+
+        def phone_check(twofa):
+            def c(p, pr, calls):
+                p.click('#tabs button[data-v="set"]'); open_folds(p); p.wait_for_timeout(500)
+                if p.is_visible("#phone-code") != twofa: pr.append(f"the alerts code box should be {'shown' if twofa else 'hidden'}")
+                p.click('#phone-set button:text-is("Turn phone alerts off")'); p.wait_for_timeout(400)
+                if twofa:
+                    want(pr, "asked for the code", p.inner_text("#phone-msg"), "6-digit code")
+                    if p.is_disabled('#phone-set button:text-is("Turn phone alerts off")'): pr.append("the button must work again after a refusal")
+                    p.fill("#phone-code", "111222"); p.click('#phone-set button:text-is("Turn phone alerts off")'); p.wait_for_timeout(400)
+                    if last_body(calls, "/admin/alerts/disable").get("code") != "111222": pr.append("the code must be sent when turning alerts off")
+                elif count(calls, "POST", "/admin/alerts/disable") != 1:
+                    pr.append("turning alerts off must just work without two-step sign-in")
+            return c
+
+        ok &= run_case(pw, "second step: turning alerts off needs no code without two-step sign-in", second_step_handler(False), phone_check(False))
+        ok &= run_case(pw, "second step: turning working alerts off asks for the code with two-step sign-in", second_step_handler(True), phone_check(True))
     sys.exit(0 if ok else 1)
 
 

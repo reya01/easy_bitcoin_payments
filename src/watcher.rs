@@ -351,6 +351,7 @@ impl PollingWatcher {
                 invoice_id: invoice.id.clone(),
                 rail: payment.rail.as_str().to_string(),
                 amount_sats: credited_amount(&payment, &invoice),
+                received_sats: Some(payment.amount_sats),
                 vtxo_id: payment.vtxo_id.clone(),
                 txid: payment.txid.clone(),
                 detected_at: payment.detected_at,

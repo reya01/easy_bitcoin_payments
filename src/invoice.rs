@@ -234,6 +234,30 @@ pub fn export_all(conn: &Connection, store_id: &str) -> Result<Vec<Invoice>, App
     Ok(invoices)
 }
 
+/// What the wallet received for each of this store's invoices, for the
+/// payments export: the sum of the wallet's own figures, or, for payments
+/// recorded before that figure was kept, what was credited.
+pub fn received_by_invoice(
+    conn: &Connection,
+    store_id: &str,
+) -> Result<std::collections::HashMap<String, i64>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT p.invoice_id, SUM(COALESCE(p.received_sats, p.amount_sats))
+         FROM payments p JOIN invoices i ON i.id = p.invoice_id
+         WHERE i.store_id = ?1
+         GROUP BY p.invoice_id",
+    )?;
+    let rows = stmt.query_map(params![store_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    let mut out = std::collections::HashMap::new();
+    for row in rows {
+        let (id, sats) = row?;
+        out.insert(id, sats);
+    }
+    Ok(out)
+}
+
 /// Cancel a pending invoice. Returns `Conflict` if it is no longer cancellable.
 pub fn cancel(conn: &Connection, store_id: &str, id: &str) -> Result<Invoice, AppError> {
     let invoice = get(conn, store_id, id)?.ok_or(AppError::NotFound)?;
@@ -672,7 +696,11 @@ mod test_mode_tests {
 pub struct ObservedPayment {
     pub invoice_id: String,
     pub rail: String,
+    /// What is credited to the order.
     pub amount_sats: i64,
+    /// What the wallet reported receiving, when that is known. It can differ
+    /// from `amount_sats` by a few sats on Lightning (see the watcher).
+    pub received_sats: Option<i64>,
     pub vtxo_id: Option<String>,
     pub txid: Option<String>,
     pub detected_at: i64,
@@ -692,6 +720,7 @@ pub fn record_payment(
         invoice_id,
         rail,
         amount_sats,
+        received_sats,
         vtxo_id,
         txid,
         detected_at,
@@ -733,13 +762,14 @@ pub fn record_payment(
     }
 
     let insert = tx.execute(
-        "INSERT INTO payments (id, invoice_id, rail, amount_sats, vtxo_id, txid, detected_at, confirmed_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO payments (id, invoice_id, rail, amount_sats, received_sats, vtxo_id, txid, detected_at, confirmed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             new_id("pay"),
             invoice_id,
             rail,
             amount_sats,
+            received_sats,
             vtxo_id,
             txid,
             detected_at,
@@ -867,6 +897,7 @@ mod tests {
             invoice_id: invoice_id.to_string(),
             rail: rail.to_string(),
             amount_sats,
+            received_sats: None,
             vtxo_id: vtxo_id.map(str::to_string),
             txid: None,
             detected_at: now_unix(),
@@ -1001,6 +1032,46 @@ mod tests {
         assert_eq!(invoice.status, InvoiceStatus::Paid);
         assert_eq!(invoice.paid_sats, 1000);
         assert!(invoice.paid_at.is_some());
+    }
+
+    /// The payments export reports what the wallet received, which can differ
+    /// from what was credited to the order by a few sats on Lightning. Older
+    /// payments (no figure kept) fall back to what was credited.
+    #[tokio::test]
+    async fn the_amount_the_wallet_received_is_kept_next_to_what_was_credited() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        let sid2 = store_id.clone();
+        db.call(move |conn| {
+            insert(conn, &new_invoice(&sid, "inv_ln", 1000))?;
+            insert(conn, &new_invoice(&sid2, "inv_old", 500))
+        })
+        .await
+        .unwrap();
+
+        // Lightning: 1,000 credited to the order, 996 actually received.
+        let mut lightning = obs("inv_ln", "lightning", 1000, Some("vtxo_ln"));
+        lightning.received_sats = Some(996);
+        let (invoice, _) = db
+            .call(move |conn| record_payment(conn, &lightning))
+            .await
+            .unwrap()
+            .expect("payment applied");
+        assert_eq!(invoice.paid_sats, 1000, "the order is paid in full");
+
+        // A payment recorded without the wallet's figure.
+        db.call(|conn| record_payment(conn, &obs("inv_old", "ark", 500, Some("vtxo_old"))))
+            .await
+            .unwrap()
+            .expect("payment applied");
+
+        let received = db
+            .call(move |conn| received_by_invoice(conn, &store_id))
+            .await
+            .unwrap();
+        assert_eq!(received.get("inv_ln"), Some(&996));
+        assert_eq!(received.get("inv_old"), Some(&500));
+        assert_eq!(received.get("nothing"), None);
     }
 
     #[tokio::test]

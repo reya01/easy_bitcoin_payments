@@ -746,14 +746,19 @@ pub async fn export_csv(
     use axum::response::IntoResponse;
 
     let store_id = auth.store.id.clone();
-    let invoices = state
+    let (invoices, received) = state
         .db
-        .call(move |conn| invoice::export_all(conn, &store_id))
+        .call(move |conn| {
+            Ok((
+                invoice::export_all(conn, &store_id)?,
+                invoice::received_by_invoice(conn, &store_id)?,
+            ))
+        })
         .await?;
     let cut = invoices.len() as i64 >= invoice::EXPORT_MAX_ROWS;
     // A byte-order mark so Excel reads the file as UTF-8.
     let mut out = String::from(
-        "\u{feff}created_at,paid_at,invoice_id,order_id,status,amount_sats,paid_sats,fiat_currency,fiat_amount,rate,rate_source\r\n",
+        "\u{feff}created_at,paid_at,invoice_id,order_id,status,amount_sats,paid_sats,received_sats,fiat_currency,fiat_amount,rate,rate_source\r\n",
     );
     for inv in &invoices {
         let r = to_response(inv, &state.config, None);
@@ -765,6 +770,7 @@ pub async fn export_csv(
             csv_cell(r.status.as_str()),
             r.amount_sats.to_string(),
             r.paid_sats.to_string(),
+            received.get(&r.id).copied().unwrap_or(0).to_string(),
             csv_cell(r.fiat_currency.as_deref().unwrap_or("")),
             csv_cell(r.fiat_amount.as_deref().unwrap_or("")),
             csv_cell(r.rate.as_deref().unwrap_or("")),

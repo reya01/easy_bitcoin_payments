@@ -203,9 +203,9 @@ barkd stays on 0.8.0 during alpha; moving to the latest Bark is its own piece of
       `ln_receive_anti_dos_required` is off on signet. If mainnet turns it on and it
       needs existing coins, an empty wallet cannot make Lightning invoices while
       checkout is Lightning-first. Check on mainnet.
-- [ ] **Keep the amount that actually arrived for Lightning payments** (the order
-      amount is what is recorded today; the received amount is only in the log), so
-      the accounts match the wallet when a fee applies.
+- [x] **Keep the amount that actually arrived for Lightning payments.** Done: each
+      payment keeps the wallet's own figure (`payments.received_sats`) next to what was
+      credited to the order, and the payments CSV has a `received_sats` column.
 - [ ] **Sign-in flooding.** Enough machines sending junk sign-ins can still make a new
       sign-in slow or refused for a while (signed-in owners are not affected). Accepted
       for now; revisit with real traffic.

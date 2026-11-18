@@ -3106,6 +3106,10 @@ async fn hostile_text_is_kept_as_plain_text_and_never_runs_as_code() {
         .await
         .unwrap();
     assert!(
+        csv.contains("amount_sats,paid_sats,received_sats,fiat_currency"),
+        "the export says what the wallet received"
+    );
+    assert!(
         csv.contains("'=HYPERLINK"),
         "formula is prefixed with a quote"
     );

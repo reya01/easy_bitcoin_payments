@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0009_admin_login.sql"),
     include_str!("../migrations/0010_ln_bolt11_index.sql"),
     include_str!("../migrations/0011_admin_totp.sql"),
+    include_str!("../migrations/0012_payment_received.sql"),
 ];
 
 /// The newest schema version this build understands (what `PRAGMA user_version`

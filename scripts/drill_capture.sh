@@ -15,7 +15,8 @@
 #
 # Safety:
 #  * Only a fixed list of read-only GET requests is made (no mnemonic
-#    endpoint, no wallet debug dump, nothing that changes state).
+#    endpoint, no wallet debug dump unless you ask for it with
+#    --with-debug-info, nothing that changes state).
 #  * The barkd token is read INSIDE the container and used there; it is never
 #    printed and never written to the output file.
 #  * Signet data (addresses, transaction ids) is not secret, but look the file

@@ -1,0 +1,14 @@
+barkd 0.8.1 release facts, computed by CI on 2026-11-18
+
+sha256 amd64 (x86_64): e634724a17796de352beb2e28808059dd3d0aef1beb3afd358ee3a582c20c85c
+sha256 arm64:          e781f4f85bbad52655d5f10369fd07fb3ae1a8b2a47f7e8f2b54fea42653e463
+version string:        barkd 0.8.1 (303682063ed7559b06dcf37c5cb37bb7037b943f)
+release checksum list (SHA256SUMS):
+e634724a17796de352beb2e28808059dd3d0aef1beb3afd358ee3a582c20c85c  barkd-0.8.1-linux-x86_64
+fc01fc12c9870fa57c1f6d7460dc74cd32dff19deb49d4607aa96e09971e9805  barkd-0.8.1-linux-x86_64-musl
+e781f4f85bbad52655d5f10369fd07fb3ae1a8b2a47f7e8f2b54fea42653e463  barkd-0.8.1-linux-arm64
+a2707db79ae04cdbe3738535b6fda2376f164931b9b6dbb9b85aee2812a815db  barkd-0.8.1-linux-armv7
+6859cf4174f578e4ff88d92c62bacd84c8b5b83cbbfc5720003e5e7eea8acc2d  barkd-0.8.1-windows-x86_64.exe
+87c93516c4fb3f8affddd9938fb9a8be505e31769fda2080f604798e250b17b5  barkd-0.8.1-apple-x86_64
+8bbf56a729d03d5c59765446d9e2c7042dd5315f5955a2fbd1798d79e048b349  barkd-0.8.1-apple-aarch64
+spec version: 0.8.1

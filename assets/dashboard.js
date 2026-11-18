@@ -450,7 +450,14 @@ function loadHome() {
   }).catch(function (e) { var h = $("health"); clear(h); h.appendChild(el("span", e.message, "bad")); });
 }
 
-var settleLine = function (x) { return row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status); };
+var settleLine = function (x) {
+  var r = row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status);
+  if (x.status !== "failed" || !x.detail) return r;
+  // Say WHY it failed, in the server's own words, right under the line.
+  var w = document.createElement("div");
+  w.appendChild(r); w.appendChild(el("div", "Why: " + x.detail, "muted"));
+  return w;
+};
 function loadSettlementList(group, key, boxId) {
   api("GET", "/api/v1/admin/settlements?group=" + group + "&" + pageQuery(key)).then(function (list) {
     var box = $(boxId); clear(box);

@@ -15,9 +15,10 @@
 # setup wizard finishes, so the wallet connects.
 services:
   ebp:
-    # Default: build from this folder. To use a signed prebuilt image from a
-    # release instead (much faster, no build), set EBP_IMAGE to the
-    # `image@sha256:...` line in the release notes; start.sh then pulls it.
+    # Normally this is the exact signed image that ./scripts/update.sh checked
+    # and stored in .env (EBP_IMAGE=ghcr.io/...@sha256:...): downloaded, never
+    # built on this server. With no EBP_IMAGE set, it builds from this folder
+    # (slow; the "build it yourself" way in docs/UPGRADING.md).
     image: ${EBP_IMAGE:-easy_bitcoin_payments-ebp}
     build:
       context: .

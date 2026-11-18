@@ -294,6 +294,10 @@ jobs:
           shellcheck -S warning scripts/*.sh
       - name: Automatic-https helper writes the right settings
         run: bash scripts/test_start_https.sh
+      - name: The update script refuses downgrades, bad digests and bad signatures
+        run: bash scripts/test_update.sh
+      - name: The pinned cosign (if any) still matches its fingerprint
+        run: bash scripts/get-cosign.sh --check
       - name: Render blueprints keep a paid plan, a disk and manual deploys
         run: |
           python3 -m pip install --user pyyaml

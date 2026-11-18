@@ -8,6 +8,7 @@ problem messages are announced.  Run: python3 tests/e2e/dashboard_states.py
 """
 import json, os, sys
 from playwright.sync_api import sync_playwright
+from page_assets import HEADERS, serve_asset, watch_csp
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HTML = open(os.path.join(ROOT, "assets", "dashboard.html")).read()
@@ -21,13 +22,16 @@ def run_case(pw, name, handler_for, checks):
     p = ctx.new_page()
     errs, calls = [], []
     p.on("pageerror", lambda e: errs.append(str(e)))
+    watch_csp(p, errs)
     p.add_init_script("window.confirm = function () { window.__nativeConfirm = true; return false; };")
 
     def handler(route):
         req = route.request
         path = req.url[len(ORIGIN):].split("?")[0]
         if path in ("/admin", "/admin/"):
-            return route.fulfill(status=200, content_type="text/html", body=HTML)
+            return route.fulfill(status=200, content_type="text/html", body=HTML, headers=HEADERS)
+        if serve_asset(route, path):
+            return
         if path == "/assets/qr.js":
             return route.fulfill(status=200, content_type="application/javascript", body=QR)
         calls.append((req.method, path, req.post_data))
@@ -468,9 +472,9 @@ def main():
               }; }""")
             p.click('#tabs button[data-v="set"]')
             p.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
-            p.wait_for_function("window.__held === true", timeout=5000)
+            p.wait_for_function("() => window.__held === true", timeout=5000)
             p.get_by_role("button", name="Pause new payments").click()
-            p.wait_for_function("document.getElementById('pause-card').textContent.indexOf('Paused') >= 0", timeout=5000)
+            p.wait_for_function("() => document.getElementById('pause-card').textContent.indexOf('Paused') >= 0", timeout=5000)
             p.evaluate("window.__release && window.__release()")
             p.wait_for_timeout(600)
             if "Paused" not in p.inner_text("#pause-card"): pr.append("a late session answer must not undo the owner's Pause click")

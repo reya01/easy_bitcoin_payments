@@ -9,6 +9,7 @@ pub mod deliveries;
 pub mod exit;
 pub mod health;
 pub mod invoices;
+pub mod page_assets;
 pub mod payout;
 pub mod reconcile;
 pub mod setup;
@@ -278,6 +279,12 @@ pub fn router(state: AppState) -> Router {
                 .with_state(state.clone()),
         )
         .route("/assets/qr.js", get(checkout::qr_js))
+        .route("/assets/checkout.js", get(page_assets::checkout_js))
+        .route("/assets/checkout.css", get(page_assets::checkout_css))
+        .route("/assets/dashboard.js", get(page_assets::dashboard_js))
+        .route("/assets/dashboard.css", get(page_assets::dashboard_css))
+        .route("/assets/setup.js", get(page_assets::setup_js))
+        .route("/assets/setup.css", get(page_assets::setup_css))
         .route("/assets/mascot/{name}", get(checkout::mascot))
         .route("/api/v1/health", get(health::health))
         .merge(setup)
@@ -293,9 +300,10 @@ pub fn router(state: AppState) -> Router {
 /// and the API key) and the dashboard: `frame-ancestors 'none'` +
 /// `X-Frame-Options: DENY` stop clickjacking, `nosniff` stops content
 /// sniffing, `no-referrer` keeps invoice/setup URLs out of Referer headers.
-/// The CSP matches the static pages as built: same-origin fetches, inline
-/// script/style (no build step), no third-party resources. If a page ever
-/// loads an external asset, widen this deliberately. Handlers that set their
+/// The CSP allows scripts and styles only as files from this server (no
+/// inline code, no third-party resources; see `page_assets`), so a script
+/// injected into a page would not run. If a page ever loads an external asset,
+/// widen this deliberately. Handlers that set their
 /// own value for a header keep it (we only fill gaps).
 async fn security_headers(
     request: axum::extract::Request,
@@ -310,8 +318,8 @@ async fn security_headers(
         ("referrer-policy", "no-referrer"),
         (
             "content-security-policy",
-            "default-src 'none'; script-src 'self' 'unsafe-inline'; \
-             style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+            "default-src 'none'; script-src 'self'; \
+             style-src 'self'; img-src 'self' data:; \
              connect-src 'self'; base-uri 'none'; form-action 'self'; \
              frame-ancestors 'none'",
         ),

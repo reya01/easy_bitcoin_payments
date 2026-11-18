@@ -1,0 +1,109 @@
+  :root {
+    --accent: #f7931a;
+    --bg: #ffffff;
+    --fg: #14161a;
+    --muted: #5b6472;
+    --line: #e3e6eb;
+    --ok: #12855b;
+    --warn: #a35a00;
+    --err: #b3261e;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --fg: #f2f4f8;
+      --muted: #9aa4b2;
+      --line: #242a33;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 18px 40px; }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--line);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+  .title { font-weight: 600; font-size: 15px; }
+  .banner {
+    margin: 14px 0 0; padding: 10px 14px; border: 1px solid var(--warn);
+    border-radius: 10px; color: var(--warn); font-size: 13px; font-weight: 600; text-align: center;
+  }
+  .steps { display: flex; gap: 6px; margin: 18px 0 8px; }
+  .steps span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+  .steps span.done { background: var(--ok); }
+  .steps span.now { background: var(--accent); }
+  h1 { font-size: 22px; letter-spacing: -0.01em; margin: 18px 0 6px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-top: 14px; }
+  .card a { color: var(--fg); font-weight: 600; display: inline-block; padding: 12px 0; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+  select { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid var(--line, #888); background: var(--bg); color: var(--fg); font: inherit; min-height: 44px; }
+  select option { background: var(--bg); color: var(--fg); }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: transparent; color: var(--fg);
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  textarea {
+    width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: transparent; color: var(--fg); resize: vertical;
+    font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  input[type=file] { width: 100%; padding: 8px 0; color: var(--fg); font: inherit; font-size: 14px; }
+  button.link { background: none; border: 0; color: var(--fg); text-decoration: underline; font: inherit; font-size: 14px; padding: 12px 0; min-height: 44px; cursor: pointer; }
+  input.name { font-family: inherit; }
+  .pwrow { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 13px; color: var(--muted); }
+  .pwrow button { background: none; border: 0; color: inherit; text-decoration: underline; font: inherit; padding: 0 4px; min-height: 44px; cursor: pointer; }
+  button.primary {
+    display: block; width: 100%; margin-top: 18px; padding: 14px; border-radius: 10px;
+    border: none; background: var(--accent); color: #14161a; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  /* Secondary buttons (Hide now, Show the words again): a real tap target. */
+  button.small, #btn-quiz-back {
+    min-height: 44px; padding: 0 16px; margin-top: 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  /* 16px stops iPhones zooming the page when a field is tapped. */
+  @media (max-width: 600px) {
+    input[type=text], input[type=password], textarea { font-size: 16px; }
+  }
+  .words {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 14px 0; padding: 14px;
+    border: 1px dashed var(--line); border-radius: 12px;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+  }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 14px; }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; flex: 0 0 auto; }
+  .check label { margin: 0; color: var(--fg); font-size: 14px; }
+  .secret {
+    padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-all; background: transparent; color: var(--fg);
+  }
+  .cmd {
+    display: block; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+    margin-top: 10px;
+  }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .error { margin-top: 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--err); color: var(--err); font-size: 14px; }
+  .hidden { display: none !important; }
+/* Moved from style="" attributes so the page needs no inline styles (strict CSP). */
+#restore-kind{border:0;padding:0;margin:0 0 6px;display:block}
+#restore-kind > legend{font-weight:600;padding:0}
+#restore-kind > label{display:flex;gap:8px;align-items:flex-start;margin:6px 0}
+#words-ceremony-note > p.flush{margin:0}
+#payout-risk-label{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-weight:600}
+#payout-risk-ok{margin-top:3px}

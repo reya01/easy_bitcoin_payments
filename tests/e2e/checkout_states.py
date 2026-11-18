@@ -9,6 +9,7 @@ script errors, no sideways scrolling.  Run: python3 tests/e2e/checkout_states.py
 """
 import json, os, sys, time
 from playwright.sync_api import sync_playwright
+from page_assets import HEADERS, serve_asset, watch_csp
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HTML = open(os.path.join(ROOT, "assets", "checkout.html")).read()
@@ -34,10 +35,13 @@ def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0, 
     p = ctx.new_page()
     errs = []
     p.on("pageerror", lambda e: errs.append(str(e)))
+    watch_csp(p, errs)
     seen = {"n": 0}
 
     def handler(route):
         path = route.request.url[len(ORIGIN):]
+        if serve_asset(route, path):
+            return
         if path == "/assets/qr.js":
             return route.fulfill(status=200, content_type="application/javascript", body=QR)
         if path.startswith("/assets/mascot/"):
@@ -60,7 +64,7 @@ def run_case(pw, name, json_resp, statuses, checks, width=360, json_delay_ms=0, 
             if isinstance(r, int):
                 return route.fulfill(status=r, content_type="text/plain", body="oops")
             return route.fulfill(status=200, content_type="application/json", body=json.dumps(r))
-        return route.fulfill(status=200, content_type="text/html", body=HTML)
+        return route.fulfill(status=200, content_type="text/html", body=HTML, headers=HEADERS)
 
     if json_delay_ms:
         # Hold only the payment-details answer inside the page, so the status answer lands first.
@@ -114,7 +118,7 @@ def main():
             # status poll lands. Wait for it instead of reading at once (slow CI flaked).
             try:
                 a["page"].wait_for_function(
-                    "document.getElementById('back-link').textContent.indexOf('Done') >= 0",
+                    "() => document.getElementById('back-link').textContent.indexOf('Done') >= 0",
                     timeout=6000)
             except Exception:  # noqa: BLE001  the check below reports what was there
                 pass
@@ -134,7 +138,7 @@ def main():
             # machine made a fixed wait flaky).
             try:
                 a["page"].wait_for_function(
-                    "document.getElementById('back-link').textContent.indexOf('try again') >= 0",
+                    "() => document.getElementById('back-link').textContent.indexOf('try again') >= 0",
                     timeout=6000)
             except Exception:  # noqa: BLE001  the check below reports what was there
                 pass

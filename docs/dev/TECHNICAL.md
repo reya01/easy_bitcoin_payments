@@ -335,6 +335,15 @@ conversion, database migrations, and the watcher's payment application path.
   anything already swept to your wallet. Sweeps go out automatically on the
   hot cap and ahead of VTXO expiry. A
   compromised server can steal at most the float.
+- **No inline code in the pages.** The checkout, admin and setup pages load their
+  script and stylesheet as files from the server (`assets/<page>.js` and
+  `assets/<page>.css`, compiled in and served by `src/routes/page_assets.rs`), so
+  the Content-Security-Policy is `script-src 'self'; style-src 'self'` with no
+  `'unsafe-inline'`: a script injected into a page would not run. Keep it that way:
+  no `<script>` without `src`, no `<style>` blocks, no `style=""` attributes and no
+  `onclick=""`-style handlers. Setting styles from a script (`el.style.x = ...`) is
+  fine. A Rust test checks the pages and the header, and the browser tests serve
+  the real policy and fail on anything it blocks.
 - **No uploads, ever, while the server runs.** The only pictures EBP shows are the
   success mascots in `assets/mascot/`, compiled into the program and served from a
   fixed list of seven names (`GET /assets/mascot/<name>.png`). No route accepts a file,

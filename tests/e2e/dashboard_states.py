@@ -186,6 +186,27 @@ def main():
             if txt.lower().count("why:") != 1: pr.append(f"only the failed line should say why, saw: {txt}")
 
         ok &= run_case(pw, "failed upkeep lines say why", upkeep_handler, c_upkeep)
+        def off_handler(path, req, calls):
+            if path == "/admin/session":
+                return 200, {"authenticated": True, "csrf": "tok", "password_set": True, "twofa": True, "paused": False}
+            if path == "/admin/2fa/status":
+                return 200, {"recovery_left": 10}
+            return signed_in(path, req, calls)
+
+        def c_one_off(p, pr, calls):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            p.evaluate("var d = document.getElementById('twofa-card').closest('details'); if (d) d.open = true;"); p.wait_for_timeout(200)
+            card = p.locator("#twofa-card")
+            if card.get_by_role("button", name="Turn off", exact=True).count() != 1: pr.append("before opening: expected one Turn off button")
+            card.get_by_role("button", name="Turn off", exact=True).click(); p.wait_for_timeout(200)
+            names = [b.inner_text() for b in card.locator("button:visible").all()]
+            offs = [n for n in names if n.lower().startswith("turn off")]
+            if offs != ["Turn off two-step sign-in"]: pr.append(f"after opening: expected exactly one turn-off button, saw {names}")
+            card.get_by_role("button", name="Cancel").click(); p.wait_for_timeout(200)
+            if card.get_by_role("button", name="Turn off", exact=True).count() != 1 or not card.get_by_role("button", name="Turn off", exact=True).is_visible(): pr.append("Cancel should bring the first button back")
+            if card.get_by_role("button", name="Turn off two-step sign-in").count(): pr.append("Cancel should close the form")
+
+        ok &= run_case(pw, "turning off two-step sign-in shows one Turn off button at a time", off_handler, c_one_off)
 
         ok &= run_case(pw, "destructive buttons ask in the page first, and nothing happens until confirmed", hooks_handler, c_confirms)
 

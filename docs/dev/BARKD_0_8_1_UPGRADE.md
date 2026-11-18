@@ -1,6 +1,7 @@
 # Moving barkd from 0.8.0 to 0.8.1 or newer (checklist; not done yet)
 
-**Status:** preparation only. The pinned barkd stays 0.8.0 until the owner decides to move
+**Status:** preparation only, and **deferred to v0.3.** The next release is v0.2.1-rc1 and
+stays on barkd 0.8.0. The pinned barkd moves only when v0.3 work starts and the owner decides
 (see `MAINNET_PLAN.md`, "Bark 0.8.1 changelog review"). Do this as ONE pull request that is
 **not merged until the owner has run it on a test wallet.** Several steps need things the
 code review cannot do (download the real binaries, read the real OpenAPI), so they are

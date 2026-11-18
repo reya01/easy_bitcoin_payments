@@ -8,6 +8,7 @@ are announced.  Run: python3 tests/e2e/setup_wizard_states.py
 """
 import json, os, sys
 from playwright.sync_api import sync_playwright
+from page_assets import HEADERS, serve_asset, watch_csp
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HTML = open(os.path.join(ROOT, "assets", "setup.html")).read()
@@ -30,12 +31,15 @@ def run_case(pw, name, handler_for, checks):
     p = ctx.new_page()
     errs, posts = [], []
     p.on("pageerror", lambda e: errs.append(str(e)))
+    watch_csp(p, errs)
 
     def handler(route):
         req = route.request
         path = req.url[len(ORIGIN):]
         if path == "/setup":
-            return route.fulfill(status=200, content_type="text/html", body=HTML)
+            return route.fulfill(status=200, content_type="text/html", body=HTML, headers=HEADERS)
+        if serve_asset(route, path):
+            return
         out = handler_for(path, req, posts)
         if out is None:
             return route.fulfill(status=200, content_type="application/json", body="{}")

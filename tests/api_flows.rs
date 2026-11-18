@@ -699,6 +699,80 @@ async fn qr_script_is_served_same_origin_and_checkout_uses_it() {
     assert!(js.text().await.unwrap().contains("ebpQrSvg"));
 }
 
+/// True if `html` has an inline event handler such as ` onclick="`.
+fn has_inline_handler(html: &str) -> bool {
+    html.match_indices(" on").any(|(i, _)| {
+        let rest = &html[i + 3..];
+        let name_len = rest.bytes().take_while(|b| b.is_ascii_lowercase()).count();
+        name_len > 0 && rest[name_len..].starts_with("=\"")
+    })
+}
+
+#[tokio::test]
+async fn pages_carry_no_inline_code_and_the_csp_allows_none() {
+    let (base, _state, _store_id, _key) = serve().await;
+    let client = reqwest::Client::new();
+
+    // The policy no longer allows inline scripts or styles.
+    let resp = client
+        .get(format!("{base}/api/v1/health"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap();
+    let csp = resp.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(!csp.contains("unsafe-inline"), "{csp}");
+    assert!(csp.contains("script-src 'self';"), "{csp}");
+    assert!(csp.contains("style-src 'self';"), "{csp}");
+
+    // So the pages must not depend on inline code: no <style> blocks, no
+    // style="" attributes, no inline event handlers, and every <script> loads
+    // a file from this server.
+    let pages = [
+        ("checkout", include_str!("../assets/checkout.html")),
+        ("dashboard", include_str!("../assets/dashboard.html")),
+        ("setup", include_str!("../assets/setup.html")),
+    ];
+    for (page, html) in pages {
+        assert!(!html.contains("<style"), "{page}: inline <style>");
+        assert!(!html.contains("style=\""), "{page}: style attribute");
+        assert!(!has_inline_handler(html), "{page}: inline event handler");
+        for tag in html.split("<script").skip(1) {
+            let open = tag.split('>').next().unwrap_or("");
+            assert!(
+                open.contains("src=\"/assets/"),
+                "{page}: inline <script>{open}"
+            );
+        }
+        // Its own script and stylesheet are linked and served.
+        for (ext, content_type) in [("js", "application/javascript"), ("css", "text/css")] {
+            let path = format!("/assets/{page}.{ext}");
+            assert!(html.contains(&path), "{page} does not link {path}");
+            let r = client
+                .get(format!("{base}{path}"))
+                .header("host", "localhost")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 200, "{path}");
+            assert!(
+                r.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with(content_type),
+                "{path}"
+            );
+            assert!(
+                !r.text().await.unwrap().trim().is_empty(),
+                "{path} is empty"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn mascot_art_is_built_in_read_only_and_cannot_be_uploaded() {
     let (base, _state, _store_id, key) = serve().await;

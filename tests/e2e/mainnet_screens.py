@@ -12,6 +12,7 @@ Set SHOTS=/some/dir to also save screenshots.  Run: python3 tests/e2e/mainnet_sc
 """
 import json, os
 from playwright.sync_api import sync_playwright
+from page_assets import HEADERS, serve_asset, watch_csp
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SETUP = open(os.path.join(ROOT, "assets", "setup.html")).read()
@@ -42,12 +43,15 @@ def run_case(pw, name, page_path, html, handler_for, checks):
     p = b.new_context(viewport={"width": 390, "height": 844}).new_page()
     errs, calls = [], []
     p.on("pageerror", lambda e: errs.append(str(e)))
+    watch_csp(p, errs)
 
     def handler(route):
         req = route.request
         path = req.url[len(ORIGIN):].split("?")[0]
         if path == page_path:
-            return route.fulfill(status=200, content_type="text/html", body=html)
+            return route.fulfill(status=200, content_type="text/html", body=html, headers=HEADERS)
+        if serve_asset(route, path):
+            return
         if path == "/assets/qr.js":
             return route.fulfill(status=200, content_type="application/javascript", body=QR)
         calls.append((req.method, path, req.post_data))

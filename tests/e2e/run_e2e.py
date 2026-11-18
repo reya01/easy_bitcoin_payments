@@ -280,6 +280,14 @@ def main():
         errors = []
         PAGE["page"] = page
         page.on("pageerror", lambda e: errors.append(str(e)))
+        # The real server sends a strict Content-Security-Policy (no inline
+        # code). Anything it blocks is a console message: count it as an error.
+        page.on(
+            "console",
+            lambda m: errors.append("blocked by the Content-Security-Policy: " + m.text[:200])
+            if "Content Security Policy" in m.text
+            else None,
+        )
         page.on(
             "response",
             lambda r: PAGE["net"].append(f"{r.request.method} {r.url.replace(BASE, '')} -> {r.status}")

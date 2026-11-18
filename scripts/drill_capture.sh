@@ -6,6 +6,12 @@
 # install), as a user that can run docker:
 #
 #   ./scripts/drill_capture.sh            # writes drill-capture-<time>.txt here
+#   ./scripts/drill_capture.sh --with-debug-info
+#       # also asks barkd 0.8.1 or newer for GET /wallet/debug-info (network,
+#       # mailbox id, VTXO xpub). Use it to prove a restored wallet is the same
+#       # wallet as before (same xpub). The xpub lets anyone who sees it list
+#       # your wallet's addresses and balances, so do NOT share that file
+#       # publicly. barkd 0.8.0 answers 404 here, which is harmless.
 #
 # Safety:
 #  * Only a fixed list of read-only GET requests is made (no mnemonic
@@ -19,7 +25,10 @@ cd "$(dirname "$0")/.."
 
 out="drill-capture-$(date -u +%Y%m%dT%H%M%SZ).txt"
 
-docker compose exec -T ebp sh -s >"$out" <<'INNER'
+debug_info=0
+if [ "${1:-}" = "--with-debug-info" ]; then debug_info=1; fi
+
+docker compose exec -T -e WITH_DEBUG_INFO="$debug_info" ebp sh -s >"$out" <<'INNER'
 set -u
 DATADIR=/data/barkd
 T="$(barkd --datadir "$DATADIR" secret show 2>/dev/null | tr -d '\r\n')"
@@ -53,6 +62,11 @@ do
   curl -sS -m 20 -w '\n[http %{http_code}]\n' -H "Authorization: Bearer $T" "$B$path" || echo "[curl failed]"
   echo
 done
+if [ "${WITH_DEBUG_INFO:-0}" = "1" ]; then
+  echo "## GET /api/v1/wallet/debug-info  (barkd 0.8.1+; contains the VTXO xpub: do not share publicly)"
+  curl -sS -m 20 -w '\n[http %{http_code}]\n' -H "Authorization: Bearer $T" "$B/api/v1/wallet/debug-info" || echo "[curl failed]"
+  echo
+fi
 echo "## EBP health"
 curl -sS -m 10 http://127.0.0.1:8080/api/v1/health
 echo

@@ -38,7 +38,7 @@ using real money. Technical notes for developers are at the end.
 - **The shop's API key is one key for everything a shop does** (create, read and cancel payment requests, read their status). It cannot change the notification address, replace itself, resend notifications, mark payments handled, or read the payout address, security activity, notification log or late-payment list, and it is limited in request size and rate. A hacked shop can still make fake or cheap payment requests within those limits. See [dev/SHOP_COMPROMISE.md](dev/SHOP_COMPROMISE.md).
 - **A replaced shop key is shown once.** If the response is lost, run `ebp store rotate-key` on the server (inside Docker: `docker compose exec ebp ebp store rotate-key`) to make another. It is recorded in the security activity.
 - **The shop address-lock only means something if the server is reached through your proxy.** The DigitalOcean install already does this right (Caddy in front, EBP listening only on the server itself, "trust proxy headers" on). If you change that, do not leave port 8080 reachable around the proxy; otherwise a request can claim any address. The dashboard shows the last refused address so a mistake is easy to fix.
-- **Failed payment notices to the shop have no re-send button.** Notices go out from a durable queue (`webhook_deliveries`); one that still fails after 6 attempts stays there for inspection.
+- **Failed payment notices can be resent by hand.** Notices go out from a durable queue (`webhook_deliveries`); one that still fails after 6 attempts stays there, and the Connect tab has a **Resend** button next to each notice that queues it again.
 
 ## The admin page and alerts
 

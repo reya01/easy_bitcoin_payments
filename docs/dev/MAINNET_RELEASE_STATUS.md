@@ -1,4 +1,4 @@
-# First real-money release: where things stand (16 November 2026)
+# First real-money release: where things stand (updated 17 November 2026)
 
 This is the one page to read before deciding to cut the first release that is
 meant to be tried with real money. It replaces the signet-only wording in
@@ -22,6 +22,7 @@ repository. Results are described in words.
 | Late full payment: a 1,000-sat Lightning invoice paid after its 20-minute countdown ended (the page showed Expired first) | Expired order turned Paid within about two minutes of paying | owner's run, 16 Nov |
 | Ark checkout: the new "type this exact amount" box (309 sats), typed into Arké | Box clear and prominent; order paid and the shop was notified | owner's run, 16 Nov |
 | Weekly wallet check on a new server; Pause and Resume; test notification; payments CSV; backup download and check | All worked: the check waited until 22 November, pausing refused new payments, the CSV matched every payment, the backup held 6 files | owner's run, 16 Nov |
+| Test server, 17 Nov: pause and resume with a code box, a phone test alert, one Ark and one Lightning order through the real shop (about 155 sats each, the paid page showed a mascot), the payments CSV with the new `received_sats` column, Resend, a backup download and check, the "not available right now" message at the shop while paused, the checkout on a phone, and a server restart | All worked | owner's run, 17 Nov |
 | Receive fees on Lightning | Receiver pays nothing at any size; EBP's crediting rule is correct | `LIGHTNING_RECEIVE_FEES_2026-11-15.md` |
 | Duplicate and late payments, stuck claims, fee ranges, board and offboard sizes | Measured; code changed to match (late full payment now completes) | `SERIES2_TESTS_2026-11-15.md`, `MAINNET_DRILL_RESPONSE.md` |
 | Wallet restore from the 12 words, crash recovery | Worked (about a second) | `MAINNET_DRILL_2026-11-15_round2.md` |
@@ -52,6 +53,8 @@ mainnet" does not apply to them:
   in screenshots against a stub server and covered by the browser tests, not
   yet on a live server or a real phone. Worth a look in light and dark mode:
   Home, Settings, the checkout waiting, paid and expired pages.
+
+- Added after that run, CI and browser tests only: compact Settings rows with Phone alerts on the Alerts tab, one Turn off button for two-step sign-in, Home no longer calling a failed routine renewal a failed withdrawal, and the signed `update.sh` (first real use is v0.2.1-rc1).
 
 The next real-money session should look at these: update the server and look
 at the folded Settings tab; set up phone alerts from Home; set up a fresh

@@ -536,6 +536,45 @@ def main():
             if p.is_visible("#pause-card"): pr.append("Collapse should hide it again")
 
         ok &= run_case(pw, "settings: nine folded sections, each with a one-line summary and Expand", signed_in, c_settings_folded)
+
+        # --- late and unmatched payments: money that arrived for an order that
+        # could no longer take it must be visible, explained and markable.
+        def unmatched_handler(path, req, calls, state={}):
+            if path == "/api/v1/unmatched-payments":
+                done = "2026-11-17T09:00:00Z" if state.get("handled") else None
+                return 200, [
+                    {"id": "unm_1", "invoice_id": "inv_1", "order_id": "1042", "rail": "lightning", "amount_sats": 2500,
+                     "reason": "invoice_expired", "detected_at": "2026-11-16T10:00:00Z", "resolved_at": done},
+                    {"id": "unm_2", "invoice_id": "inv_2", "order_id": None, "rail": "ark", "amount_sats": 700,
+                     "reason": "invoice_closed", "detected_at": "2026-11-15T10:00:00Z", "resolved_at": "2026-11-16T09:00:00Z"},
+                ]
+            if path == "/api/v1/unmatched-payments/unm_1/resolve":
+                state["handled"] = True
+                return 200, {"resolved": True}
+            if path == "/api/v1/admin/status":
+                n = 0 if state.get("handled") else 1
+                return 200, {"checks": [], "counters": {"unmatched_payments_open": n}, "wallet": {}, "mode": "test", "usd_per_btc": 67000}
+            return signed_in(path, req, calls)
+
+        def c_unmatched(p, pr, calls):
+            p.wait_for_timeout(300)
+            want(pr, "Home counts the payment that needs the owner", p.inner_text("#attention"), "Payments that need you")
+            if "1" not in p.inner_text("#alert-badge"): pr.append("the Alerts tab should show a badge of 1")
+            p.click('#tabs button[data-v="alerts"]'); p.wait_for_timeout(400)
+            text = p.inner_text("#unmatched")
+            want(pr, "amount shown", text, "2,500 sats")
+            want(pr, "rail shown", text, "Lightning")
+            want(pr, "order shown", text, "order 1042")
+            want(pr, "reason explained", text, "after the payment window closed")
+            want(pr, "the other payment is shown as handled", text, "handled")
+            buttons = p.query_selector_all("#unmatched button:text-is(\"Mark as handled\")")
+            if len(buttons) != 1: pr.append(f"only the open payment gets a Mark as handled button, saw {len(buttons)}")
+            if count(calls, "POST", "/api/v1/unmatched-payments/unm_1/resolve"): pr.append("nothing may be marked handled before the click")
+            p.click("#unmatched button:text-is(\"Mark as handled\")"); p.wait_for_timeout(500)
+            if count(calls, "POST", "/api/v1/unmatched-payments/unm_1/resolve") != 1: pr.append("one click should mark it handled once")
+            if p.query_selector_all("#unmatched button:text-is(\"Mark as handled\")"): pr.append("no button should be left once everything is handled")
+
+        ok &= run_case(pw, "late payments: counted on Home, listed and explained in Alerts, can be marked handled", unmatched_handler, c_unmatched)
     sys.exit(0 if ok else 1)
 
 

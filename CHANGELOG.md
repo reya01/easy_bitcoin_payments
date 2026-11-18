@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A payout that keeps failing no longer fills the activity list.** If sending your earnings to your payout wallet fails the same way every 5 minutes (for example because the Ark server is not answering), the list used to get a new "failed" line each time. Now the same failure refreshes one line, so the list stays readable, while Home and phone alerts keep warning for as long as it lasts. A different error, or a successful send in between, still starts a new line. The server still tries every cycle, and nothing about when or where money is sent changed.
 - **Small tidy-ups from an outside code review.** The play-money signet workflow now uses the same version (6.1.0) of the cache action to save the payer wallet as to restore it (they had drifted apart), the repository address in `Cargo.toml` points at this repository, and `UPGRADING.md` says plainly that release signatures prove the release workflow built the files, not that a named person vouches for them. No program behaviour changed.
 
 ## 0.2.0-rc5 — release candidate: brighter checkout and dashboard, success mascots (17 November 2026)

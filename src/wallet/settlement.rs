@@ -19,7 +19,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::config::Config;
 use crate::db::Db;
@@ -939,7 +939,7 @@ impl SettlementEngine {
                 tracing::warn!(error = %reason, "settlement sweep failed");
                 let dest = destination.clone();
                 self.db
-                    .call(move |conn| record(conn, kind, amount, &dest, "failed", Some(&reason)))
+                    .call(move |conn| record_failure(conn, kind, amount, &dest, &reason))
                     .await?;
             }
         }
@@ -957,6 +957,42 @@ fn record(
     detail: Option<&str>,
 ) -> Result<(), AppError> {
     record_id(conn, kind, amount_sats, destination, status, detail).map(|_| ())
+}
+
+/// Record a failed sweep send.
+///
+/// The same failure repeating every cycle (same kind, same destination, same
+/// reason, and nothing recorded for that kind since) does not add a line each
+/// time. It refreshes the existing line instead: new time and current amount.
+/// So the activity list does not fill up, while Home and the phone alerts, which
+/// read the newest line, keep seeing the failure for as long as it lasts. A
+/// different reason, or any other outcome in between (a sent sweep, a wait for
+/// fees), starts a new line as before.
+fn record_failure(
+    conn: &Connection,
+    kind: &str,
+    amount_sats: i64,
+    destination: &str,
+    reason: &str,
+) -> Result<(), AppError> {
+    let latest: Option<(String, String, Option<String>, String)> = conn
+        .query_row(
+            "SELECT id, status, detail, destination FROM settlements
+             WHERE kind = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            params![kind],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    if let Some((id, status, detail, dest)) = latest {
+        if status == "failed" && detail.as_deref() == Some(reason) && dest == destination {
+            conn.execute(
+                "UPDATE settlements SET created_at = ?1, amount_sats = ?2 WHERE id = ?3",
+                params![now_unix(), amount_sats, id],
+            )?;
+            return Ok(());
+        }
+    }
+    record(conn, kind, amount_sats, destination, "failed", Some(reason))
 }
 
 /// [`record`], returning the new row's id.
@@ -1204,6 +1240,102 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    /// A send that keeps failing is one line that stays fresh, not a new line
+    /// every cycle; a new reason or a success in between starts a new line.
+    #[tokio::test]
+    async fn a_send_that_keeps_failing_is_one_line_that_stays_fresh() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // 0 = error A, 1 = error B, 2 = the send works.
+        let mode = Arc::new(AtomicUsize::new(0));
+        let mode_in_mock = mode.clone();
+        let (base, _recorded) = mock::spawn(move |req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 150000}"#.to_string()),
+            "/api/v1/wallet/send" => match mode_in_mock.load(Ordering::SeqCst) {
+                0 => (500, "problem A".to_string()),
+                1 => (500, "problem B".to_string()),
+                _ => (200, r#"{"sent": true}"#.to_string()),
+            },
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(
+                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+                100_000,
+            ),
+        );
+        let count = |status: &'static str| {
+            let db = db.clone();
+            async move {
+                db.call(move |conn| {
+                    Ok(conn.query_row(
+                        "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_ark' AND status = ?1",
+                        params![status],
+                        |r| r.get::<_, i64>(0),
+                    )?)
+                })
+                .await
+                .unwrap()
+            }
+        };
+
+        // The same failure three times in a row: one line.
+        for _ in 0..3 {
+            let report = engine.tick().await.unwrap();
+            assert_eq!(report.swept_sats, None);
+        }
+        assert_eq!(count("failed").await, 1);
+
+        // Make that line old, then fail again: still one line, and it is
+        // fresh again (so Home still shows the failure as the latest event).
+        db.call(|conn| {
+            conn.execute("UPDATE settlements SET created_at = created_at - 1000", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        engine.tick().await.unwrap();
+        assert_eq!(count("failed").await, 1);
+        let newest: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row("SELECT MAX(created_at) FROM settlements", [], |r| r.get(0))?)
+            })
+            .await
+            .unwrap();
+        assert!(
+            newest >= now_unix() - 100,
+            "the repeated failure was not refreshed"
+        );
+
+        // A different reason is a new line.
+        mode.store(1, Ordering::SeqCst);
+        engine.tick().await.unwrap();
+        assert_eq!(count("failed").await, 2);
+
+        // The send works: a sent line. Failing again with the first reason is
+        // a new line, because something else happened in between.
+        mode.store(2, Ordering::SeqCst);
+        let report = engine.tick().await.unwrap();
+        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(count("broadcast").await, 1);
+        mode.store(0, Ordering::SeqCst);
+        engine.tick().await.unwrap();
+        assert_eq!(count("failed").await, 3);
     }
 
     #[tokio::test]

@@ -34,6 +34,16 @@ use crate::webhook::WebhookEmitter;
 /// watcher is visible to monitoring (beta hardening).
 pub static LAST_TICK_UNIX: AtomicI64 = AtomicI64::new(0);
 
+/// How long a remembered-as-handled wallet entry is trusted before the
+/// watcher forgets everything and reads the whole history again. The database
+/// guards are the real protection; this is only the safety net for the
+/// shortcut below.
+const HANDLED_FULL_PASS_SECS: i64 = 3_600;
+
+/// Upper bound on remembered entries (about 100 bytes each). Past it the set is
+/// emptied and refilled by the next pass.
+const HANDLED_MAX: usize = 50_000;
+
 /// `settings` key holding the persisted history cursor (UNIX seconds).
 const HISTORY_CURSOR_KEY: &str = "watcher.history_cursor";
 
@@ -57,6 +67,32 @@ pub struct PollingWatcher {
     onchain_rail_enabled: bool,
     /// Block confirmations an on-chain payment needs before it is credited.
     onchain_min_confirmations: i64,
+    /// Wallet history entries the database already holds (in `payments` or
+    /// `unmatched_payments`), with the time the set was last emptied. The
+    /// wallet sends its whole history every tick; these are skipped instead of
+    /// being looked up again. Only entries found in the database are added, so
+    /// a failed write is retried on the next tick. In memory only: a restart
+    /// does one full pass.
+    handled: Mutex<(HashSet<String>, i64)>,
+}
+
+/// What identifies one wallet history entry for the "already handled" set. Two
+/// entries that differ in anything that could matter (address, amount, rail,
+/// confirmed or not) get different keys, so a changed entry is looked at again.
+/// An entry with neither a VTXO id nor a txid is never skipped.
+fn handled_key(p: &WalletPayment) -> Option<String> {
+    if p.vtxo_id.is_none() && p.txid.is_none() {
+        return None;
+    }
+    Some(format!(
+        "{}|{}|{}|{}|{}|{}",
+        p.rail.as_str(),
+        p.address,
+        p.amount_sats,
+        p.vtxo_id.as_deref().unwrap_or(""),
+        p.txid.as_deref().unwrap_or(""),
+        p.confirmed_at.is_some()
+    ))
 }
 
 impl PollingWatcher {
@@ -76,6 +112,7 @@ impl PollingWatcher {
             renewal_lead_secs,
             onchain_rail_enabled: true,
             onchain_min_confirmations: 1,
+            handled: Mutex::new((HashSet::new(), 0)),
         }
     }
 
@@ -221,6 +258,28 @@ impl PollingWatcher {
 
         let mut applied = 0usize;
         let mut newest = since;
+        // The cursor follows everything the wallet reported, skipped or not.
+        for p in &payments {
+            newest = newest.max(p.detected_at);
+        }
+
+        // Skip entries the database already holds. Everything is looked at
+        // again once an hour, and after every restart.
+        {
+            let mut guard = self.handled.lock().unwrap_or_else(|e| e.into_inner());
+            let now = now_unix();
+            if now - guard.1 >= HANDLED_FULL_PASS_SECS || guard.0.len() > HANDLED_MAX {
+                guard.0.clear();
+                guard.1 = now;
+            }
+            if !guard.0.is_empty() {
+                payments.retain(|p| match handled_key(p) {
+                    Some(k) => !guard.0.contains(&k),
+                    None => true,
+                });
+            }
+        }
+        let looked_at = payments.clone();
 
         for payment in payments {
             newest = newest.max(payment.detected_at);
@@ -389,6 +448,25 @@ impl PollingWatcher {
             );
 
             self.emit_invoice_event(&store_id, &updated, status).await;
+        }
+
+        // Remember the entries that the database now provably holds. An entry
+        // that was ignored or whose write failed is not remembered, so it is
+        // looked at again next tick.
+        for p in looked_at {
+            let Some(key) = handled_key(&p) else { continue };
+            let (vtxo, txid) = (p.vtxo_id.clone(), p.txid.clone());
+            let held = self
+                .db
+                .call(move |conn| invoice::already_recorded(conn, vtxo.as_deref(), txid.as_deref()))
+                .await?;
+            if held {
+                self.handled
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0
+                    .insert(key);
+            }
         }
 
         // Advance and persist the cursor. Persisting after applying means a
@@ -1388,6 +1466,89 @@ mod tests {
 
         assert_eq!(watcher.tick().await.unwrap(), 1);
         assert_eq!(watcher.tick().await.unwrap(), 0);
+    }
+
+    fn quiet_watcher(db: Db, payments: Vec<WalletPayment>) -> PollingWatcher {
+        PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments,
+                vtxos: vec![],
+            }),
+            db,
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        )
+    }
+
+    fn remembered(w: &PollingWatcher) -> usize {
+        w.handled.lock().unwrap().0.len()
+    }
+
+    #[tokio::test]
+    async fn an_entry_the_database_holds_is_remembered_and_then_skipped() {
+        let (db, _) = setup(vec![]).await;
+        let payment = WalletPayment {
+            address: "ark1qinv_1".to_string(),
+            rail: Rail::Ark,
+            amount_sats: 1000,
+            vtxo_id: Some("vtxo_1".to_string()),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        };
+        let watcher = quiet_watcher(db.clone(), vec![payment]);
+        assert_eq!(remembered(&watcher), 0);
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert_eq!(remembered(&watcher), 1, "recorded, so remembered");
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        assert_eq!(remembered(&watcher), 1);
+    }
+
+    #[tokio::test]
+    async fn an_entry_the_database_does_not_hold_is_never_remembered() {
+        let (db, _) = setup(vec![]).await;
+        let stranger = WalletPayment {
+            address: "ark1qsomeone_else".to_string(),
+            rail: Rail::Ark,
+            amount_sats: 5000,
+            vtxo_id: Some("vtxo_x".to_string()),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        };
+        let watcher = quiet_watcher(db, vec![stranger]);
+        for _ in 0..3 {
+            assert_eq!(watcher.tick().await.unwrap(), 0);
+        }
+        assert_eq!(
+            remembered(&watcher),
+            0,
+            "ignored entries are looked at every time"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_remembered_set_is_emptied_for_a_full_pass_after_an_hour() {
+        let (db, _) = setup(vec![]).await;
+        let payment = WalletPayment {
+            address: "ark1qinv_1".to_string(),
+            rail: Rail::Ark,
+            amount_sats: 1000,
+            vtxo_id: Some("vtxo_1".to_string()),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        };
+        let watcher = quiet_watcher(db, vec![payment]);
+        watcher.tick().await.unwrap();
+        assert_eq!(remembered(&watcher), 1);
+        // Pretend the last full pass was long ago: the next tick forgets,
+        // reads everything again (a harmless no-op) and remembers it afresh.
+        watcher.handled.lock().unwrap().1 = 1;
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        assert_eq!(remembered(&watcher), 1);
+        assert!(watcher.handled.lock().unwrap().1 > 1_000_000);
     }
 
     #[tokio::test]

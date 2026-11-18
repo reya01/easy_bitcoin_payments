@@ -626,6 +626,30 @@ pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<boo
     Ok(changed > 0)
 }
 
+/// Does the database already hold this wallet entry, either credited
+/// (`payments`) or parked (`unmatched_payments`)? Matched by VTXO id or txid.
+/// The watcher uses this to stop re-reading history it has fully handled.
+pub fn already_recorded(
+    conn: &Connection,
+    vtxo_id: Option<&str>,
+    txid: Option<&str>,
+) -> Result<bool, AppError> {
+    if vtxo_id.is_none() && txid.is_none() {
+        return Ok(false);
+    }
+    let held: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM payments
+                       WHERE (?1 IS NOT NULL AND vtxo_id = ?1)
+                          OR (?2 IS NOT NULL AND txid = ?2))
+             OR EXISTS(SELECT 1 FROM unmatched_payments
+                       WHERE (?1 IS NOT NULL AND vtxo_id = ?1)
+                          OR (?2 IS NOT NULL AND txid = ?2))",
+        params![vtxo_id, txid],
+        |row| row.get(0),
+    )?;
+    Ok(held)
+}
+
 /// Store the Lightning invoice issued for a checkout invoice (Phase 1).
 pub fn set_lightning_invoice(
     conn: &Connection,

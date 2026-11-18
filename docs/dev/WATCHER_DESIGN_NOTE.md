@@ -1,6 +1,6 @@
 # Design note: the payment watcher re-reads the whole history (planning only)
 
-**Status:** proposal, no code. Not for the first release candidate. Decide after
+**Status:** built (option A, narrowed; see the end of this note). Originally: proposal, no code. Not for the first release candidate. Decide after
 the signet drill shows whether it matters in practice.
 
 ## What happens today
@@ -80,3 +80,19 @@ record on tick 1 is picked up on tick 2.
   still catches an old-timestamp entry.
 - Signet drill: 300 small payments, then check tick duration and CPU stay flat.
 - No change to sweep or settlement logic.
+
+## What was built
+
+Question 3 is answered: `record_payment` only ever INSERTs a payment row and a
+repeat is a no-op, and `record_unmatched` uses INSERT OR IGNORE, so
+re-delivering an entry that the database already holds can never change
+anything. Option A was built in a narrower form than described above: an entry
+is remembered **only after the database provably holds it** (a row in `payments`
+or `unmatched_payments` with the same VTXO id or txid, checked after the tick's
+work). Ignored entries (reserve funding, unknown addresses) and failed writes
+are never remembered and are looked at again each tick. The key also includes
+address, amount, rail and whether the entry is confirmed, so a changed entry is
+re-read. The set is in memory, emptied once an hour (a full pass, as in option
+B's safety net) and after a restart, and capped at 50,000 entries. The cursor
+still follows every entry the wallet reports. There is no setting to turn it off;
+the hourly full pass and the database guards are the fallback.

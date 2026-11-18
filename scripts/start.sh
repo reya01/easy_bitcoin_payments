@@ -15,6 +15,9 @@
 # ./scripts/start.sh keep https on.
 #
 # Any other arguments are passed to `docker compose up -d`.
+#
+# To move to a new release, use ./scripts/update.sh (it checks the release's
+# signature first; see docs/UPGRADING.md). This script never updates by itself.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -72,15 +75,31 @@ if [ -n "$want_https" ]; then
   echo "    (your server must accept visitors on ports 80 and 443)"
 fi
 
-# Optional prebuilt image (EBP_IMAGE=ghcr.io/...@sha256:...). If the pull
-# fails we say so and fall back to building from source.
+# Signed prebuilt image. ./scripts/update.sh checks a release's signature and
+# then stores its exact address (ghcr.io/...@sha256:...) as EBP_IMAGE in .env;
+# docker compose reads .env too, so we look there as well as in the shell.
+# With an image chosen we ONLY download it: never a quiet switch to a build on
+# this server, because a failed download should be seen, not hidden.
+if [ -z "${EBP_IMAGE:-}" ] && [ -f .env ]; then
+  EBP_IMAGE="$(grep '^EBP_IMAGE=' .env | tail -n 1 | cut -d= -f2- || true)"
+  export EBP_IMAGE
+fi
 build_from_source=1
 if [ -n "${EBP_IMAGE:-}" ]; then
   if docker compose pull ebp; then
     build_from_source=0
   else
-    echo "(could not pull $EBP_IMAGE - building from source instead)"
+    echo >&2
+    echo "Could not download the signed server image:" >&2
+    echo "  $EBP_IMAGE" >&2
+    echo "Check the server's internet connection and run this again. Nothing was changed." >&2
+    echo "To build it yourself from the source files instead (slower):" >&2
+    echo "  ./scripts/update.sh --from-source VERSION" >&2
+    exit 1
   fi
+elif [ "${EBP_REQUIRE_PREBUILT:-}" = 1 ]; then
+  echo "No signed image is set, and a signed image was required. Nothing was changed." >&2
+  exit 1
 fi
 
 # Building from source: always build first. `docker compose up -d` alone reuses an

@@ -29,9 +29,10 @@ same process as a practice run, with checks.
    at a time and wait for each to finish:
    ```
    cd /opt/ebp
-   git pull
-   ./scripts/start.sh
+   ./scripts/update.sh VERSION
    ```
+   (`VERSION` is the newest one on the Releases page, for example `0.2.1-rc1`; see
+   [UPGRADING.md](UPGRADING.md). On a folder without `update.sh`, run `git pull` once first.)
 2. **In your browser, on the old server's `/admin` page,** open **Home** and
    **Settings**. Write down your answer key:
    - the **balance** ("Held on your server")

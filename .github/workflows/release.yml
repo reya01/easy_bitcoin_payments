@@ -216,6 +216,11 @@ jobs:
           DIGEST: ${{ needs.docker.outputs.digest }}
           REPO: ${{ github.repository }}
         run: |
+          # The exact image address as a small file: ./scripts/update.sh downloads it, then
+          # checks the signature on THIS digest, so the file itself needs no trust.
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > IMAGE_DIGEST
+          gh release upload "$TAG" IMAGE_DIGEST --repo "$REPO" --clobber
           body="$(gh release view "$TAG" --repo "$REPO" --json body -q .body)"
-          notes="$(printf '%s\n\n## Container image\n\n`%s@%s`\n\nVerify the signature (optional, advanced):\n\n```\ncosign verify %s@%s \\\n  --certificate-identity-regexp "^https://github.com/%s/\\.github/workflows/release\\.yml@" \\\n  --certificate-oidc-issuer https://token.actions.githubusercontent.com\n```\n' "$body" "$IMAGE" "$DIGEST" "$IMAGE" "$DIGEST" "$REPO")"
+          ver="${TAG#v}"
+          notes="$(printf '%s\n\n## Update (recommended)\n\nOn your server, in the EBP folder:\n\n```\n./scripts/update.sh --check %s\n./scripts/update.sh %s\n```\n\nThe first line only checks. The second shows the version, the image digest and the signature result, refuses to go backwards, and asks you to type yes. Nothing updates by itself.\n\n## Container image\n\n`%s@%s`\n\nVerify the signature by hand (advanced):\n\n```\ncosign verify %s@%s \\\n  --certificate-identity https://github.com/%s/.github/workflows/release.yml@refs/tags/%s \\\n  --certificate-oidc-issuer https://token.actions.githubusercontent.com\n```\n' "$body" "$ver" "$ver" "$IMAGE" "$DIGEST" "$IMAGE" "$DIGEST" "$REPO" "$TAG")"
           gh release edit "$TAG" --repo "$REPO" --notes "$notes"

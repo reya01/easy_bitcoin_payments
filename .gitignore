@@ -23,3 +23,6 @@ ebp.toml
 # Python bytecode
 __pycache__/
 *.pyc
+
+# The signature checker downloaded by scripts/get-cosign.sh
+/bin/

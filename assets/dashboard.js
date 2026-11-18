@@ -199,8 +199,9 @@ function loadVersion() {
     if (v.host === "render") {
       u.appendChild(el("p", "To update: open your Render dashboard, choose this service, then Manual Deploy → Deploy latest commit.", "muted"));
     } else {
-      u.appendChild(el("p", "To update, run this on your server:", "muted"));
-      u.appendChild(el("div", "git pull && docker compose up -d --build", "secret"));
+      u.appendChild(el("p", "To update, run these two lines on your server, in the EBP folder. The first one only checks the new version's signature; the second one asks you to type yes before anything changes:", "muted"));
+      u.appendChild(el("div", "./scripts/update.sh --check " + v.latest.version, "secret"));
+      u.appendChild(el("div", "./scripts/update.sh " + v.latest.version, "secret"));
     }
     if (/^https:\/\/github\.com\//.test(v.latest.url)) {
       var a = el("a", "What changed in this version"); a.href = v.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer";

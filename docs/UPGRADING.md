@@ -17,34 +17,77 @@ resume.
 ## While only release candidates exist
 
 The "Update available" notice only looks at full releases, so it will not appear for
-a release candidate. To get the newest one, use the same steps below (`git pull`
-fetches the newest code). Read the [CHANGELOG](../CHANGELOG.md) first to see what
+a release candidate. You choose the version yourself (the Releases page lists them),
+and the same steps below work. Read the [CHANGELOG](../CHANGELOG.md) first to see what
 changed. Your wallet, settings, orders and shop connection are kept.
 
-## Update a DigitalOcean server (the usual way)
+## Update a DigitalOcean server (the usual way, about a minute)
 
 In the DigitalOcean website open your server, then **Console**, log in as `root`
-and run:
+and run these, one at a time (the folder name may differ; `ls` shows it):
 
 ```
 cd /opt/ebp
-git pull
-./scripts/start.sh
+./scripts/update.sh --check 0.2.1-rc1
+./scripts/update.sh 0.2.1-rc1
 ```
 
-Wait a few minutes (it rebuilds; on a small server this can take 10 minutes or more), then check that the admin **Home** page says the
-wallet is connected before you take payments again. Nothing is lost: your data lives
-in a separate volume, and a copy is taken before any database change. If you turned
-on https with `start.sh`, that choice is remembered.
+Use the version you want instead of `0.2.1-rc1`. The first command only **checks**:
+it shows which version runs now, the version you asked for, the exact image
+(its "digest") and whether the signature is genuine, and changes nothing. The second
+shows the same and then asks you to **type yes** before it changes anything.
 
-On any other Docker server, the same thing from the folder that holds
-`docker-compose.yml`:
+What `update.sh` does for you, in order:
+
+1. It works out the version your server runs now and **refuses to go backwards** (an
+   older version cannot read newer data).
+2. It downloads the release's image address and checks the **signature** with
+   [cosign](https://docs.sigstore.dev/cosign/overview/): the image must have been built and
+   signed by this project's release workflow for exactly that version, from exactly that
+   commit. If the check fails, nothing is used.
+3. It shows you the version, the digest and the result, and waits for you to type `yes`.
+4. It switches the server to that exact image and restarts it. If the download fails, the
+   old setting is put back. It never quietly builds anything on the server instead.
+
+**EBP never updates itself.** Nothing runs `update.sh` for you: no timer, no auto-update.
+
+Then check that the admin **Home** page says the wallet is connected before you take
+payments again. Nothing is lost: your data lives in a separate volume, and a copy is taken
+before any database change. If you turned on https with `start.sh`, that choice is
+remembered. Download a fresh backup (Settings) before you update.
+
+**The first time**, your folder may not have `update.sh` yet: run `git pull` once, then the
+commands above. `update.sh` then moves the folder to the release's own files, so later
+updates use `update.sh` again (a plain `git pull` no longer applies, by design).
+
+**The signature checker is fetched for you.** The first time, `update.sh` downloads
+[cosign](https://docs.sigstore.dev/cosign/overview/) into the EBP folder and checks it against a
+fingerprint (sha256) this project has pinned, so you install nothing by hand. If you already have
+cosign installed, it uses that one.
+
+The signed image is built for x86-64 servers (most DigitalOcean droplets). On an ARM server
+use the build-from-source way below.
+
+## Build it yourself instead (slower, fully independent)
+
+If you would rather not rely on the project's prebuilt image, build the release from its
+source on your own server:
 
 ```
-git pull
-docker compose build
-docker compose up -d
+cd /opt/ebp
+./scripts/update.sh --from-source 0.2.1-rc1
 ```
+
+It fetches that release's source, switches the folder to it, and builds the server there.
+This takes several minutes (10 or more on a small server) and downloads the build's own
+packages (Rust packages and Debian packages, plus the pinned wallet program), so it relies on
+those sites instead of the signed image. It still **refuses to go backwards** and still
+asks you to type yes. Nothing is checked by cosign in this mode, because nothing prebuilt is
+used. To go back to the signed image later, run `./scripts/update.sh VERSION` again.
+
+On any other Docker server, run the same scripts from the folder that holds
+`docker-compose.yml`. (Developers working from a checkout can still run `git pull` and
+`docker compose build`; that is not the supported update path.)
 
 On Render (paid plan required, see [OTHER_HOSTS.md](OTHER_HOSTS.md)), `render.yaml`
 sets `autoDeploy: false`: update with **Manual Deploy → Deploy latest commit** and
@@ -88,8 +131,8 @@ against losing the disk: see [RECIPE_BACKUP.md](RECIPE_BACKUP.md).
 **Verifying a release.** Release images are built by this repository's release
 workflow, published by immutable digest (there is deliberately no `latest` tag),
 signed keylessly with sigstore/cosign, and carry build provenance and an SBOM. The
-release notes list the digest and the exact `cosign verify` command. To pin a
-deployment, use `image: ghcr.io/<owner>/<repo>@sha256:<digest>`. Releases are cut by
+release notes list the digest and the exact `cosign verify` command (`update.sh` runs it for
+you). A server keeps the exact image in its `.env` as `EBP_IMAGE=ghcr.io/<owner>/<repo>@sha256:<digest>`. Releases are cut by
 pushing a `v*` tag, which builds the x86_64 binary (x86-64 only for now; ARM is planned
 for v1.0), `SHA256SUMS`, the GitHub release and the image. Maintainer to-do (a repository setting):
 protect the `v*` tag pattern so only maintainers can create release tags.
@@ -123,3 +166,10 @@ cosign verify-blob --bundle SHA256SUMS.sigstore.json \
 It prints `Verified OK` when `SHA256SUMS` was signed by this project's release workflow.
 
 `scripts/release.sh` builds the same artifacts locally without publishing.
+
+**What the signed update does not protect against.** `update.sh` itself comes from `git`, not from
+the signed release: it is about 200 lines, so read it before you run it. If the GitHub account or
+the release workflow were taken over, a validly signed bad image could be published; that is why
+releases are cut by hand, nothing updates by itself, and you see the version and digest first.
+Reproducible builds, so anyone can check a published image against the source, are planned
+([dev/REPRODUCIBLE_BUILDS.md](dev/REPRODUCIBLE_BUILDS.md)).

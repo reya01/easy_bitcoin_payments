@@ -606,7 +606,7 @@ def main():
                 if not d.query_selector("summary .fs").inner_text().strip().endswith("."): pr.append("a folded row needs a one-sentence summary: " + name)
                 if d.query_selector("summary .fo") or d.query_selector("summary .fc"): pr.append("no Expand/Collapse words any more, the whole row opens it: " + name)
                 if d.evaluate("e => e.previousElementSibling && e.previousElementSibling.tagName === 'H2' && e.previousElementSibling.textContent !== 'Settings'"): pr.append("the title must be inside the row, not a separate heading: " + name)
-            if p.locator("#v-set #fold-phone").count(): pr.append("phone alerts belong on the Alerts tab, not in Settings")
+            if p.locator("#v-set #phone-set").count(): pr.append("phone alerts belong on the Alerts tab, not in Settings")
             if p.is_visible("#pause-card") or p.is_visible("#pw-save") or p.is_visible("#bk-go"):
                 pr.append("section contents must be hidden until opened")
             row = p.evaluate("() => document.querySelector('#fold-pause > summary').getBoundingClientRect().height")
@@ -618,10 +618,10 @@ def main():
             p.click("#fold-pause > summary"); p.wait_for_timeout(200)
             if p.is_visible("#pause-card"): pr.append("clicking again should hide it")
             p.click('#tabs button[data-v="alerts"]'); p.wait_for_timeout(400)
-            if not p.is_visible("#fold-phone > summary"): pr.append("the Alerts tab should have a folded Phone alerts row")
-            if p.evaluate("e => e.open", p.query_selector("#fold-phone")): pr.append("Phone alerts should start folded")
+            if not p.is_visible("#phone-set"): pr.append("the Alerts tab should show Phone alerts open, with no folding")
+            if p.locator("#phone-set").evaluate("e => !!e.closest('details')"): pr.append("Phone alerts on the Alerts tab must not be inside a fold")
 
-        ok &= run_case(pw, "settings: eight compact folded rows with one sentence each, phone alerts on the Alerts tab", signed_in, c_settings_folded)
+        ok &= run_case(pw, "settings: eight compact folded rows with one sentence each, phone alerts open on the Alerts tab", signed_in, c_settings_folded)
 
         # --- late and unmatched payments: money that arrived for an order that
         # could no longer take it must be visible, explained and markable.

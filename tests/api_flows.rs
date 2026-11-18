@@ -1973,10 +1973,21 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     .await
     .unwrap();
     assert_eq!(r.status().as_u16(), 400);
+    // The code that approved the payout change above is spent: it cannot approve
+    // a second action, and that is not counted as a wrong code.
     let r = send(
         "/admin/2fa/disable",
         sess2,
         serde_json::json!({"admin_password": pw, "code": app_code(&secret, step0 + 1)}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400, "a code approves one action");
+    // A backup code is a fresh one.
+    let r = send(
+        "/admin/2fa/disable",
+        sess2,
+        serde_json::json!({"admin_password": pw, "code": codes[1]}),
     )
     .await
     .unwrap();
@@ -2207,6 +2218,160 @@ async fn payment_summary_setting_defaults_to_daily_and_can_be_changed() {
     .await
     .unwrap();
     assert_eq!(bad.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn the_second_step_guards_resume_the_address_lock_and_alerts_but_never_pause_and_only_when_on(
+) {
+    use easy_bitcoin_payments::totp;
+    let (base, state, _store_id, _key) = serve().await;
+    let client = reqwest::Client::new();
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let post = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
+            .json(&body)
+            .send()
+    };
+    let code_of = |r: reqwest::Response| r.status().as_u16();
+
+    // Two-step sign-in is OFF: none of these ever asks for a code.
+    for (path, body) in [
+        ("/admin/pause", serde_json::json!({"paused": true})),
+        ("/admin/pause", serde_json::json!({"paused": false})),
+        ("/admin/keylock/save", serde_json::json!({"addresses": ""})),
+        ("/admin/alerts/enable", serde_json::json!({})),
+        ("/admin/alerts/disable", serde_json::json!({})),
+    ] {
+        assert_eq!(code_of(post(path, body).await.unwrap()), 200, "{path}");
+    }
+
+    // Turn it on directly (as the setup flow would).
+    let step0 = now_unix() / 30;
+    let secret = state.db.call(|c| totp::begin_setup(c)).await.unwrap();
+    let key = totp::base32_decode(&secret).unwrap();
+    let first = totp::code_for_step(&key, step0);
+    let codes = state
+        .db
+        .call(move |c| totp::confirm(c, &first, step0 * 30 + 1))
+        .await
+        .unwrap();
+
+    // Pausing is the emergency button: no code, ever.
+    assert_eq!(
+        code_of(
+            post("/admin/pause", serde_json::json!({"paused": true}))
+                .await
+                .unwrap()
+        ),
+        200
+    );
+    // Resuming asks for one.
+    assert_eq!(
+        code_of(
+            post("/admin/pause", serde_json::json!({"paused": false}))
+                .await
+                .unwrap()
+        ),
+        400
+    );
+    let resume = |code: String| {
+        post(
+            "/admin/pause",
+            serde_json::json!({"paused": false, "code": code}),
+        )
+    };
+    assert_eq!(
+        code_of(resume(totp::code_for_step(&key, step0)).await.unwrap()),
+        200
+    );
+    // The same code does not approve a second action, and the message says what to do.
+    assert_eq!(
+        code_of(
+            post("/admin/pause", serde_json::json!({"paused": true}))
+                .await
+                .unwrap()
+        ),
+        200
+    );
+    let again = resume(totp::code_for_step(&key, step0)).await.unwrap();
+    assert_eq!(again.status().as_u16(), 400);
+    let body: serde_json::Value = again.json().await.unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("already used"),
+        "{body}"
+    );
+    // A backup code is a fresh one.
+    assert_eq!(code_of(resume(codes[0].clone()).await.unwrap()), 200);
+
+    // The shop-address lock.
+    let lock = |code: Option<String>| {
+        let mut b = serde_json::json!({"addresses": "203.0.113.7"});
+        if let Some(c) = code {
+            b["code"] = serde_json::Value::from(c);
+        }
+        post("/admin/keylock/save", b)
+    };
+    assert_eq!(code_of(lock(None).await.unwrap()), 400);
+    assert_eq!(code_of(lock(Some("000000".into())).await.unwrap()), 400);
+    assert_eq!(code_of(lock(Some(codes[1].clone())).await.unwrap()), 200);
+
+    // Alerts: turning them on with the default server needs nothing; an own
+    // server and turning working alerts off ask for a code.
+    assert_eq!(
+        code_of(
+            post("/admin/alerts/enable", serde_json::json!({}))
+                .await
+                .unwrap()
+        ),
+        200
+    );
+    assert_eq!(
+        code_of(
+            post(
+                "/admin/alerts/enable",
+                serde_json::json!({"server": "https://ntfy.example.com"})
+            )
+            .await
+            .unwrap()
+        ),
+        400
+    );
+    assert_eq!(
+        code_of(
+            post("/admin/alerts/disable", serde_json::json!({}))
+                .await
+                .unwrap()
+        ),
+        400,
+        "turning working alerts off asks for a code"
+    );
+    assert_eq!(
+        code_of(
+            post(
+                "/admin/alerts/disable",
+                serde_json::json!({"code": codes[2]})
+            )
+            .await
+            .unwrap()
+        ),
+        200
+    );
+    // Already off: nothing to guard.
+    assert_eq!(
+        code_of(
+            post("/admin/alerts/disable", serde_json::json!({}))
+                .await
+                .unwrap()
+        ),
+        200
+    );
 }
 
 #[tokio::test]

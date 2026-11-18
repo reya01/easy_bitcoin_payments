@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
-use crate::routes::admin_session::require_session;
+use crate::routes::admin_session::{check_second_step, require_session};
 use crate::routes::AppState;
 use crate::shopkey as sk;
 
@@ -26,6 +26,10 @@ fn audit(conn: &rusqlite::Connection, action: &str, detail: &str) {
 #[derive(Deserialize)]
 pub struct PauseRequest {
     pub paused: bool,
+    /// Authenticator code. Needed only to RESUME, and only when two-step
+    /// sign-in is on; pausing never asks for one (it is the emergency button).
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 /// `POST /admin/pause`
@@ -35,6 +39,9 @@ pub async fn pause(
     Json(req): Json<PauseRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    if !req.paused {
+        check_second_step(&state, req.code.clone()).await?;
+    }
     state
         .db
         .call(move |c| {
@@ -79,6 +86,9 @@ pub async fn status(
 #[derive(Deserialize)]
 pub struct SaveRequest {
     pub addresses: String,
+    /// Authenticator code, needed only when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 /// `POST /admin/keylock/save`
@@ -88,6 +98,7 @@ pub async fn save(
     Json(req): Json<SaveRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    check_second_step(&state, req.code.clone()).await?;
     let v = state
         .db
         .call(move |c| {

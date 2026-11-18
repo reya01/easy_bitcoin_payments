@@ -331,7 +331,17 @@ function renderPhone(box, a, onHome) {
       msg.textContent = e ? e.message : "Sent. It should appear on your phone in a few seconds.";
     });
   }));
-  row2.appendChild(phoneBtn("Turn phone alerts off", function () { phoneAct("/admin/alerts/disable", {}, function () { loadPhone(); }); }, true));
+  // Turning working alerts off, or using an own server, asks for a code, but only
+  // while two-step sign-in is on (the box is hidden otherwise, like the others).
+  var cw = field("phone-code", "Code from your authenticator app (needed to turn alerts off or to use your own server)", "tel", "6 digits");
+  cw.className = "needcode" + (twofaOn ? "" : " hidden");
+  function phoneCode() { var i = $("phone-code"); return i ? i.value : ""; }
+  box.appendChild(cw);
+  row2.appendChild(phoneBtn("Turn phone alerts off", function (b) {
+    phoneAct("/admin/alerts/disable", { code: phoneCode() }, function (e) {
+      if (e) { b.disabled = false; msg.classList.remove("hidden"); msg.className = "msg bad"; msg.textContent = e.message; } else loadPhone();
+    });
+  }, true));
   box.appendChild(row2);
   box.appendChild(msg);
   var al = document.createElement("label"); al.textContent = "Tell me about payments"; al.setAttribute("for", "phone-activity"); box.appendChild(al);
@@ -352,7 +362,7 @@ function renderPhone(box, a, onHome) {
   var inp = document.createElement("input"); inp.type = "text"; inp.id = "phone-server"; inp.placeholder = "https://ntfy.example.com";
   d.appendChild(inp);
   var sv = phoneBtn("Save server", function (b) {
-    phoneAct("/admin/alerts/enable", { server: inp.value }, function (e) {
+    phoneAct("/admin/alerts/enable", { server: inp.value, code: phoneCode() }, function (e) {
       b.disabled = false;
       if (e) { msg.classList.remove("hidden"); msg.className = "msg bad"; msg.textContent = e.message; } else loadPhone();
     });
@@ -736,21 +746,40 @@ $("po-cancel").addEventListener("click", function () {
 // Counts the owner's own pause/resume clicks, so a slower, older answer from the
 // start-up session check can never overwrite what they just did.
 var pauseClicks = 0;
-function setPaused(p, btn) {
+function setPaused(p, btn, code, msgEl) {
   if (btn) btn.disabled = true;
   pauseClicks++;
-  api("POST", "/admin/pause", { paused: p }).then(function () { paused = p; renderPause(); })
-    .catch(function (e) { say("pause-msg", e.message, true); if (btn) btn.disabled = false; });
+  api("POST", "/admin/pause", { paused: p, code: code || "" }).then(function () { paused = p; renderPause(); })
+    .catch(function (e) {
+      if (msgEl) { msgEl.className = "msg bad"; msgEl.textContent = e.message; } else say("pause-msg", e.message, true);
+      if (btn) btn.disabled = false;
+    });
 }
+// The Resume button, with a code box that shows only while two-step sign-in is on.
+// (Pausing never asks for a code: it is the emergency button.)
+function resumeRow() {
+  var w = el("div");
+  var cw = el("div"); cw.className = "needcode" + (twofaOn ? "" : " hidden");
+  var lab = el("label", "Code from your authenticator app"); var inp = document.createElement("input");
+  inp.type = "text"; inp.inputMode = "numeric"; inp.autocomplete = "off"; inp.placeholder = "6 digits";
+  inp.id = "resume-code-" + (++resumeBoxes); lab.setAttribute("for", inp.id);
+  cw.appendChild(lab); cw.appendChild(inp); w.appendChild(cw);
+  var msg = el("p", "", "msg hidden");
+  var b = el("div", "", "btns");
+  b.appendChild(button("Resume payments", function (btn) { msg.className = "msg hidden"; setPaused(false, btn, inp.value, msg); }, "primary"));
+  w.appendChild(b); w.appendChild(msg);
+  return w;
+}
+var resumeBoxes = 0;
 function renderPause() {
   var box = $("pause-card"), top = $("paused-card"); clear(box); clear(top);
   top.classList.toggle("hidden", !paused);
   if (paused) {
     top.appendChild(el("strong", "New Bitcoin payments are paused", "bad"));
     top.appendChild(el("p", "Customers can't start a new Bitcoin payment. Payments already started still finish.", "muted"));
-    var tb = el("div", "", "btns"); tb.appendChild(button("Resume payments", function (b) { setPaused(false, b); }, "primary")); top.appendChild(tb);
+    top.appendChild(resumeRow());
     box.appendChild(el("p", "Paused. Customers can't start new Bitcoin payments; ones already started still finish.", "muted"));
-    var rb = el("div", "", "btns"); rb.appendChild(button("Resume payments", function (b) { setPaused(false, b); }, "primary")); box.appendChild(rb);
+    box.appendChild(resumeRow());
   } else {
     box.appendChild(el("p", "Bitcoin payments are on. If you think your shop was hacked, or something looks wrong, pause here first: customers can't start a new Bitcoin payment (ones already started still finish). You can resume any time.", "muted"));
     var pb = el("div", "", "btns"); pb.appendChild(button("Pause new payments", function (b) { setPaused(true, b); })); box.appendChild(pb);
@@ -770,7 +799,8 @@ function showKeylock(r) {
 }
 $("kl-save").addEventListener("click", function () {
   var btn = $("kl-save"); btn.disabled = true;
-  api("POST", "/admin/keylock/save", { addresses: $("kl-addr").value }).then(function (r) {
+  api("POST", "/admin/keylock/save", { addresses: $("kl-addr").value, code: $("kl-code").value }).then(function (r) {
+    $("kl-code").value = "";
     showKeylock(r);
     say("kl-msg", (r.addresses || []).length ? "Saved. Only these addresses can use your shop's key. Test your shop checkout now." : "Saved. No limit: the key works from anywhere.");
   }).catch(function (e) { say("kl-msg", e.message, true); }).then(function () { btn.disabled = false; });

@@ -490,8 +490,8 @@ fn observe_db(conn: &Connection, now: i64) -> Result<(bool, i64), AppError> {
     let failed: bool = conn
         .query_row(
             "SELECT status = 'failed' FROM settlements
-             WHERE kind IN ('sweep_ark','sweep_onchain')
-             ORDER BY created_at DESC LIMIT 1",
+             WHERE kind IN ('sweep_ark','sweep_onchain','sweep_refused')
+             ORDER BY created_at DESC, rowid DESC LIMIT 1",
             [],
             |r| r.get(0),
         )
@@ -801,6 +801,29 @@ mod tests {
             assert!(!t.contains("sats") && !t.contains("bc1") && !t.contains("ark1"));
             assert!(!t.chars().any(|c| c.is_ascii_digit()), "no numbers: {t}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_refused_payout_address_raises_the_withdrawal_alert_until_a_sweep_works() {
+        let db = crate::db::Db::open(":memory:").unwrap();
+        db.call(|c| {
+            let row = |id: &str, kind: &str, status: &str, at: i64| {
+                c.execute(
+                    "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
+                     VALUES (?1, ?2, 5000, 'dest', ?3, 'why', ?4)",
+                    rusqlite::params![id, kind, status, at],
+                )
+                .unwrap();
+            };
+            assert!(!observe_db(c, 0)?.0);
+            row("a", "sweep_refused", "failed", 100);
+            assert!(observe_db(c, 0)?.0, "a refusal is a failure");
+            row("b", "sweep_ark", "completed", 200);
+            assert!(!observe_db(c, 0)?.0, "a later good sweep clears it");
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 
     #[test]

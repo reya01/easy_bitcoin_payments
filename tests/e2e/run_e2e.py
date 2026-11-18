@@ -456,7 +456,8 @@ def main():
             page.locator("#twofa-card").get_by_role("button", name="Turn off", exact=True).click()
             page.wait_for_selector("#tf-off-pw")
             page.fill("#tf-off-pw", ADMIN_PW)
-            page.fill("#tf-off-code", totp_code(secret, cur + 1))
+            # The code that just approved the backup is spent; a backup code is a fresh one.
+            page.fill("#tf-off-code", codes[0])
             page.get_by_role("button", name="Turn off two-step sign-in").click()
             wait_for(lambda: "Off (password only)" in page.inner_text("#twofa-card"), "turned off")
             assert not page.is_visible("#bk-code"), "no code box once it is off"

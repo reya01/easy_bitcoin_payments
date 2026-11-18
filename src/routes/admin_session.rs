@@ -77,11 +77,12 @@ enum LoginOutcome {
     Session(aa::Session),
     NeedCode,
     WrongCode,
-    Locked,
+    Locked(String),
     Denied,
 }
 
-const LOCKED_MSG: &str = "Too many wrong codes. Wait 10 minutes and try again.";
+/// A correct code that already approved a protected action.
+const SPENT_MSG: &str = "That code was already used for an action. Wait for the next code in your authenticator app (it changes every 30 seconds) and try again.";
 
 /// Second-step check for actions that move money or hand out the backup.
 /// Does nothing when two-step sign-in is off. Call it after the password check.
@@ -108,7 +109,10 @@ pub(crate) async fn check_second_step(
                         "That code isn't right. Check your authenticator app and try again.".into(),
                     ))
                 }
-                crate::totp::Second::Locked => Err(AppError::BadRequest(LOCKED_MSG.into())),
+                crate::totp::Second::Locked => Err(AppError::BadRequest(
+                    crate::totp::locked_message(c, crate::util::now_unix())?,
+                )),
+                crate::totp::Second::Spent => Err(AppError::BadRequest(SPENT_MSG.into())),
             }
         })
         .await
@@ -148,7 +152,18 @@ pub async fn login(
                         audit(c, "admin.login_failed", "wrong code");
                         return Ok(LoginOutcome::WrongCode);
                     }
-                    crate::totp::Second::Locked => return Ok(LoginOutcome::Locked),
+                    crate::totp::Second::Locked => {
+                        return Ok(LoginOutcome::Locked(crate::totp::locked_message(
+                            c,
+                            crate::util::now_unix(),
+                        )?))
+                    }
+                    // Only protected actions can spend a code; sign-in treats
+                    // a used code as wrong.
+                    crate::totp::Second::Spent => {
+                        audit(c, "admin.login_failed", "wrong code");
+                        return Ok(LoginOutcome::WrongCode);
+                    }
                 }
             }
             let s = aa::create_session(c)?;
@@ -166,7 +181,7 @@ pub async fn login(
                 "That code isn't right. Check your authenticator app and try again, or use a recovery code.".into(),
             ))
         }
-        LoginOutcome::Locked => return Err(AppError::BadRequest(LOCKED_MSG.into())),
+        LoginOutcome::Locked(message) => return Err(AppError::BadRequest(message)),
         LoginOutcome::Denied => return Err(AppError::Unauthorized),
     };
     let body = Json(json!({ "authenticated": true, "csrf": s.csrf }));

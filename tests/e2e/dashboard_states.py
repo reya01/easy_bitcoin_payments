@@ -132,6 +132,43 @@ def main():
             p.evaluate("document.getElementById('sweep-go').click()"); p.click("#dlg-back button:text-is(\"Move it\")"); p.wait_for_timeout(200)
             if count(calls, "POST", "/admin/sweep") != 1: pr.append("confirmed move should send")
 
+        def resend_handler(path, req, calls):
+            if path == "/api/v1/webhook-deliveries":
+                return 200, [
+                    {"id": "whd_f", "event": "invoice.paid", "status": "failed", "attempts": 8, "created_at": "2026-11-17T10:00:00Z"},
+                    {"id": "whd_p", "event": "invoice.paid", "status": "pending", "attempts": 0, "created_at": "2026-11-17T10:01:00Z"},
+                ]
+            if path == "/api/v1/webhook-deliveries/whd_f/resend":
+                return 200, {"queued": True}
+            return signed_in(path, req, calls)
+
+        def c_resend(p, pr, calls):
+            p.click('#tabs button[data-v="hooks"]')
+            p.wait_for_timeout(300)
+            buttons = p.locator("#deliveries button:text-is('Resend')")
+            if buttons.count() != 1: pr.append(f"only the failed notice should offer Resend, saw {buttons.count()}")
+            buttons.first.click(); p.wait_for_timeout(300)
+            if count(calls, "POST", "/api/v1/webhook-deliveries/whd_f/resend") != 1: pr.append("Resend should send once")
+            want(pr, "confirmation", p.inner_text("#deliveries-msg"), "Queued")
+
+        ok &= run_case(pw, "Resend queues a failed notification and says so", resend_handler, c_resend)
+
+        def resend_fails(path, req, calls):
+            if path == "/api/v1/webhook-deliveries":
+                return 200, [{"id": "whd_f", "event": "invoice.paid", "status": "failed", "attempts": 8, "created_at": "2026-11-17T10:00:00Z"}]
+            if path == "/api/v1/webhook-deliveries/whd_f/resend":
+                return 500, {"error": "internal error"}
+            return signed_in(path, req, calls)
+
+        def c_resend_fails(p, pr, calls):
+            p.click('#tabs button[data-v="hooks"]')
+            p.wait_for_timeout(300)
+            p.click("#deliveries button:text-is('Resend')"); p.wait_for_timeout(300)
+            want(pr, "error shown", p.inner_text("#deliveries-msg"), "Could not queue it")
+            if not p.is_enabled("#deliveries button:text-is('Resend')"): pr.append("the button should work again after an error")
+
+        ok &= run_case(pw, "a failed Resend says so and can be tried again", resend_fails, c_resend_fails)
+
         ok &= run_case(pw, "destructive buttons ask in the page first, and nothing happens until confirmed", hooks_handler, c_confirms)
 
         def pw_handler(path, req, calls):

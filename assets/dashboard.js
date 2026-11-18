@@ -562,7 +562,13 @@ function loadDeliveries() {
       var r = row(x.event + " · " + when(x.created_at), x.status, x.status === "delivered" ? "ok" : x.status === "failed" ? "bad" : "");
       if (x.status === "failed" || x.status === "delivered") {
         var b = el("button", "Resend", "small"); b.type = "button"; b.style.marginLeft = "8px";
-        b.addEventListener("click", function () { b.disabled = true; api("POST", "/api/v1/webhook-deliveries/" + encodeURIComponent(x.id) + "/resend", {}).then(loadDeliveries); });
+        b.addEventListener("click", function () {
+          b.disabled = true;
+          api("POST", "/api/v1/webhook-deliveries/" + encodeURIComponent(x.id) + "/resend", {}).then(function () {
+            say("deliveries-msg", "Queued. It will be sent to your shop again within a few seconds.");
+            loadDeliveries();
+          }).catch(function (e) { b.disabled = false; say("deliveries-msg", "Could not queue it: " + e.message, true); });
+        });
         r.appendChild(b);
       }
       d.appendChild(r);

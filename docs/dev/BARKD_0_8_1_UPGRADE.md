@@ -1,6 +1,6 @@
-# Moving barkd from 0.8.0 to 0.8.1 or newer (checklist; not done yet)
+# Moving barkd from 0.8.0 to 0.8.1 or newer (checklist; code done, owner's test pending)
 
-**Status:** preparation only, and **deferred to v0.3.** The next release is v0.2.1-rc1 and
+**Status 18 November 2026:** the code move is done in this draft pull request (steps 1 to 6 below); step 7, the test wallet, is the owner's and is what holds the merge. It is **deferred to v0.3.** The next release is v0.2.1-rc1 and
 stays on barkd 0.8.0. The pinned barkd moves only when v0.3 work starts and the owner decides
 (see `MAINNET_PLAN.md`, "Bark 0.8.1 changelog review"). Do this as ONE pull request that is
 **not merged until the owner has run it on a test wallet.** Several steps need things the
@@ -14,6 +14,20 @@ listed as commands.
 `destination` and `amount_sat`, so a mistake could become an on-chain payment with fees.
 The fix is to name the method on every Ark sweep. It goes in the same PR as the version
 move, because the 0.8.0 spec and daemon were never shown to accept a `method` field.
+
+## What the code move found (18 November 2026)
+
+- The 0.8.1 binaries' checksums were computed by CI, not copied, and match the release's own
+  `SHA256SUMS` (amd64 `e634724a...c85c`, arm64 `e781f4f8...e463`). Both Dockerfiles and the
+  mainnet-compat workflow now pin them.
+- The OpenAPI spec was fetched from the running 0.8.1 daemon. Against 0.8.0 it only **adds** two
+  endpoints (`/exits/presign` and `/exits/remaining`, which EBP does not call) and their schemas.
+  No path or schema EBP uses changed, so the drift check and the contract check pass unchanged.
+- `POST /wallet/send` already documented a `method` field in the 0.8.0 spec (`ark`, `lightning`
+  or `onchain`). Every Ark sweep now sends `"method": "ark"`. No live call has proved that the
+  daemon refuses a bare on-chain address when `method` is `ark`; that is part of step 7.
+- Not yet run: the mainnet-compat workflow (needs a person to start it from the Actions tab),
+  the signet workflows, and everything in step 7.
 
 ## Steps, in order
 

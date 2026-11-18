@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Draft, not for release yet: the move to barkd 0.8.1.** The pinned wallet program changes from 0.8.0 to 0.8.1 (checksums computed by our own build and matching the release's list), the stored API description is refreshed (it only adds two exit endpoints we do not use), and every payment sent to your payout wallet now says it must go over Ark, so a mistaken address can no longer turn into an on-chain payment with fees. This stays unmerged until the test-wallet check in `docs/dev/BARKD_0_8_1_UPGRADE.md` has been done.
 - **Preparation for a later barkd upgrade (nothing changes yet).** `scripts/drill_capture.sh --with-debug-info` can now also record barkd 0.8.1's wallet identity (to prove a restored wallet is the same wallet), and `docs/dev/BARKD_0_8_1_UPGRADE.md` lists the exact steps for moving from barkd 0.8.0, including naming the send method on every Ark sweep. EBP still ships barkd 0.8.0; the move itself is planned for v0.3, not for v0.2.1.
 
 ## 0.2.1-rc1 — release candidate: faster checked updates, stronger sign-in, tidier admin page (18 November 2026)

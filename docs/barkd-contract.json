@@ -12,7 +12,7 @@
     {"method": "GET",  "path": "/wallet/vtxos", "reads": ["id", "amount_sat", "expiry_height", "state.type"]},
     {"method": "GET",  "path": "/history", "reads": ["id", "status", "subsystem.name", "subsystem.kind", "received_on.destination.type", "received_on.destination.value", "received_on.amount_sat", "time.created_at", "time.updated_at", "time.completed_at"]},
     {"method": "GET",  "path": "/onchain/transactions", "reads": ["txid", "tx", "confirmation.height"]},
-    {"method": "POST", "path": "/wallet/send", "sends": ["destination", "amount_sat"], "reads": []},
+    {"method": "POST", "path": "/wallet/send", "sends": ["destination", "amount_sat", "method"], "reads": []},
     {"method": "POST", "path": "/wallet/offboard/all", "sends": ["address"], "reads": []},
     {"method": "POST", "path": "/wallet/offboard/vtxos", "sends": ["address", "vtxos"], "reads": []},
     {"method": "POST", "path": "/wallet/refresh/all", "sends": [], "reads": []},

@@ -79,11 +79,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/* \
  && case "$TARGETARCH" in \
-      amd64) BARK_ARCH=x86_64; BARK_SHA=e78bb35dbfb4c9b639a505e12e8cf3c3ab0a730c0fa4d42032b053a7b9db2a14 ;; \
-      arm64) BARK_ARCH=arm64; BARK_SHA=3575f6edf0c4091befd12eeff9d5fbb5958c3131e88c62611d6cfd8f9f5b0ebc ;; \
+      amd64) BARK_ARCH=x86_64; BARK_SHA=e634724a17796de352beb2e28808059dd3d0aef1beb3afd358ee3a582c20c85c ;; \
+      arm64) BARK_ARCH=arm64; BARK_SHA=e781f4f85bbad52655d5f10369fd07fb3ae1a8b2a47f7e8f2b54fea42653e463 ;; \
       *) echo "unsupported arch: $TARGETARCH" && exit 1 ;; \
     esac \
- && curl -fsSL "https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-0.8.0/barkd-0.8.0-linux-${BARK_ARCH}" \
+ && curl -fsSL "https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-0.8.1/barkd-0.8.1-linux-${BARK_ARCH}" \
       -o /usr/local/bin/barkd \
  && echo "${BARK_SHA}  /usr/local/bin/barkd" | sha256sum -c - \
  && chmod +x /usr/local/bin/barkd \

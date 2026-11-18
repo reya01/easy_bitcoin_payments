@@ -804,7 +804,15 @@ impl BarkdClient {
     pub async fn ark_send(&self, destination: &str, amount_sats: i64) -> Result<Json, WalletError> {
         // Shape pinned by docs/barkd-openapi.json for /wallet/send (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill; destination/amount_sats is our best-effort model.
         // Pinned OpenAPI SendRequest: `amount_sat` (NOT `amount_sats`).
-        let body = serde_json::json!({ "destination": destination, "amount_sat": amount_sats });
+        // `method: "ark"` is always named. Without it barkd picks Ark, then Lightning, then
+        // on-chain, and since barkd 0.8.1 a bare bitcoin address can be paid on-chain with
+        // fees. Naming the method makes a wrong destination fail instead of leaving as an
+        // on-chain payment. Documented in the pinned spec (SendRequest.method, PaymentMethodKind).
+        let body = serde_json::json!({
+            "destination": destination,
+            "amount_sat": amount_sats,
+            "method": "ark",
+        });
         self.post(PATH_ARK_SEND, &body).await
     }
 
@@ -2483,6 +2491,8 @@ mod tests {
         let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
         assert_eq!(body["destination"], "ark1merchant");
         assert_eq!(body["amount_sat"], 50_000);
+        // Every Ark sweep names the method, so it can never be paid on-chain by mistake.
+        assert_eq!(body["method"], "ark");
     }
 
     #[tokio::test]

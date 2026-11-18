@@ -320,7 +320,7 @@ Still open before Phase 1 is declared done:
 - **UX gate (task 12)**: a non-technical tester goes zero → live signet
   invoice using docs/START_HERE.md (v5) and an iPhone.
   Status 2026-11-03: the VPS deploy path is UNBLOCKED and verified
-  (restart-loop root-caused + fixed, see docs/KNOWN_ISSUES.md); the tester
+  (restart-loop root-caused + fixed, see docs/dev/archive/ARM_RESTART_LOOP_2026-11-03.md); the tester
   is at the wizard step (wallet creation pending).
 - **Real-history attribution drill (task 5)**: 2026-11-03's live capture of
   the REAL `/wallet/history` receive shape proved the previously-pinned

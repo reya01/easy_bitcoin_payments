@@ -1,4 +1,4 @@
-# Reproducible builds (plan, not built yet)
+# Reproducible builds (stage 1 built; stage 2 not started)
 
 **Goal:** anyone can build a release from its source and get the **same bytes** the project
 published, so the signature does not have to be taken on trust ("built by our workflow") but
@@ -10,18 +10,31 @@ independent person notice if a published image ever differs from the code in the
 
 ## Do it in two stages
 
-**Stage 1: the `ebp` binary.** The release already publishes `ebp-*.tar.gz` and `SHA256SUMS`.
-Make `scripts/release.sh` produce byte-identical binaries on two machines, then add a CI job
-that builds twice on different runners and fails if the hashes differ. Anyone can then run
-`scripts/release.sh` at a tag and compare with `SHA256SUMS`.
+**Stage 1: the `ebp` binary. Built (draft PR, 18 November 2026).** `scripts/repro-build.sh`
+builds the binary from the committed source inside the exact Rust image the Dockerfile uses
+(pinned by digest), and prints its sha256. The `reproducible-build` workflow runs it on two
+different runners (Ubuntu 22.04 and 24.04) and fails if the hashes differ. Anyone with Docker
+can run the script at a tag and compare.
 
-What usually breaks it, and what to do:
-- **Paths and time baked into the binary.** Build in a fixed directory, pass
-  `--remap-path-prefix` for the source and cargo home, set `SOURCE_DATE_EPOCH` to the commit time.
-- **Moving dependencies.** `Cargo.lock` is committed; always build with `--locked` (and
-  `--offline` against vendored crates, see below).
-- **Incremental and parallel noise.** `CARGO_INCREMENTAL=0`, one codegen unit if needed.
-- **The toolchain.** `rust-toolchain.toml` pins it; the build image is already pinned by digest.
+How the script removes the usual causes of difference:
+- **Different tools.** The build runs in the digest-pinned `rust:1-bookworm` image, so the Rust
+  compiler, the linker and the C compiler (which builds the bundled SQLite and `ring`) are the
+  same on every machine. Only the host differs.
+- **Paths baked into the binary.** The source is always built in `/src`, and
+  `--remap-path-prefix` rewrites the source, cargo and rustup folders to fixed names.
+- **Moving dependencies.** `--locked`: `Cargo.lock` is law, and the build fails if it would change.
+- **Noise and time.** `CARGO_INCREMENTAL=0`; `SOURCE_DATE_EPOCH` is the commit's time. Only
+  committed files are built (`git archive HEAD`), never the working folder.
+
+What it does **not** yet prove:
+- The Dockerfile builds the image's binary a little differently (a two-step build for caching,
+  and without the path-rewriting flags), so this hash is **not yet** the hash of the file inside
+  the published image. Stage 2 aligns the Dockerfile with the script and compares the real
+  image.
+- `rust-toolchain.toml` says only `stable`, so it does not pin a compiler. The digest-pinned
+  image does, which is why the script uses it. (The release's `ebp-*.tar.gz` is still built on
+  the runner with the latest stable and the runner's musl tools, and its tarball also stores
+  file times, so its hash is not reproducible; that is for stage 2.)
 
 **Stage 2: the image.** Docker adds more moving parts:
 - `apt-get install` in the image fetches whatever Debian serves that day. Either remove the
@@ -44,4 +57,4 @@ and to the image's layer hashes, print match or mismatch. Mention it in each rel
   crates.io for anything it did not already have; CI already runs `cargo audit`.
 - Keep the Dependabot proposals for base images and actions; a human reads each one.
 
-Not started. Order: stage 1 first (cheap, and CI proves it), then stage 2.
+Order: stage 1 (done, CI proves it), then stage 2.

@@ -1,0 +1,79 @@
+# Reproducible builds, stage 1 (docs/dev/REPRODUCIBLE_BUILDS.md): the `ebp` binary.
+#
+# Builds the binary twice, on two DIFFERENT machines (Ubuntu 22.04 and Ubuntu 24.04 runners),
+# with scripts/repro-build.sh, and fails if the two sha256 values differ. The build itself runs
+# inside the digest-pinned Rust image, so only the host differs, which is the point: if the bytes
+# match, the result does not depend on whose computer built it.
+name: reproducible-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Dockerfile"
+      - "src/**"
+      - "assets/**"
+      - "migrations/**"
+      - "scripts/repro-build.sh"
+      - ".github/workflows/reproducible-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build with the repeatable script
+        run: scripts/repro-build.sh dist-repro
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: repro-${{ matrix.runner }}
+          path: |
+            dist-repro/ebp.sha256
+            dist-repro/build-info.txt
+          if-no-files-found: error
+
+  compare:
+    name: the two builds are byte-identical
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: repro-*
+          path: results
+      - name: Compare
+        run: |
+          set -eu
+          a=$(cut -d' ' -f1 results/repro-ubuntu-22.04/ebp.sha256)
+          b=$(cut -d' ' -f1 results/repro-ubuntu-24.04/ebp.sha256)
+          {
+            echo "### Reproducible build (the ebp binary)"
+            echo
+            echo "- Ubuntu 22.04 runner: \`$a\`"
+            echo "- Ubuntu 24.04 runner: \`$b\`"
+            echo
+            echo '```'
+            cat results/repro-ubuntu-22.04/build-info.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$a" = "$b" ]; then
+            echo "Identical: the two machines built the same bytes." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "DIFFERENT: the two machines built different bytes." | tee -a "$GITHUB_STEP_SUMMARY"
+            diff results/repro-ubuntu-22.04/build-info.txt results/repro-ubuntu-24.04/build-info.txt || true
+            exit 1
+          fi

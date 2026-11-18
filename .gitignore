@@ -26,3 +26,4 @@ __pycache__/
 
 # The signature checker downloaded by scripts/get-cosign.sh
 /bin/
+dist-repro/

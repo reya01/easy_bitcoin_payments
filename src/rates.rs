@@ -14,6 +14,9 @@
 //!
 //! - one, several or all sources failing is fine: the median of those that
 //!   answered is used, and if none answered the last good price stays;
+//! - a price is only set from nothing (first start, or after an hour without
+//!   one) when at least two sources agree, so one wrong or hijacked source
+//!   can never set the price on its own;
 //! - a price is kept for up to 24 hours without a successful refresh, then
 //!   dollar amounts disappear and orders priced in a currency are refused
 //!   (orders priced in sats keep working);
@@ -51,8 +54,9 @@ pub const OLD_AFTER_SECS: i64 = 3_600;
 const MAX_JUMP: f64 = 0.25;
 
 /// When only ONE source answered, its price is taken only if it is within
-/// this of a recent price (or there is no recent price at all). One source
-/// on its own can be wrong; two or more are checked by the median.
+/// this of a recent price. One source on its own can be wrong; two or more
+/// are checked by the median. With no recent price to compare against, at
+/// least two sources must agree within this of their median.
 const SINGLE_SOURCE_MAX_MOVE: f64 = 0.05;
 
 const SETTINGS_KEY: &str = "btc_price";
@@ -196,15 +200,30 @@ impl RateService {
             let Some(rate) = median(answers.iter().map(|(_, r)| *r).collect()) else {
                 continue;
             };
-            if let Some(previous) = prices.get(&currency) {
-                let recent = now - previous.at < OLD_AFTER_SECS;
-                let moved = ((rate / previous.rate) - 1.0).abs();
+            let recent = prices
+                .get(&currency)
+                .filter(|previous| now - previous.at < OLD_AFTER_SECS)
+                .map(|previous| previous.rate);
+            if let Some(previous_rate) = recent {
+                let moved = ((rate / previous_rate) - 1.0).abs();
                 let limit = if answers.len() < 2 {
                     SINGLE_SOURCE_MAX_MOVE
                 } else {
                     MAX_JUMP
                 };
-                if recent && moved > limit {
+                if moved > limit {
+                    outcome.rejected.push(currency);
+                    continue;
+                }
+            } else {
+                // Nothing recent to compare with (first start, or an hour
+                // without a price): two sources must agree. Until they do, an
+                // older price (under a day) stays in use.
+                let agreeing = answers
+                    .iter()
+                    .filter(|(_, r)| ((r / rate) - 1.0).abs() <= SINGLE_SOURCE_MAX_MOVE)
+                    .count();
+                if agreeing < 2 {
                     outcome.rejected.push(currency);
                     continue;
                 }
@@ -745,9 +764,19 @@ mod tests {
             "one wild source is ignored"
         );
 
+        // From nothing, one answer is not enough: one source can be wrong.
         let single = RateService::new();
-        single.merge(samples(&[("only", 77.0)]), now);
-        assert_eq!(single.usd_per_btc(), Some(77.0), "one answer is enough");
+        let out = single.merge(samples(&[("only", 77.0)]), now);
+        assert_eq!(out.rejected, vec!["USD".to_string()]);
+        assert_eq!(single.usd_per_btc(), None, "one answer alone sets no price");
+
+        // Two answers that disagree set nothing either; two that agree do.
+        let out = single.merge(samples(&[("a", 77.0), ("b", 99.0)]), now);
+        assert_eq!(out.rejected, vec!["USD".to_string()]);
+        assert_eq!(single.usd_per_btc(), None);
+        let out = single.merge(samples(&[("a", 77.0), ("b", 78.0), ("c", 400.0)]), now);
+        assert_eq!(out.updated, vec!["USD".to_string()]);
+        assert_eq!(single.usd_per_btc(), Some(78.0));
     }
 
     #[test]
@@ -771,11 +800,15 @@ mod tests {
         assert_eq!(out.updated, vec!["USD".to_string()]);
         assert_eq!(service.usd_per_btc(), Some(52_000.0));
 
-        // after an hour without a refresh, a big move is believed
+        // after an hour without a refresh, a big move is believed, but only
+        // when two sources agree on it; one alone leaves the older price
         service.write().get_mut("USD").unwrap().at -= OLD_AFTER_SECS + 5;
         let out = service.merge(samples(&[("a", 90_000.0)]), now);
+        assert_eq!(out.rejected, vec!["USD".to_string()]);
+        assert_eq!(service.usd_per_btc(), Some(52_000.0));
+        let out = service.merge(samples(&[("a", 90_000.0), ("b", 90_500.0)]), now);
         assert_eq!(out.updated, vec!["USD".to_string()]);
-        assert_eq!(service.usd_per_btc(), Some(90_000.0));
+        assert_eq!(service.usd_per_btc(), Some(90_250.0));
     }
 
     #[test]

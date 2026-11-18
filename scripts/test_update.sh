@@ -88,7 +88,7 @@ no_change unknown; echo "ok  unknown running version refused"
 rm -rf "$work"; trap - EXIT
 
 # 5. an image address from somewhere else is refused
-new_sandbox; export FAKE_REF="ghcr.io/someone/else@sha256:$(rep a 64)"
+new_sandbox; FAKE_REF="ghcr.io/someone/else@sha256:$(rep a 64)"; export FAKE_REF
 out="$(run --yes 0.2.1-rc1)"; printf '%s' "$out" | grep -q 'not in the expected form' || fail "foreign image accepted: $out"
 no_change foreign; echo "ok  foreign image refused"
 rm -rf "$work"; trap - EXIT

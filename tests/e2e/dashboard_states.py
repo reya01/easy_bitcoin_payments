@@ -169,6 +169,24 @@ def main():
 
         ok &= run_case(pw, "a failed Resend says so and can be tried again", resend_fails, c_resend_fails)
 
+        def upkeep_handler(path, req, calls):
+            if path == "/api/v1/admin/settlements":
+                if "group=upkeep" in (req.url or ""):
+                    return 200, [
+                        {"kind": "renew", "amount_sats": 995, "status": "failed", "detail": "the coins were not taken into a round; they will be renewed again", "destination": None, "created_at": "2026-11-17T09:27:48Z"},
+                        {"kind": "renew", "amount_sats": 754, "status": "renewed", "detail": None, "destination": None, "created_at": "2026-11-15T20:06:47Z"},
+                    ]
+                return 200, []
+            return signed_in(path, req, calls)
+
+        def c_upkeep(p, pr, calls):
+            p.wait_for_timeout(300)
+            txt = p.inner_text("#upkeep")
+            want(pr, "reason shown for the failed line", txt, "Why: the coins were not taken into a round")
+            if txt.lower().count("why:") != 1: pr.append(f"only the failed line should say why, saw: {txt}")
+
+        ok &= run_case(pw, "failed upkeep lines say why", upkeep_handler, c_upkeep)
+
         ok &= run_case(pw, "destructive buttons ask in the page first, and nothing happens until confirmed", hooks_handler, c_confirms)
 
         def pw_handler(path, req, calls):

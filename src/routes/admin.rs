@@ -112,6 +112,18 @@ pub async fn settlements(
     Ok(Json(rows))
 }
 
+/// Did the newest *withdrawal* (a send to the owner's wallet) fail? Routine
+/// upkeep (renewals, tidy-ups) is not a withdrawal: it has its own warning
+/// after repeated failures, and one failed round is ordinary and heals itself.
+/// Counting it here showed "the last automatic withdrawal did not complete"
+/// for a failed 995-sat renewal.
+fn last_withdrawal_failed(rows: &[Value]) -> bool {
+    rows.iter()
+        .find(|s| s["kind"] != "renew" && s["kind"] != "consolidate")
+        .map(|s| s["status"] == "failed")
+        .unwrap_or(false)
+}
+
 pub async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -213,10 +225,7 @@ pub async fn status(
         unmatched_open: counters["unmatched_payments_open"].as_i64().unwrap_or(0),
         webhooks_failed: counters["webhooks_failed"].as_i64().unwrap_or(0),
         webhook_configured,
-        last_settlement_failed: recent_settlements
-            .first()
-            .map(|s| s["status"] == "failed")
-            .unwrap_or(false),
+        last_settlement_failed: last_withdrawal_failed(&recent_settlements),
         // Consecutive failed renewals, newest first (other kinds are skipped).
         renewals_failing: recent_settlements
             .iter()
@@ -313,4 +322,37 @@ pub async fn status(
         "price_sources": state.rates.usd_sources(),
         "price_sources_total": crate::rates::default_sources().len(),
     })))
+}
+
+#[cfg(test)]
+mod withdrawal_banner_tests {
+    use super::*;
+
+    fn row(kind: &str, status: &str) -> Value {
+        json!({ "kind": kind, "status": status })
+    }
+
+    #[test]
+    fn a_failed_renewal_is_not_a_failed_withdrawal() {
+        // Newest first, as the status query returns them.
+        let rows = vec![row("renew", "failed"), row("sweep_ark", "broadcast")];
+        assert!(!last_withdrawal_failed(&rows));
+        assert!(!last_withdrawal_failed(&[row("renew", "failed")]));
+        assert!(!last_withdrawal_failed(&[row("consolidate", "failed")]));
+    }
+
+    #[test]
+    fn a_failed_withdrawal_still_warns_until_a_later_one_works() {
+        assert!(last_withdrawal_failed(&[
+            row("renew", "renewed"),
+            row("sweep_ark", "failed"),
+            row("sweep_ark", "broadcast"),
+        ]));
+        assert!(last_withdrawal_failed(&[row("sweep_refused", "failed")]));
+        assert!(!last_withdrawal_failed(&[
+            row("sweep_ark", "broadcast"),
+            row("sweep_ark", "failed"),
+        ]));
+        assert!(!last_withdrawal_failed(&[]));
+    }
 }

@@ -3103,12 +3103,12 @@ async fn emergency_withdrawal_needs_a_session_the_tick_box_an_onchain_address_an
 fn the_settings_page_folds_the_emergency_withdrawal_away_behind_a_warning() {
     let page = include_str!("../assets/dashboard.html");
     let i = page
-        .find("Emergency: withdraw without the Ark server")
-        .unwrap();
+        .find("<details class=\"fold\" id=\"ex-box\">")
+        .expect("folded away");
     let rest = &page[i..];
     assert!(
-        rest.contains("<details class=\"fold\" id=\"ex-box\">"),
-        "folded away"
+        rest.contains("Emergency: withdraw without the Ark server"),
+        "titled in its folded row"
     );
     assert!(rest.contains("For emergencies only."));
     assert!(rest.contains("Move my money now"));

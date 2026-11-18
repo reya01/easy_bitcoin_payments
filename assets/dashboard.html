@@ -73,6 +73,9 @@
   <h2>Payments that need you</h2>
   <p class="muted">Money that arrived but could not be matched to an open order (for example a part payment that came in after the order expired, a second payment on an order already paid, or a payment more than 3 hours late). Check your wallet, decide whether to fulfil or refund, then mark it handled.</p>
   <div id="unmatched"></div>
+  <h2>Phone alerts</h2>
+  <p class="muted">Sends a short message to your phone if something needs you.</p>
+  <div class="card" id="phone-set"></div>
 </section>
 
 <section id="v-hooks" class="hidden">
@@ -125,24 +128,14 @@
 </section>
 
 <section id="v-set" class="hidden">
-  <h2>Pause new payments</h2>
-  <p class="fold-sum">Stops customers from starting new Bitcoin payments if you think something is wrong.</p>
-  <details class="fold" id="fold-pause"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <h2>Settings</h2>
+  <details class="fold" id="fold-pause"><summary><span class="fx"><span class="ft">Pause new payments</span><span class="fs">Stops customers from starting new Bitcoin payments if you think something is wrong.</span></span></summary>
   <div class="card" id="pause-card"></div>
   </details>
-  <h2>Two-step sign-in (2FA)</h2>
-  <p class="fold-sum">Adds a 6-digit code from an app on your phone to your admin password.</p>
-  <details class="fold" id="fold-2fa"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="fold-2fa"><summary><span class="fx"><span class="ft">Two-step sign-in (2FA)</span><span class="fs">Adds a 6-digit code from an app on your phone to your admin password.</span></span></summary>
   <div class="card" id="twofa-card"></div>
   </details>
-  <h2>Phone alerts</h2>
-  <p class="fold-sum">Sends a short message to your phone if something needs you.</p>
-  <details class="fold" id="fold-phone"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
-  <div class="card" id="phone-set"></div>
-  </details>
-  <h2>Change admin password</h2>
-  <p class="fold-sum">Change the password you use to sign in here.</p>
-  <details class="fold" id="fold-password"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="fold-password"><summary><span class="fx"><span class="ft">Change admin password</span><span class="fs">Change the password you use to sign in here.</span></span></summary>
   <div class="card">
     <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
     <label for="pw-new">New password (16+ characters)</label><input type="password" id="pw-new" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
@@ -152,9 +145,7 @@
     <p class="msg hidden" id="pw-msg"></p>
   </div>
   </details>
-  <h2>Where your money goes</h2>
-  <p class="fold-sum">Sets the address your payments are sent to and how much stays on this server.</p>
-  <details class="fold" id="fold-payout"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="fold-payout"><summary><span class="fx"><span class="ft">Where your money goes</span><span class="fs">Sets the address your payments are sent to and how much stays on this server.</span></span></summary>
   <div class="card">
     <p class="muted">The small till wallet on this server is emptied to this address, which should belong to a wallet <strong>you</strong> control. Changing it takes effect after a safety delay and needs your admin password, so a stolen login cannot redirect your money quickly.</p>
     <div id="po-now" class="muted">Loading…</div>
@@ -185,9 +176,7 @@
     <p class="msg hidden" id="po-msg"></p>
   </div>
   </details>
-  <h2>Download a backup</h2>
-  <p class="fold-sum">Saves an encrypted copy of your orders, settings and wallet files.</p>
-  <details class="fold" id="fold-backup"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="fold-backup"><summary><span class="fx"><span class="ft">Download a backup</span><span class="fs">Saves an encrypted copy of your orders, settings and wallet files.</span></span></summary>
   <div class="card">
     <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
     <label for="bk-admin">Admin password</label><input type="password" id="bk-admin" autocomplete="current-password">
@@ -196,9 +185,7 @@
     <p class="msg hidden" id="bk-msg"></p>
   </div>
   </details>
-  <h2>Check a backup</h2>
-  <p class="fold-sum">Tests that a backup file you saved opens, without changing anything.</p>
-  <details class="fold" id="fold-check"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="fold-check"><summary><span class="fx"><span class="ft">Check a backup</span><span class="fs">Tests that a backup file you saved opens, without changing anything.</span></span></summary>
   <div class="card">
     <p class="muted">Pick a backup file you saved and type its password (the admin password you had when you downloaded it). This only opens the file to show that it works and what it holds. Nothing is changed, and the file is not kept.</p>
     <label for="ck-file">Backup file</label><input type="file" id="ck-file">
@@ -207,9 +194,7 @@
     <p class="msg hidden" id="ck-msg"></p>
   </div>
   </details>
-  <h2 class="bad">Emergency: withdraw without the Ark server</h2>
-  <p class="fold-sum">A last resort to take your money out on your own if the Ark server is gone or refuses to help. Open it only in an emergency.</p>
-  <details class="fold" id="ex-box"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="ex-box"><summary><span class="fx"><span class="ft bad">Emergency: withdraw without the Ark server</span><span class="fs">A last resort for taking your money out yourself if the Ark server is gone or refuses to help.</span></span></summary>
     <div class="card">
       <div class="warnbox"><strong>For emergencies only.</strong> You always hold the keys to this money, so this lets you take it out on your own even if the Ark server is gone or refuses to help. On real money it is new: it has only been tried in small tests so far, so keep only amounts you can afford to lose on this server. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use <strong>Move my money now</strong> instead: it is cheaper and faster.</div>
       <div id="ex-facts"></div>
@@ -251,9 +236,7 @@
       <p class="msg hidden" id="ex-msg"></p>
     </div>
   </details>
-  <h2>Security activity</h2>
-  <p class="fold-sum">A log of sign-ins and changes to your settings.</p>
-  <details class="fold" id="fold-audit"><summary><span class="fo">Expand</span><span class="fc">Collapse</span></summary>
+  <details class="fold" id="fold-audit"><summary><span class="fx"><span class="ft">Security activity</span><span class="fs">A log of sign-ins and changes to your settings.</span></span></summary>
   <div class="card" id="audit"></div>
   </details>
 </section>

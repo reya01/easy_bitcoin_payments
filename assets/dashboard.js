@@ -148,7 +148,8 @@ function show(name) {
   if (name === "alerts") loadAlerts();
   if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
   if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); }
-  if (name === "home" || name === "set") { loadPhone(); loadTwofa(); }
+  if (name === "home" || name === "set" || name === "alerts") loadPhone();
+  if (name === "home" || name === "set") loadTwofa();
   if (name === "home") loadRecon();
 }
 function signedOut() { var n = $("login-note"); if (pwChanged) { n.textContent = "Password changed. Sign in with your new password."; n.classList.remove("hidden"); pwChanged = false; } else { n.classList.add("hidden"); } csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
@@ -377,7 +378,7 @@ function loadPhone(openSteps) {
     h.classList.toggle("hidden", a.state !== "undecided");
     renderPhone(s, a, false);
     if (openSteps && a.state === "on") {
-      show("set"); openFold("phone-set");
+      show("alerts"); openFold("phone-set");
       try { s.scrollIntoView({ block: "start" }); } catch (e) {}
     }
   }).catch(function () {

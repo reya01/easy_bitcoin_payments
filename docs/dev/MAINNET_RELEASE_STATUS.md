@@ -36,8 +36,8 @@ mainnet" does not apply to them:
   fee money" box, the 1,500-sat floor with 5,000 to 10,000 recommended, the
   hard stop when the wallet cannot fund the exit, the outside-wallet wording,
   and the lower 50,000-sat minimum.
-- Settings tab: every section folded to a heading, a one-sentence summary and
-  an Expand button.
+- Settings tab: every section folded to one compact row (title and a
+  one-sentence summary); Phone alerts live on the Alerts tab.
 - Phone alerts: the Home "Set up now" button leading to the steps, and the QR
   code removed. Copy-and-paste setup and a test alert worked on a real phone
   (16 November); the "open in ntfy" tap link is still untried.

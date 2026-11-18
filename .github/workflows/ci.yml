@@ -304,11 +304,20 @@ jobs:
         run: |
           sudo apt-get install -y -qq cloud-init >/dev/null
           cloud-init schema --config-file deploy/cloud-init.yaml
+      - name: Container images are pinned by digest
+        run: |
+          # A tag can be moved upstream; a digest cannot. Every base image and
+          # the Caddy image a merchant's server pulls must carry @sha256:.
+          bad=$(grep -nE '^FROM ' Dockerfile | grep -v '@sha256:' || true)
+          bad="$bad$(grep -nE '^\s*image:\s*caddy' docker-compose.yml | grep -v '@sha256:' || true)"
+          if [ -n "$bad" ]; then echo "Not pinned by digest:"; echo "$bad"; exit 1; fi
       - name: Caddyfile is valid
         run: |
+          # The same Caddy image the merchant's server runs.
+          caddy_image=$(sed -nE 's/^\s*image:\s*(caddy:[^ ]+).*/\1/p' docker-compose.yml)
           docker run --rm -e EBP_DOMAIN=203-0-113-7.sslip.io \
             -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10 caddy validate --config /etc/caddy/Caddyfile
+            "$caddy_image" caddy validate --config /etc/caddy/Caddyfile
 
   barkd-drift:
     name: barkd openapi drift check

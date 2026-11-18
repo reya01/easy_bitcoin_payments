@@ -76,6 +76,11 @@ open box.
 1. `main` is green and the manual **Release dry run** (Actions → release → Run
    workflow, on `main`) is green. Download the `dry-run-release-files` artifact
    and look at it: one `ebp-*.tar.gz` (x86-64), the plugin zip, `SHA256SUMS`.
+   Container images count as dependencies too: the Dockerfile base images and
+   the Caddy image in `docker-compose.yml` are pinned by digest (CI refuses an
+   unpinned one), and Dependabot proposes new digests as PRs. Review those like
+   any other dependency update, and do not merge one in the same release as a
+   risky change without a dry run.
 2. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
    heading (for example `0.2.0-rc5`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),

@@ -1,0 +1,146 @@
+# Early warning for Bark changes (roadmap, v0.3 "Bark compatibility").
+#
+# Once a week (and on demand from the Actions tab) this looks up the NEWEST barkd release,
+# downloads it, checks it against the release's own checksum list, starts it with an EMPTY
+# throwaway datadir (no wallet, no money, no secrets), fetches the OpenAPI spec it serves, and
+# runs the same two checks CI runs on the pinned spec: the path/verb drift check and the
+# field-level contract check.
+#
+# It opens (or updates) ONE GitHub issue when:
+#   * the new release breaks something EBP calls (drift or contract problem), or
+#   * a newer release exists than the one EBP pins, even if nothing broke. That starts the
+#     four-week follow rule.
+# A red run with no issue means the job itself could not run (for example GitLab was down).
+name: bark-canary
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  # A change to this file runs it once on its own pull request, so a broken edit shows up
+  # before it reaches the weekly schedule.
+  pull_request:
+    paths:
+      - ".github/workflows/bark-canary.yml"
+      - "scripts/bark_spec_diff.py"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    name: newest barkd against our contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GITLAB_API: https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Find the newest barkd release and the version we pin
+        id: ver
+        run: |
+          set -eu
+          curl -fsSL "$GITLAB_API/releases?per_page=30" -o "$RUNNER_TEMP/releases.json"
+          NEWEST=$(python3 - "$RUNNER_TEMP/releases.json" <<'PY'
+          import json, re, sys
+          for r in json.load(open(sys.argv[1])):          # newest first
+              m = re.fullmatch(r"bark-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)", r["tag_name"])
+              if m:
+                  print(m.group(1)); break
+          PY
+          )
+          [ -n "$NEWEST" ] || { echo "no bark-X.Y.Z release found in the release list"; exit 1; }
+          PINNED=$(grep -o 'release-assets/bark-[0-9][0-9A-Za-z.-]*' Dockerfile | head -1 | sed 's|release-assets/bark-||')
+          [ -n "$PINNED" ] || { echo "could not read the pinned version from the Dockerfile"; exit 1; }
+          echo "newest=$NEWEST" >> "$GITHUB_OUTPUT"
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "newest barkd release: $NEWEST; EBP pins: $PINNED"
+
+      - name: Download it and check it against the release's own checksum list
+        run: |
+          set -eu
+          V="${{ steps.ver.outputs.newest }}"
+          B="https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark/packages/generic/release-assets/bark-${V}"
+          mkdir -p "$RUNNER_TEMP/dl"
+          curl -fsSL "$B/barkd-${V}-linux-x86_64" -o "$RUNNER_TEMP/dl/barkd"
+          curl -fsSL "$B/SHA256SUMS" -o "$RUNNER_TEMP/dl/SHA256SUMS"
+          WANT=$(grep " barkd-${V}-linux-x86_64\$" "$RUNNER_TEMP/dl/SHA256SUMS" | cut -d' ' -f1)
+          GOT=$(sha256sum "$RUNNER_TEMP/dl/barkd" | cut -d' ' -f1)
+          [ -n "$WANT" ] && [ "$WANT" = "$GOT" ] || { echo "checksum mismatch or missing: want '$WANT' got '$GOT'"; exit 1; }
+          chmod +x "$RUNNER_TEMP/dl/barkd"
+          "$RUNNER_TEMP/dl/barkd" --version
+
+      - name: Start it (empty datadir) and fetch the spec it serves
+        run: |
+          set -eu
+          D="$RUNNER_TEMP/bark-canary"; mkdir -p "$D"
+          "$RUNNER_TEMP/dl/barkd" --datadir "$D" --host 127.0.0.1 --port 3999 --no-ui > "$RUNNER_TEMP/barkd.log" 2>&1 &
+          for i in $(seq 1 30); do [ -f "$D/auth_token" ] && curl -sS -o /dev/null "http://127.0.0.1:3999/" && break; sleep 1; done
+          TOKEN=$(cat "$D/auth_token" 2>/dev/null || true)
+          curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3999/api-docs/openapi.json -o "$RUNNER_TEMP/spec-raw.json"
+          python3 -c "
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          open(sys.argv[2], 'w').write(json.dumps(d, indent=2, ensure_ascii=False) + '\n')
+          " "$RUNNER_TEMP/spec-raw.json" "$RUNNER_TEMP/spec.json"
+
+      - name: Run our checks against it
+        id: checks
+        continue-on-error: true
+        run: |
+          spec="$RUNNER_TEMP/spec.json"
+          set +e
+          bash scripts/check_barkd_drift.sh "$spec" > "$RUNNER_TEMP/drift.txt" 2>&1; d=$?
+          python3 scripts/check_barkd_contract.py "$spec" > "$RUNNER_TEMP/contract.txt" 2>&1; c=$?
+          {
+            echo "### Checks against barkd ${{ steps.ver.outputs.newest }}"
+            echo
+            echo "Spec differences from the one EBP pins (${{ steps.ver.outputs.pinned }}):"
+            echo '```'
+            python3 scripts/bark_spec_diff.py docs/barkd-openapi.json "$spec"
+            echo '```'
+            echo
+            echo "Path and verb drift check (exit code $d):"
+            echo '```'
+            tail -25 "$RUNNER_TEMP/drift.txt"
+            echo '```'
+            echo
+            echo "Field contract check (exit code $c):"
+            echo '```'
+            tail -25 "$RUNNER_TEMP/contract.txt"
+            echo '```'
+          } > "$RUNNER_TEMP/report.md"
+          [ "$d" -eq 0 ] && [ "$c" -eq 0 ]
+
+      - name: Show the report
+        run: cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the issue when something needs attention
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEWEST: ${{ steps.ver.outputs.newest }}
+          PINNED: ${{ steps.ver.outputs.pinned }}
+          CHECKS: ${{ steps.checks.outcome }}
+        run: |
+          set -eu
+          if [ "$CHECKS" = "failure" ]; then
+            TITLE="Bark canary: barkd $NEWEST breaks something EBP calls"
+            LEAD="barkd $NEWEST does not match what EBP sends or reads. EBP pins $PINNED. Do not move to it until this is understood; the recipe is docs/dev/BARKD_0_8_1_UPGRADE.md."
+          elif [ "$NEWEST" != "$PINNED" ]; then
+            TITLE="Bark canary: barkd $NEWEST is out (EBP pins $PINNED)"
+            LEAD="A newer barkd exists and our checks still pass against it. The follow rule: move within four weeks, and always before Second's server raises its protocol floor. The recipe is docs/dev/BARKD_0_8_1_UPGRADE.md."
+          else
+            echo "newest release is the pinned one and the checks pass: nothing to report"
+            exit 0
+          fi
+          { echo "$LEAD"; echo; cat "$RUNNER_TEMP/report.md"; echo; echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; } > "$RUNNER_TEMP/issue.md"
+          EXISTING=$(gh issue list --state open --limit 200 --json number,title --jq '.[] | "\(.number)\t\(.title)"' | awk -F'\t' -v t="$TITLE" '$2 == t {print $1}' | head -1)
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file "$RUNNER_TEMP/issue.md"
+            echo "updated issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --body-file "$RUNNER_TEMP/issue.md"
+          fi
+          [ "$CHECKS" != "failure" ] || exit 1

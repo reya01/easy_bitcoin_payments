@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage -----------------------------------------------------------
-FROM rust:1-bookworm AS builder
+# Base images are pinned by digest (exact image), not only by tag: a tag can be
+# moved upstream, a digest cannot. Dependabot proposes digest updates as PRs.
+FROM rust:1-bookworm@sha256:ade39a710ef85f3506cffcfec3e8a24ba090badef1dff2fb798f71d878833fea AS builder
 
 WORKDIR /src
 
@@ -37,7 +39,7 @@ RUN find src -type f -exec touch {} + && cargo build --release
 RUN timeout 10 ./target/release/ebp --help 2>&1 | grep -qi usage
 
 # ---- runtime stage ---------------------------------------------------------
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS runtime
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -71,7 +73,7 @@ CMD ["serve"]
 # barkd itself (EBP_MANAGED_BARKD=true), so no token copying, .env editing or
 # terminal commands are needed during setup. barkd is the SAME checksum-pinned
 # release binary as docker/barkd.Dockerfile — keep the two pins identical.
-FROM debian:bookworm-slim AS managed
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS managed
 ARG TARGETARCH
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \

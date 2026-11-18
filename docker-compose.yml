@@ -58,7 +58,9 @@ services:
   # Automatic https. Only runs when ./scripts/start.sh --https (or --domain)
   # has been used; it remembers the choice in .env.
   caddy:
-    image: caddy:2.10  # pinned minor version: repeatable installs (bump on purpose)
+    # Pinned by digest: Caddy handles the server's https traffic (including the
+    # admin password), so the exact image is fixed. Dependabot proposes updates.
+    image: caddy:2.10@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
     profiles: ["https"]
     environment:
       EBP_DOMAIN: ${EBP_DOMAIN:-localhost}

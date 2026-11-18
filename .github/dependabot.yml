@@ -1,5 +1,6 @@
-# Opens pull requests for newer GitHub Actions (pinned by commit SHA) and
-# Rust crates. Nothing merges by itself: every update is a PR you review.
+# Opens pull requests for newer GitHub Actions (pinned by commit SHA),
+# Rust crates and container images (pinned by digest). Nothing merges by
+# itself: every update is a PR you review.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -7,6 +8,16 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+  # Container images are pinned by digest (Dockerfile base images, Caddy in
+  # docker-compose.yml); these propose a new digest when the tag moves.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly

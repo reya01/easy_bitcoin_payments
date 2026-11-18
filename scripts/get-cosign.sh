@@ -6,19 +6,21 @@
 #   ./scripts/get-cosign.sh --check         # CI: is the pinned fingerprint still right?
 #   ./scripts/get-cosign.sh --print VERSION # maintainer: show the fingerprints of a version
 #
-# If the three values below are empty, nothing is pinned yet: this script then
-# refuses to download anything (a download nobody checked is worth nothing), and
-# you install cosign yourself instead:
-#   https://docs.sigstore.dev/cosign/system_config/installation/
+# ./scripts/update.sh runs this by itself when cosign is missing, so nobody has to
+# install anything by hand. If the three values below were ever empty, this script
+# would refuse to download anything (a download nobody checked is worth nothing).
 #
-# MAINTAINER: to pin, run  ./scripts/get-cosign.sh --print v2.X.Y  on a computer
+# MAINTAINER: to move to a newer cosign, run  ./scripts/get-cosign.sh --print v2.X.Y  on a computer
 # with internet, compare each fingerprint with the one on that version's
 # release page (https://github.com/sigstore/cosign/releases), then paste them here.
 set -euo pipefail
 
-COSIGN_VERSION=""
-COSIGN_SHA256_AMD64=""
-COSIGN_SHA256_ARM64=""
+# Taken from the cosign project's own installer (sigstore/cosign-installer, action.yml,
+# "bootstrap" values for v3.1.4, which that project derived from its release's
+# cosign_checksums.txt). CI downloads the real files and fails if they ever differ.
+COSIGN_VERSION="v3.1.4"
+COSIGN_SHA256_AMD64="424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa"
+COSIGN_SHA256_ARM64="ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2"
 
 cd "$(dirname "$0")/.."
 base="https://github.com/sigstore/cosign/releases/download"

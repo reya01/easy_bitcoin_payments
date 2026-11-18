@@ -60,10 +60,10 @@ remembered. Download a fresh backup (Settings) before you update.
 commands above. `update.sh` then moves the folder to the release's own files, so later
 updates use `update.sh` again (a plain `git pull` no longer applies, by design).
 
-**You need cosign** for the signature check. Install it from the
-[official instructions](https://docs.sigstore.dev/cosign/system_config/installation/), or, once
-this project has pinned a version, run `./scripts/get-cosign.sh` (it downloads cosign and checks
-its fingerprint against the one in the script).
+**The signature checker is fetched for you.** The first time, `update.sh` downloads
+[cosign](https://docs.sigstore.dev/cosign/overview/) into the EBP folder and checks it against a
+fingerprint (sha256) this project has pinned, so you install nothing by hand. If you already have
+cosign installed, it uses that one.
 
 The signed image is built for x86-64 servers (most DigitalOcean droplets). On an ARM server
 use the build-from-source way below.

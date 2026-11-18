@@ -183,10 +183,11 @@ main() {
   # 3. The signature.
   local cosign
   if ! cosign="$(find_cosign)"; then
-    if [ -x ./scripts/get-cosign.sh ] && ./scripts/get-cosign.sh --quiet-if-unpinned >/dev/null 2>&1 && [ -x ./bin/cosign ]; then
+    say "Getting the signature checker (cosign) once, checked against a pinned fingerprint..."
+    if [ -x ./scripts/get-cosign.sh ] && ./scripts/get-cosign.sh >/dev/null 2>&1 && [ -x ./bin/cosign ]; then
       cosign=./bin/cosign
     else
-      die "the signature checker 'cosign' is not installed. Install it (https://docs.sigstore.dev/cosign/system_config/installation/) and run this again, or run ./scripts/get-cosign.sh if this project has pinned a version of it."
+      die "the signature checker 'cosign' could not be set up automatically (it needs internet). Install it yourself (https://docs.sigstore.dev/cosign/system_config/installation/) and run this again."
     fi
   fi
   local identity="https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/${tag}"

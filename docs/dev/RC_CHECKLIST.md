@@ -82,13 +82,13 @@ open box.
    any other dependency update, and do not merge one in the same release as a
    risky change without a dry run.
 2. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
-   heading (for example `0.2.0-rc5`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
+   heading (for example `0.2.1-rc1`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
    so Home and the Plugins page show which build is running. The release
    workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
    before building if any of these disagree with the tag (you can run it
    yourself first).
-3. Tag the new version (for example `v0.2.0-rc5`) on `main` and push it. The
+3. Tag the new version (for example `v0.2.1-rc1`) on `main` and push it. The
    `-rcN` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.
@@ -106,7 +106,7 @@ open box.
 Draft for the first release candidate that has been tried with real money. The
 facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md).
 
-> **v0.2.0-rc5 — release candidate: brighter look, success mascots**
+> **v0.2.1-rc1 — release candidate: faster, checked updates and a tidier admin page**
 >
 > Easy Bitcoin Payments takes Bitcoin payments (Lightning and Ark) into a wallet
 > you control, with a WooCommerce plugin and a no-terminal DigitalOcean install.
@@ -121,13 +121,26 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 > the server for fees (at least 1,500 sats), and should pay an address in a
 > wallet you hold outside the server (minimum 50,000 sats).
 >
-> New since rc4: a brighter, friendlier checkout page and admin page (colour,
-> thick outlines, a bottom tab bar with icons, a mint "paid" page), and four
-> small animated scenes after a paid checkout. Styling and built-in pictures
-> only: no payment, wallet, sweep or backup logic changed. The pictures are part
-> of the program and cannot be uploaded or replaced while the server runs. The
-> new look has been through automated tests only and has not yet been seen on a
-> live server.
+> New since rc5:
+>
+> - **Updates:** `./scripts/update.sh VERSION` on your server downloads the signed
+>   image instead of building it (about a minute instead of ten), shows the
+>   version, image digest and signature result, asks you to type yes, and refuses
+>   to go back to an older version. Nothing updates by itself, and building from
+>   source is still there (`--from-source`). See `docs/UPGRADING.md`.
+> - **Sign-in:** longer lockouts after wrong codes, a code works once, and
+>   resuming payments, the shop-address lock and the alert server ask for a code
+>   when two-step sign-in is on.
+> - **Payments:** the watcher no longer re-reads payments it has handled, the
+>   payments CSV records what the wallet received, and a Bitcoin price needs two
+>   agreeing sources to be set from nothing.
+> - **Admin page:** compact Settings rows, Phone alerts on the Alerts tab, one
+>   Turn off button for two-step sign-in, Resend says what happened, and Home no
+>   longer reports a routine renewal as a failed withdrawal.
+>
+> The wallet program stays at barkd 0.8.0; the move to 0.8.1 or newer is planned
+> for v0.3. The signed update has only been tested with stand-in programs and in
+> CI: this release is its first real use, so update a test server first.
 >
 > Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >

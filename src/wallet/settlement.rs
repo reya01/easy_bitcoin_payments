@@ -250,6 +250,10 @@ impl SettlementEngine {
         }
     }
 
+    fn forget_refusal(&self) {
+        *self.last_refusal.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     /// Run forever on the configured interval.
     pub async fn run(self) {
         let mut ticker = tokio::time::interval(Duration::from_secs(
@@ -807,13 +811,18 @@ impl SettlementEngine {
                 .await?
         };
         let excess = offchain.saturating_sub(cap);
+        // Nothing to send (or not yet worth sending) ends any refusal being
+        // remembered, so the same refusal later is recorded again instead of
+        // being taken for the old one.
         if excess <= 0 {
+            self.forget_refusal();
             return Ok(report);
         }
         // An automatic sweep waits until the excess is worth sending, so the
         // payout wallet receives a few bigger coins instead of many tiny ones.
         // "Move my money now" always sends whatever is there.
         if !manual && excess < MIN_SWEEP_EXCESS_SATS {
+            self.forget_refusal();
             return Ok(report);
         }
 
@@ -1240,6 +1249,65 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    /// A refusal that stopped mattering (nothing left to send) and then comes
+    /// back is recorded again: Home and the alerts must not miss the second one.
+    #[tokio::test]
+    async fn a_refusal_that_comes_back_after_a_quiet_spell_is_recorded_again() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let high = Arc::new(AtomicBool::new(true));
+        let high_in_mock = high.clone();
+        let (base, _recorded) = mock::spawn(move |req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 150000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
+            "/api/v1/wallet/balance" => {
+                let sats = if high_in_mock.load(Ordering::SeqCst) { 150_000 } else { 50_000 };
+                (200, format!(r#"{{"spendable_sat": {sats}}}"#))
+            }
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        // A real-money address on a test-mode server: always refused.
+        let engine = SettlementEngine::new(
+            client,
+            db.clone(),
+            test_config(Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), 100_000),
+        );
+        let count = |db: Db| async move {
+            db.call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_refused'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )?)
+            })
+            .await
+            .unwrap()
+        };
+        engine.tick().await.unwrap();
+        engine.tick().await.unwrap();
+        assert_eq!(count(db.clone()).await, 1, "the same refusal is one line");
+        // The balance falls to the amount kept: nothing to send for a while.
+        high.store(false, Ordering::SeqCst);
+        engine.tick().await.unwrap();
+        // Money arrives again and the same address is refused again.
+        high.store(true, Ordering::SeqCst);
+        engine.tick().await.unwrap();
+        assert_eq!(
+            count(db.clone()).await,
+            2,
+            "the returning refusal is recorded"
+        );
     }
 
     /// A send that keeps failing is one line that stays fresh, not a new line

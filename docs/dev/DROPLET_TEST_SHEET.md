@@ -86,9 +86,11 @@ own wallet**. No earlier round has tested this.
       without the Ark server**. It should say it is **turned off** and explain what
       turning it on does (5,000 sats of fee money kept, optional money kept), with no
       Start button. Turn it on (password and a code): the page should now ask for at
-      least 5,000 sats of fee money and let you choose an amount to keep. Try
-      **Send leftover to my address** (it should be hidden while on). Turn it off:
-      the amount you chose should be forgotten, and the fee money can be sent back.
+      least 5,000 sats of fee money and let you choose an amount to keep. Send in, say,
+      **8,000** sats of fee money: a button **Send back what is above 5,000 sats** should
+      appear. Press it: about 2,000 to 3,000 should arrive (the network fee comes out of
+      it) and the page should still show **at least 5,000** on the server. Turn it off:
+      the amount you chose should be forgotten, and the button sends back all of it.
 - [ ] **Restore drill (new server).** Follow `docs/RECIPE_BACKUP.md` → "Practice a restore once": on your current server note the balance, orders count and payout address, download a backup, **power off the first droplet** (never run both at once: same wallet, same shop connection), then make a second server and restore it from the 12 words and the backup file on its setup page. Write down anything that did not match the page, and whether the balance, orders, payout address and shop connection all came back. Also check, in the first hour after the restore, that no old order suddenly shows as overpaid and no "payment can't be matched" item appears (the restored wallet re-reads its coins; this is the part automated tests cannot cover).
 - [ ] **Coins you received keep their expiry.** In your own wallet, list the coins that
       the transfer delivered (for `bark`: `bark vtxos`) and write down their expiry

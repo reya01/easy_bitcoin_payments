@@ -118,7 +118,7 @@ pub async fn disable(
         ));
     }
     password_ok(&state, req.admin_password).await?;
-    check_second_step(&state, req.code).await?;
+    check_second_step(&state, &headers, req.code).await?;
     state
         .db
         .call(|c| {

@@ -1862,7 +1862,9 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let g = get().await;
     assert_eq!(g["keep_is_custom"], true);
     assert_eq!(g["keep_sats"], 60_000);
-    // While it is on, the fee money stays: sending it out is refused, with the reason.
+    // While it is on, the part of the fee money above 5,000 can still be sent back
+    // (worked out in `emergency_exit::leftover_plan`); like every money action it
+    // needs two-step sign-in, which is off here.
     let leftover = serde_json::json!({
         "admin_password": pw, "code": "123456", "destination": tb
     });
@@ -1870,11 +1872,9 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 400);
-    let why = text(r).await;
-    assert!(why.contains("5,000"), "{why}");
-    assert!(why.contains("turn the emergency withdrawal off"), "{why}");
-    // Turning it off needs the password; then nothing is kept, and the fee money
-    // is free to go (the request now gets as far as the two-step check).
+    assert!(text(r).await.contains("two-step"));
+    // Turning it off needs the password; then nothing is kept, and all of the fee
+    // money can go back (again, as far as the two-step check here).
     let r = post(
         "/admin/exit/optin",
         serde_json::json!({"on": false, "admin_password": "nope nope nope"}),

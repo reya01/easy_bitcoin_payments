@@ -92,16 +92,49 @@ pub fn set_opted_in(conn: &Connection, on: bool) -> Result<(), AppError> {
     }
 }
 
-/// Why the left-over fee money cannot be sent out now, in words for the owner;
-/// `None` = it can. While the emergency withdrawal is on (and none is running)
-/// that money is the reserve it needs.
-pub fn leftover_refusal(opted_in: bool, exit_started: bool) -> Option<String> {
-    (opted_in && !exit_started).then(|| {
-        format!(
-            "The emergency withdrawal is turned on, so this fee money is being kept on the server for it: at least {} sats must stay here so a withdrawal can always start. If you no longer want that, turn the emergency withdrawal off (in this same section), then you can take the money back.",
-            crate::payout::commas(RESERVE_FLOOR_SATS)
-        )
-    })
+/// How much transaction space the "send back" estimate allows for (a few
+/// inputs and two outputs, generously), times the network fee rate.
+pub const LEFTOVER_FEE_VBYTES: i64 = 400;
+/// Less than this above the floor is not worth a transaction.
+pub const MIN_LEFTOVER_SEND_SATS: i64 = 1_000;
+
+/// What the "send the fee money back" button sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Leftover {
+    /// The emergency withdrawal is off (or one has run): everything goes.
+    Everything,
+    /// It is on: only what is above the 5,000-sat floor, after the network fee.
+    Amount(i64),
+}
+
+/// Decide what the button sends. While the emergency withdrawal is turned on
+/// (and none has started), at least [`RESERVE_FLOOR_SATS`] stays: the amount is
+/// the confirmed balance less the floor less an estimate of the network fee
+/// (`fee_rate` sat/vB). Too little left is a plain refusal.
+pub fn leftover_plan(
+    opted_in: bool,
+    exit_started: bool,
+    confirmed_sats: i64,
+    fee_rate_sat_vb: i64,
+) -> Result<Leftover, String> {
+    if !opted_in || exit_started {
+        return Ok(Leftover::Everything);
+    }
+    let fee = fee_rate_sat_vb.max(1).saturating_mul(LEFTOVER_FEE_VBYTES);
+    let amount = confirmed_sats
+        .max(0)
+        .saturating_sub(RESERVE_FLOOR_SATS)
+        .saturating_sub(fee);
+    if amount < MIN_LEFTOVER_SEND_SATS {
+        return Err(format!(
+            "The emergency withdrawal is turned on, so at least {} sats of this money stays on the server for its fees. There are {} confirmed sats here; after keeping {} and paying about {} in network fees, too little would be left to send. To take all of it back, turn the emergency withdrawal off first (in this same section).",
+            crate::payout::commas(RESERVE_FLOOR_SATS),
+            crate::payout::commas(confirmed_sats.max(0)),
+            crate::payout::commas(RESERVE_FLOOR_SATS),
+            crate::payout::commas(fee),
+        ));
+    }
+    Ok(Leftover::Amount(amount))
 }
 
 /// How many more confirmed on-chain sats the reserve needs to reach the floor
@@ -340,13 +373,40 @@ mod tests {
         assert!(!opted_in(&c).unwrap());
         // Off: the fee money can be sent out. On: it cannot, unless a
         // withdrawal is running (the running rules apply then).
-        assert!(leftover_refusal(false, false).is_none());
-        assert!(leftover_refusal(false, true).is_none());
-        assert!(leftover_refusal(true, true).is_none());
-        let why = leftover_refusal(true, false).expect("kept while on");
+        // Off, or a withdrawal has run: everything goes back.
+        assert_eq!(
+            leftover_plan(false, false, 50_000, 10),
+            Ok(Leftover::Everything)
+        );
+        assert_eq!(
+            leftover_plan(false, true, 50_000, 10),
+            Ok(Leftover::Everything)
+        );
+        assert_eq!(
+            leftover_plan(true, true, 50_000, 10),
+            Ok(Leftover::Everything)
+        );
+        // On: only what is above 5,000, after the fee (10 sat/vB x 400 = 4,000).
+        assert_eq!(
+            leftover_plan(true, false, 50_000, 10),
+            Ok(Leftover::Amount(41_000))
+        );
+        assert_eq!(
+            leftover_plan(true, false, 10_000, 1),
+            Ok(Leftover::Amount(4_600))
+        );
+        // Too little above the floor: refused, in plain words.
+        let why = leftover_plan(true, false, 9_000, 10).expect_err("too little");
         assert!(why.contains("5,000"), "{why}");
+        assert!(why.contains("9,000"), "{why}");
         assert!(why.contains("turn the emergency withdrawal off"), "{why}");
-        // The floor.
+        assert!(leftover_plan(true, false, 0, 10).is_err());
+        assert!(leftover_plan(true, false, -5, 10).is_err());
+        // A fee rate of 0 is treated as 1 sat/vB, never as free.
+        assert_eq!(
+            leftover_plan(true, false, 6_000, 0),
+            Err(leftover_plan(true, false, 6_000, 1).unwrap_err())
+        );
         assert_eq!(RESERVE_FLOOR_SATS, 5_000);
         assert_eq!(reserve_short_sats(0), 5_000);
         assert_eq!(reserve_short_sats(-3), 5_000);

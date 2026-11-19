@@ -164,7 +164,7 @@ pub async fn apply(
             "That is not your admin password.".into(),
         ));
     }
-    check_second_step(&state, req.code).await?;
+    check_second_step(&state, &headers, req.code).await?;
     let digest = req.digest.clone();
     let id =
         updates::write_request("apply", &version, Some(&digest)).map_err(|_| not_installed())?;

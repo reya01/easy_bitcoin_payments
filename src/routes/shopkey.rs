@@ -40,7 +40,7 @@ pub async fn pause(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     if !req.paused {
-        check_second_step(&state, req.code.clone()).await?;
+        check_second_step(&state, &headers, req.code.clone()).await?;
     }
     state
         .db
@@ -98,7 +98,7 @@ pub async fn save(
     Json(req): Json<SaveRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
-    check_second_step(&state, req.code.clone()).await?;
+    check_second_step(&state, &headers, req.code.clone()).await?;
     let v = state
         .db
         .call(move |c| {

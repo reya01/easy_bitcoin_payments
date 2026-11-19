@@ -668,21 +668,16 @@ pub fn cap_override(conn: &Connection) -> Result<Option<i64>, AppError> {
         .filter(|v| (MIN_CAP_SATS..=MAX_CAP_SATS).contains(v)))
 }
 
-/// How much the till keeps before the rest is sent on to `destination`.
-/// Nothing, unless the owner turned the emergency withdrawal on and chose an
-/// amount to keep for it (a saved amount is ignored while it is off), or the
-/// server's own configuration names one (default 0).
-pub fn cap_for(
-    conn: &Connection,
-    config: &crate::config::Config,
-    destination: &str,
-) -> Result<i64, AppError> {
-    let owners = if crate::emergency_exit::opted_in(conn)? {
-        cap_override(conn)?
+/// How much the till keeps before the rest is sent on. Nothing, unless the
+/// owner turned the emergency withdrawal on and chose an amount to keep for it
+/// (a saved amount is ignored while it is off). Same for both kinds of payout
+/// address.
+pub fn cap_for(conn: &Connection) -> Result<i64, AppError> {
+    if crate::emergency_exit::opted_in(conn)? {
+        Ok(cap_override(conn)?.unwrap_or(0))
     } else {
-        None
-    };
-    Ok(owners.unwrap_or_else(|| config.sweep_cap_for(destination)))
+        Ok(0)
+    }
 }
 
 /// Settings: change the amount the till keeps (the caller has already
@@ -708,7 +703,7 @@ pub fn set_cap(conn: &Connection, cap_sats: i64) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Settings: go back to the server's default amount.
+/// Settings: go back to keeping nothing.
 pub fn clear_cap(conn: &Connection) -> Result<(), AppError> {
     if cap_override(conn)?.is_some() {
         conn.execute("DELETE FROM settings WHERE key = ?1", [KEY_CAP])?;
@@ -831,31 +826,24 @@ pub(crate) mod tests {
     #[test]
     fn nothing_is_kept_unless_the_emergency_withdrawal_is_on() {
         let c = conn();
-        let cfg = crate::config::Config::default();
         // Nothing saved: the whole balance goes, for both kinds of address.
         assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 0);
-        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), 0);
+        assert_eq!(cap_for(&c).unwrap(), 0);
+        assert_eq!(cap_for(&c).unwrap(), 0);
         // A saved amount is ignored while the emergency withdrawal is off.
         set_cap(&c, 5_000).unwrap();
         assert_eq!(cap_override(&c).unwrap(), Some(5_000));
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 0);
+        assert_eq!(cap_for(&c).unwrap(), 0);
         // Turned on: the owner's number applies to both kinds.
         crate::emergency_exit::set_opted_in(&c, true).unwrap();
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 5_000);
-        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), 5_000);
+        assert_eq!(cap_for(&c).unwrap(), 5_000);
+        assert_eq!(cap_for(&c).unwrap(), 5_000);
         set_cap(&c, 60_000).unwrap();
-        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), 60_000);
+        assert_eq!(cap_for(&c).unwrap(), 60_000);
         // Reset goes back to keeping nothing.
         clear_cap(&c).unwrap();
         assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 0);
-        // A server-configuration amount still applies (it is the operator's choice).
-        let cfg = crate::config::Config {
-            hot_wallet_cap_sats: 7_000,
-            ..crate::config::Config::default()
-        };
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 7_000);
+        assert_eq!(cap_for(&c).unwrap(), 0);
     }
 
     #[test]

@@ -33,8 +33,11 @@ const UNKNOWN_KEY: &str = "That passkey is not one of the passkeys for this serv
 
 /// Binding of the half-finished sign-in (password right, waiting for the passkey).
 pub(crate) const LOGIN_BINDING: &str = "login";
-/// Binding of an approval ticket (see `stepup_finish`).
-pub(crate) const TICKET_BINDING: &str = "ticket";
+/// Binding of an approval ticket (see `stepup_finish`): tied to the signed-in
+/// session it was made in, so another session cannot spend it.
+pub(crate) fn ticket_binding(session_token: &str) -> String {
+    format!("ticket:{session_token}")
+}
 /// A protected action's code box takes `pk:` + a ticket instead of a 6-digit code.
 pub(crate) const TICKET_PREFIX: &str = "pk:";
 
@@ -120,7 +123,7 @@ pub async fn begin(
         )));
     }
     password_ok(&state, req.admin_password).await?;
-    check_second_step(&state, req.code).await?;
+    check_second_step(&state, &headers, req.code).await?;
     let (handle, account, existing) = state
         .db
         .call(|c| {
@@ -203,7 +206,7 @@ pub async fn remove(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     password_ok(&state, req.admin_password).await?;
-    check_second_step(&state, req.code).await?;
+    check_second_step(&state, &headers, req.code).await?;
     let id = req.id;
     let keys = state
         .db
@@ -233,7 +236,7 @@ pub async fn disable(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     password_ok(&state, req.admin_password).await?;
-    check_second_step(&state, req.code).await?;
+    check_second_step(&state, &headers, req.code).await?;
     state
         .db
         .call(|c| {
@@ -334,6 +337,6 @@ pub async fn stepup_finish(
 ) -> Result<Json<Value>, AppError> {
     let token = require_session(&state, &headers).await?;
     check_answer(&state, Purpose::StepUp, &token, a).await?;
-    let ticket = passkey::challenges().issue(Purpose::StepUp, TICKET_BINDING, now_unix());
+    let ticket = passkey::challenges().issue(Purpose::StepUp, &ticket_binding(&token), now_unix());
     Ok(Json(json!({ "ticket": passkey::b64url_encode(&ticket) })))
 }

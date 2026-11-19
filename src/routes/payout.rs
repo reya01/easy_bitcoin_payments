@@ -36,13 +36,12 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
         _ => (s.ark_min_override, Rail::Ark.floor()),
     };
     // What stays on the server when money is sent on: nothing, unless the owner
-    // turned the emergency withdrawal on and chose an amount (or the server's own
-    // configuration names one).
-    let keep = s.active.as_deref().map(|a| {
+    // turned the emergency withdrawal on and chose an amount.
+    let keep = s.active.as_ref().map(|_| {
         if s.exit_opted_in {
-            s.cap_override.unwrap_or_else(|| config.sweep_cap_for(a))
+            s.cap_override.unwrap_or(0)
         } else {
-            config.sweep_cap_for(a)
+            0
         }
     });
     json!({
@@ -104,7 +103,7 @@ pub async fn change(
             "that admin password isn't right".into(),
         ));
     }
-    crate::routes::admin_session::check_second_step(&state, req.code).await?;
+    crate::routes::admin_session::check_second_step(&state, &headers, req.code).await?;
 
     let delay = state.config.payout_change_delay_secs;
     let cfg = state.config.settlement_destination.clone();
@@ -172,7 +171,7 @@ pub async fn change_cap(
             "that admin password isn't right".into(),
         ));
     }
-    crate::routes::admin_session::check_second_step(&state, req.code).await?;
+    crate::routes::admin_session::check_second_step(&state, &headers, req.code).await?;
 
     let cfg = state.config.settlement_destination.clone();
     let cap = req.cap_sats;
@@ -227,7 +226,7 @@ pub async fn change_min(
             "that admin password isn't right".into(),
         ));
     }
-    crate::routes::admin_session::check_second_step(&state, req.code).await?;
+    crate::routes::admin_session::check_second_step(&state, &headers, req.code).await?;
 
     let cfg = state.config.settlement_destination.clone();
     let min = req.min_sats;

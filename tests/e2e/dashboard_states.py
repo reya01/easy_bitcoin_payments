@@ -638,8 +638,8 @@ def main():
             want(pr, "done", p.inner_text("#ex-fee-verdict"), "Set aside")
             if p.is_visible("#ex-addr-box"): pr.append("no address needed once it is set aside")
             if count(calls, "POST", "/admin/exit/deposit-address") != 0: pr.append("no address should be fetched when none is needed")
-            if p.is_visible("#ex-left-box"): pr.append("the fee money is kept while the withdrawal is on: no way to send it out")
-            want(pr, "leftover explained (hidden while on)", p.inner_text("#ex-left-box"), "only possible while the emergency withdrawal is turned off")
+            if p.is_visible("#ex-left-box"): pr.append("at the 5,000 floor there is nothing above it to send back")
+            want(pr, "send-back explained (hidden at the floor)", p.inner_text("#ex-left-box"), "stays here while the emergency withdrawal is turned on")
 
         ok &= run_case(pw, "emergency withdrawal: fee money already set aside", preset_handler(confirmed=5000), c_preset_done)
 
@@ -791,7 +791,8 @@ def main():
             open_exit(p)
             if not p.is_visible("#ex-left-box"): pr.append("while it is off the fee money can be taken back")
             if not p.is_visible("#ex-auth"): pr.append("the address, password and code boxes should show for it")
-            want(pr, "explained", p.inner_text("#ex-left-box"), "only possible while the emergency withdrawal is turned off")
+            want(pr, "explained", p.inner_text("#ex-left-box"), "takes back all of the fee money")
+            want(pr, "button", p.inner_text("#ex-left"), "Send leftover to my address")
 
         ok &= run_case(pw, "emergency withdrawal: turned off, the fee money on the server can be sent out", pay_handler("ark", opted=False, confirmed=7000), c_off_leftover)
 
@@ -810,7 +811,10 @@ def main():
             if p.is_visible("#ex-off-box"): pr.append("the turn-on panel must be hidden")
             want(pr, "state", p.inner_text("#exo-state"), "keeps at least 5,000 sats of regular Bitcoin")
             want(pr, "keep line", p.inner_text("#cap-now"), "keeps nothing")
-            if p.is_visible("#ex-left-box"): pr.append("the fee money stays while on")
+            # 7,000 confirmed while on: what is above the 5,000 floor can be sent back.
+            if not p.is_visible("#ex-left-box"): pr.append("the part above 5,000 can be sent back while on")
+            want(pr, "send-back button", p.inner_text("#ex-left"), "Send back what is above 5,000 sats")
+            want(pr, "send-back note", p.inner_text("#ex-left-note"), "At least 5,000 sats stays here")
             # An amount under what an exit needs is allowed, with a plain warning.
             p.fill("#cap-new", "10000"); p.wait_for_timeout(1000)
             want(pr, "warns", p.inner_text("#cap-usd"), "under 50,000 sats")

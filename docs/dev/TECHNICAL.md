@@ -232,8 +232,6 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_PUBLIC_BASE_URL` | `http://localhost:8080` | Used to build checkout links |
 | `EBP_DEFAULT_EXPIRY_MINUTES` | `20` | Rate-lock lifetime |
 | `EBP_DEFAULT_CURRENCY` | `EUR` | Fallback currency |
-| `EBP_HOT_WALLET_CAP_SATS` | `0` | Amount kept on the server (never sent on) when your payout address is an Ark address. 0 = keep nothing: the whole balance is sent once it reaches the minimum (1,500 sats, raise it in Settings) |
-| `EBP_ONCHAIN_SWEEP_CAP_SATS` | `0` | Same for an on-chain payout address (minimum 50,000 sats, raise it in Settings) |
 | `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB` | `50` | An automatic on-chain withdrawal waits until network fees are at or below this (sat/vB). The manual "move my money now" button ignores it |
 | `EBP_WATCHER_INTERVAL_SECS` | `10` | Wallet poll interval |
 | `EBP_LOG_LEVEL` | `info,tower_http=info` | `tracing` filter |

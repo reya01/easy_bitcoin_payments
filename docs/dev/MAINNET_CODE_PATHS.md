@@ -95,8 +95,10 @@ Each line names where to look in the code.
 - The section is **opt-in** (setting `exit_opt_in`, off by default;
   `POST /admin/exit/optin`). On mainnet it then behaves as on signet: estimate, fee
   money, the 50,000-sat floor, password plus two-step code, then Start. While it is
-  on the server keeps at least 5,000 sats of regular Bitcoin for fees and refuses to
-  send it out (`/admin/exit/leftover`); turned off, it can be taken back. A running
+  on the server keeps at least 5,000 sats of regular Bitcoin for fees:
+  `/admin/exit/leftover` then sends only what is above that, less a fee estimate
+  (`emergency_exit::leftover_plan`, barkd `/onchain/send`); turned off, it sends all
+  of it (`/onchain/drain`). A running
   exit always shows and works regardless of the switch.
 - Fee money (regular Bitcoin on the server): an exit needs about 350 sats of
   confirmed regular Bitcoin to broadcast even when the fee estimate says about

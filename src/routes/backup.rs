@@ -109,7 +109,7 @@ pub async fn download(
             "that admin password isn't right".into(),
         ));
     }
-    crate::routes::admin_session::check_second_step(&state, req.code.clone()).await?;
+    crate::routes::admin_session::check_second_step(&state, &headers, req.code.clone()).await?;
 
     // Consistent database snapshot, plus the wallet folder in managed mode.
     let db_entry = state.db.call(|c| crate::backup::database_entry(c)).await?;

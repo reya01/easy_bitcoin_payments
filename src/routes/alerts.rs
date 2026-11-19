@@ -66,7 +66,7 @@ pub async fn enable(
     // alerts on with the default server never does.
     let own_server = req.server.as_deref().is_some_and(|s| !s.trim().is_empty());
     if own_server {
-        check_second_step(&state, req.code.clone()).await?;
+        check_second_step(&state, &headers, req.code.clone()).await?;
     }
     let server = req.server;
     state
@@ -116,7 +116,7 @@ pub async fn disable(
         .call(|c| Ok(al::state(c)? == al::State::On))
         .await?;
     if working {
-        check_second_step(&state, req.code).await?;
+        check_second_step(&state, &headers, req.code).await?;
     }
     state.db.call(|c| al::disable(c)).await?;
     view(&state).await

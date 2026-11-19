@@ -1526,7 +1526,7 @@ function loadExit() {
     $("exo-floor").textContent = reserveFloor.toLocaleString("en-US");
     $("exo-min").textContent = (s.min_exit_sats || 50000).toLocaleString("en-US");
     $("exo-twostep").classList.toggle("hidden", !!s.two_step_on);
-    $("exo-state").textContent = "Turned on. The server keeps at least " + plainSats(reserveFloor) + " of regular Bitcoin for the network fees and never sends it out" + (s.onchain_confirmed_sats == null ? "." : (s.onchain_confirmed_sats >= reserveFloor ? ". It has " + plainSats(s.onchain_confirmed_sats) + " now: enough." : ". It has " + plainSats(s.onchain_confirmed_sats) + " now: please add " + plainSats(s.reserve_short_sats == null ? reserveFloor - s.onchain_confirmed_sats : s.reserve_short_sats) + " more (see below).")) ;
+    $("exo-state").textContent = "Turned on. The server keeps at least " + plainSats(reserveFloor) + " of regular Bitcoin for the network fees and never sends that part out" + (s.onchain_confirmed_sats == null ? "." : (s.onchain_confirmed_sats >= reserveFloor ? ". It has " + plainSats(s.onchain_confirmed_sats) + " now: enough." : ". It has " + plainSats(s.onchain_confirmed_sats) + " now: please add " + plainSats(s.reserve_short_sats == null ? reserveFloor - s.onchain_confirmed_sats : s.reserve_short_sats) + " more (see below).")) ;
     $("exo-state").className = "msg " + (s.onchain_confirmed_sats != null && s.onchain_confirmed_sats < reserveFloor ? "warn" : "ok");
     if (!showExit) {
       $("ex-refusal").className = "msg hidden";
@@ -1535,6 +1535,8 @@ function loadExit() {
       $("ex-running").classList.add("hidden");
       $("ex-auth").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
       $("ex-left-box").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
+      $("ex-left-note").textContent = "This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.";
+      $("ex-left").textContent = "Send leftover to my address";
       if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
       exReady();
       return;
@@ -1579,7 +1581,7 @@ function loadExit() {
       else { fv.textContent = "Please send at least " + fmtSats(mn - cf) + " (" + fmtSats(tgt) + " to " + fmtSats(hi) + " is recommended) to the address below. The emergency withdrawal is turned on, so the server keeps at least " + fmtSats(mn) + " of regular Bitcoin for its fees."; fv.className = "msg warn"; }
       var fn = $("ex-deposit-need");
       fn.textContent = "Why? The network fees of an emergency withdrawal are paid from regular Bitcoin held on the server. While the emergency withdrawal is turned on, the server keeps at least " + plainSats(mn) + " of it and never sends it out. Hover for details.";
-      fn.title = "Automatic withdrawals only move Ark coins and never touch this money. To take it back, turn the emergency withdrawal off (above), then use \u201cSend leftover to my address\u201d below (needs your password and code). Without fee money, you cannot start an emergency withdrawal on your own.";
+      fn.title = "Automatic withdrawals only move Ark coins and never touch this money. You can send back what is above " + plainSats(reserveFloor) + " with the button below, or turn the emergency withdrawal off (above) to take back all of it (needs your password and code). Without fee money, you cannot start an emergency withdrawal on your own.";
       $("ex-addr-box").classList.toggle("hidden", !(short > 0));
       if (short > 0 && !exAddrShown) exFetchAddr();
     } else if (canGo) {
@@ -1613,9 +1615,13 @@ function loadExit() {
     if (s.in_progress_since) list.appendChild(row("Started", when(s.in_progress_since * 1000)));
     live.forEach(function (e) { list.appendChild(row("Coin " + e.vtxo_id.slice(0, 10) + "…", e.words)); });
     $("ex-claim").classList.toggle("hidden", !s.claimable);
-    // The fee money can be taken back only while the withdrawal is turned off (or
-    // after one has run); while it is on, it is the reserve the withdrawal needs.
-    $("ex-left-box").classList.toggle("hidden", running || opted || !(s.onchain_confirmed_sats > 0));
+    // The fee money can be taken back. While the withdrawal is turned on, only what
+    // is above the floor goes (the server works out the fee); off, all of it.
+    $("ex-left-box").classList.toggle("hidden", running || !(s.onchain_confirmed_sats > (opted ? reserveFloor : 0)));
+    $("ex-left-note").textContent = opted
+      ? "This sends back the fee money above " + plainSats(reserveFloor) + " to the address you typed (the network fee comes out of it). At least " + plainSats(reserveFloor) + " stays here while the emergency withdrawal is turned on; turn it off to take all of it back."
+      : "This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.";
+    $("ex-left").textContent = opted ? "Send back what is above " + plainSats(reserveFloor) : "Send leftover to my address";
     exReady();
   }).catch(function (e) { say("ex-msg", e.message, true); });
 }

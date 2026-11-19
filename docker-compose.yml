@@ -32,12 +32,10 @@ services:
       EBP_MAX_INVOICE_SATS: ${EBP_MAX_INVOICE_SATS:-100000000}
       EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
       EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
-      # Where the small till wallet empties to (your own wallet's address) and
-      # how much it keeps when it does (0 = nothing: the whole balance is sent). Leave the address empty to keep
-      # money in the till for now.
+      # Where the small till wallet empties to (your own wallet's address); it
+      # sends everything once it holds the minimum. Leave it empty to keep money
+      # in the till for now.
       EBP_SETTLEMENT_DESTINATION: ${EBP_SETTLEMENT_DESTINATION:-}
-      EBP_HOT_WALLET_CAP_SATS: ${EBP_HOT_WALLET_CAP_SATS:-0}
-      EBP_ONCHAIN_SWEEP_CAP_SATS: ${EBP_ONCHAIN_SWEEP_CAP_SATS:-0}
       EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB: ${EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB:-50}
       EBP_SETTLEMENT_INTERVAL_SECS: ${EBP_SETTLEMENT_INTERVAL_SECS:-300}
       EBP_PAYOUT_CHANGE_DELAY_SECS: ${EBP_PAYOUT_CHANGE_DELAY_SECS:-86400}

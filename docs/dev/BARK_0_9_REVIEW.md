@@ -25,7 +25,7 @@ Related 0.9 changes that touch us: an exit counts as confirmed once a block incl
 | **Ark sweep** (`ark_send`, `/wallet/send`, amount = the excess) | barkd picks the coins. EBP's till is full of small coins (every small Lightning order makes a coin the size of the order). | **Main risk.** If barkd 0.8.x picks any coin under about 1,300 sats, the send can fail with an "upgrade" error. Nothing is lost (the coins stay), but the sweep to the owner stops. We do not know the date Second moves its server to 0.9. |
 | **On-chain sweep** (`offboard_vtxos`, whole coins, largest first) | Small coins are normally left in the till, so this path mostly avoids them. | Probably fine, but not proven: the changelog says "payments" in general. Also see the net-amount point below. |
 | **Renewal minimum** (`MIN_RENEW_SATS` = 330) | Coins that add up to less than 330 are skipped (the wallet refuses less). | Matches the new 330 threshold. No change. |
-| **Sweep minimum** (`MIN_SWEEP_EXCESS_SATS` = 1,000, automatic only) | 1,000 sats above the amount kept. | Fine for the dust rule, but an on-chain sweep pays a fee out of the amount: a 1,000-sat sweep can land near or under 330 and be refused. "Move my money now" has no minimum at all. Today that shows as a failed sweep with barkd's wording. |
+| **Sweep minimum** (`MIN_SWEEP_EXCESS_SATS`, automatic only) | Raised from 1,000 to **1,500** sats above the amount kept on 19 November 2026 (owner decision), and Settings now explains it. | This keeps the coin that arrives at the payout wallet above the roughly 1,300-sat size and keeps an on-chain sweep well clear of dust after fees. **It does not stop barkd spending small coins** (see "Does the 1,500 minimum avoid the breakage?" below). "Move my money now" still has no minimum; Settings warns about very small amounts. |
 | **Emergency exit pricing** (`fee_cannot_be_priced`) | Drill F9 (15 November): coins received over Lightning could not be priced ("exit chain is not relayable: the VTXO's own output is below the dust limit"). EBP shows a plain message and never starts the exit. | 0.9 is aimed at exactly this class of coin. After the upgrade, pricing and exits may start to work for them, with extra transactions. **Must be re-drilled with real small coins.** The old message stays as a fallback. |
 | **Exits that barkd starts by itself** (new in 0.9) | `exit_pause` already adopts an exit nobody started from Settings: renewals and sweeps pause and Home shows the red line. | Already covered by design; add a test that mimics 0.9 and make Home say "your wallet started an emergency withdrawal on its own". |
 | **Refresh size** | EBP asks for all due coins at once. | Cap one request at 1,000 coins (matters only for a very busy shop). |
@@ -36,6 +36,17 @@ Related 0.9 changes that touch us: an exit counts as confirmed once a block incl
 | **OpenAPI pin and drift check** | Pinned to 0.8.0 (`docs/barkd-openapi.json`). | Refresh the pin at the upgrade; the drift job flags the change. |
 | **Server version** | `/wallet/ark-info` (0.8.0) has no server version field. | Cannot warn "server is newer than your wallet" ahead of time; detect it from the refusal instead (below). |
 
+## Does the 1,500 minimum avoid the breakage? No, it only shrinks it
+
+The failure is about the size of the coins being **spent**, not the size of the amount sent. The 1,500 minimum only controls the amount. Small coins still get into the wallet and get spent:
+
+1. **Small orders make small coins.** A Lightning order of a few hundred sats arrives as a coin of that size, whatever the sweep minimum is.
+2. **The kept amount.** With the default 1,000 kept, the coin left after a sweep is under 1,300 by definition. Raising the minimum does not change that; keeping at least about 1,300 does (and then only if barkd leaves it as one coin).
+3. **barkd chooses the coins for an Ark send.** EBP only gives it a destination and an amount. It can pick a small coin as one of the inputs, or leave a small change coin, even when the amount is 1,500 or more.
+4. **Other paths spend coins too:** renewals (refresh) and emergency exits. Whether the refusal reaches those on a 0.8.x wallet is not stated in the changelog.
+
+So the minimum helps (bigger coins arrive at the payout wallet, less dust after on-chain fees) but the real fix is the wallet side: **running barkd 0.9**. Until then the guardrails below turn a stuck sweep into a clear message instead of a silent failure.
+
 ## Guardrails to add (proposed, in this order)
 
 Each is a separate small PR with its own tests. None is built yet.
@@ -43,7 +54,7 @@ Each is a separate small PR with its own tests. None is built yet.
 1. **Plain "update needed" handling.** When barkd reports the upgrade refusal, record it as a wallet-software-too-old problem (not an address problem), stop retrying every tick, raise one Home line and one alert: "Second's server needs a newer wallet program. Your money is safe. Update EBP." Needs the exact barkd error text; capture it from the first real occurrence or from Second.
 2. **Explicit `"method": "ark"`** on every Ark sweep (a refused rail must never turn into a different rail).
 3. **Net-amount check before an on-chain sweep:** estimate the fee, and if what would arrive is under 330 plus a margin, hold it and say why in plain words, for the automatic and the manual sweep alike.
-4. **Cap a refresh request at 1,000 coins.**
+4. **Cap a refresh request at 1,000 coins.** *Done 19 November 2026 (`MAX_REFRESH_COINS`, soonest-expiring first).* Also on 19 November: the automatic on-chain sweep minimum is now 50,000 sats above the amount kept (`MIN_ONCHAIN_SWEEP_EXCESS_SATS`), because every on-chain withdrawal pays a high, variable network fee; the Ark minimum is 1,500.
 5. **Re-drill emergency exit on 0.9** (owner, real small money), with a coin under 330, one around 1,000 and one around 1,500 sats.
 6. **Upgrade PR to barkd 0.9** (refresh the OpenAPI pin and contract checks, check every call against the 0.9 REST changes, then signet drill, then mainnet small-money drill). Done before v0.3-rc1 is cut.
 

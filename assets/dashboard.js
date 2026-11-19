@@ -697,9 +697,15 @@ $("tp-sats").addEventListener("input", tpPreview);
 // Under the keep amount: what it is worth in dollars, from the last saved
 // rate (no new lookup). Shown once typing pauses, or when the box is left.
 var capTimer = null;
+var smallCoin = 1300, minSweep = 1500;
+function capWarn(n) {
+  return n > 0 && n < smallCoin ? "That is under " + fmtSats(smallCoin) + ": coins this small can fail to send for a while once the Ark server updates (see Good to know above). Updating EBP fixes this." : "";
+}
 function capPreview() {
   var n = parseInt($("cap-new").value, 10);
-  $("cap-usd").textContent = n > 0 && USD > 0 ? "That is " + fmtSats(n) + "." : "";
+  var usd = n > 0 && USD > 0 ? "That is " + fmtSats(n) + "." : "";
+  var warn = capWarn(n);
+  $("cap-usd").textContent = usd + (usd && warn ? " " : "") + warn;
 }
 $("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
 $("cap-new").addEventListener("change", function () { clearTimeout(capTimer); capPreview(); });
@@ -919,7 +925,15 @@ function loadPayout() {
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("cap-box").classList.toggle("hidden", !p.address);
     if (p.address) {
-      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once enough has built up" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once at least " + fmtSats(p.kind === "onchain" ? (p.min_onchain_sweep_excess_sats || 50000) : (p.min_sweep_excess_sats || 1500)) + " has built up above it" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      smallCoin = p.small_coin_sats || 1300; minSweep = p.min_sweep_excess_sats || 1500;
+      if (p.kind === "onchain") {
+        var minChain = p.min_onchain_sweep_excess_sats || 50000;
+        $("cap-nuance").textContent = "Good to know: with an on-chain payout address, sends go out in chunks of at least " + fmtSats(minChain) + ", so the server can hold up to that much more than the amount above before it sends. We recommend much more than that: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. If you expect small amounts, an Ark payout address is almost free to send to.";
+      } else {
+        $("cap-nuance").textContent = "Good to know: sends go out in chunks of at least " + fmtSats(minSweep) + ", so the server can hold up to that much more than the amount above before it sends. We suggest keeping at least " + fmtSats(smallCoin) + ". Coins smaller than about " + fmtSats(smallCoin) + " can fail to send once the Ark server (Second) runs its newest software, until EBP is updated to match, so a smaller amount can leave a coin that is hard to spend for a while. Updating EBP fixes this.";
+      }
+      $("sweep-small").textContent = fmtSats(smallCoin);
       $("cap-new").placeholder = "number of sats";
       $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
     }
@@ -943,7 +957,7 @@ function saveCap(value, btn) {
   btn.disabled = true;
   api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
     $("cap-new").value = ""; $("cap-usd").textContent = ""; $("cap-pw").value = ""; $("cap-code").value = "";
-    say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + ".");
+    say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + "." + (capWarn(value) ? " " + capWarn(value) : ""));
     loadPayout();
   }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
 }

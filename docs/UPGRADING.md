@@ -8,7 +8,7 @@ You choose when.
 The admin page's **Home** tab shows "Update available" (or "Security update" when a
 release title contains `[security]`), the steps for your host, and how many orders
 are open. It learns this from one anonymous request to the public releases page,
-cached for hours. Switch that off with `EBP_UPDATE_CHECK=false`; it never installs
+cached for an hour. Switch that off with `EBP_UPDATE_CHECK=false`; it never installs
 anything. Read the release notes first, and update **one release at a time**.
 
 Restarting is always safe: pending payments and shop notifications are stored and

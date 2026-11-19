@@ -23,7 +23,7 @@ pub const REPO_URL: &str = "https://github.com/reya01/easy_bitcoin_payments";
 /// The newest releases, release candidates included (every release is one today).
 const RELEASES_URL: &str =
     "https://api.github.com/repos/reya01/easy_bitcoin_payments/releases?per_page=20";
-const OK_TTL: Duration = Duration::from_secs(6 * 3600);
+const OK_TTL: Duration = Duration::from_secs(3600);
 const FAIL_TTL: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

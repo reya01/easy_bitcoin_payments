@@ -139,7 +139,7 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 > The signed Console update was first used for real on 18 November (rc5 to rc1).
 > The Home-tab update has only been tested with stand-in programs and in the
 > browser: its first real use is installing the next release from rc2. The
-> wallet program stays at barkd 0.8.0; the move to 0.8.1 is planned for v0.3.
+> wallet program stays at barkd 0.8.0; the move to Bark 0.9 is planned for v0.3 (v0.3 is not released until EBP runs Bark 0.9; see [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)).
 >
 > Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >

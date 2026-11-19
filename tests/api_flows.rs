@@ -1325,8 +1325,11 @@ static BACKUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[tokio::test]
 async fn a_downloaded_backup_can_be_checked_from_the_admin_page() {
     let _one_backup_at_a_time = BACKUP_LOCK.lock().await;
+    // The check route sits behind the password brake (a few tries a minute per
+    // client), so each check below comes from its own address.
     let config = Config {
         password_hash_iterations: 1_000,
+        trust_proxy_headers: true,
         ..Config::default()
     };
     let (base, state, _store_id, key) = serve_with(config).await;
@@ -1356,10 +1359,13 @@ async fn a_downloaded_backup_can_be_checked_from_the_admin_page() {
         v.extend_from_slice(bytes);
         v
     };
+    let next_client = std::cell::Cell::new(0u32);
     let check = |csrf: Option<&str>, cookie: Option<&str>, payload: Vec<u8>| {
+        next_client.set(next_client.get() + 1);
         let mut r = client
             .post(format!("{base}/admin/backup/check"))
             .header("host", "localhost")
+            .header("x-forwarded-for", format!("10.8.0.{}", next_client.get()))
             .header("content-type", "application/octet-stream")
             .body(payload);
         if let Some(c) = csrf {

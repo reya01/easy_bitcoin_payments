@@ -715,7 +715,9 @@ def main():
             want(pr, "manual note", p.inner_text("#sweep-box"), "under 1,300 sats")
             if p.is_visible("#min-reset"): pr.append("no reset button on the default")
             # Under the floor: refused on the page with a plain reason, nothing is sent.
-            p.fill("#min-new", "1000"); p.fill("#min-pw", "pw"); p.click("#min-go"); p.wait_for_timeout(400)
+            # Typed and Save clicked straight away (the box loses focus on that click: nothing
+            # may move the button from under it).
+            p.fill("#min-pw", "pw"); p.fill("#min-new", "1000"); p.click("#min-go"); p.wait_for_timeout(400)
             for w in ("1,000 sats is lower than the smallest amount we allow", "1,500 sats", "get stuck", "Please type 1,500 sats or more"):
                 want(pr, "floor refusal", p.inner_text("#min-msg"), w)
             if count(calls, "POST", "/admin/payout/min"): pr.append("nothing is sent under the floor")
@@ -736,7 +738,7 @@ def main():
             want(pr, "now line", p.inner_text("#min-now"), "at least 50,000 sats")
             for w in ("recommend much more", "network fee that can be high and changes a lot", "Ark payout address is almost free"):
                 want(pr, "why line", p.inner_text("#min-why"), w)
-            p.fill("#min-new", "49999"); p.fill("#min-pw", "pw"); p.click("#min-go"); p.wait_for_timeout(400)
+            p.fill("#min-pw", "pw"); p.fill("#min-new", "49999"); p.click("#min-go"); p.wait_for_timeout(400)
             for w in ("49,999 sats is lower than the smallest amount we allow for on-chain sends", "50,000 sats", "network fee", "Please type 50,000 sats or more", "Ark payout address"):
                 want(pr, "floor refusal", p.inner_text("#min-msg"), w)
             if count(calls, "POST", "/admin/payout/min"): pr.append("nothing is sent under the floor")
@@ -818,6 +820,10 @@ def main():
             want(pr, "saved", p.inner_text("#cap-msg"), "keeps")
             p.fill("#cap-new", "80000"); p.wait_for_timeout(1000)
             if "under 50,000" in p.inner_text("#cap-usd"): pr.append("80,000 must not warn")
+            # Typed and Save clicked straight away: the click must still land.
+            n_caps = count(calls, "POST", "/admin/payout/cap")
+            p.fill("#cap-pw", "pw"); p.fill("#cap-new", "20000"); p.click("#cap-go"); p.wait_for_timeout(500)
+            if count(calls, "POST", "/admin/payout/cap") != n_caps + 1: pr.append("Save clicked right after typing must still save")
             # Turning it off asks first; confirming sends it.
             p.fill("#exoff-pw", "pw"); p.click("#exo-off-go")
             want(pr, "confirm title", p.inner_text("#dlg-title"), "Turn off the emergency withdrawal?")

@@ -710,7 +710,9 @@ function capPreview() {
   $("cap-usd").textContent = usd + (usd && warn ? " " : "") + warn;
 }
 $("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
-$("cap-new").addEventListener("change", function () { clearTimeout(capTimer); capPreview(); });
+// No preview on "change": that fires when the box loses focus, which is the moment
+// the owner clicks Save, and new text above the button would move it from under the
+// click. The preview shows a moment after typing stops instead.
 
 // The smallest amount that is sent on. Each kind of payout address has a hard
 // floor; under it the page explains why (the server refuses it too).
@@ -730,7 +732,7 @@ function minPreview() {
   $("min-usd").textContent = minWarn(n);
 }
 $("min-new").addEventListener("input", function () { clearTimeout(minTimer); $("min-usd").textContent = ""; minTimer = setTimeout(minPreview, 700); });
-$("min-new").addEventListener("change", function () { clearTimeout(minTimer); minPreview(); });
+// (No preview on "change", for the same reason as the box above.)
 
 function loadOrders() {
   api("GET", "/api/v1/invoices?" + pageQuery("orders")).then(function (list) {
@@ -991,6 +993,7 @@ function saveCap(value, btn) {
   }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
 }
 $("cap-go").addEventListener("click", function () {
+  clearTimeout(capTimer);
   var raw = $("cap-new").value.trim();
   var n = Number(raw);
   if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 50000.", true); return; }
@@ -1006,6 +1009,7 @@ function saveMin(value, btn) {
   }).catch(function (e) { say("min-msg", e.message, true); }).then(function () { btn.disabled = false; });
 }
 $("min-go").addEventListener("click", function () {
+  clearTimeout(minTimer);
   var raw = $("min-new").value.trim();
   var n = Number(raw);
   if (!raw || !Number.isInteger(n) || n < 1) { say("min-msg", "Type a whole number of sats, for example " + (minKind === "onchain" ? "100000" : "3000") + ".", true); return; }

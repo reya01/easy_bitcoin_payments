@@ -229,6 +229,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/keylock/save", post(shopkey::save))
         .merge(
             Router::new()
+                // BRAKED-GROUP-START (tests/password_brake_guard.rs reads this marker:
+                // every route that checks the admin password must be listed in here)
                 .route("/admin/login", post(admin_session::login))
                 // Checks the admin password again, so it shares the brake.
                 .route("/admin/backup", post(backup::download))
@@ -263,6 +265,7 @@ pub fn router(state: AppState) -> Router {
                 // work as root, so it shares it too.
                 .route("/admin/update/check", post(update_helper::check))
                 .route("/admin/update/apply", post(update_helper::apply))
+                // BRAKED-GROUP-END
                 // An overall cap that does not depend on trusting any client
                 // address (covers a misconfigured proxy setup). Added first so
                 // it runs AFTER the per-client brake: one noisy client is
@@ -270,14 +273,27 @@ pub fn router(state: AppState) -> Router {
                 .layer(middleware::from_fn_with_state(
                     (
                         state.clone(),
-                        Arc::new(crate::ratelimit::RateLimiter::new_global(60)),
+                        Arc::new(crate::ratelimit::RateLimiter::new_global(
+                            crate::ratelimit::PASSWORD_TRIES_ALL_CLIENTS_PER_MINUTE,
+                        )),
                     ),
                     overall_brake,
                 ))
-                // Password-guessing brake (runs first): 10 attempts a minute per client.
+                // A slow guesser (a few tries every few minutes) is held by the hour
+                // limit; it runs after the minute brake below, so refused tries do
+                // not use it up.
+                .layer(middleware::from_fn_with_state(
+                    Arc::new(crate::ratelimit::RateLimiter::with_window(
+                        crate::ratelimit::PASSWORD_TRIES_PER_HOUR,
+                        3_600,
+                        state.config.trust_proxy_headers,
+                    )),
+                    crate::ratelimit::limit,
+                ))
+                // Password-guessing brake (runs first): a few tries a minute per client.
                 .layer(middleware::from_fn_with_state(
                     Arc::new(crate::ratelimit::RateLimiter::new(
-                        10,
+                        crate::ratelimit::PASSWORD_TRIES_PER_MINUTE,
                         state.config.trust_proxy_headers,
                     )),
                     crate::ratelimit::limit,

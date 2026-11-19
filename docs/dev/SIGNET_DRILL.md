@@ -61,7 +61,7 @@ sweep returns (6.1), and whether a beginner can follow `START_HERE.md`.
 | 1.3 | Create the wallet | Wallet created; **the server restarts itself once** and reconnects without any token copying (watch the log: one planned exit, then "connected") |
 | 1.4 | Recovery words screen | Words appear for ~60 s; hiding wipes them; copy is blocked |
 | 1.5 | Answer the 3-word quiz wrongly, then correctly | Wrong answers are refused **by the server**; right ones unlock "I saved them" |
-| 1.6 | Set the admin password | Admin page login works; wrong password is refused and rate-limited after 10 tries |
+| 1.6 | Set the admin password | Admin page login works; wrong password is refused and rate-limited after 5 tries a minute |
 | 1.7 | (https only) sign in and check the browser's cookie list | Cookie is named `__Host-ebp_session`; signing in and out works; on http/localhost it is `ebp_session` |
 
 **FAIL signals:** server loops restarting; token errors; words still shown after

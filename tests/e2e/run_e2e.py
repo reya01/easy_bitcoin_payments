@@ -108,7 +108,7 @@ def start_ebp():
         "EBP_SETUP_TOKEN": SETUP_CODE,
         "EBP_WEBHOOK_ALLOW_PRIVATE": "1",
         # Lets a step pretend to be a different visitor (X-Forwarded-For), so the
-        # sign-in brake (10 tries a minute per visitor) does not trip a long run.
+        # sign-in brake (5 tries a minute per visitor) does not trip a long run.
         "EBP_TRUST_PROXY_HEADERS": "true",
         "EBP_UPDATE_CHECK": "false",
         "EBP_LOG_LEVEL": "info",

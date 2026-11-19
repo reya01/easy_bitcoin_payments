@@ -1552,7 +1552,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let config = Config {
         password_hash_iterations: 1_000,
         // Each request below pretends to come from its own address so the
-        // password-guessing brake (10 a minute per client) does not interfere.
+        // password-guessing brake (a few tries a minute per client) does not interfere.
         trust_proxy_headers: true,
         ..Config::default()
     };
@@ -1741,7 +1741,7 @@ async fn two_step_sign_in_turns_on_gates_sign_in_and_actions_and_turns_off() {
     let config = Config {
         password_hash_iterations: 1_000,
         // Each request below pretends to come from its own address so the
-        // password-guessing brake (10 a minute per client) does not interfere.
+        // password-guessing brake (a few tries a minute per client) does not interfere.
         trust_proxy_headers: true,
         ..Config::default()
     };
@@ -2009,12 +2009,16 @@ async fn five_wrong_codes_lock_two_step_for_ten_minutes_even_for_the_right_code(
             let key = totp::base32_decode(&secret).unwrap();
             let now = now_unix();
             totp::confirm(c, &totp::code_for_step(&key, now / 30), now)?;
-            // Five wrong tries (a different step than the one just used).
-            for i in 0..5 {
+            // Wrong tries up to the limit (a different step than the one just used).
+            for i in 0..totp::MAX_FAILS {
                 let r = totp::verify(c, "000000", now, false)?;
                 assert_eq!(
                     r,
-                    if i < 4 { Second::Wrong } else { Second::Locked },
+                    if i < totp::MAX_FAILS - 1 {
+                        Second::Wrong
+                    } else {
+                        Second::Locked
+                    },
                     "try {i}"
                 );
             }
@@ -2381,7 +2385,7 @@ async fn password_change_checks_the_current_password_and_the_code_and_signs_ever
     let config = Config {
         password_hash_iterations: 1_000,
         // Each call below says which address it comes from, so the
-        // password-guessing brake (10 a minute per client) is easy to steer.
+        // password-guessing brake (a few tries a minute per client) is easy to steer.
         trust_proxy_headers: true,
         ..Config::default()
     };
@@ -2531,7 +2535,7 @@ async fn password_change_checks_the_current_password_and_the_code_and_signs_ever
     .unwrap();
     assert_eq!(r.status().as_u16(), 200, "new password works");
 
-    // The route shares the password-guessing brake (10 a minute per client).
+    // The route shares the password-guessing brake (a few tries a minute per client).
     let mut last = 0;
     for _ in 0..12 {
         last = send(
@@ -2616,7 +2620,7 @@ async fn malformed_requests_never_cause_server_errors() {
         "/api/v1/webhook-deliveries/whd_x/resend",
     ];
 
-    // These share the sign-in brake: an overall cap of 60 a minute for requests
+    // These share the sign-in brake: an overall cap of 20 a minute for requests
     // that are not signed in (no pretend address gets around it; past it they
     // answer 429, never 5xx). Signed-in requests are not counted.
     let braked = [
@@ -3297,20 +3301,29 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     let (base, state, _shop, _key) = serve_with(Config {
         update_check: false,
         password_hash_iterations: 1_000,
+        trust_proxy_headers: true,
         ..Config::default()
     })
     .await;
     let (cookie, csrf) = owner_session(&base, &state).await;
     let client = reqwest::Client::new();
-    let post = |path: &str, body: serde_json::Value, signed_in: bool| {
+    // Each call comes from its own pretend address, so the password brake (a few tries
+    // a minute per client) stays out of the way; the brake has its own step at the end.
+    let calls = std::cell::Cell::new(0u32);
+    let post_from = |from: String, path: &str, body: serde_json::Value, signed_in: bool| {
         let mut r = client
             .post(format!("{base}{path}"))
             .header("host", "localhost")
+            .header("x-forwarded-for", from)
             .json(&body);
         if signed_in {
             r = r.header("cookie", &cookie).header("x-ebp-csrf", &csrf);
         }
         r.send()
+    };
+    let post = |path: &str, body: serde_json::Value, signed_in: bool| {
+        calls.set(calls.get() + 1);
+        post_from(format!("10.9.0.{}", calls.get()), path, body, signed_in)
     };
     let newer = "99.0.0-rc1";
     let digest = format!("sha256:{}", "a".repeat(64));
@@ -3440,13 +3453,23 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     assert_eq!(req["version"], newer);
     assert_eq!(req["digest"], digest);
 
-    // The update screens share the password brake (10 a minute per client, counting
-    // sign-in and every try above): one more is refused before any password is checked.
+    // The update screens share the password brake: from one address, the tries past
+    // the per-minute limit are refused (429) before any password is checked.
     std::fs::remove_file(&req_file).unwrap();
-    let r = post("/admin/update/apply", apply(&digest, "another guess"), true)
+    let mut last = 0;
+    for _ in 0..(easy_bitcoin_payments::ratelimit::PASSWORD_TRIES_PER_MINUTE + 1) {
+        last = post_from(
+            "10.9.9.9".to_string(),
+            "/admin/update/apply",
+            apply(&digest, "another guess"),
+            true,
+        )
         .await
-        .unwrap();
-    assert_eq!(r.status().as_u16(), 429);
+        .unwrap()
+        .status()
+        .as_u16();
+    }
+    assert_eq!(last, 429);
     assert!(!req_file.exists());
 
     let _ = std::fs::remove_dir_all(&dir);

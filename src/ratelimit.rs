@@ -30,8 +30,20 @@ const WINDOW_SECS: i64 = 60;
 /// Prune stale windows when the table grows past this many clients.
 const PRUNE_ABOVE: usize = 10_000;
 
+/// The password brake: every screen that checks the admin password or a code (sign-in,
+/// backup, payout address, emergency exit, two-step settings, password change, update)
+/// shares these, counted per client. Real use is a handful of tries; a guesser gets
+/// five a minute and thirty an hour.
+pub const PASSWORD_TRIES_PER_MINUTE: u32 = 5;
+pub const PASSWORD_TRIES_PER_HOUR: u32 = 30;
+/// The same screens, all clients together (covers a misconfigured proxy that hides
+/// who is who). Requests from a signed-in owner are not counted.
+pub const PASSWORD_TRIES_ALL_CLIENTS_PER_MINUTE: u32 = 20;
+
 pub struct RateLimiter {
+    /// Requests allowed per window (the name is from when every window was a minute).
     per_minute: u32,
+    window_secs: i64,
     trust_proxy_headers: bool,
     /// One shared bucket for every client (a brake that does not depend on
     /// trusting any client address).
@@ -43,9 +55,19 @@ impl RateLimiter {
     pub fn new(per_minute: u32, trust_proxy_headers: bool) -> Self {
         Self {
             per_minute,
+            window_secs: WINDOW_SECS,
             trust_proxy_headers,
             global: false,
             hits: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// `allowed` requests per client in each window of `window_secs` seconds
+    /// (an hour-long window for the slow guesser the minute brake lets through).
+    pub fn with_window(allowed: u32, window_secs: i64, trust_proxy_headers: bool) -> Self {
+        Self {
+            window_secs,
+            ..Self::new(allowed, trust_proxy_headers)
         }
     }
 
@@ -65,7 +87,7 @@ impl RateLimiter {
         }
         let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
         if hits.len() > PRUNE_ABOVE {
-            hits.retain(|_, (start, _)| now - *start < WINDOW_SECS);
+            hits.retain(|_, (start, _)| now - *start < self.window_secs);
         }
         // Still too many live keys (an attacker rotating fake client
         // addresses): share one overflow bucket instead of growing the map.
@@ -75,7 +97,7 @@ impl RateLimiter {
             key
         };
         let entry = hits.entry(key.to_string()).or_insert((now, 0));
-        if now - entry.0 >= WINDOW_SECS {
+        if now - entry.0 >= self.window_secs {
             *entry = (now, 0);
         }
         entry.1 += 1;
@@ -155,7 +177,7 @@ pub async fn limit(State(limiter): State<Arc<RateLimiter>>, req: Request, next: 
     } else {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            [(header::RETRY_AFTER, "60")],
+            [(header::RETRY_AFTER, limiter.window_secs.to_string())],
             "rate limit exceeded",
         )
             .into_response()
@@ -165,6 +187,26 @@ pub async fn limit(State(limiter): State<Arc<RateLimiter>>, req: Request, next: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_hour_window_holds_a_slow_guesser_that_a_minute_window_lets_through() {
+        let hour = RateLimiter::with_window(3, 3_600, false);
+        // One try every five minutes never trips a per-minute limit, but the hour does.
+        let allowed = (0..6).filter(|i| hour.allow("a", 1_000 + i * 300)).count();
+        assert_eq!(allowed, 3);
+        // A new hour starts clean.
+        assert!(hour.allow("a", 1_000 + 3_600));
+        // Another client has its own count.
+        assert!(hour.allow("b", 1_000));
+    }
+
+    #[test]
+    fn the_password_limits_stay_tight() {
+        assert!(PASSWORD_TRIES_PER_MINUTE <= 5);
+        assert!(PASSWORD_TRIES_PER_HOUR <= 30);
+        assert!(PASSWORD_TRIES_ALL_CLIENTS_PER_MINUTE <= 20);
+        assert!(PASSWORD_TRIES_PER_HOUR > PASSWORD_TRIES_PER_MINUTE);
+    }
 
     #[test]
     fn allows_up_to_the_limit_then_blocks_until_the_window_rolls() {

@@ -106,40 +106,47 @@ open box.
 Draft for the first release candidate that has been tried with real money. The
 facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md).
 
-> **v0.2.1-rc2 — release candidate: update from the Home tab**
+> **v0.2.2-rc1 — release candidate: send the whole balance, opt-in emergency withdrawal, passkeys (beta)**
 >
 > Easy Bitcoin Payments takes Bitcoin payments (Lightning and Ark) into a wallet
 > you control, with a WooCommerce plugin and a no-terminal DigitalOcean install.
 >
 > Play money (signet) is the default. Real bitcoin can be switched on
 > (`EBP_MODE=live`, see `docs/START_HERE.md`) and has been used end to end on a
-> small scale: payments over Lightning and Ark, a WooCommerce shop, payouts to
-> the owner's own wallet, and a full emergency withdrawal. It is still
-> experimental. Use only an amount you can afford to lose, keep payments small
-> (the server can cap each one), and read `docs/KNOWN_ISSUES.md` first. The
-> emergency withdrawal takes at least a day, needs a little regular Bitcoin on
-> the server for fees (at least 1,500 sats), and should pay an address in a
-> wallet you hold outside the server (minimum 50,000 sats).
+> small scale. It is still experimental. Use only an amount you can afford to
+> lose, keep payments small (the server can cap each one), and read
+> `docs/KNOWN_ISSUES.md` first.
 >
-> New since rc1:
+> New since rc2:
 >
-> - **Update from the admin page (experimental).** With the new update helper
->   installed, the Home tab offers a new release. Press Start update and it checks
->   the release first, then shows both version numbers, the signature result from
->   this project's release workflow, the exact image, and links to inspect it on
->   GitHub. Only after you type your admin password (and your code, if two-step
->   sign-in is on) and press Update now is that exact image installed. It never
->   goes backwards and says why whenever it refuses. EBP itself never gets
->   control of the server. Install the helper once with
->   `./scripts/install-update-helper.sh` (new DigitalOcean servers do it for you).
-> - **Release candidates are offered as updates** on the Home tab.
-> - Behind the scenes: a weekly check against new wallet-software releases, and a
->   check that the server program builds byte-for-byte the same on two machines.
+> - **Your money is sent on in full.** Once the server holds the minimum, all of
+>   it goes to your payout address in one send, so nothing small is left behind.
+>   The minimum is at least 1,500 sats for an Ark payout address and at least
+>   50,000 for an on-chain one (every on-chain withdrawal pays a network fee);
+>   you can choose more in Settings, and a lower number is refused with the
+>   reason. "Move my money now" still sends everything at once.
+> - **The emergency withdrawal is opt-in.** Turn it on in Settings, Emergency
+>   (needs two-step sign-in). While it is on, at least 5,000 sats of regular
+>   Bitcoin stays on the server for its fees (anything above that can be sent
+>   back), and you may choose an amount of Ark money to keep there, because a
+>   withdrawal needs at least 50,000 sats. Off, everything is sent on. A
+>   withdrawal already running always shows and always works.
+> - **Passkeys (beta).** Add a passkey (Bitwarden, your phone, a security key)
+>   next to the authenticator app, then sign in and approve protected actions
+>   with it.
+> - **Safer sign-in:** obviously weak passwords are refused; password screens
+>   allow 5 tries a minute and 30 an hour; three wrong codes lock further tries.
+> - **Checkout:** Lightning by default and one Ark box; EBP no longer takes
+>   regular (on-chain) Bitcoin payments.
+> - **Server:** the container runs read-only, without root's special powers.
+> - Removed: the server settings `EBP_HOT_WALLET_CAP_SATS` and
+>   `EBP_ONCHAIN_SWEEP_CAP_SATS` (ignored with a note if still set).
 >
-> The signed Console update was first used for real on 18 November (rc5 to rc1).
-> The Home-tab update has only been tested with stand-in programs and in the
-> browser: its first real use is installing the next release from rc2. The
-> wallet program stays at barkd 0.8.0; the move to Bark 0.9 is planned for v0.3 (v0.3 is not released until EBP runs Bark 0.9; see [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)).
+> This is the first release meant to be installed with the Home-tab update
+> (from rc2 with the update helper installed); the Console update still works.
+> The wallet program stays at barkd 0.8.0; the move to Bark 0.9 is planned for
+> v0.3 (v0.3 is not released until EBP runs Bark 0.9; see
+> [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)).
 >
 > Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >

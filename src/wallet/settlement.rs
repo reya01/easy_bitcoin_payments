@@ -562,6 +562,9 @@ impl SettlementEngine {
         let (mut excluded, recently_requested) = self
             .settle_requested_renewals(&vtxos, participations.as_deref(), now)
             .await?;
+        // Coins already in a round (or a renewal still waiting): the sweep below
+        // must not try to send them, because the wallet would refuse.
+        let mut in_round = excluded.clone();
         // Last resort: a coin close to expiry is asked for again (at most
         // hourly) even when a round is supposed to hold it. Coins in an
         // emergency withdrawal are never touched.
@@ -712,6 +715,7 @@ impl SettlementEngine {
         if !due_ids.is_empty() {
             match self.client.refresh_vtxos(&due_ids).await {
                 Ok(_) => {
+                    in_round.extend(due_ids.iter().cloned());
                     // Accepted means registered for the next round, not done
                     // yet: "requested" until the old coins are replaced
                     // (checked on the following cycles).
@@ -824,7 +828,28 @@ impl SettlementEngine {
             return Ok(report);
         };
 
-        let offchain = balances.offchain_sats;
+        // Coins locked in a renewal round are not sendable yet. The wallet may
+        // still count them as spendable for a while (up to about an hour), and
+        // a send that picks one fails. An automatic sweep waits until the round
+        // is done (at most a couple of hours); the owner's button sends what is
+        // free now.
+        let locked_sats: i64 = vtxos
+            .spendable
+            .iter()
+            .filter(|v| in_round.contains(&v.id))
+            .map(|v| v.amount_sats)
+            .sum();
+        if locked_sats > 0 && !manual {
+            self.forget_refusal();
+            return Ok(report);
+        }
+        let free_coins: Vec<crate::wallet::barkd::Vtxo> = vtxos
+            .spendable
+            .iter()
+            .filter(|v| !in_round.contains(&v.id))
+            .cloned()
+            .collect();
+        let offchain = balances.offchain_sats.saturating_sub(locked_sats);
         // What stays behind: nothing, unless the owner turned on the emergency
         // withdrawal and chose an amount to keep for it. The button sends it all.
         let cap = if manual {
@@ -838,6 +863,11 @@ impl SettlementEngine {
         // being taken for the old one.
         if excess <= 0 {
             self.forget_refusal();
+            if manual && locked_sats > 0 {
+                report.sweep_refused = Some(
+                    "The Ark server is renewing your coins right now, so they cannot be sent for a little while (usually under an hour). Nothing is lost: try again later, or the automatic transfer sends them once the renewal is done.".to_string(),
+                );
+            }
             return Ok(report);
         }
         // An automatic sweep waits until the excess is worth sending, so the
@@ -957,7 +987,7 @@ impl SettlementEngine {
             // R8: offboard only enough whole VTXOs to cover the excess
             // (largest first) via /wallet/offboard/vtxos, leaving the rest
             // as the till. Overshoot is at most one VTXO.
-            let (ids, total) = select_vtxos_covering(&vtxos.spendable, excess);
+            let (ids, total) = select_vtxos_covering(&free_coins, excess);
             if ids.is_empty() {
                 return Ok(report);
             }
@@ -1812,6 +1842,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn coins_locked_in_a_renewal_round_are_never_swept() {
+        // Two coins: "held" is in a round the wallet is still working on (barkd
+        // can still list it as spendable), "free" is not. Both far from expiry.
+        const ARK: &str =
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+        let later = now_unix() + 20 * 86_400;
+        let vtxos = format!(
+            r#"[{{"id": "held", "amount_sat": 5000, "expires_at": {later}, "state": {{"type": "spendable"}}}},
+                {{"id": "free", "amount_sat": 3000, "expires_at": {later}, "state": {{"type": "spendable"}}}}]"#
+        );
+        let (base, recorded) = mock::spawn(move |req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (200, vtxos.clone()),
+            "/api/v1/wallet/rounds" => (
+                200,
+                r#"[{"id": 9, "state": "ongoing", "participation": {"inputs": ["held"], "outputs": []}}]"#
+                    .to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 8000}"#.to_string()),
+            "/api/v1/wallet/send" => (200, r#"{"message": "ok"}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        let engine = test_engine(client, db.clone(), Some(ARK), 0);
+        // Automatic: waits for the round, quietly (nothing sent, nothing failed).
+        let report = engine.tick().await.unwrap();
+        assert!(report.swept_sats.is_none());
+        assert!(report.sweep_refused.is_none());
+        let failed: i64 = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE status = 'failed'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(failed, 0);
+        // The owner's button sends only the free coins' worth.
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(3_000));
+        let sent: Vec<serde_json::Value> = recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.route() == "/api/v1/wallet/send")
+            .map(|r| serde_json::from_str(&r.body).unwrap())
+            .collect();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["amount_sat"], 3_000);
+    }
+
+    #[tokio::test]
     async fn a_renewal_asks_for_at_most_1000_coins_soonest_expiring_first() {
         let soon = crate::util::now_unix() + 86_400;
         // 1,200 coins, all due; coin vN expires N seconds after the first.
@@ -2355,10 +2443,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(saved.as_deref(), Some("604800"));
-        // The owner's button reads the wallet again after the renewal and
-        // moves what is spendable (the mock still reports the full balance).
+        // The owner's button reads the wallet again after the renewal. The only
+        // coin is now waiting in the round (the mock still lists it as
+        // spendable, as barkd 0.8.0 does), so nothing is sent and it says why.
         let report = engine.sweep_now().await.unwrap();
-        assert_eq!(report.swept_sats, Some(150_000));
+        assert_eq!(report.swept_sats, None);
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap_or("")
+            .contains("renewing your coins"));
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/send"));
     }
 
     #[tokio::test]

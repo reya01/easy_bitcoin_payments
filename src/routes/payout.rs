@@ -37,6 +37,7 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
         "cap_min_sats": crate::payout::MIN_CAP_SATS,
         "cap_max_sats": crate::payout::MAX_CAP_SATS,
         "min_sweep_excess_sats": crate::wallet::settlement::MIN_SWEEP_EXCESS_SATS,
+        "min_onchain_sweep_excess_sats": crate::wallet::settlement::MIN_ONCHAIN_SWEEP_EXCESS_SATS,
         "small_coin_sats": crate::wallet::settlement::SMALL_COIN_SATS,
         "ark_cap_sats": s.cap_override.unwrap_or(config.hot_wallet_cap_sats),
         "onchain_cap_sats": s.cap_override.unwrap_or(config.onchain_sweep_cap_sats),

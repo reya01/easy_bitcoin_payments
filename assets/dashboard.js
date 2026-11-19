@@ -925,9 +925,14 @@ function loadPayout() {
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("cap-box").classList.toggle("hidden", !p.address);
     if (p.address) {
-      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once at least " + fmtSats(p.min_sweep_excess_sats || 1500) + " has built up above it" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once at least " + fmtSats(p.kind === "onchain" ? (p.min_onchain_sweep_excess_sats || 50000) : (p.min_sweep_excess_sats || 1500)) + " has built up above it" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
       smallCoin = p.small_coin_sats || 1300; minSweep = p.min_sweep_excess_sats || 1500;
-      $("cap-nuance").textContent = "Good to know: sends go out in chunks of at least " + fmtSats(minSweep) + ", so the server can hold up to that much more than the amount above before it sends. We suggest keeping at least " + fmtSats(smallCoin) + ". Coins smaller than about " + fmtSats(smallCoin) + " can fail to send once the Ark server (Second) runs its newest software, until EBP is updated to match, so a smaller amount can leave a coin that is hard to spend for a while. Updating EBP fixes this.";
+      if (p.kind === "onchain") {
+        var minChain = p.min_onchain_sweep_excess_sats || 50000;
+        $("cap-nuance").textContent = "Good to know: with an on-chain payout address, sends go out in chunks of at least " + fmtSats(minChain) + ", so the server can hold up to that much more than the amount above before it sends. We recommend much more than that: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. If you expect small amounts, an Ark payout address is almost free to send to.";
+      } else {
+        $("cap-nuance").textContent = "Good to know: sends go out in chunks of at least " + fmtSats(minSweep) + ", so the server can hold up to that much more than the amount above before it sends. We suggest keeping at least " + fmtSats(smallCoin) + ". Coins smaller than about " + fmtSats(smallCoin) + " can fail to send once the Ark server (Second) runs its newest software, until EBP is updated to match, so a smaller amount can leave a coin that is hard to spend for a while. Updating EBP fixes this.";
+      }
       $("sweep-small").textContent = fmtSats(smallCoin);
       $("cap-new").placeholder = "number of sats";
       $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);

@@ -46,6 +46,18 @@ const SECS_PER_BLOCK: i64 = 600;
 /// wallet is not a small one, see [`SMALL_COIN_SATS`].
 pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_500;
 
+/// An automatic sweep to an on-chain address waits for at least this many sats
+/// above the amount kept: every on-chain withdrawal pays a network fee that can
+/// be high and changes a lot, so fewer, bigger withdrawals cost much less.
+/// (Ark sweeps are almost free and use [`MIN_SWEEP_EXCESS_SATS`].) "Move my
+/// money now" ignores it.
+pub const MIN_ONCHAIN_SWEEP_EXCESS_SATS: i64 = 50_000;
+
+/// Most coins in one refresh request. Bark 0.9 takes the 1,000 soonest-expiring
+/// coins and its server refuses larger refreshes from older wallets, so a
+/// request never asks for more; the rest follow on the next cycle.
+pub const MAX_REFRESH_COINS: usize = 1_000;
+
 /// Bark 0.9's changelog: a payment that spends a coin under "about 1,300 sats"
 /// can fail with an upgrade error when the wallet is Bark 0.8.1 or older and
 /// the Ark server is 0.9 (see docs/dev/BARK_0_9_REVIEW.md). Shown on Settings
@@ -685,6 +697,12 @@ impl SettlementEngine {
             tracing::warn!(error = %err, "settlement: could not save the too-small note");
         }
 
+        // At most MAX_REFRESH_COINS per request, soonest-expiring first; the
+        // rest are still due and go in on the next cycle.
+        if due.len() > MAX_REFRESH_COINS {
+            due.sort_by_key(|v| vtxo_expiry_unix(v, tip.as_ref()).unwrap_or(i64::MAX));
+            due.truncate(MAX_REFRESH_COINS);
+        }
         let due_ids: Vec<String> = due
             .iter()
             .map(|v| v.id.clone())
@@ -829,7 +847,12 @@ impl SettlementEngine {
         // An automatic sweep waits until the excess is worth sending, so the
         // payout wallet receives a few bigger coins instead of many tiny ones.
         // "Move my money now" always sends whatever is there.
-        if !manual && excess < MIN_SWEEP_EXCESS_SATS {
+        let min_excess = if crate::config::is_ark_destination(&destination) {
+            MIN_SWEEP_EXCESS_SATS
+        } else {
+            MIN_ONCHAIN_SWEEP_EXCESS_SATS
+        };
+        if !manual && excess < min_excess {
             self.forget_refusal();
             return Ok(report);
         }
@@ -1646,6 +1669,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn an_automatic_onchain_sweep_waits_for_50_000_above_the_kept_amount() {
+        const ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        // Cap 100,000, fees low. Held 149,999: excess 49,999, nothing is sent
+        // (and nothing is recorded as a refusal). Held 150,000: sent.
+        let (base, recorded) = fee_mock(10, 149_999);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        let report = engine.tick().await.unwrap();
+        assert!(report.swept_sats.is_none());
+        assert!(report.sweep_refused.is_none());
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
+        // The button still moves whatever is there.
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(149_999));
+
+        let (base, _recorded) = fee_mock(10, 150_000);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(150_000));
+    }
+
+    #[tokio::test]
+    async fn a_renewal_asks_for_at_most_1000_coins_soonest_expiring_first() {
+        let soon = crate::util::now_unix() + 86_400;
+        // 1,200 coins, all due; coin vN expires N seconds after the first.
+        let coins: Vec<String> = (0..1_200)
+            .map(|i| {
+                format!(
+                    r#"{{"id": "v{i}", "amount_sat": 1000, "expires_at": {}, "state": {{"type": "spendable"}}}}"#,
+                    soon + i
+                )
+            })
+            .collect();
+        let vtxos = format!("[{}]", coins.join(","));
+        let (base, recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (200, vtxos.clone()),
+            "/api/v1/wallet/balance" => (500, "{}".to_string()),
+            "/api/v1/wallet/refresh/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let engine = SettlementEngine::new(
+            client,
+            Db::open(":memory:").unwrap(),
+            test_config(None, 100_000),
+        );
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1_000);
+        let requests = recorded.lock().unwrap();
+        let refresh = requests
+            .iter()
+            .find(|r| r.route() == "/api/v1/wallet/refresh/vtxos")
+            .expect("refresh recorded");
+        let body: serde_json::Value = serde_json::from_str(&refresh.body).unwrap();
+        let ids: Vec<&str> = body["vtxos"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 1_000);
+        assert!(ids.contains(&"v0") && ids.contains(&"v999"));
+        assert!(!ids.contains(&"v1000") && !ids.contains(&"v1199"));
     }
 
     #[tokio::test]

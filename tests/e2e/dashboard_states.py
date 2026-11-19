@@ -426,6 +426,25 @@ def main():
 
         ok &= run_case(pw, "settings: the kept amount explains the 1,500 minimum and the small-coin limit", keep_handler, c_keep)
 
+        def keep_chain_handler(path, req, calls):
+            if path == "/api/v1/payout":
+                return 200, {"address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "kind": "onchain",
+                             "cap_sats": 1000000, "cap_is_custom": False, "cap_min_sats": 1, "cap_max_sats": 10000000,
+                             "min_sweep_excess_sats": 1500, "min_onchain_sweep_excess_sats": 50000, "small_coin_sats": 1300,
+                             "live": True, "set_by_server_config": False}
+            return signed_in(path, req, calls)
+
+        def c_keep_chain(p, pr, calls):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            p.evaluate("document.getElementById('fold-payout').open = true"); p.wait_for_timeout(500)
+            want(pr, "keep line", p.inner_text("#cap-now"), "at least 50,000 sats")
+            nuance = p.inner_text("#cap-nuance")
+            for w in ("chunks of at least 50,000 sats", "We recommend much more", "can be high and changes a lot", "Ark payout address is almost free"):
+                want(pr, "on-chain note", nuance, w)
+            if "1,300" in nuance: pr.append("the small-coin note is for Ark payout addresses")
+
+        ok &= run_case(pw, "settings: an on-chain payout address shows the 50,000 minimum and the fee advice", keep_chain_handler, c_keep_chain)
+
 
         def pw_handler(path, req, calls):
             if path == "/admin/password":

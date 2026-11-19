@@ -54,7 +54,7 @@ Each is a separate small PR with its own tests. None is built yet.
 1. **Plain "update needed" handling.** When barkd reports the upgrade refusal, record it as a wallet-software-too-old problem (not an address problem), stop retrying every tick, raise one Home line and one alert: "Second's server needs a newer wallet program. Your money is safe. Update EBP." Needs the exact barkd error text; capture it from the first real occurrence or from Second.
 2. **Explicit `"method": "ark"`** on every Ark sweep (a refused rail must never turn into a different rail).
 3. **Net-amount check before an on-chain sweep:** estimate the fee, and if what would arrive is under 330 plus a margin, hold it and say why in plain words, for the automatic and the manual sweep alike.
-4. **Cap a refresh request at 1,000 coins.**
+4. **Cap a refresh request at 1,000 coins.** *Done 19 November 2026 (`MAX_REFRESH_COINS`, soonest-expiring first).* Also on 19 November: the automatic on-chain sweep minimum is now 50,000 sats above the amount kept (`MIN_ONCHAIN_SWEEP_EXCESS_SATS`), because every on-chain withdrawal pays a high, variable network fee; the Ark minimum is 1,500.
 5. **Re-drill emergency exit on 0.9** (owner, real small money), with a coin under 330, one around 1,000 and one around 1,500 sats.
 6. **Upgrade PR to barkd 0.9** (refresh the OpenAPI pin and contract checks, check every call against the 0.9 REST changes, then signet drill, then mainnet small-money drill). Done before v0.3-rc1 is cut.
 

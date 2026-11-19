@@ -45,7 +45,9 @@ Each line names where to look in the code.
 
 - An automatic Ark transfer needs at least 1,500 sats above the till cap (it was 1,000
   until 19 November 2026, see BARK_0_9_REVIEW.md); with the default cap of 1,000 the
-  first one happens at about 2,500 sats on the server.
+  first one happens at about 2,500 sats on the server. An automatic on-chain transfer
+  needs at least 50,000 sats above the cap (`MIN_ONCHAIN_SWEEP_EXCESS_SATS`, new on 19
+  November 2026) and low fees.
   "Move my money now" ignores both.
 - An automatic on-chain withdrawal waits for fees of 50 sat/vB or less, and is
   postponed when the fee rate cannot be read ("never overpay blind").

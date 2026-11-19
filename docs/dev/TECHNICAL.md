@@ -297,7 +297,11 @@ docker run --rm -v ebp-data:/data easy-bitcoin-payments store create --name "My 
 ```
 
 The image runs as a non-root user, stores its database on the `/data` volume,
-and exposes a healthcheck against `/api/v1/health`.
+and exposes a healthcheck against `/api/v1/health`. `docker-compose.yml` also runs it
+with a read-only filesystem (writable: `/data` and a 64 MB no-exec `/tmp`), all Linux
+capabilities dropped and `no-new-privileges`; Caddy keeps only `NET_BIND_SERVICE`.
+`scripts/verify_container_lockdown.sh` checks this on a running stack (CI runs it with
+`--with-barkd`, which also starts barkd in a throwaway folder under the same limits).
 
 ---
 

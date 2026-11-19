@@ -188,6 +188,11 @@ jobs:
           echo "http redirects to: $loc"
           case "$loc" in https://localhost*) ;; *) echo "plain http must redirect to https"; exit 1;; esac
 
+      # docker-compose.yml locks the containers down; this proves it on the real running
+      # stack, and starts the wallet program (barkd) under the same limits.
+      - name: The container is locked down and the wallet program still runs
+        run: sudo /opt/ebp/scripts/verify_container_lockdown.sh --with-barkd
+
       - name: Re-running keeps the saved address
         run: |
           sudo EBP_SKIP_SYSTEM=1 EBP_CURL_OPTS=-k EBP_INFO_FILE=/tmp/ebp-info2.txt \

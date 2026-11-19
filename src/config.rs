@@ -22,11 +22,12 @@ pub struct Config {
     /// How many payment requests one shop key may create per minute (0 = no limit).
     pub invoice_rate_limit_per_min: u32,
     pub default_currency: String,
-    /// How much the till may hold before it sweeps to an ARK payout address.
-    /// Low on purpose: Ark transfers cost (almost) nothing.
+    /// How much the till keeps (is never sent on) when the payout address is an
+    /// ARK address. 0 = keep nothing: the whole balance is sent once it reaches
+    /// the minimum. The owner's emergency-withdrawal setting (Settings) wins
+    /// while it is on.
     pub hot_wallet_cap_sats: i64,
-    /// Same, when the payout address is an ON-CHAIN address. Higher, because
-    /// every on-chain withdrawal pays a network fee.
+    /// Same, when the payout address is an ON-CHAIN address.
     pub onchain_sweep_cap_sats: i64,
     /// An AUTOMATIC on-chain sweep waits until the network fee rate (sat/vB,
     /// ~3-block target) is at or below this. Manual sweeps ignore it.
@@ -110,8 +111,8 @@ impl Default for Config {
             max_invoice_sats: 100_000_000,
             invoice_rate_limit_per_min: 60,
             default_currency: "EUR".to_string(),
-            hot_wallet_cap_sats: 1_000,
-            onchain_sweep_cap_sats: 1_000_000,
+            hot_wallet_cap_sats: 0,
+            onchain_sweep_cap_sats: 0,
             onchain_sweep_max_fee_sat_vb: 50,
             watcher_interval_secs: 10,
             webhook_timeout_secs: 10,
@@ -239,8 +240,9 @@ struct FileConfig {
 }
 
 impl Config {
-    /// The till cap that applies to a payout destination: Ark addresses use
-    /// the low cap, anything else (on-chain) the higher one.
+    /// The amount kept (never sent on) that the server's configuration names for
+    /// a payout destination: one for Ark addresses, one for anything else
+    /// (on-chain). Both default to 0.
     pub fn sweep_cap_for(&self, destination: &str) -> i64 {
         if is_ark_destination(destination) {
             self.hot_wallet_cap_sats
@@ -586,13 +588,13 @@ impl Config {
                 value: self.onchain_sweep_max_fee_sat_vb.to_string(),
             });
         }
-        if self.onchain_sweep_cap_sats <= 0 {
+        if self.onchain_sweep_cap_sats < 0 {
             return Err(ConfigError::Invalid {
                 key: "onchain_sweep_cap_sats".into(),
                 value: self.onchain_sweep_cap_sats.to_string(),
             });
         }
-        if self.hot_wallet_cap_sats <= 0 {
+        if self.hot_wallet_cap_sats < 0 {
             return Err(ConfigError::Invalid {
                 key: "hot_wallet_cap_sats".into(),
                 value: self.hot_wallet_cap_sats.to_string(),
@@ -710,8 +712,8 @@ mod tests {
     fn defaults_are_sane() {
         let c = Config::default();
         assert_eq!(c.default_expiry_minutes, 20);
-        assert_eq!(c.hot_wallet_cap_sats, 1_000);
-        assert_eq!(c.onchain_sweep_cap_sats, 1_000_000);
+        assert_eq!(c.hot_wallet_cap_sats, 0);
+        assert_eq!(c.onchain_sweep_cap_sats, 0);
         assert_eq!(c.onchain_sweep_max_fee_sat_vb, 50);
         c.validate().expect("defaults validate");
     }

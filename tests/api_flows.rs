@@ -1672,113 +1672,234 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .unwrap();
     assert_eq!(r.status().as_u16(), 401);
 
-    // The amount the till keeps: default shown, changeable with the password.
+    let text = |r: reqwest::Response| async move {
+        r.json::<serde_json::Value>().await.unwrap().to_string()
+    };
+    let pw = "a good long password";
+    let tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+
+    // What stays on the server: nothing by default (the whole balance is sent once
+    // the minimum is reached). An amount to keep exists only for the emergency
+    // withdrawal, which is opt-in.
     let g = get().await;
-    assert_eq!(g["cap_is_custom"], false);
-    assert_eq!(g["cap_sats"], g["ark_default_cap_sats"]);
-    // Wrong password, zero, negative and too large are all refused.
-    for body in [
-        serde_json::json!({"cap_sats": 5000, "admin_password": "nope nope nope"}),
-        serde_json::json!({"cap_sats": 0, "admin_password": "a good long password"}),
-        serde_json::json!({"cap_sats": -1, "admin_password": "a good long password"}),
-        serde_json::json!({"cap_sats": 10_000_001i64, "admin_password": "a good long password"}),
-    ] {
-        let r = post("/admin/payout/cap", body).await.unwrap();
-        assert_eq!(r.status().as_u16(), 400);
-    }
-    assert_eq!(get().await["cap_is_custom"], false);
-    // A good value applies at once (no waiting period, unlike the address).
-    let r: serde_json::Value = post(
-        "/admin/payout/cap",
-        serde_json::json!({"cap_sats": 2500, "admin_password": "a good long password"}),
-    )
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
-    assert_eq!(r["cap_sats"], 2500);
-    let g = get().await;
-    assert_eq!(g["cap_is_custom"], true);
-    assert_eq!(g["cap_sats"], 2500);
-    // Back to the default.
+    assert_eq!(g["kind"], "ark");
+    assert_eq!(g["keep_sats"], 0);
+    assert_eq!(g["keep_is_custom"], false);
+    assert_eq!(g["exit_opted_in"], false);
     let r = post(
         "/admin/payout/cap",
-        serde_json::json!({"cap_sats": null, "admin_password": "a good long password"}),
+        serde_json::json!({"cap_sats": 50_000, "admin_password": pw}),
     )
     .await
     .unwrap();
-    assert_eq!(r.status().as_u16(), 200);
-    assert_eq!(get().await["cap_is_custom"], false);
-    // Not signed in: refused.
-    let r = client
-        .post(format!("{base}/admin/payout/cap"))
-        .header("host", "localhost")
-        .header("x-forwarded-for", "10.2.1.3")
-        .json(&serde_json::json!({"cap_sats": 5000, "admin_password": "a good long password"}))
-        .send()
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(text(r)
+        .await
+        .contains("Turn on the emergency withdrawal first"));
+    // Turning it on needs two-step sign-in, the password and a code: refused here.
+    let r = post(
+        "/admin/exit/optin",
+        serde_json::json!({"on": true, "admin_password": pw, "code": "123456"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(text(r).await.contains("two-step"));
+    assert_eq!(get().await["exit_opted_in"], false);
+
+    // The smallest amount that is sent on: each kind of address has a hard floor
+    // (Ark 1,500, on-chain 50,000) and above it the owner decides.
+    let g = get().await;
+    assert_eq!(g["sweep_min_sats"], 1_500);
+    assert_eq!(g["sweep_min_floor_sats"], 1_500);
+    assert_eq!(g["sweep_min_is_custom"], false);
+    assert_eq!(g["ark_min_floor_sats"], 1_500);
+    assert_eq!(g["onchain_min_floor_sats"], 50_000);
+    for (kind, bad) in [
+        ("ark", 1_499i64),
+        ("ark", 1_000),
+        ("ark", 0),
+        ("ark", -1),
+        ("ark", 10_000_001),
+        ("onchain", 49_999),
+        ("onchain", 1_500),
+        ("onchain", 0),
+        ("onchain", -1),
+        ("onchain", 10_000_001),
+    ] {
+        let r = post(
+            "/admin/payout/min",
+            serde_json::json!({"kind": kind, "min_sats": bad, "admin_password": pw}),
+        )
         .await
         .unwrap();
-    assert_eq!(r.status().as_u16(), 401);
-
-    // The smallest automatic on-chain withdrawal: the floor is 50,000 and cannot be
-    // undercut; above it the owner decides.
-    let g = get().await;
-    assert_eq!(g["onchain_min_is_custom"], false);
-    assert_eq!(g["onchain_min_floor_sats"], 50_000);
-    assert_eq!(g["min_onchain_sweep_excess_sats"], 50_000);
+        assert_eq!(r.status().as_u16(), 400, "{kind} {bad}");
+    }
+    // Wrong password and an unknown kind are refused too.
     for body in [
-        serde_json::json!({"min_sats": 49_999, "admin_password": "a good long password"}),
-        serde_json::json!({"min_sats": 1_500, "admin_password": "a good long password"}),
-        serde_json::json!({"min_sats": 0, "admin_password": "a good long password"}),
-        serde_json::json!({"min_sats": -1, "admin_password": "a good long password"}),
-        serde_json::json!({"min_sats": 10_000_001i64, "admin_password": "a good long password"}),
-        serde_json::json!({"min_sats": 100_000, "admin_password": "nope nope nope"}),
+        serde_json::json!({"kind": "ark", "min_sats": 3_000, "admin_password": "nope nope nope"}),
+        serde_json::json!({"kind": "lightning", "min_sats": 3_000, "admin_password": pw}),
     ] {
         let r = post("/admin/payout/min", body).await.unwrap();
         assert_eq!(r.status().as_u16(), 400);
     }
-    assert_eq!(get().await["onchain_min_is_custom"], false);
+    // Under the floor, the answer explains why in plain words.
+    let r = post(
+        "/admin/payout/min",
+        serde_json::json!({"kind": "ark", "min_sats": 1_000, "admin_password": pw}),
+    )
+    .await
+    .unwrap();
+    let why = text(r).await;
+    assert!(
+        why.contains("1,000 sats is lower than the smallest amount we allow"),
+        "{why}"
+    );
+    assert!(why.contains("1,500"), "{why}");
+    assert!(why.contains("get stuck"), "{why}");
+    let r = post(
+        "/admin/payout/min",
+        serde_json::json!({"kind": "onchain", "min_sats": 20_000, "admin_password": pw}),
+    )
+    .await
+    .unwrap();
+    let why = text(r).await;
+    assert!(
+        why.contains("20,000 sats is lower than the smallest amount we allow"),
+        "{why}"
+    );
+    assert!(why.contains("50,000"), "{why}");
+    assert!(why.contains("network fee"), "{why}");
+    assert!(why.contains("Ark payout address"), "{why}");
+    assert_eq!(get().await["sweep_min_is_custom"], false);
+    // A good value applies at once (no waiting period, unlike the address).
     let r: serde_json::Value = post(
         "/admin/payout/min",
-        serde_json::json!({"min_sats": 250_000, "admin_password": "a good long password"}),
+        serde_json::json!({"kind": "ark", "min_sats": 3_000, "admin_password": pw}),
     )
     .await
     .unwrap()
     .json()
     .await
     .unwrap();
-    assert_eq!(r["min_onchain_sweep_excess_sats"], 250_000);
+    assert_eq!(r["sweep_min_sats"], 3_000);
     let g = get().await;
-    assert_eq!(g["onchain_min_is_custom"], true);
-    assert_eq!(g["min_onchain_sweep_excess_sats"], 250_000);
+    assert_eq!(g["sweep_min_is_custom"], true);
+    assert_eq!(g["sweep_min_sats"], 3_000);
+    // The on-chain number is its own: saving it leaves the Ark address's view alone.
+    let r = post(
+        "/admin/payout/min",
+        serde_json::json!({"kind": "onchain", "min_sats": 250_000, "admin_password": pw}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert_eq!(get().await["sweep_min_sats"], 3_000);
     // Exactly the floor is allowed.
     let r = post(
         "/admin/payout/min",
-        serde_json::json!({"min_sats": 50_000, "admin_password": "a good long password"}),
+        serde_json::json!({"kind": "ark", "min_sats": 1_500, "admin_password": pw}),
     )
     .await
     .unwrap();
     assert_eq!(r.status().as_u16(), 200);
-    // Back to the default.
-    let r = post(
-        "/admin/payout/min",
-        serde_json::json!({"min_sats": null, "admin_password": "a good long password"}),
-    )
-    .await
-    .unwrap();
-    assert_eq!(r.status().as_u16(), 200);
-    assert_eq!(get().await["onchain_min_is_custom"], false);
-    // Not signed in: refused.
-    let r = client
-        .post(format!("{base}/admin/payout/min"))
-        .header("host", "localhost")
-        .header("x-forwarded-for", "10.2.1.4")
-        .json(&serde_json::json!({"min_sats": 100_000, "admin_password": "a good long password"}))
-        .send()
+    assert_eq!(get().await["sweep_min_sats"], 1_500);
+    // Back to the defaults.
+    for kind in ["ark", "onchain"] {
+        let r = post(
+            "/admin/payout/min",
+            serde_json::json!({"kind": kind, "min_sats": null, "admin_password": pw}),
+        )
         .await
         .unwrap();
-    assert_eq!(r.status().as_u16(), 401);
+        assert_eq!(r.status().as_u16(), 200);
+    }
+    assert_eq!(get().await["sweep_min_is_custom"], false);
+    // Not signed in: refused.
+    for path in [
+        "/admin/payout/cap",
+        "/admin/payout/min",
+        "/admin/exit/optin",
+    ] {
+        let r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("x-forwarded-for", "10.2.1.3")
+            .json(&serde_json::json!({"cap_sats": 5000, "kind": "ark", "min_sats": 5000, "on": false, "admin_password": pw}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 401, "{path}");
+    }
+
+    // The emergency withdrawal turned on (set directly here: the route needs
+    // two-step sign-in, which other tests cover). Now an amount can be kept for it.
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::emergency_exit::set_opted_in(c, true))
+        .await
+        .unwrap();
+    assert_eq!(get().await["exit_opted_in"], true);
+    for bad in [0i64, -1, 10_000_001] {
+        let r = post(
+            "/admin/payout/cap",
+            serde_json::json!({"cap_sats": bad, "admin_password": pw}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status().as_u16(), 400, "{bad}");
+    }
+    let r: serde_json::Value = post(
+        "/admin/payout/cap",
+        serde_json::json!({"cap_sats": 60_000, "admin_password": pw}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["keep_sats"], 60_000);
+    let g = get().await;
+    assert_eq!(g["keep_is_custom"], true);
+    assert_eq!(g["keep_sats"], 60_000);
+    // While it is on, the fee money stays: sending it out is refused, with the reason.
+    let leftover = serde_json::json!({
+        "admin_password": pw, "code": "123456", "destination": tb
+    });
+    let r = post("/admin/exit/leftover", leftover.clone())
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let why = text(r).await;
+    assert!(why.contains("5,000"), "{why}");
+    assert!(why.contains("turn the emergency withdrawal off"), "{why}");
+    // Turning it off needs the password; then nothing is kept, and the fee money
+    // is free to go (the request now gets as far as the two-step check).
+    let r = post(
+        "/admin/exit/optin",
+        serde_json::json!({"on": false, "admin_password": "nope nope nope"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert_eq!(get().await["exit_opted_in"], true);
+    let r: serde_json::Value = post(
+        "/admin/exit/optin",
+        serde_json::json!({"on": false, "admin_password": pw}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["opted_in"], false);
+    let g = get().await;
+    assert_eq!(g["exit_opted_in"], false);
+    assert_eq!(g["keep_is_custom"], false);
+    assert_eq!(g["keep_sats"], 0);
+    let r = post("/admin/exit/leftover", leftover).await.unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(text(r).await.contains("two-step"));
 }
 
 /// The code an authenticator app would show for a stored secret at a 30-second step.

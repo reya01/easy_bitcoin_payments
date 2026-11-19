@@ -2,8 +2,11 @@
 //!
 //! * `GET  /api/v1/payout`         — current / pending address (signed in).
 //! * `POST /admin/payout`          — change it (session + CSRF + admin password).
-//! * `POST /admin/payout/cap`      — change how much the till keeps before the rest
-//!   is sent on (session + CSRF + admin password, + second step when on).
+//! * `POST /admin/payout/cap`      — change how much the till keeps for the emergency
+//!   withdrawal (only while that is on; session + CSRF + admin password, + second
+//!   step when on).
+//! * `POST /admin/payout/min`      — change the smallest amount that is sent on
+//!   (one for Ark, one for on-chain; each has a hard floor; same protection).
 //! * `POST /admin/payout/cancel`   — cancel a pending change (session + CSRF).
 //! * `POST /admin/sweep`           — move the whole till to the payout address now
 //!   (session + CSRF; it can only ever pay the saved payout address).
@@ -21,30 +24,42 @@ use crate::routes::admin_session::require_session;
 use crate::routes::AppState;
 
 fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
+    use crate::payout::Rail;
     let delay_secs = config.payout_change_delay_secs;
-    let kind = s.active.as_deref().map(|a| {
-        if crate::config::is_ark_destination(a) {
-            "ark"
+    let rail = s.active.as_deref().map(Rail::of);
+    let kind = rail.map(|r| match r {
+        Rail::Ark => "ark",
+        Rail::Onchain => "onchain",
+    });
+    let (min_override, floor) = match rail {
+        Some(Rail::Onchain) => (s.onchain_min_override, Rail::Onchain.floor()),
+        _ => (s.ark_min_override, Rail::Ark.floor()),
+    };
+    // What stays on the server when money is sent on: nothing, unless the owner
+    // turned the emergency withdrawal on and chose an amount (or the server's own
+    // configuration names one).
+    let keep = s.active.as_deref().map(|a| {
+        if s.exit_opted_in {
+            s.cap_override.unwrap_or_else(|| config.sweep_cap_for(a))
         } else {
-            "onchain"
+            config.sweep_cap_for(a)
         }
     });
     json!({
         "address": s.active,
         "kind": kind,
-        "cap_sats": s.active.as_deref().map(|a| s.cap_override.unwrap_or_else(|| config.sweep_cap_for(a))),
-        "cap_is_custom": s.cap_override.is_some(),
-        "cap_min_sats": crate::payout::MIN_CAP_SATS,
-        "cap_max_sats": crate::payout::MAX_CAP_SATS,
-        "min_sweep_excess_sats": crate::wallet::settlement::MIN_SWEEP_EXCESS_SATS,
-        "min_onchain_sweep_excess_sats": s.onchain_min_override.unwrap_or(crate::payout::ONCHAIN_MIN_FLOOR_SATS),
-        "onchain_min_floor_sats": crate::payout::ONCHAIN_MIN_FLOOR_SATS,
-        "onchain_min_is_custom": s.onchain_min_override.is_some(),
+        "sweep_min_sats": min_override.unwrap_or(floor),
+        "sweep_min_floor_sats": floor,
+        "sweep_min_is_custom": min_override.is_some(),
+        "ark_min_floor_sats": Rail::Ark.floor(),
+        "onchain_min_floor_sats": Rail::Onchain.floor(),
+        "keep_sats": keep,
+        "keep_is_custom": s.exit_opted_in && s.cap_override.is_some(),
+        "keep_min_sats": crate::payout::MIN_CAP_SATS,
+        "keep_max_sats": crate::payout::MAX_CAP_SATS,
+        "exit_opted_in": s.exit_opted_in,
+        "exit_min_sats": crate::emergency_exit::MIN_EXIT_SATS,
         "small_coin_sats": crate::wallet::settlement::SMALL_COIN_SATS,
-        "ark_cap_sats": s.cap_override.unwrap_or(config.hot_wallet_cap_sats),
-        "onchain_cap_sats": s.cap_override.unwrap_or(config.onchain_sweep_cap_sats),
-        "ark_default_cap_sats": config.hot_wallet_cap_sats,
-        "onchain_default_cap_sats": config.onchain_sweep_cap_sats,
         "onchain_max_fee_sat_vb": config.onchain_sweep_max_fee_sat_vb,
         "pending_address": s.pending,
         "pending_effective_at": s.effective_at,
@@ -109,8 +124,8 @@ pub async fn change(
 
 #[derive(Deserialize)]
 pub struct CapRequest {
-    /// The new amount to keep on the server, in sats. Absent or null = go back
-    /// to the server's default.
+    /// The new amount to keep on the server for the emergency withdrawal, in
+    /// sats. Absent or null = keep nothing.
     #[serde(default)]
     pub cap_sats: Option<i64>,
     pub admin_password: String,
@@ -119,8 +134,8 @@ pub struct CapRequest {
     pub code: Option<String>,
 }
 
-/// `POST /admin/payout/cap` — change how much the till keeps before the rest
-/// is sent on. Same protection as the address (signed in, CSRF, admin
+/// `POST /admin/payout/cap` — change how much the till keeps for the emergency
+/// withdrawal (only while that is on). Same protection as the address (signed in, CSRF, admin
 /// password, second step when on). It cannot redirect money, so it applies at
 /// once and needs no waiting period.
 pub async fn change_cap(
@@ -131,6 +146,17 @@ pub async fn change_cap(
     require_session(&state, &headers).await?;
     // Validate first so a typo never costs a slow password check.
     if let Some(v) = req.cap_sats {
+        // An amount to keep exists only for the emergency withdrawal: without it
+        // everything is sent on. (Going back to "keep nothing" is always allowed.)
+        if !state
+            .db
+            .call(|c| crate::emergency_exit::opted_in(c))
+            .await?
+        {
+            return Err(AppError::BadRequest(
+                "Turn on the emergency withdrawal first (Settings, Emergency). An amount kept on the server only exists to keep that withdrawal possible; without it, all of your money is sent to your payout address.".into(),
+            ));
+        }
         if !(crate::payout::MIN_CAP_SATS..=crate::payout::MAX_CAP_SATS).contains(&v) {
             return Err(AppError::BadRequest(format!(
                 "the amount must be a whole number of sats between {} and {}",
@@ -165,8 +191,10 @@ pub async fn change_cap(
 
 #[derive(Deserialize)]
 pub struct MinRequest {
-    /// The smallest automatic on-chain withdrawal, in sats (at least the floor).
-    /// Absent or null = go back to the default.
+    /// Which kind of payout address the number is for: `ark` or `onchain`.
+    pub kind: String,
+    /// The smallest amount that is sent on, in sats (at least that kind's
+    /// floor). Absent or null = go back to the default (the floor).
     #[serde(default)]
     pub min_sats: Option<i64>,
     pub admin_password: String,
@@ -175,24 +203,22 @@ pub struct MinRequest {
     pub code: Option<String>,
 }
 
-/// `POST /admin/payout/min` — change the smallest automatic on-chain withdrawal.
-/// Needs the admin password and, when on, the second step. Takes effect right
-/// away: like the amount kept it cannot send money anywhere new. Below the
-/// floor is refused before the (slow) password check.
-pub async fn change_onchain_min(
+/// `POST /admin/payout/min` — change the smallest amount that is sent on to the
+/// payout address (when it is reached, the whole balance goes). Each kind of
+/// address has a hard floor (Ark 1,500 sats, on-chain 50,000); under it the
+/// answer says why, before the (slow) password check. Needs the admin password
+/// and, when on, the second step. Takes effect right away: like the amount
+/// kept it cannot send money anywhere new.
+pub async fn change_min(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<MinRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    let rail = crate::payout::Rail::parse(&req.kind)
+        .ok_or_else(|| AppError::BadRequest("kind must be \"ark\" or \"onchain\"".into()))?;
     if let Some(v) = req.min_sats {
-        if !(crate::payout::ONCHAIN_MIN_FLOOR_SATS..=crate::payout::MAX_CAP_SATS).contains(&v) {
-            return Err(AppError::BadRequest(format!(
-                "the smallest on-chain withdrawal must be a whole number of sats between {} and {}",
-                crate::payout::ONCHAIN_MIN_FLOOR_SATS,
-                crate::payout::MAX_CAP_SATS
-            )));
-        }
+        crate::payout::check_min(rail, v)?;
     }
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
     let ok = aa::verify_login_slow(stored, req.admin_password).await?;
@@ -209,8 +235,8 @@ pub async fn change_onchain_min(
         .db
         .call(move |c| {
             match min {
-                Some(v) => crate::payout::set_onchain_min(c, v)?,
-                None => crate::payout::clear_onchain_min(c)?,
+                Some(v) => crate::payout::set_min(c, rail, v)?,
+                None => crate::payout::clear_min(c, rail)?,
             }
             crate::payout::status(c, cfg.as_deref())
         })

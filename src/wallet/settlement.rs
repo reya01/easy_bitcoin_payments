@@ -47,8 +47,7 @@ const SECS_PER_BLOCK: i64 = 600;
 pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_500;
 
 /// The floor, and the default, for the smallest automatic sweep to an on-chain
-/// address (sats above the amount kept; the owner can choose more in Settings,
-/// see `payout::onchain_min`): every on-chain withdrawal pays a network fee that can
+/// address (the owner can choose more in Settings, see `payout::sweep_min`): every on-chain withdrawal pays a network fee that can
 /// be high and changes a lot, so fewer, bigger withdrawals cost much less.
 /// (Ark sweeps are almost free and use [`MIN_SWEEP_EXCESS_SATS`].) "Move my
 /// money now" ignores it.
@@ -848,12 +847,15 @@ impl SettlementEngine {
         // An automatic sweep waits until the excess is worth sending, so the
         // payout wallet receives a few bigger coins instead of many tiny ones.
         // "Move my money now" always sends whatever is there.
-        let min_excess = if crate::config::is_ark_destination(&destination) {
-            MIN_SWEEP_EXCESS_SATS
-        } else {
-            // The owner's number from Settings (never under the floor), else the floor.
-            self.db.call(|c| crate::payout::onchain_min(c)).await?
-        };
+        // The owner's number from Settings for this kind of address (never
+        // under its floor), else the floor. When it is reached, everything above
+        // the amount kept goes in one send (the whole balance, unless the owner
+        // turned on the emergency withdrawal and chose an amount to keep).
+        let rail = crate::payout::Rail::of(&destination);
+        let min_excess = self
+            .db
+            .call(move |c| crate::payout::sweep_min(c, rail))
+            .await?;
         if !manual && excess < min_excess {
             self.forget_refusal();
             return Ok(report);
@@ -1705,7 +1707,7 @@ mod tests {
         // held 180,000 goes.
         let (base, _recorded) = fee_mock(10, 179_999);
         let db = Db::open(":memory:").unwrap();
-        db.call(|c| crate::payout::set_onchain_min(c, 80_000))
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
             .await
             .unwrap();
         let engine = engine_for(&base, &db, ONCHAIN, 100_000);
@@ -1713,11 +1715,88 @@ mod tests {
 
         let (base, _recorded) = fee_mock(10, 180_000);
         let db = Db::open(":memory:").unwrap();
-        db.call(|c| crate::payout::set_onchain_min(c, 80_000))
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
             .await
             .unwrap();
         let engine = engine_for(&base, &db, ONCHAIN, 100_000);
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(180_000));
+    }
+
+    /// An engine holding `held` sats in one Ark coin, paying out to an Ark
+    /// address, with the server-configuration amount kept set to `cap`.
+    async fn ark_engine_holding(held: i64, cap: i64) -> (SettlementEngine, Db) {
+        const ARK: &str =
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+        let (base, _recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": {held}, "expires_at": 9999999999, "state": {{"type": "spendable"}}}}]"#
+                ),
+            ),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, format!(r#"{{"spendable_sat": {held}}}"#)),
+            "/api/v1/wallet/send" => (200, r#"{"message": "ok"}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let db = Db::open(":memory:").unwrap();
+        (engine_for(&base, &db, ARK, cap), db)
+    }
+
+    #[tokio::test]
+    async fn an_ark_sweep_sends_the_whole_balance_once_the_minimum_is_reached() {
+        // Keeps nothing: 1,499 waits, 1,500 sends all 1,500, 2,345 sends all 2,345.
+        let (engine, _db) = ark_engine_holding(1_499, 0).await;
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        let (engine, _db) = ark_engine_holding(1_500, 0).await;
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_500));
+        let (engine, _db) = ark_engine_holding(2_345, 0).await;
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(2_345));
+    }
+
+    #[tokio::test]
+    async fn the_owners_ark_minimum_replaces_the_default() {
+        let (engine, db) = ark_engine_holding(2_999, 0).await;
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Ark, 3_000))
+            .await
+            .unwrap();
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        let (engine, db) = ark_engine_holding(3_000, 0).await;
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Ark, 3_000))
+            .await
+            .unwrap();
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(3_000));
+    }
+
+    #[tokio::test]
+    async fn money_kept_for_the_emergency_withdrawal_stays_only_while_it_is_on() {
+        // 60,000 held; the owner chose to keep 50,000. Off: everything goes.
+        let (engine, db) = ark_engine_holding(60_000, 0).await;
+        db.call(|c| crate::payout::set_cap(c, 50_000))
+            .await
+            .unwrap();
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(60_000));
+        // On: only what is above the kept amount goes.
+        let (engine, db) = ark_engine_holding(60_000, 0).await;
+        db.call(|c| {
+            crate::emergency_exit::set_opted_in(c, true)?;
+            crate::payout::set_cap(c, 50_000)
+        })
+        .await
+        .unwrap();
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(10_000));
+        // On and nothing above the kept amount: nothing is sent.
+        let (engine, db) = ark_engine_holding(50_000, 0).await;
+        db.call(|c| {
+            crate::emergency_exit::set_opted_in(c, true)?;
+            crate::payout::set_cap(c, 50_000)
+        })
+        .await
+        .unwrap();
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
     }
 
     #[tokio::test]

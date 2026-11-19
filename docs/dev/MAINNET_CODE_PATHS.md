@@ -43,12 +43,13 @@ Each line names where to look in the code.
 
 ## Transfers to the owner's wallet
 
-- An automatic Ark transfer needs at least 1,500 sats above the till cap (it was 1,000
-  until 19 November 2026, see BARK_0_9_REVIEW.md); with the default cap of 1,000 the
-  first one happens at about 2,500 sats on the server. An automatic on-chain transfer
-  needs at least 50,000 sats above the cap (`MIN_ONCHAIN_SWEEP_EXCESS_SATS`, new on 19
-  November 2026) and low fees.
-  "Move my money now" ignores both.
+- An automatic transfer sends the **whole balance** once the till holds at least the
+  send minimum (from 19 November 2026; the default amount kept is now 0, see
+  BARK_0_9_REVIEW.md): **1,500 sats** for an Ark payout address, **50,000 sats** for an
+  on-chain one (hard floors, `payout::Rail::floor`; the owner can choose more in
+  Settings, `POST /admin/payout/min`), and for on-chain also low fees. An amount is
+  kept back only when the owner turned on the emergency withdrawal and chose one.
+  "Move my money now" ignores all of that.
 - An automatic on-chain withdrawal waits for fees of 50 sat/vB or less, and is
   postponed when the fee rate cannot be read ("never overpay blind").
 - A refused or postponed transfer is recorded once per reason, not every cycle.
@@ -91,8 +92,12 @@ Each line names where to look in the code.
   started elsewhere (for example carried in a restored wallet folder) is adopted,
   so Home shows the red line. If barkd cannot say whether one is running and one
   was started, the server stays paused.
-- On mainnet the section behaves as on signet: estimate, fee money, the
-  50,000-sat floor, password plus two-step code, then Start.
+- The section is **opt-in** (setting `exit_opt_in`, off by default;
+  `POST /admin/exit/optin`). On mainnet it then behaves as on signet: estimate, fee
+  money, the 50,000-sat floor, password plus two-step code, then Start. While it is
+  on the server keeps at least 5,000 sats of regular Bitcoin for fees and refuses to
+  send it out (`/admin/exit/leftover`); turned off, it can be taken back. A running
+  exit always shows and works regardless of the switch.
 - Fee money (regular Bitcoin on the server): an exit needs about 350 sats of
   confirmed regular Bitcoin to broadcast even when the fee estimate says about
   100 (drill: an exit sat stuck for hours with none). The page asks for at least

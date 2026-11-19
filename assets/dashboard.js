@@ -694,12 +694,14 @@ function tpPreview() {
 }
 $("tp-sats").addEventListener("input", tpPreview);
 
-// Under the keep amount: what it is worth in dollars, from the last saved
-// rate (no new lookup). Shown once typing pauses, or when the box is left.
+// The amount kept for the emergency withdrawal (only while that is on): a plain
+// warning while typing, from the last saved rate (no new lookup). Shown once
+// typing pauses, or when the box is left.
 var capTimer = null;
-var smallCoin = 1300, minSweep = 1500;
+var smallCoin = 1300, minFloor = 1500, minKind = "ark", minTimer = null, exitMin = 50000, reserveFloor = 5000;
+function plainSats(n) { return Number(n).toLocaleString("en-US") + " sats"; }
 function capWarn(n) {
-  return n > 0 && n < smallCoin ? "That is under " + fmtSats(smallCoin) + ": coins this small can fail to send for a while once the Ark server updates (see Good to know above). Updating EBP fixes this." : "";
+  return n > 0 && n < exitMin ? "That is under " + plainSats(exitMin) + ", the least an emergency withdrawal can work with, so a withdrawal would be refused until more is on the server." : "";
 }
 function capPreview() {
   var n = parseInt($("cap-new").value, 10);
@@ -710,12 +712,17 @@ function capPreview() {
 $("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
 $("cap-new").addEventListener("change", function () { clearTimeout(capTimer); capPreview(); });
 
-// Smallest automatic on-chain withdrawal: a plain warning while typing.
-var minFloor = 50000, minTimer = null;
+// The smallest amount that is sent on. Each kind of payout address has a hard
+// floor; under it the page explains why (the server refuses it too).
+function floorWhy(kind, n) {
+  var fl = plainSats(minFloor);
+  if (kind === "onchain") return plainSats(n) + " is lower than the smallest amount we allow for on-chain sends, which is " + fl + ". Every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so on a small amount the fee could take a big part of it. Please type " + fl + " or more (we recommend much more). If you would rather send small amounts often, use an Ark payout address: it is almost free.";
+  return plainSats(n) + " is lower than the smallest amount we allow, which is " + fl + ". Very small coins (under about " + plainSats(smallCoin) + ") can get stuck and fail to send for a while when the Ark server updates its software. So the server waits until at least " + fl + " has built up, then sends all of it in one go. Please type " + fl + " or more.";
+}
 function minWarn(n) {
   if (!(n > 0)) return "";
-  if (n < minFloor) return "The lowest allowed is " + fmtSats(minFloor) + ".";
-  if (n < minFloor * 4) return "That is low: each on-chain withdrawal pays a network fee that can be high and changes a lot. We recommend much more.";
+  if (n < minFloor) return floorWhy(minKind, n);
+  if (minKind === "onchain" && n < minFloor * 4) return "That is low: each on-chain withdrawal pays a network fee that can be high and changes a lot. We recommend much more.";
   return "";
 }
 function minPreview() {
@@ -938,25 +945,26 @@ function loadPayout() {
       var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
-    $("cap-box").classList.toggle("hidden", !p.address);
-    $("min-box").classList.toggle("hidden", !(p.address && p.kind === "onchain"));
+    $("min-box").classList.toggle("hidden", !p.address);
     if (p.address) {
-      $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once at least " + fmtSats(p.kind === "onchain" ? (p.min_onchain_sweep_excess_sats || 50000) : (p.min_sweep_excess_sats || 1500)) + " has built up above it" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
-      smallCoin = p.small_coin_sats || 1300; minSweep = p.min_sweep_excess_sats || 1500;
-      if (p.kind === "onchain") {
-        var minChain = p.min_onchain_sweep_excess_sats || 50000;
-        $("cap-nuance").textContent = "Good to know: with an on-chain payout address, sends go out in chunks of at least " + fmtSats(minChain) + ", so the server can hold up to that much more than the amount above before it sends. We recommend much more than that: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. If you expect small amounts, an Ark payout address is almost free to send to.";
-      } else {
-        $("cap-nuance").textContent = "Good to know: sends go out in chunks of at least " + fmtSats(minSweep) + ", so the server can hold up to that much more than the amount above before it sends. We suggest keeping at least " + fmtSats(smallCoin) + ". Coins smaller than about " + fmtSats(smallCoin) + " can fail to send once the Ark server (Second) runs its newest software, until EBP is updated to match, so a smaller amount can leave a coin that is hard to spend for a while. Updating EBP fixes this.";
-      }
-      $("sweep-small").textContent = fmtSats(smallCoin);
-      minFloor = p.onchain_min_floor_sats || 50000;
-      $("min-floor").textContent = minFloor.toLocaleString("en-US");
-      $("min-now").textContent = "Right now the server waits until at least " + fmtSats(p.min_onchain_sweep_excess_sats || minFloor) + " has built up above the amount it keeps before it sends" + (p.onchain_min_is_custom ? " (your setting)" : " (the default, which is also the lowest allowed)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      minKind = p.kind === "onchain" ? "onchain" : "ark";
+      minFloor = p.sweep_min_floor_sats || 1500;
+      smallCoin = p.small_coin_sats || 1300;
+      exitMin = p.exit_min_sats || 50000;
+      var sm = p.sweep_min_sats || minFloor, keep = p.keep_sats || 0;
+      $("min-now").textContent = "The server sends all of the money in the till to your payout address once it holds at least " + fmtSats(sm) + (p.sweep_min_is_custom ? " (your setting)" : " (the default, which is also the lowest we allow)") + (keep > 0 ? ", not counting the " + fmtSats(keep) + " you chose to keep for the emergency withdrawal" : "") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("min-why").textContent = minKind === "onchain"
+        ? "We recommend much more than the lowest amount: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. It is your decision. If you expect small amounts, an Ark payout address is almost free to send to."
+        : "Why " + plainSats(minFloor) + " is the lowest: coins smaller than about " + plainSats(smallCoin) + " can fail to send for a while once the Ark server updates its software, so the server waits for more to build up and then sends all of it at once. A higher number means fewer, bigger payments to your wallet.";
       $("min-new").min = String(minFloor);
-      $("min-reset").classList.toggle("hidden", !p.onchain_min_is_custom);
+      $("min-reset").classList.toggle("hidden", !p.sweep_min_is_custom);
+      $("sweep-small").textContent = smallCoin.toLocaleString("en-US");
+      $("cap-now").textContent = keep > 0
+        ? "The server keeps " + fmtSats(keep) + " for the emergency withdrawal" + (p.keep_is_custom ? " (your setting)" : "") + " and sends what is above that on once at least " + fmtSats(sm) + " has built up above it."
+        : "The server keeps nothing: it sends everything on once at least " + fmtSats(sm) + " has built up. Choose an amount below if you want money to stay here for the emergency withdrawal.";
+      $("cap-nuance").textContent = "A withdrawal only works when at least " + plainSats(exitMin) + " are on the server (below that the fees cost more than they save), so we suggest keeping at least that. Money kept here is exposed if the Ark server fails. Changing this needs your admin password and takes effect right away.";
       $("cap-new").placeholder = "number of sats";
-      $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
+      $("cap-reset").classList.toggle("hidden", !p.keep_is_custom);
     }
     var pend = p.pending_address;
     $("po-pending").classList.toggle("hidden", !pend);
@@ -978,30 +986,30 @@ function saveCap(value, btn) {
   btn.disabled = true;
   api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
     $("cap-new").value = ""; $("cap-usd").textContent = ""; $("cap-pw").value = ""; $("cap-code").value = "";
-    say("cap-msg", value === null ? "Saved. The server is back to its default amount." : "Saved. The server now keeps up to " + fmtSats(r.cap_sats) + "." + (capWarn(value) ? " " + capWarn(value) : ""));
+    say("cap-msg", value === null ? "Saved. The server now keeps nothing: it sends everything on." : "Saved. The server now keeps " + fmtSats(r.keep_sats) + " for the emergency withdrawal." + (capWarn(value) ? " " + capWarn(value) : ""));
     loadPayout();
   }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
 }
 $("cap-go").addEventListener("click", function () {
   var raw = $("cap-new").value.trim();
   var n = Number(raw);
-  if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 1000.", true); return; }
+  if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 50000.", true); return; }
   saveCap(n, $("cap-go"));
 });
 $("cap-reset").addEventListener("click", function () { saveCap(null, $("cap-reset")); });
 function saveMin(value, btn) {
   btn.disabled = true;
-  api("POST", "/admin/payout/min", { min_sats: value, admin_password: $("min-pw").value, code: $("min-code").value }).then(function (r) {
+  api("POST", "/admin/payout/min", { kind: minKind, min_sats: value, admin_password: $("min-pw").value, code: $("min-code").value }).then(function (r) {
     $("min-new").value = ""; $("min-usd").textContent = ""; $("min-pw").value = ""; $("min-code").value = "";
-    say("min-msg", value === null ? "Saved. The smallest withdrawal is back to its default." : "Saved. The server now waits for at least " + fmtSats(r.min_onchain_sweep_excess_sats) + " above the amount it keeps." + (minWarn(value) ? " " + minWarn(value) : ""));
+    say("min-msg", value === null ? "Saved. Back to the default: " + plainSats(r.sweep_min_floor_sats) + "." : "Saved. The server now sends everything once the till holds at least " + plainSats(r.sweep_min_sats) + "." + (minWarn(value) ? " " + minWarn(value) : ""));
     loadPayout();
   }).catch(function (e) { say("min-msg", e.message, true); }).then(function () { btn.disabled = false; });
 }
 $("min-go").addEventListener("click", function () {
   var raw = $("min-new").value.trim();
   var n = Number(raw);
-  if (!raw || !Number.isInteger(n) || n < 1) { say("min-msg", "Type a whole number of sats, for example 100000.", true); return; }
-  if (n < minFloor) { say("min-msg", "The lowest allowed is " + fmtSats(minFloor) + ".", true); return; }
+  if (!raw || !Number.isInteger(n) || n < 1) { say("min-msg", "Type a whole number of sats, for example " + (minKind === "onchain" ? "100000" : "3000") + ".", true); return; }
+  if (n < minFloor) { say("min-msg", floorWhy(minKind, n), true); return; }
   saveMin(n, $("min-go"));
 });
 $("min-reset").addEventListener("click", function () { saveMin(null, $("min-reset")); });
@@ -1503,6 +1511,30 @@ function loadExit() {
   api("POST", "/admin/exit/status", {}).then(function (s) {
     exState = s;
     var f = $("ex-facts"); clear(f);
+    // The emergency withdrawal is opt-in: off until the owner turns it on. One
+    // that is already running always shows, whatever the switch says.
+    var opted = !!s.opted_in;
+    var runningNow = !!s.in_progress_since || (s.live || []).length > 0;
+    var showExit = opted || runningNow;
+    reserveFloor = s.reserve_floor_sats || 5000;
+    $("ex-off-box").classList.toggle("hidden", showExit);
+    $("ex-on-box").classList.toggle("hidden", !opted);
+    $("exo-floor").textContent = reserveFloor.toLocaleString("en-US");
+    $("exo-min").textContent = (s.min_exit_sats || 50000).toLocaleString("en-US");
+    $("exo-twostep").classList.toggle("hidden", !!s.two_step_on);
+    $("exo-state").textContent = "Turned on. The server keeps at least " + plainSats(reserveFloor) + " of regular Bitcoin for the network fees and never sends it out" + (s.onchain_confirmed_sats == null ? "." : (s.onchain_confirmed_sats >= reserveFloor ? ". It has " + plainSats(s.onchain_confirmed_sats) + " now: enough." : ". It has " + plainSats(s.onchain_confirmed_sats) + " now: please add " + plainSats(s.reserve_short_sats == null ? reserveFloor - s.onchain_confirmed_sats : s.reserve_short_sats) + " more (see below).")) ;
+    $("exo-state").className = "msg " + (s.onchain_confirmed_sats != null && s.onchain_confirmed_sats < reserveFloor ? "warn" : "ok");
+    if (!showExit) {
+      $("ex-refusal").className = "msg hidden";
+      $("ex-deposit").classList.add("hidden");
+      $("ex-start-box").classList.add("hidden");
+      $("ex-running").classList.add("hidden");
+      $("ex-auth").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
+      $("ex-left-box").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
+      if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+      exReady();
+      return;
+    }
     f.appendChild(row("Ark money on this server", s.ark_sats == null ? "unknown" : fmtSats(s.ark_sats)));
     f.appendChild(row("Network fees to take it out (estimate)", s.fee ? fmtSats(s.fee.total_sat) : "unknown"));
     f.appendChild(row("Fee money on the server (confirmed)", s.onchain_confirmed_sats == null ? "unknown" : fmtSats(s.onchain_confirmed_sats) + (s.onchain_pending_sats ? " (+" + fmtSats(s.onchain_pending_sats) + " waiting for a confirmation)" : "")));
@@ -1526,12 +1558,12 @@ function loadExit() {
     var fund = !running && !s.switched_off && !canGo;
     $("ex-deposit").classList.toggle("hidden", !(canGo || fund));
     if (fund) {
-      var mn = s.reserve_min_sats || 1500, tgt = s.reserve_target_sats || 5000, hi = s.reserve_high_sats || 10000;
+      var mn = reserveFloor, tgt = s.reserve_target_sats || 5000, hi = s.reserve_high_sats || 10000;
       var cf = s.onchain_confirmed_sats || 0, pd = s.onchain_pending_sats || 0;
       var short = Math.max(0, tgt - cf);
-      $("ex-fund-title").textContent = "Set aside fee money now (optional)";
+      $("ex-fund-title").textContent = "Keep fee money on the server";
       var frows = $("ex-fee-rows"); clear(frows);
-      frows.appendChild(row("Minimum to start a withdrawal", fmtSats(mn)));
+      frows.appendChild(row("The server keeps at least", fmtSats(mn)));
       frows.appendChild(row("Recommended (fees can rise)", fmtSats(tgt) + " to " + fmtSats(hi)));
       frows.appendChild(row("On the server now (confirmed)", fmtSats(cf)));
       if (pd > 0) frows.appendChild(row("Sent, waiting for 1 confirmation", fmtSats(pd)));
@@ -1539,11 +1571,11 @@ function loadExit() {
       var fv = $("ex-fee-verdict");
       if (short === 0) { fv.textContent = "\u2713 Set aside: the fee money is on the server and confirmed."; fv.className = "msg ok"; }
       else if (cf + pd >= tgt) { fv.textContent = "Sent, waiting for 1 confirmation. This page checks again every minute."; fv.className = "msg warn"; }
-      else if (cf >= mn) { fv.textContent = "\u2713 Enough to start a withdrawal today. Fees can rise, so " + fmtSats(tgt) + " to " + fmtSats(hi) + " is safer: send about " + fmtSats(short) + " more if you like."; fv.className = "msg ok"; }
-      else { fv.textContent = "Optional: send at least " + fmtSats(mn - cf) + " (" + fmtSats(tgt) + " to " + fmtSats(hi) + " is recommended) to the address below so an emergency withdrawal can start whenever you need it."; fv.className = "msg muted"; }
+      else if (cf >= mn) { fv.textContent = "\u2713 The server is keeping enough. Fees can rise, so " + fmtSats(tgt) + " to " + fmtSats(hi) + " is safer: send about " + fmtSats(short) + " more if you like."; fv.className = "msg ok"; }
+      else { fv.textContent = "Please send at least " + fmtSats(mn - cf) + " (" + fmtSats(tgt) + " to " + fmtSats(hi) + " is recommended) to the address below. The emergency withdrawal is turned on, so the server keeps at least " + fmtSats(mn) + " of regular Bitcoin for its fees."; fv.className = "msg warn"; }
       var fn = $("ex-deposit-need");
-      fn.textContent = "Why? The network fees of an emergency withdrawal are paid from regular Bitcoin held on the server, which is normally empty. Hover for details.";
-      fn.title = "Automatic withdrawals only move Ark coins and never touch this money. You can take it back at any time with \u201cSend leftover to my address\u201d below (needs your password and code). Without it, you cannot start an emergency withdrawal on your own.";
+      fn.textContent = "Why? The network fees of an emergency withdrawal are paid from regular Bitcoin held on the server. While the emergency withdrawal is turned on, the server keeps at least " + plainSats(mn) + " of it and never sends it out. Hover for details.";
+      fn.title = "Automatic withdrawals only move Ark coins and never touch this money. To take it back, turn the emergency withdrawal off (above), then use \u201cSend leftover to my address\u201d below (needs your password and code). Without fee money, you cannot start an emergency withdrawal on your own.";
       $("ex-addr-box").classList.toggle("hidden", !(short > 0));
       if (short > 0 && !exAddrShown) exFetchAddr();
     } else if (canGo) {
@@ -1577,7 +1609,9 @@ function loadExit() {
     if (s.in_progress_since) list.appendChild(row("Started", when(s.in_progress_since * 1000)));
     live.forEach(function (e) { list.appendChild(row("Coin " + e.vtxo_id.slice(0, 10) + "…", e.words)); });
     $("ex-claim").classList.toggle("hidden", !s.claimable);
-    $("ex-left-box").classList.toggle("hidden", running || !(s.onchain_confirmed_sats > 0));
+    // The fee money can be taken back only while the withdrawal is turned off (or
+    // after one has run); while it is on, it is the reserve the withdrawal needs.
+    $("ex-left-box").classList.toggle("hidden", running || opted || !(s.onchain_confirmed_sats > 0));
     exReady();
   }).catch(function (e) { say("ex-msg", e.message, true); });
 }
@@ -1604,6 +1638,20 @@ $("ex-stop").addEventListener("click", function () {
 });
 $("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
 $("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
+// Turning the emergency withdrawal on or off (it is off until the owner turns it on).
+function exOptIn(on, pwId, codeId, btn) {
+  btn.disabled = true;
+  api("POST", "/admin/exit/optin", { on: on, admin_password: $(pwId).value, code: $(codeId).value.trim() }).then(function (r) {
+    $(pwId).value = ""; $(codeId).value = "";
+    say("exo-msg", r.message || "Done.");
+    loadExit(); loadPayout();
+  }).catch(function (e) { say("exo-msg", e.message, true); }).then(function () { btn.disabled = false; });
+}
+$("exo-on").addEventListener("click", function () { exOptIn(true, "exo-pw", "exo-code", $("exo-on")); });
+$("exo-off-go").addEventListener("click", function () {
+  askConfirm({ title: "Turn off the emergency withdrawal?", body: "Everything will be sent on to your payout address as usual, the amount kept here is forgotten, and the fee money can be taken back. You can turn it on again any time.", cancel: "Keep it on", ok: "Turn off" })
+    .then(function (yes) { if (yes) exOptIn(false, "exoff-pw", "exoff-code", $("exo-off-go")); });
+});
 
 boot();
 })();

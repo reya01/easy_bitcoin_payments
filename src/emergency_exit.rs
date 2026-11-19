@@ -13,8 +13,11 @@
 //! Pure rules live here; the barkd calls are in `wallet::barkd` and the HTTP
 //! handlers in `routes::exit`.
 
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value as Json;
+
+use crate::error::AppError;
 
 /// On for real money since 15 November 2026, at the owner's request, after
 /// small live mainnet drills (exit started, broadcast, confirmed, claim
@@ -60,6 +63,51 @@ pub fn reserve_target(fee: Option<&ExitFee>) -> i64 {
 /// The high end of the recommendation (twice the low end, at least 10,000).
 pub fn reserve_high(target: i64) -> i64 {
     target.saturating_mul(2).max(RESERVE_RECOMMENDED_HIGH_SATS)
+}
+
+/// Settings key: "true" once the owner has turned the emergency withdrawal on
+/// (it is opt-in, off until then). While it is on, the server keeps at least
+/// [`RESERVE_FLOOR_SATS`] of regular Bitcoin for the fees and never sends it
+/// out, and the owner may also choose an amount of Ark money to keep here.
+pub const OPT_IN_KEY: &str = "exit_opt_in";
+/// While the emergency withdrawal is on, at least this much regular Bitcoin
+/// stays on the server to pay its network fees: nothing here sends it out, and
+/// the page asks for more until it is there. Turn the emergency withdrawal off
+/// and the money can be taken back.
+pub const RESERVE_FLOOR_SATS: i64 = 5_000;
+const _: () = assert!(RESERVE_FLOOR_SATS >= RESERVE_MIN_SATS);
+
+/// Has the owner turned the emergency withdrawal on?
+pub fn opted_in(conn: &Connection) -> Result<bool, AppError> {
+    Ok(crate::settings::get(conn, OPT_IN_KEY)?.as_deref() == Some("true"))
+}
+
+/// Turn it on or off (the caller has already checked the password and codes).
+pub fn set_opted_in(conn: &Connection, on: bool) -> Result<(), AppError> {
+    if on {
+        crate::settings::set(conn, OPT_IN_KEY, "true")
+    } else {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [OPT_IN_KEY])?;
+        Ok(())
+    }
+}
+
+/// Why the left-over fee money cannot be sent out now, in words for the owner;
+/// `None` = it can. While the emergency withdrawal is on (and none is running)
+/// that money is the reserve it needs.
+pub fn leftover_refusal(opted_in: bool, exit_started: bool) -> Option<String> {
+    (opted_in && !exit_started).then(|| {
+        format!(
+            "The emergency withdrawal is turned on, so this fee money is being kept on the server for it: at least {} sats must stay here so a withdrawal can always start. If you no longer want that, turn the emergency withdrawal off (in this same section), then you can take the money back.",
+            crate::payout::commas(RESERVE_FLOOR_SATS)
+        )
+    })
+}
+
+/// How many more confirmed on-chain sats the reserve needs to reach the floor
+/// (0 = enough). Shown while the emergency withdrawal is on.
+pub fn reserve_short_sats(confirmed_onchain_sats: i64) -> i64 {
+    (RESERVE_FLOOR_SATS - confirmed_onchain_sats.max(0)).max(0)
 }
 
 /// Below this many sats on the server an emergency withdrawal is refused.
@@ -277,6 +325,35 @@ pub fn check_destination(input: &str, mode: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_emergency_withdrawal_is_opt_in_and_guards_its_fee_money() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);",
+        )
+        .unwrap();
+        assert!(!opted_in(&c).unwrap(), "off until the owner turns it on");
+        set_opted_in(&c, true).unwrap();
+        assert!(opted_in(&c).unwrap());
+        set_opted_in(&c, false).unwrap();
+        assert!(!opted_in(&c).unwrap());
+        // Off: the fee money can be sent out. On: it cannot, unless a
+        // withdrawal is running (the running rules apply then).
+        assert!(leftover_refusal(false, false).is_none());
+        assert!(leftover_refusal(false, true).is_none());
+        assert!(leftover_refusal(true, true).is_none());
+        let why = leftover_refusal(true, false).expect("kept while on");
+        assert!(why.contains("5,000"), "{why}");
+        assert!(why.contains("turn the emergency withdrawal off"), "{why}");
+        // The floor.
+        assert_eq!(RESERVE_FLOOR_SATS, 5_000);
+        assert_eq!(reserve_short_sats(0), 5_000);
+        assert_eq!(reserve_short_sats(-3), 5_000);
+        assert_eq!(reserve_short_sats(4_999), 1);
+        assert_eq!(reserve_short_sats(5_000), 0);
+        assert_eq!(reserve_short_sats(9_000), 0);
+    }
 
     fn fee(total: i64) -> ExitFee {
         ExitFee {

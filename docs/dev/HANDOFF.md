@@ -68,9 +68,8 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
   server/webshop use, keeps wallet state and signing in one audited daemon, and
   lets EBP stay a single Rust binary + SQLite. The SDK would couple EBP to
   Bark’s internal Rust API and force wallet state into the payments process.
-- **Capped till, Custody Level 0.** The server holds only a capped hot “till”
-  (`EBP_HOT_WALLET_CAP_SATS`, default 1,000 sats for an Ark payout address; `EBP_ONCHAIN_SWEEP_CAP_SATS`, default 1,000,000, for an on-chain one) and sweeps excess to the
-  merchant’s own wallet, but only once the excess is at least 1,500 sats (`MIN_SWEEP_EXCESS_SATS`, raised from 1,000 on 19 November 2026), so the payout wallet gets a few bigger coins, not many tiny ones; “Move my money now” ignores that minimum. WHY: passive Ark receive needs a server-side wallet,
+- **Nothing kept, Custody Level 0.** The server holds only a small “till” and sends the **whole balance** to the
+  merchant’s own wallet once it reaches a minimum (hard floors: 1,500 sats for an Ark payout address, 50,000 for an on-chain one; the owner can choose more in Settings, from 19 November 2026). Before that date it kept 1,000 / 1,000,000 sats (`EBP_HOT_WALLET_CAP_SATS` / `EBP_ONCHAIN_SWEEP_CAP_SATS`, both default 0 now, still honoured) and sent only the excess. Money is kept back only if the owner turns on the opt-in emergency withdrawal and chooses an amount; the 5,000-sat on-chain fee money is then protected. “Move my money now” ignores the minimum. WHY: passive Ark receive needs a server-side wallet,
   but the honest custody story is “minimize, cap, sweep home, document exactly.”
   (The on-chain exit-reserve warning was removed: it asked for more money on the server, against that principle.)
 - **No upstream assumptions.** EBP works with Bark/barkd/Arké as they exist

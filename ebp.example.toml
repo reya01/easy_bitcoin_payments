@@ -36,13 +36,15 @@ default_currency = "EUR"
 # how long each one gets to answer (seconds).
 rates_timeout_secs = 4
 
-# The till: the server's capped hot wallet. When the off-chain balance
-# passes this, the settlement engine sweeps to settlement_destination.
-hot_wallet_cap_sats = 1000
+# The till: how much stays on the server when it sends your money on to
+# settlement_destination. 0 (the default) keeps nothing: the whole balance is
+# sent once it reaches the minimum (1,500 sats for an Ark address, 50,000 for an
+# on-chain one; you can raise the minimum in Settings). Only change this if you
+# know why. Money you keep here is exposed to the Ark server.
+hot_wallet_cap_sats = 0
 
-# Same, when your payout address is an on-chain Bitcoin address. Higher,
-# because each on-chain withdrawal pays a network fee.
-onchain_sweep_cap_sats = 1000000
+# Same, when your payout address is an on-chain Bitcoin address.
+onchain_sweep_cap_sats = 0
 
 # An automatic on-chain withdrawal waits until network fees are at or below
 # this many sats per vbyte. You can always withdraw by hand.

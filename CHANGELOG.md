@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Obviously weak passwords are refused.** The admin password (and backup passwords) still need 16 characters, and now a small block list also says no to passwords like `passwordpassword`, `aaaaaaaaaaaaaaaa`, `1234567890123456`, `P@ssw0rd` repeated, and the famous "correct horse battery staple". A passphrase of ordinary words is still fine. Existing passwords are not affected; the check applies when you set or change one.
+
 ## 0.2.2-rc1 — release candidate: Lightning and Ark only at checkout, tighter password limits, locked-down container (19 November 2026)
 
 - **The server container is locked down.** EBP's container now has a read-only filesystem (it can only write to its data folder and a small scratch folder that cannot run programs), none of root's special powers, and no way to gain any; Caddy (the padlock) keeps only the one power it needs to listen on ports 80 and 443. If something in the server were ever broken into, it could do much less. `./scripts/verify_container_lockdown.sh` checks all of this on a running server, and our tests run it on every change, including starting the wallet program under the same limits. Nothing to do on your side: it applies when you update. (If you have edited your own `docker-compose.yml`, copy the new `read_only`, `tmpfs`, `cap_drop` and `security_opt` lines across.)

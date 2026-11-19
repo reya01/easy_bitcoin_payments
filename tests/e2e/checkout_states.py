@@ -2,8 +2,8 @@
 """Checkout page states, with the server mocked (no ebp binary needed).
 
 Loads assets/checkout.html in a phone-sized browser and feeds it every answer the
-server can give (pending, paid, overpaid, underpaid, expired, cancelled, on-chain
-waiting, not found, connection errors, hostile text) and checks what the customer
+server can give (pending, paid, overpaid, underpaid, expired, cancelled,
+not found, connection errors, hostile text) and checks what the customer
 sees: the right message, the pay details hidden once a payment is finished, no
 script errors, no sideways scrolling.  Run: python3 tests/e2e/checkout_states.py
 """
@@ -22,8 +22,7 @@ def invoice(**kw):
     d = {"return_url": "https://shop.example/order/7", "store_name": "Test Shop", "status": "pending",
          "amount_sats": 1500, "fiat_currency": "USD", "fiat_amount": "1.00",
          "ark_address": "tark1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-         "expires_at_unix": int(time.time()) + 600, "onchain_enabled": False, "onchain_address": None,
-         "bip321": "bitcoin:?ark=tark1qqqq&amount=0.000015", "lightning": None, "test_mode": True}
+         "expires_at_unix": int(time.time()) + 600, "lightning": None, "test_mode": True}
     d.update(kw)
     return d
 
@@ -155,9 +154,6 @@ def main():
             if a["card"](): pr.append("pay details must go away once cancelled")
             has(a, pr, "back link", "try again", a["back"]())
 
-        def c_chain(a, pr):
-            has(a, pr, "waiting for confirmations", "0 of 1 confirmations")
-
         def c_nf(a, pr):
             has(a, pr, "not found message", "could not find")
 
@@ -194,42 +190,37 @@ def main():
             if not pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should be visible without opening anything")
             has(a, pr, "fee note", "3 sats", pg.inner_text("#ln-fee"))
             has(a, pr, "fee note says what the wallet will show", "wallet will show 1,503 sats", pg.inner_text("#ln-fee"))
-            if pg.get_attribute("#tab-ln", "aria-selected") != "true": pr.append("Lightning tab not selected")
-            pg.click("#other summary")
-            pg.click("#tab-bip321")
-            if not shown(a).startswith("bitcoin:"): pr.append("the combined code should show after choosing it")
-            if copied(a) != shown(a): pr.append("Copy should follow the combined code")
-            if pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should hide on other methods")
-            pg.click("#tab-ark")
-            if not shown(a).startswith("tark1"): pr.append("Ark address should show after choosing Ark")
+            if not pg.is_visible("#open-wallet"): pr.append("Lightning needs the 'Open in my wallet app' button")
+            if pg.get_attribute("#open-wallet", "href") != "lightning:" + BOLT: pr.append("the wallet button should open the Lightning invoice")
+            # One box under the code switches to Ark. Nothing else: no tabs, no combined code, no regular Bitcoin.
+            if not pg.is_visible("#ark-choice"): pr.append("the 'Ark (fast)' box must be visible under the code")
+            has(a, pr, "the box is labelled Ark (fast)", "Ark (fast)", pg.inner_text("#ark-choice"))
+            if pg.is_checked("#use-ark"): pr.append("the Ark box starts unticked")
+            if pg.query_selector("#other") or pg.query_selector(".tabs"): pr.append("there is no 'Other ways to pay' menu or tabs any more")
+            body = pg.inner_text("body").lower()
+            for gone in ("regular bitcoin (slower)", "one code, any wallet", "one code for any wallet"):
+                if gone in body: pr.append(f"'{gone}' must not be offered")
+            pg.check("#use-ark")
+            if not shown(a).startswith("tark1"): pr.append("Ark address should show after ticking the box")
             if copied(a) != shown(a): pr.append("Copy should follow Ark")
+            if pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should hide on Ark")
+            if pg.is_visible("#open-wallet"): pr.append("Ark has no wallet link, so the button hides")
             if not pg.is_visible("#ark-amount"): pr.append("Ark must show the 'type this amount' box")
             has(a, pr, "Ark amount box says the sats", "1,500 sats", pg.inner_text("#ark-amount"))
             has(a, pr, "Ark amount box says to type it", "type exactly", pg.inner_text("#ark-amount"))
             if pg.evaluate("parseFloat(getComputedStyle(document.getElementById('ark-sats')).fontSize)") < 30: pr.append("the Ark amount must be big")
             pg.evaluate("window.__copied = null"); pg.click("#copy-ark-amount"); pg.wait_for_timeout(100)
             if pg.evaluate("window.__copied") != "1500": pr.append(f"'Copy the number' should copy 1500, saw {pg.evaluate('window.__copied')}")
-            pg.click("#tab-chain")
+            pg.uncheck("#use-ark")
             if pg.is_visible("#ark-amount"): pr.append("the Ark amount box belongs to Ark only")
-            if shown(a) != "tb1qfakefakefakefakefake": pr.append(f"on-chain tab should show the plain address only, saw {shown(a)[:40]}")
-            CHAIN_URI = "bitcoin:tb1qfakefakefakefakefake?amount=0.00001500"
-            if copied(a) != CHAIN_URI: pr.append(f"Copy should copy the on-chain link with the amount, saw {copied(a)}")
-            if pg.get_attribute("#open-wallet", "href") != CHAIN_URI: pr.append("the wallet button and Copy must carry the same on-chain link")
-            if not pg.is_visible("#copy-addr"): pr.append("on-chain needs a 'Copy address only' button")
-            pg.evaluate("window.__copied = null")
-            pg.click("#copy-addr"); pg.wait_for_timeout(100)
-            if pg.evaluate("window.__copied") != "tb1qfakefakefakefakefake": pr.append("'Copy address only' should copy just the address")
-            if "bitcoin:" in shown(a): pr.append("the on-chain choice must not include the combined code")
-            pg.click("#tab-ark")
-            if pg.is_visible("#copy-addr"): pr.append("'Copy address only' belongs to on-chain only")
-            pg.click("#tab-chain")
-            pg.click("#tab-ln")
+            if shown(a) != BOLT: pr.append("unticking the box returns to the Lightning invoice")
             if copied(a) != BOLT: pr.append("Copy should follow back to Lightning")
 
         def c_no_ln(a, pr):
-            if not shown(a).startswith("bitcoin:"): pr.append(f"without Lightning the combined code shows first, saw {shown(a)[:40]}")
-            if a["page"].is_visible("#tab-ln"): pr.append("no Lightning tab without an invoice")
+            if not shown(a).startswith("tark1"): pr.append(f"without Lightning the Ark address shows, saw {shown(a)[:40]}")
+            if a["page"].is_visible("#ark-choice"): pr.append("no Ark box when Ark is the only way to pay")
             if a["page"].is_visible("#ln-fee"): pr.append("no fee note without Lightning")
+            if not a["page"].is_visible("#ark-amount"): pr.append("Ark must show the 'type this amount' box")
 
         def c_usd_sats(a, pr):
             pg = a["page"]
@@ -252,7 +243,7 @@ def main():
 
         TOPUP = {"status": "underpaid", "amount_sats": 1500, "received_sats": 600, "remaining_sats": 900,
                  "topup_window_open": True, "topup_closes_at_unix": int(time.time()) + 600}
-        TOPUP_INV = dict(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}, onchain_enabled=True, onchain_address="tb1qfakefakefakefakefake")
+        TOPUP_INV = dict(lightning={"bolt11": BOLT, "fee_estimate_sat": 3})
 
         def c_topup(a, pr):
             pg = a["page"]
@@ -262,16 +253,12 @@ def main():
             has(a, pr, "headline shows only what is missing", "900 sats to go", pg.inner_text("#amount"))
             has(a, pr, "received line", "600 sats of 1,500 sats received", pg.inner_text("#sats"))
             has(a, pr, "countdown is the top-up window", "Time left to send the rest", pg.inner_text("#countdown"))
-            if pg.is_visible("#tab-ln") or pg.is_visible("#tab-bip321"): pr.append("Lightning and the one-code link carry the full amount and must be hidden during a top-up")
-            if pg.get_attribute("#tab-ark", "aria-selected") != "true": pr.append("Ark should be selected for the top-up")
+            if pg.is_visible("#ark-choice"): pr.append("a Lightning invoice carries the full amount, so the box to switch is hidden during a top-up")
+            if pg.is_visible("#open-wallet"): pr.append("no Lightning link during a top-up")
             if not shown(a).startswith("tark1"): pr.append(f"the Ark address should be shown, saw {shown(a)[:30]}")
             has(a, pr, "top-up Ark box shows only what is still missing", "900 sats", pg.inner_text("#ark-amount"))
             if "1,500" in pg.inner_text("#ark-amount"): pr.append("the top-up box must not show the full price")
             has(a, pr, "says what to type", "type in 900 sats.", pg.inner_text("#method"))
-            pg.click("#other summary")
-            pg.click("#tab-chain")
-            want = "bitcoin:tb1qfakefakefakefakefake?amount=0.00000900"
-            if copied(a) != want: pr.append(f"on-chain top-up must carry only the missing amount, saw {copied(a)}")
 
         def c_topup_lapsed(a, pr):
             has(a, pr, "lapsed headline", "the rest didn't come in time")
@@ -301,23 +288,22 @@ def main():
             has(a, pr, "message clears when the server answers", "Waiting for your payment")
 
         cases = [
-            ("pending: waiting message, pay details shown", invoice(), [{"status": "pending", "onchain_confirmations": None}], c_pending),
+            ("pending: waiting message, pay details shown", invoice(), [{"status": "pending"}], c_pending),
             ("paid: thank-you, pay details hidden, 'Done' link", invoice(), [{"status": "paid"}], c_paid),
             ("overpaid: thank-you with a note about the extra", invoice(), [{"status": "overpaid"}], c_over),
             ("underpaid: asks the customer to contact the store", invoice(), [{"status": "underpaid"}], c_under),
             ("expired: message, pay details hidden, link back to try again", invoice(), [{"status": "expired"}], c_expired),
             ("cancelled: message, pay details hidden, link back", invoice(), [{"status": "cancelled"}], c_cancelled),
-            ("on-chain waiting: shows the confirmation count", invoice(), [{"status": "pending", "onchain_confirmations": 0, "onchain_confirmations_required": 1}], c_chain),
             ("unknown payment: plain 'could not find' message", 404, [{"status": "pending"}], c_nf),
             ("server unreachable: plain connection message", "abort", [{"status": "pending"}], c_net),
             ("status errors then recovery: the page keeps trying and shows paid", invoice(), [500, "abort", {"status": "paid"}], c_recover),
             ("hostile text and a javascript: link are inert", invoice(store_name=X, return_url="javascript:window.__xss=1", fiat_amount=X, amount_sats=10**18), [{"status": "pending"}], c_evil),
         ]
         cases += [
-            ("Lightning is shown first; Copy follows every way to pay; on-chain has no combined code",
-             invoice(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}, onchain_enabled=True, onchain_address="tb1qfakefakefakefakefake"),
+            ("Lightning is shown first; one 'Ark (fast)' box switches to Ark; nothing else is offered",
+             invoice(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}),
              [{"status": "pending"}], c_ln_first),
-            ("no Lightning invoice: the combined code is the default", invoice(), [{"status": "pending"}], c_no_ln),
+            ("no Lightning invoice: Ark is the only way to pay and there is no box", invoice(), [{"status": "pending"}], c_no_ln),
         ]
         cases += [
             ("sats-only payment shows dollars next to sats (and in the fee note)",
@@ -328,7 +314,7 @@ def main():
             ("no price known: no dollars, nothing broken", invoice(fiat_currency=None, fiat_amount=None, usd_per_btc=None), [{"status": "pending"}], c_usd_unknown),
         ]
         cases += [
-            ("underpaid with an open top-up window: part paid, amount missing, overpay guard, only rails that take a top-up",
+            ("underpaid with an open top-up window: part paid, amount missing, overpay guard, Ark only",
              invoice(**TOPUP_INV), [TOPUP], c_topup),
             ("underpaid after the window closed: honest message with a reference, no pay details",
              invoice(**TOPUP_INV), [dict(TOPUP, topup_window_open=False)], c_topup_lapsed),

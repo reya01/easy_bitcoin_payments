@@ -98,6 +98,8 @@ impl FromStr for InvoiceStatus {
 #[serde(rename_all = "snake_case")]
 pub enum Rail {
     Ark,
+    /// Not a way to pay an EBP invoice. Kept so money that still arrives on-chain
+    /// (and old payment records) can be read and shown to the merchant.
     Onchain,
     Lightning,
 }
@@ -151,7 +153,6 @@ pub struct Invoice {
     pub rate_source: Option<String>,
     pub rate_locked_at: Option<i64>,
     pub ark_address: String,
-    pub onchain_address: String,
     pub expires_at: i64,
     pub paid_at: Option<i64>,
     pub paid_sats: i64,

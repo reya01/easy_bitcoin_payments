@@ -64,8 +64,8 @@ use crate::error::AppError;
 use crate::models::Rail;
 
 use super::{
-    AspStatus, LightningInvoice, OnchainObservation, ReceiveAddresses, WalletAdapter, WalletError,
-    WalletHealth, WalletPayment, WalletVtxo,
+    AspStatus, LightningInvoice, ReceiveAddresses, WalletAdapter, WalletError, WalletHealth,
+    WalletPayment, WalletVtxo,
 };
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,8 @@ use super::{
 const PATH_CREATE_WALLET: &str = "/wallet/create";
 /// Fresh Ark receive address. POST.
 const PATH_ADDRESS_NEXT: &str = "/wallet/addresses/next";
-/// Fresh on-chain receive address. POST.
+/// Fresh on-chain address, used only to show where to send emergency-exit fee
+/// money (EBP never gives it to a customer). POST.
 const PATH_ONCHAIN_ADDRESS_NEXT: &str = "/onchain/addresses/next";
 /// On-chain and off-chain balances. GET. VERIFIED (barkd 0.8.0, signet,
 /// live wizard VERIFY pass) empty-wallet shape: `{"spendable_sat": 0,
@@ -99,8 +100,6 @@ const PATH_FEES_ONCHAIN: &str = "/fees/onchain";
 const PATH_VTXOS: &str = "/wallet/vtxos";
 /// Cursored wallet history (the watcher's payment source). GET.
 const PATH_HISTORY: &str = "/history";
-/// On-chain transactions of the wallet. GET.
-const PATH_ONCHAIN_TRANSACTIONS: &str = "/onchain/transactions";
 /// Chain tip (height + timestamp) for expiry-height conversion. GET.
 const PATH_BITCOIN_TIP: &str = "/bitcoin/tip";
 /// Ark send (settlement sweep to a same-ASP destination). POST.
@@ -544,7 +543,9 @@ impl BarkdClient {
         })
     }
 
-    /// Fresh on-chain receive address.
+    /// A fresh on-chain address of the server wallet, for the emergency exit's
+    /// fee money only (the merchant sends it from their own wallet). Never
+    /// shown to a customer: EBP takes no on-chain payments.
     // Shape pinned by docs/barkd-openapi.json (CI-checked); live-confirm in the signet drill.
     pub async fn onchain_address(&self) -> Result<String, WalletError> {
         let v: Json = self
@@ -557,14 +558,10 @@ impl BarkdClient {
         })
     }
 
-    /// Fresh receive pair for an invoice (Ark + on-chain fallback).
+    /// Fresh receive address for an invoice (Ark only: EBP takes no on-chain payments).
     pub async fn receive_addresses(&self) -> Result<ReceiveAddresses, WalletError> {
         let ark_address = self.ark_address().await?;
-        let onchain_address = self.onchain_address().await?;
-        Ok(ReceiveAddresses {
-            ark_address,
-            onchain_address,
-        })
+        Ok(ReceiveAddresses { ark_address })
     }
 
     // -- Balances / VTXOs ---------------------------------------------------
@@ -720,57 +717,6 @@ impl BarkdClient {
             timestamp: flex::i64_field(&v, &["timestamp", "time"])
                 .unwrap_or_else(crate::util::now_unix),
         })
-    }
-
-    /// Outputs paying any of `watch` (on-chain addresses), from
-    /// `GET /onchain/transactions` (WalletTxInfo: `txid`, raw `tx` hex,
-    /// `confirmation` = `{height, hash}` or null while in the mempool).
-    /// Confirmations = tip - height + 1. Fail closed: if the tip cannot be
-    /// read, nothing is reported rather than guessing a depth.
-    // VERIFY: live shape against signet (the pinned OpenAPI documents it).
-    pub async fn onchain_observations(
-        &self,
-        watch: &[String],
-    ) -> Result<Vec<super::OnchainObservation>, WalletError> {
-        let scripts: Vec<(&String, Vec<u8>)> = watch
-            .iter()
-            .filter_map(|a| crate::onchain::script_pubkey(a).map(|s| (a, s)))
-            .collect();
-        if scripts.is_empty() {
-            return Ok(Vec::new());
-        }
-        let txs: Json = self.get(PATH_ONCHAIN_TRANSACTIONS).await?;
-        let tip = self.bitcoin_tip().await?.height;
-        let mut out = Vec::new();
-        for t in txs.as_array().map(Vec::as_slice).unwrap_or_default() {
-            let (Some(txid), Some(raw)) = (
-                t.get("txid").and_then(Json::as_str),
-                t.get("tx").and_then(Json::as_str),
-            ) else {
-                continue;
-            };
-            let Some(outputs) = crate::onchain::tx_outputs(raw) else {
-                continue;
-            };
-            let confirmations = t
-                .get("confirmation")
-                .and_then(|c| c.get("height"))
-                .and_then(Json::as_i64)
-                .map(|h| (tip - h + 1).max(0))
-                .unwrap_or(0);
-            for (vout, (amount, script)) in outputs.iter().enumerate() {
-                if let Some((addr, _)) = scripts.iter().find(|(_, s)| s == script) {
-                    out.push(super::OnchainObservation {
-                        address: (*addr).clone(),
-                        txid: txid.to_string(),
-                        vout: vout as u32,
-                        amount_sats: *amount as i64,
-                        confirmations,
-                    });
-                }
-            }
-        }
-        Ok(out)
     }
 
     // -- Payment history ----------------------------------------------------
@@ -1872,12 +1818,6 @@ impl WalletAdapter for BarkdWallet {
             .collect())
     }
 
-    fn poll_onchain(&self, watch: &[String]) -> Result<Vec<OnchainObservation>, WalletError> {
-        let client = self.client.clone();
-        let watch = watch.to_vec();
-        self.block_on(async move { client.onchain_observations(&watch).await })
-    }
-
     fn health(&self) -> WalletHealth {
         let client = self.client.clone();
         match self.block_on(async move { client.connected().await }) {
@@ -2316,31 +2256,6 @@ mod tests {
         let b = client(&base).onchain_balance().await.unwrap();
         assert_eq!(b.confirmed_sats, 30_000);
         assert_eq!(b.unconfirmed_sats, 500);
-    }
-
-    #[tokio::test]
-    async fn onchain_observations_match_outputs_and_count_confirmations() {
-        const TX: &str = "010000000107070707070707070707070707070707070707070707070707070707070707070000000000ffffffff02c409000000000000160014751e76e8199196d454941c45d1b3a323f1433bd66300000000000000016a00000000";
-        let addr = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
-        let body = format!(
-            r#"[{{"txid": "aa", "tx": "{TX}", "balance_change_sat": 2500, "is_cpfp": false, "confirmation": {{"height": 798, "hash": "h"}}}},
-               {{"txid": "bb", "tx": "{TX}", "balance_change_sat": 2500, "is_cpfp": false, "confirmation": null}}]"#
-        );
-        let (base, _) = mock::spawn(move |req| match req.route() {
-            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
-            _ => (200, body.clone()),
-        });
-        let obs = client(&base)
-            .onchain_observations(&[addr.to_string(), "not-an-address".to_string()])
-            .await
-            .unwrap();
-        assert_eq!(obs.len(), 2);
-        assert_eq!(
-            (obs[0].txid.as_str(), obs[0].vout, obs[0].amount_sats),
-            ("aa", 0, 2500)
-        );
-        assert_eq!(obs[0].confirmations, 3, "tip 800, mined at 798");
-        assert_eq!(obs[1].confirmations, 0, "mempool = zero confirmations");
     }
 
     #[tokio::test]
@@ -2809,186 +2724,6 @@ mod tests {
         let health = wallet.health();
         assert!(!health.reachable);
         assert_eq!(health.asp, AspStatus::Unknown);
-    }
-
-    // -- End to end: real barkd client over a mock daemon -> watcher -> invoice --
-
-    const E2E_TX: &str = "010000000107070707070707070707070707070707070707070707070707070707070707070000000000ffffffff02c409000000000000160014751e76e8199196d454941c45d1b3a323f1433bd66300000000000000016a00000000";
-    const E2E_ADDR: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
-
-    async fn e2e_db(amount_sats: i64) -> (crate::db::Db, String) {
-        use crate::invoice::{self, NewInvoice};
-        let db = crate::db::Db::open(":memory:").unwrap();
-        let (store, _, _) = db
-            .call(|c| crate::store::create(c, "Shop", None))
-            .await
-            .unwrap();
-        let sid = store.id.clone();
-        db.call(move |c| {
-            invoice::insert(
-                c,
-                &NewInvoice {
-                    id: "inv_e2e".to_string(),
-                    store_id: sid,
-                    order_id: Some("o-1".to_string()),
-                    amount_sats,
-                    fiat_currency: None,
-                    fiat_amount: None,
-                    rate: None,
-                    rate_source: None,
-                    rate_locked_at: None,
-                    ark_address: "ark1qe2e".to_string(),
-                    onchain_address: E2E_ADDR.to_string(),
-                    expires_at: crate::util::now_unix() + 1200,
-                    confs_required: 1,
-                    metadata_json: "{}".to_string(),
-                },
-            )
-        })
-        .await
-        .unwrap();
-        (db, store.id)
-    }
-
-    fn e2e_watcher(base: String, db: &crate::db::Db) -> crate::watcher::PollingWatcher {
-        let wallet = BarkdWallet::new(BarkdConfig::new(base, "t")).unwrap();
-        crate::watcher::PollingWatcher::new(
-            std::sync::Arc::new(wallet),
-            db.clone(),
-            std::sync::Arc::new(crate::webhook::WebhookEmitter::new(1)),
-            std::time::Duration::from_secs(1),
-            604_800,
-        )
-        .with_onchain_rail(true)
-        .with_onchain_min_confirmations(1)
-    }
-
-    fn e2e_tx_list(entries: &[(&str, Option<i64>)]) -> String {
-        let items: Vec<String> = entries
-            .iter()
-            .map(|(txid, height)| {
-                let conf = match height {
-                    Some(h) => format!(r#"{{"height": {h}, "hash": "h"}}"#),
-                    None => "null".to_string(),
-                };
-                format!(
-                    r#"{{"txid": "{txid}", "tx": "{E2E_TX}", "balance_change_sat": 2500, "is_cpfp": false, "confirmation": {conf}}}"#
-                )
-            })
-            .collect();
-        format!("[{}]", items.join(","))
-    }
-
-    async fn e2e_invoice(
-        db: &crate::db::Db,
-        store_id: &str,
-    ) -> (crate::models::InvoiceStatus, i64) {
-        let sid = store_id.to_string();
-        let inv = db
-            .call(move |c| crate::invoice::get(c, &sid, "inv_e2e"))
-            .await
-            .unwrap()
-            .unwrap();
-        (inv.status, inv.paid_sats)
-    }
-
-    #[tokio::test]
-    async fn e2e_mempool_then_confirmed_credits_exactly_once() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        let phase = std::sync::Arc::new(AtomicUsize::new(0));
-        let p = phase.clone();
-        let (base, _) = mock::spawn(move |req| match req.route() {
-            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
-            _ => match p.load(Ordering::SeqCst) {
-                0 => (200, e2e_tx_list(&[("aa", None)])),
-                _ => (200, e2e_tx_list(&[("aa", Some(800))])),
-            },
-        });
-        let (db, sid) = e2e_db(2500).await;
-        let w = e2e_watcher(base, &db);
-        assert_eq!(w.tick().await.unwrap(), 0, "mempool is not money");
-        assert_eq!(
-            e2e_invoice(&db, &sid).await.0,
-            crate::models::InvoiceStatus::Pending
-        );
-        phase.store(1, Ordering::SeqCst);
-        assert_eq!(w.tick().await.unwrap(), 1);
-        assert_eq!(w.tick().await.unwrap(), 0, "never credited twice");
-        assert_eq!(
-            e2e_invoice(&db, &sid).await,
-            (crate::models::InvoiceStatus::Paid, 2500)
-        );
-    }
-
-    #[tokio::test]
-    async fn e2e_rbf_replacement_is_credited_once_not_twice() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        let phase = std::sync::Arc::new(AtomicUsize::new(0));
-        let p = phase.clone();
-        let (base, _) = mock::spawn(move |req| match req.route() {
-            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
-            _ => match p.load(Ordering::SeqCst) {
-                // The sender first broadcasts "aa" ...
-                0 => (200, e2e_tx_list(&[("aa", None)])),
-                // ... then replaces it with "bb", which confirms; "aa" is gone.
-                _ => (200, e2e_tx_list(&[("bb", Some(800))])),
-            },
-        });
-        let (db, sid) = e2e_db(2500).await;
-        let w = e2e_watcher(base, &db);
-        assert_eq!(w.tick().await.unwrap(), 0);
-        phase.store(1, Ordering::SeqCst);
-        w.tick().await.unwrap();
-        w.tick().await.unwrap();
-        assert_eq!(
-            e2e_invoice(&db, &sid).await,
-            (crate::models::InvoiceStatus::Paid, 2500),
-            "the replacement counts once; the dropped original never counts"
-        );
-    }
-
-    #[tokio::test]
-    async fn e2e_barkd_outage_fails_closed_then_recovers() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        let phase = std::sync::Arc::new(AtomicUsize::new(0));
-        let p = phase.clone();
-        let (base, _) = mock::spawn(move |req| match (req.route(), p.load(Ordering::SeqCst)) {
-            (_, 0) => (500, r#"{"error":"boom"}"#.to_string()),
-            ("/api/v1/bitcoin/tip", _) => (200, r#"{"tip_height": 800}"#.to_string()),
-            _ => (200, e2e_tx_list(&[("aa", Some(790))])),
-        });
-        let (db, sid) = e2e_db(2500).await;
-        let w = e2e_watcher(base, &db);
-        // A full outage makes the whole tick fail (the run loop logs and retries).
-        assert!(
-            w.tick().await.is_err(),
-            "outage is surfaced, never swallowed as success"
-        );
-        assert_eq!(
-            e2e_invoice(&db, &sid).await.0,
-            crate::models::InvoiceStatus::Pending
-        );
-        phase.store(1, Ordering::SeqCst);
-        assert_eq!(w.tick().await.unwrap(), 1, "recovers on the next poll");
-        assert_eq!(
-            e2e_invoice(&db, &sid).await.0,
-            crate::models::InvoiceStatus::Paid
-        );
-    }
-
-    #[tokio::test]
-    async fn e2e_underpayment_is_not_marked_paid() {
-        let (base, _) = mock::spawn(move |req| match req.route() {
-            "/api/v1/bitcoin/tip" => (200, r#"{"tip_height": 800}"#.to_string()),
-            _ => (200, e2e_tx_list(&[("aa", Some(800))])),
-        });
-        // The invoice asks for 5000 sats; the chain shows 2500.
-        let (db, sid) = e2e_db(5000).await;
-        let w = e2e_watcher(base, &db);
-        w.tick().await.unwrap();
-        let (status, paid) = e2e_invoice(&db, &sid).await;
-        assert_ne!(status, crate::models::InvoiceStatus::Paid);
-        assert_eq!(paid, 2500);
     }
 
     #[test]

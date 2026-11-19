@@ -142,8 +142,8 @@ Still fix the address: until you do, every order waits up to an hour.
 ## What your customers see
 
 They pick **Bitcoin** at checkout and land on your payment server's checkout
-page (Ark; Lightning when your Ark server offers it; on-chain only if you
-turned it on). Underpaying keeps the order on hold for a
+page (Lightning first when your Ark server offers it, with one box to pay with
+Ark instead; there is no regular on-chain payment). Underpaying keeps the order on hold for a
 short top-up window; if the invoice expires unpaid, the order is cancelled and
 stock is released. If a payment arrives after the order was cancelled, the
 order notes say so, so you can decide what to do (see **Payments that need

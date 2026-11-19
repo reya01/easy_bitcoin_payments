@@ -146,9 +146,9 @@ This step is optional but recommended. Setup's last page and the admin Home both
    Lightning payment, with the amount in sats and its dollar value.
 2. In your wallet choose Send, scan the QR and confirm. The page flips to
    **Paid** within seconds.
-3. To pay another way, open **Other ways to pay** on the checkout page: one code
-   that works in most wallets, an Ark address, or a regular Bitcoin address. The
-   **Copy** button always copies what is shown.
+3. To pay with Ark instead, tick the **Ark (fast)** box under the code on the
+   checkout page. Your wallet must support Ark. The **Copy** button always copies
+   what is shown. EBP takes no regular (on-chain) Bitcoin payments.
 
 ## 6. Connect your shop
 

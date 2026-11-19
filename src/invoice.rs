@@ -19,7 +19,6 @@ pub struct NewInvoice {
     pub rate_source: Option<String>,
     pub rate_locked_at: Option<i64>,
     pub ark_address: String,
-    pub onchain_address: String,
     pub expires_at: i64,
     pub confs_required: i64,
     pub metadata_json: String,
@@ -122,7 +121,7 @@ pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> 
             rate, rate_source, rate_locked_at, ark_address, onchain_address, expires_at,
             paid_at, paid_sats, confs_required, metadata_json, created_at
          ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, 0, ?14, ?15, ?16
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', ?12, NULL, 0, ?13, ?14, ?15
          )",
         params![
             new.id,
@@ -136,7 +135,6 @@ pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> 
             new.rate_source,
             new.rate_locked_at,
             new.ark_address,
-            new.onchain_address,
             new.expires_at,
             new.confs_required,
             new.metadata_json,
@@ -310,7 +308,6 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
         invoice.status,
         InvoiceStatus::Pending | InvoiceStatus::Underpaid
     ) && now_unix() >= invoice.expires_at
-        && !on_chain_hold(conn, &invoice.id)?
     {
         conn.execute(
             "UPDATE invoices SET status = ?1 WHERE id = ?2 AND status IN ('pending', 'underpaid')",
@@ -329,31 +326,19 @@ pub fn expire_if_due(conn: &Connection, id: &str) -> Result<Option<Invoice>, App
     Ok(Some(invoice))
 }
 
-/// SQL fragment: this invoice has an on-chain payment first seen by the
-/// deadline (plus skew grace) and is still inside the 24h hold window past
-/// `expires_at` (a replaced/never-confirming payment cannot hold it forever).
-const ONCHAIN_HOLD_SQL: &str = "EXISTS (SELECT 1 FROM onchain_seen s
-        WHERE s.invoice_id = invoices.id
-          AND s.first_seen_at <= invoices.expires_at + 120
-          AND ?1 < invoices.expires_at + 86400)";
-
 /// Expire every pending or underpaid invoice whose rate lock has lapsed.
 ///
 /// Returns the invoices flipped to `expired` by this call with their `status`
 /// field already updated, so the watcher can emit `invoice.expired` webhooks
 /// from them. Without this sweep, an invoice whose checkout page is never
 /// opened would stay `pending` in the database forever.
-///
-/// An invoice with an on-chain payment seen before the deadline is held open
-/// (up to 24h) while that payment waits for its confirmation.
 pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
     let now = now_unix();
     let due: Vec<Invoice> = {
-        let mut stmt = conn.prepare(&format!(
+        let mut stmt = conn.prepare(
             "SELECT * FROM invoices
-                 WHERE status IN ('pending', 'underpaid') AND expires_at <= ?1
-                   AND NOT {ONCHAIN_HOLD_SQL}"
-        ))?;
+                 WHERE status IN ('pending', 'underpaid') AND expires_at <= ?1",
+        )?;
         let rows = stmt.query_map(params![now], row_to_invoice)?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
@@ -373,84 +358,10 @@ pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
     Ok(expired)
 }
 
-/// Is this invoice being held open for a seen-but-unconfirmed on-chain payment?
-pub fn on_chain_hold(conn: &Connection, invoice_id: &str) -> Result<bool, AppError> {
-    let held: bool = conn.query_row(
-        &format!("SELECT {ONCHAIN_HOLD_SQL} FROM invoices WHERE id = ?2"),
-        params![now_unix(), invoice_id],
-        |r| r.get(0),
-    )?;
-    Ok(held)
-}
-
-/// Confirmation depth of the best-confirmed on-chain payment seen for an
-/// invoice, or `None` if none was seen. Drives the checkout's "waiting for
-/// confirmation" message.
-pub fn onchain_seen_depth(conn: &Connection, invoice_id: &str) -> Result<Option<i64>, AppError> {
-    conn.query_row(
-        "SELECT MAX(confirmations) FROM onchain_seen WHERE invoice_id = ?1",
-        params![invoice_id],
-        |r| r.get(0),
-    )
-    .map_err(Into::into)
-}
-
-/// On-chain addresses worth watching: open invoices, plus recently expired
-/// ones so a late confirmation is parked for the merchant instead of lost.
-pub fn onchain_watch_addresses(conn: &Connection) -> Result<Vec<String>, AppError> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT onchain_address FROM invoices
-         WHERE onchain_address != ''
-           AND (status IN ('pending', 'underpaid')
-                OR (status = 'expired' AND expires_at > ?1))",
-    )?;
-    let rows = stmt.query_map(params![now_unix() - 30 * 86_400], |r| r.get(0))?;
-    Ok(rows.collect::<Result<Vec<String>, _>>()?)
-}
-
-/// Record an observed on-chain output for the invoice owning `address`.
-/// Returns the time it was FIRST seen, or `None` if no invoice owns it.
-pub fn note_onchain_seen(
-    conn: &Connection,
-    o: &crate::wallet::OnchainObservation,
-) -> Result<Option<i64>, AppError> {
-    let Some(invoice_id) = conn
-        .query_row(
-            "SELECT id FROM invoices WHERE onchain_address = ?1
-             ORDER BY created_at DESC LIMIT 1",
-            params![o.address],
-            |r| r.get::<_, String>(0),
-        )
-        .optional()?
-    else {
-        return Ok(None);
-    };
-    conn.execute(
-        "INSERT INTO onchain_seen
-           (invoice_id, txid, vout, amount_sats, first_seen_at, confirmations)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-         ON CONFLICT(txid, vout) DO UPDATE SET confirmations = excluded.confirmations",
-        params![
-            invoice_id,
-            o.txid,
-            o.vout,
-            o.amount_sats,
-            now_unix(),
-            o.confirmations
-        ],
-    )?;
-    let first: i64 = conn.query_row(
-        "SELECT first_seen_at FROM onchain_seen WHERE txid = ?1 AND vout = ?2",
-        params![o.txid, o.vout],
-        |r| r.get(0),
-    )?;
-    Ok(Some(first))
-}
-
 /// Find the open invoice (pending, or underpaid — the caller enforces the
 /// top-up window) that a received payment belongs to, by address.
 ///
-/// Till-issued keys only: the Ark receive address, the on-chain fallback,
+/// Till-issued keys only: the Ark receive address,
 /// or — for LN receives, whose movements carry the BOLT11 in `received_on`
 /// (drill 2026-11-01: destination type "invoice") — the BOLT11 this server
 /// issued into `ln_invoices`. `sent_to` is never searched.
@@ -461,7 +372,7 @@ pub fn find_pending_by_address(
     conn.query_row(
         "SELECT * FROM invoices
          WHERE status IN ('pending', 'underpaid')
-           AND (ark_address = ?1 OR onchain_address = ?1
+           AND (ark_address = ?1
                 OR id = (SELECT invoice_id FROM ln_invoices
                          WHERE bolt11 = ?1 LIMIT 1))
          ORDER BY created_at DESC LIMIT 1",
@@ -486,7 +397,7 @@ pub fn find_creditable_by_address(
         "SELECT * FROM invoices
          WHERE (status IN ('pending', 'underpaid')
                 OR (status = 'expired' AND ?2 <= expires_at + ?3))
-           AND (ark_address = ?1 OR onchain_address = ?1
+           AND (ark_address = ?1
                 OR id = (SELECT invoice_id FROM ln_invoices
                          WHERE bolt11 = ?1 LIMIT 1))
          ORDER BY (status = 'expired'), created_at DESC LIMIT 1",
@@ -543,7 +454,8 @@ pub struct UnmatchedInput<'a> {
     pub vtxo_id: Option<&'a str>,
     pub txid: Option<&'a str>,
     pub detected_at: i64,
-    /// Force a specific `reason` (e.g. `onchain_rail_disabled`); `None`
+    /// Force a specific `reason` (e.g. `onchain_rail_disabled`, used for money that
+    /// still arrives on-chain); `None`
     /// derives `invoice_expired` / `invoice_closed` from the invoice status.
     pub reason_override: Option<&'a str>,
 }
@@ -588,7 +500,10 @@ pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<boo
     let found: Option<(String, String)> = conn
         .query_row(
             "SELECT id, status FROM invoices
-             WHERE ark_address = ?1 OR onchain_address = ?1
+             WHERE ark_address = ?1
+                -- Old invoices kept the on-chain address they were given before
+                -- EBP stopped taking on-chain payments; newer ones hold ''.
+                OR (onchain_address != '' AND onchain_address = ?1)
                 OR id = (SELECT invoice_id FROM ln_invoices WHERE bolt11 = ?1 LIMIT 1)
              ORDER BY created_at DESC LIMIT 1",
             params![address],
@@ -598,8 +513,8 @@ pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<boo
     let Some((invoice_id, status)) = found else {
         return Ok(false);
     };
-    // `reason_override` lets the watcher park payments that arrive on a rail
-    // that is switched off (e.g. `onchain_rail_disabled`) even though the
+    // `reason_override` lets the watcher park payments that arrive on a way
+    // EBP does not accept (e.g. `onchain_rail_disabled`) even though the
     // invoice itself is still pending.
     let reason = match reason_override {
         Some(reason) => reason,
@@ -896,7 +811,6 @@ fn row_to_invoice(row: &rusqlite::Row<'_>) -> rusqlite::Result<Invoice> {
         rate_source: row.get("rate_source")?,
         rate_locked_at: row.get("rate_locked_at")?,
         ark_address: row.get("ark_address")?,
-        onchain_address: row.get("onchain_address")?,
         expires_at: row.get("expires_at")?,
         paid_at: row.get("paid_at")?,
         paid_sats: row.get("paid_sats")?,
@@ -953,7 +867,6 @@ mod tests {
             rate_source: Some("static(config)".to_string()),
             rate_locked_at: Some(now_unix()),
             ark_address: format!("ark1q{id}"),
-            onchain_address: format!("bc1q{id}"),
             expires_at: now_unix() + 1200,
             confs_required: 1,
             metadata_json: "{}".to_string(),
@@ -1279,7 +1192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn find_pending_by_address_matches_both_rails() {
+    async fn find_pending_by_address_matches_ark_only_and_never_an_empty_address() {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();
         db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
@@ -1292,11 +1205,19 @@ mod tests {
             .unwrap();
         assert_eq!(by_ark.map(|i| i.id), Some("inv_1".to_string()));
 
+        // On-chain addresses are no longer a way to pay, so nothing matches one.
         let by_chain = db
             .call(|conn| find_pending_by_address(conn, "bc1qinv_1"))
             .await
             .unwrap();
-        assert_eq!(by_chain.map(|i| i.id), Some("inv_1".to_string()));
+        assert!(by_chain.is_none());
+
+        // Invoices store an empty on-chain address now; "" must never match an order.
+        let by_empty = db
+            .call(|conn| find_pending_by_address(conn, ""))
+            .await
+            .unwrap();
+        assert!(by_empty.is_none());
 
         let missing = db
             .call(|conn| find_pending_by_address(conn, "ark1qunknown"))

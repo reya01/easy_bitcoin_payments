@@ -19,7 +19,7 @@ CASES = [
     ("unknown command", {}, ["frobnicate"], "", True, ["unknown command"]),
     ("bind address that is not an address", {"EBP_BIND_ADDR": "notanaddress"}, ["serve"], "", True, ["EBP_BIND_ADDR"]),
     ("mode that does not exist", {"EBP_MODE": "banana"}, ["serve"], "", True, ["banana", "EBP_MODE"]),
-    ("true/false setting with a wrong word", {"EBP_ONCHAIN_RAIL_ENABLED": "maybe"}, ["serve"], "", True, ["EBP_ONCHAIN_RAIL_ENABLED"]),
+    ("true/false setting with a wrong word", {"EBP_MANAGED_BARKD": "maybe"}, ["serve"], "", True, ["EBP_MANAGED_BARKD"]),
     ("number setting with letters", {"EBP_DEFAULT_EXPIRY_MINUTES": "soon"}, ["serve"], "", True, ["EBP_DEFAULT_EXPIRY_MINUTES"]),
     ("interval of zero", {"EBP_WATCHER_INTERVAL_SECS": "0"}, ["serve"], "", True, ["EBP_WATCHER_INTERVAL_SECS"]),
     ("payout address that is not an address", {"EBP_SETTLEMENT_DESTINATION": "notanaddress"}, ["serve"], "", True, []),

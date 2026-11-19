@@ -71,7 +71,6 @@ async fn insert_test_invoice(state: &AppState) {
                     rate_source: None,
                     rate_locked_at: None,
                     ark_address: "tark1qwiring".to_string(),
-                    onchain_address: "bc1qwiring".to_string(),
                     expires_at: now_unix() + 1200,
                     confs_required: 1,
                     metadata_json: "{}".to_string(),
@@ -145,10 +144,7 @@ async fn page_facing_routes_actually_answer_on_the_served_router() {
         .await
         .unwrap();
     assert_eq!(body["amount_sats"], 1000);
-    assert!(body["bip321"]
-        .as_str()
-        .map(|s| s.starts_with("bitcoin:"))
-        .unwrap_or(false));
+    assert_eq!(body["ark_address"], "tark1qwiring");
 
     // 2. The checkout page itself serves (200 HTML).
     let page = client

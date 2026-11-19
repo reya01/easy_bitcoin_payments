@@ -18,7 +18,7 @@ what to check first.
 | Check | What it covers |
 | --- | --- |
 | build, tests, clippy, fmt | The Rust code, including unit tests |
-| Browser end-to-end | Setup wizard, recovery-words quiz, admin login, Ark payment, on-chain payment and replacement, outage and a hung wallet, restart, underpay, test payment, encrypted backup, payout change, every request matches barkd's pinned API spec |
+| Browser end-to-end | Setup wizard, recovery-words quiz, admin login, Ark payment, no on-chain way to pay, outage and a hung wallet, restart, underpay, test payment, encrypted backup, payout change, every request matches barkd's pinned API spec |
 | WooCommerce end-to-end | A real WordPress + WooCommerce: checkout redirect, forged notice refused, partial and full payment, repeat notice ignored, return link, shop-side tripwire, changed order total not auto-paid |
 | Upgrade and restore | Previous build upgraded in place keeps data; encrypted backup, verify (wrong password refused) and restore |
 | DigitalOcean rehearsal | The paste-in setup run on a clean Ubuntu 24.04 machine, minus the real internet certificate |
@@ -35,8 +35,8 @@ open box.
 
 - [ ] **Signet drill** (`SIGNET_DRILL.md`): the real barkd, a real Ark server
       and a phone wallet. Biggest gap. Until it is done the first-run wizard
-      with the real wallet daemon, the shape of real payments, and the
-      on-chain rail are unconfirmed.
+      with the real wallet daemon and the shape of real payments are
+      unconfirmed.
 - [ ] **DigitalOcean on a real droplet**: paste `deploy/cloud-init.yaml`, wait,
       read the Console, finish setup in a phone browser. Note exactly what the
       Console showed and how long it took. This is the first test of the real

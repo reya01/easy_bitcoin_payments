@@ -41,8 +41,6 @@ pub struct InvoiceResponse {
     pub rate_locked_at: Option<String>,
     pub checkout_url: String,
     pub ark_address: String,
-    /// `null` while the on-chain rail is disabled (the default).
-    pub onchain_address: Option<String>,
     /// BOLT11 invoice from the ASP's Lightning gateway, when one exists.
     pub lightning_invoice: Option<String>,
     /// Estimated Lightning gateway fee for this invoice, in sats, fetched
@@ -66,7 +64,6 @@ fn to_response(
     lightning_invoice: Option<String>,
 ) -> InvoiceResponse {
     let base_url = config.public_base_url.as_str();
-    let onchain_enabled = config.onchain_rail_enabled;
     let metadata = serde_json::from_str(&invoice.metadata_json)
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
 
@@ -82,7 +79,6 @@ fn to_response(
         rate_locked_at: invoice.rate_locked_at.map(to_rfc3339),
         checkout_url: format!("{}/i/{}", base_url.trim_end_matches('/'), invoice.id),
         ark_address: invoice.ark_address.clone(),
-        onchain_address: onchain_enabled.then(|| invoice.onchain_address.clone()),
         lightning_invoice,
         lightning_fee_estimate_sat: metadata
             .get("lightning_fee_estimate_sat")
@@ -126,7 +122,7 @@ pub fn valid_return_url(u: &str) -> bool {
 
 /// Ask barkd for the ASP gateway's Lightning receive fee for `amount_sats`.
 /// Best effort: any transport or HTTP failure is logged (without secrets)
-/// and yields `None` — the checkout stays usable over Ark and on-chain.
+/// and yields `None` — the checkout stays usable over Ark.
 /// One shared client for the fee lookup (connection reuse) with a short
 /// timeout: it runs inline in invoice creation and is best effort, so a slow
 /// barkd must not add more than a few seconds (R11).
@@ -570,7 +566,6 @@ pub async fn create(
         rate_source,
         rate_locked_at,
         ark_address: addresses.ark_address,
-        onchain_address: addresses.onchain_address,
         expires_at: now + expiry_minutes * 60,
         confs_required: 1,
         metadata_json,
@@ -583,7 +578,7 @@ pub async fn create(
 
     // Lightning receive (Phase 1): ask the wallet for an LN invoice through
     // the ASP's gateway. Best effort — when the gateway is unavailable the
-    // checkout still works over Ark and on-chain.
+    // checkout still works over Ark.
     let lightning_invoice = if state.config.lightning_receive_enabled {
         let ln_result = {
             let wallet = state.wallet.clone();
@@ -637,7 +632,7 @@ pub async fn create(
             Err(err) => {
                 tracing::warn!(
                     error = %err,
-                    "lightning invoice unavailable; checkout continues with ark + on-chain"
+                    "lightning invoice unavailable; checkout continues with Ark only"
                 );
                 None
             }

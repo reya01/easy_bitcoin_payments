@@ -15,8 +15,9 @@ pub mod settlement;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiveAddresses {
+    /// The only receive address an invoice gets. EBP takes no regular
+    /// (on-chain) Bitcoin payments: customers pay over Lightning or Ark.
     pub ark_address: String,
-    pub onchain_address: String,
 }
 
 #[derive(Debug, Clone)]
@@ -29,17 +30,6 @@ pub struct WalletPayment {
     pub txid: Option<String>,
     pub detected_at: i64,
     pub confirmed_at: Option<i64>,
-}
-
-/// An output paying one of the watched on-chain addresses, with its depth.
-/// `confirmations` is 0 while the transaction is only in the mempool.
-#[derive(Debug, Clone)]
-pub struct OnchainObservation {
-    pub address: String,
-    pub txid: String,
-    pub vout: u32,
-    pub amount_sats: i64,
-    pub confirmations: i64,
 }
 
 /// A VTXO currently held by the wallet, with its own expiry — the source of
@@ -110,7 +100,7 @@ pub enum WalletError {
 /// // daemon for webshops/payment processors; the SDK is for on-device keys.
 /// // The trait goes async in Phase 1; method semantics stay as documented here.
 pub trait WalletAdapter: Send + Sync {
-    /// Derive a fresh receive address pair for an invoice.
+    /// A fresh Ark receive address for an invoice.
     fn receive_addresses(&self, invoice_id: &str) -> Result<ReceiveAddresses, WalletError>;
 
     /// Current spendable balance of the server till, in sats.
@@ -118,15 +108,6 @@ pub trait WalletAdapter: Send + Sync {
 
     /// Payments observed at or after `since` (UNIX seconds).
     fn poll_payments(&self, since: i64) -> Result<Vec<WalletPayment>, WalletError>;
-
-    /// Outputs paying any of the `watch` on-chain addresses, mempool and
-    /// mined, with their confirmation depth. Wallets without an on-chain
-    /// view return nothing, which means on-chain payments are never
-    /// credited (fail closed).
-    fn poll_onchain(&self, watch: &[String]) -> Result<Vec<OnchainObservation>, WalletError> {
-        let _ = watch;
-        Ok(Vec::new())
-    }
 
     /// Wallet and ASP reachability for `GET /api/v1/health`.
     fn health(&self) -> WalletHealth;
@@ -140,7 +121,7 @@ pub trait WalletAdapter: Send + Sync {
 
     /// Best-effort Lightning invoice via the ASP's gateway. Callers must
     /// degrade gracefully when this fails: checkout stays functional with
-    /// Ark and on-chain alone.
+    /// Ark alone.
     /// `expiry_secs`: how long the invoice may be paid for (the payment
     /// request's own lifetime, so nobody pays an expired order).
     fn lightning_invoice(
@@ -186,7 +167,6 @@ impl WalletAdapter for StubWallet {
     fn receive_addresses(&self, invoice_id: &str) -> Result<ReceiveAddresses, WalletError> {
         Ok(ReceiveAddresses {
             ark_address: derive(invoice_id, "ark1qstub"),
-            onchain_address: derive(invoice_id, "bc1qstub"),
         })
     }
 
@@ -221,9 +201,7 @@ mod tests {
 
         assert_eq!(a, b);
         assert_ne!(a.ark_address, c.ark_address);
-        assert_ne!(a.onchain_address, c.onchain_address);
         assert!(a.ark_address.starts_with("ark1qstub"));
-        assert!(a.onchain_address.starts_with("bc1qstub"));
     }
 
     #[test]

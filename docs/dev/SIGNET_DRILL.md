@@ -37,19 +37,15 @@ Tick every box before you start the clock. Anything unticked wastes the drill.
 **Install exactly as a customer would** (this tests the docs too)
 - [ ] Follow `docs/START_HERE.md` word for word, including the `.env` lines.
       Note anything you had to guess or that did not match the screen.
-- [ ] For the on-chain steps set `EBP_ONCHAIN_RAIL_ENABLED=true` in `.env`
-      (and restart with `./scripts/start.sh`).
 
 **While you test**
 - [ ] Run `./scripts/drill_capture.sh` right after each of: 1.3 (wallet
-      created), 2.2 (first Ark payment), 3.2 (first confirmed on-chain
-      payment), 6.1 (sweep). It saves barkd's real answers and the barkd data
+      created), 2.2 (first Ark payment), 6.1 (sweep). It saves barkd's real answers and the barkd data
       folder listing into a file (no secrets in it); keep all of them.
 - [ ] Take a screenshot (words hidden!) or note of anything confusing.
 
 **What this drill is for.** It answers the things nothing else can: the real
-shape of an Ark payment in barkd's history (step 2.2), the real on-chain
-transaction shape (3.x), what barkd's data folder really contains (5.6), what a
+shape of an Ark payment in barkd's history (step 2.2), what barkd's data folder really contains (5.6), what a
 sweep returns (6.1), and whether a beginner can follow `START_HERE.md`.
 
 ## 1. First run (managed barkd)
@@ -88,23 +84,16 @@ the invoice was NOT credited, the shape differs: that is the bug to fix first.
 Also confirm: `GET /api/v1/history` returns the shape the parser expects (the
 payment is attributed to the right invoice, not parked as unmatched).
 
-## 3. On-chain payments (off by default; the main unknown)
+## 3. On-chain payments (removed)
 
-The on-chain path reads `GET /onchain/transactions` and matches outputs by
-script. Its response shape is **unverified against a live daemon**.
+EBP takes no regular (on-chain) Bitcoin payments any more: the checkout offers
+Lightning (default) and Ark only, and the old on-chain steps are gone. The
+payout sweep to your own on-chain address is tested in step 6.
 
 | # | Do | Expect |
 |---|----|--------|
-| 3.1 | Pay the invoice's on-chain address, do not wait for a block | In the mempool: **not** credited; invoice still pending |
-| 3.2 | Wait for 1 confirmation | Credited exactly once; webhook once |
-| 3.3 | Pay on-chain with a replaceable (RBF) transaction, then replace it with a higher fee | Credited once, for the amount actually mined |
-| 3.4 | Expire an invoice **after** broadcasting but **before** a block | Still credited (first seen in time) |
-| 3.5 | Send two payments to the same address | Both counted; no double credit of either |
-
-Capture one real `/onchain/transactions` response (redact nothing needed; it
-holds no secrets) and compare to the `confirmation: {height, hash}` and `tx`
-(raw hex) fields in `src/wallet/barkd.rs`. If the shape differs, that is the
-bug to fix before enabling the rail.
+| 3.1 | Open the checkout page of a test payment | One QR (Lightning), one **Ark (fast)** box under it, no "Other ways to pay", no regular Bitcoin address |
+| 3.2 | Tick **Ark (fast)** | The Ark address and the "type exactly" amount box show; unticking returns to Lightning |
 
 ## 4. Admin page, alerts, webhooks
 

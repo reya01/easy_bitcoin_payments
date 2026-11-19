@@ -210,9 +210,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         webhooks,
         std::time::Duration::from_secs(config.watcher_interval_secs),
         config.renewal_lead_time_secs as i64,
-    )
-    .with_onchain_rail(config.onchain_rail_enabled)
-    .with_onchain_min_confirmations(config.onchain_min_confirmations as i64);
+    );
     // Rolling cleanup of operational logs (never invoices or payments).
     tokio::spawn(easy_bitcoin_payments::retention::run(db.clone()));
     let watcher_handle = tokio::spawn(watcher.run());

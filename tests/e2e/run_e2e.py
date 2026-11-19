@@ -131,7 +131,6 @@ def start_ebp():
         "EBP_BARKD_TOKEN": TOKEN,
         "EBP_WATCHER_INTERVAL_SECS": "1",
         "EBP_SETTLEMENT_INTERVAL_SECS": "3600",
-        "EBP_ONCHAIN_RAIL_ENABLED": "true",
         "EBP_SETUP_TOKEN": SETUP_CODE,
         "EBP_WEBHOOK_ALLOW_PRIVATE": "1",
         # Lets a step pretend to be a different visitor (X-Forwarded-For), so the
@@ -564,29 +563,16 @@ def main():
             mine = [d for d in rows if d["invoice_id"] == inv["id"] and d["event"] == "invoice.paid"]
             assert mine[0]["status"] == "delivered", mine[0]
 
-        @step("on-chain: mempool is not credited, one confirmation credits exactly once")
+        @step("no on-chain way to pay: the invoice and the checkout data carry only Ark and Lightning")
         def _():
-            inv = new_invoice("oc-1", 4000)
-            ctl(action="pay_onchain", address=inv["onchain_address"], sats=4000, txid="a" * 64)
-            time.sleep(4)
-            assert status_of(inv)["status"] == "pending", "unconfirmed payment must not be credited"
-            ctl(action="mine", blocks=1)
-            got = wait_for(lambda: status_of(inv)["status"] == "paid" and status_of(inv), "on-chain paid after a block")
-            assert got["paid_sats"] == 4000, got
-            ctl(action="mine", blocks=2)
-            time.sleep(3)
-            assert status_of(inv)["paid_sats"] == 4000, "must not double-credit as it gains confirmations"
-
-        @step("on-chain RBF: replaced transaction is credited once, for the mined amount")
-        def _():
-            inv = new_invoice("oc-rbf", 3000)
-            ctl(action="pay_onchain", address=inv["onchain_address"], sats=3000, txid="b" * 64)
-            time.sleep(3)
-            ctl(action="pay_onchain", address=inv["onchain_address"], sats=3000, txid="c" * 64, replaces="b" * 64)
-            ctl(action="mine", blocks=1)
-            got = wait_for(lambda: status_of(inv)["status"] == "paid" and status_of(inv), "rbf invoice paid")
-            time.sleep(3)
-            assert status_of(inv)["paid_sats"] == 3000, status_of(inv)
+            inv = new_invoice("no-oc", 4000)
+            assert "onchain_address" not in inv, inv
+            code, co = http("GET", f"{BASE}/i/{inv['id']}/json")
+            assert code == 200 and co["ark_address"], (code, co)
+            for gone in ("onchain_enabled", "onchain_address", "bip321"):
+                assert gone not in co, f"{gone} must not be offered: {co}"
+            code, st = http("GET", f"{BASE}/i/{inv['id']}/status")
+            assert code == 200 and "onchain_confirmations" not in st, st
 
         @step("outage: barkd down shows a red checklist and credits nothing; recovery credits the payment")
         def _():

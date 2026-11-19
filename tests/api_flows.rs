@@ -161,7 +161,6 @@ async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
                     rate_source: None,
                     rate_locked_at: None,
                     ark_address: "ark1qlate".to_string(),
-                    onchain_address: "bc1qlate".to_string(),
                     expires_at: now_unix() - 10,
                     confs_required: 1,
                     metadata_json: "{}".to_string(),
@@ -397,13 +396,14 @@ async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
 }
 
 #[tokio::test]
-async fn onchain_rail_is_off_by_default_and_switchable() {
+async fn there_is_no_on_chain_way_to_pay_and_no_combined_code() {
     let client = reqwest::Client::new();
-
-    // Default: no on-chain address in the API, the checkout JSON, or the QR.
     let (base, _s, _store, key) = serve().await;
     let (_, inv) = create(&client, &base, &key, "wc-oc", 2_000).await;
-    assert!(inv["onchain_address"].is_null());
+    // The API and the checkout page's data carry an Ark address (and a Lightning
+    // invoice when there is one), and nothing about regular Bitcoin.
+    assert!(inv["ark_address"].is_string());
+    assert!(inv.get("onchain_address").is_none());
     let id = inv["id"].as_str().unwrap();
     let co: serde_json::Value = client
         .get(format!("{base}/i/{id}/json"))
@@ -414,24 +414,12 @@ async fn onchain_rail_is_off_by_default_and_switchable() {
         .json()
         .await
         .unwrap();
-    assert_eq!(co["onchain_enabled"], false);
-    assert!(co["onchain_address"].is_null());
-    assert!(co["bip321"]
-        .as_str()
-        .unwrap()
-        .starts_with("bitcoin:?amount="));
-
-    // Opt in: the address and the URI path come back.
-    let (base, _s, _store, key) = serve_with(Config {
-        onchain_rail_enabled: true,
-        ..Config::default()
-    })
-    .await;
-    let (_, inv) = create(&client, &base, &key, "wc-oc", 2_000).await;
-    assert!(inv["onchain_address"].is_string());
-    let id = inv["id"].as_str().unwrap();
-    let co: serde_json::Value = client
-        .get(format!("{base}/i/{id}/json"))
+    assert!(co["ark_address"].is_string());
+    for gone in ["onchain_enabled", "onchain_address", "bip321"] {
+        assert!(co.get(gone).is_none(), "{gone} must not be offered");
+    }
+    let st: serde_json::Value = client
+        .get(format!("{base}/i/{id}/status"))
         .header("host", "localhost")
         .send()
         .await
@@ -439,8 +427,9 @@ async fn onchain_rail_is_off_by_default_and_switchable() {
         .json()
         .await
         .unwrap();
-    assert_eq!(co["onchain_enabled"], true);
-    assert!(co["bip321"].as_str().unwrap().starts_with("bitcoin:bc1q"));
+    for gone in ["onchain_confirmations", "onchain_confirmations_required"] {
+        assert!(st.get(gone).is_none(), "{gone} must not be offered");
+    }
 }
 
 #[tokio::test]

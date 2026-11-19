@@ -7,9 +7,8 @@ main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;al
 .dot{width:18px;height:18px;border-radius:50%;background:var(--accent);border:2px solid var(--line)}.store{font-weight:600;font-size:18px}
 .amount{margin:16px 0 4px;font-size:56px;line-height:1.05;letter-spacing:-.03em;font-weight:800;overflow-wrap:anywhere}.sats,.store,.status{overflow-wrap:anywhere}.sats{color:var(--muted);font-size:16px}
 .countdown{display:inline-block;margin-top:12px;padding:3px 12px;border:2px solid var(--line);border-radius:999px;background:var(--sun);color:#1d1530;font-size:13px;font-weight:600}.countdown:empty{display:none}
-.card{margin-top:22px;border:2px solid var(--line);border-radius:24px;background:var(--card);box-shadow:0 5px 0 var(--shadow);padding:18px}.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.tab{flex:1 1 40%;min-height:44px;padding:10px 8px;border-radius:12px;border:2px solid var(--line);background:var(--soft);color:var(--fg);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
-.tab[aria-selected="true"]{background:var(--pick);color:#fff}
+.card{margin-top:22px;border:2px solid var(--line);border-radius:24px;background:var(--card);box-shadow:0 5px 0 var(--shadow);padding:18px}
+.choice{display:flex;align-items:center;gap:12px;min-height:48px;margin:14px 0 0;padding:10px 14px;border:2px solid var(--line);border-radius:12px;background:var(--soft);color:var(--fg);font-size:16px;font-weight:700;cursor:pointer}.choice input{width:22px;height:22px;margin:0;accent-color:var(--pick);flex:none}
 .qr.on{border:2px solid var(--line);padding:12px;background:#fff}.qr img{width:100%;height:auto;display:block;border-radius:8px}
 .qr{display:grid;place-items:center;aspect-ratio:1/1;max-width:260px;margin:0 auto 14px;border:2px dashed var(--line);border-radius:18px;color:var(--muted);font-size:13px;text-align:center;padding:16px}
 .address{display:block;width:100%;padding:12px;border-radius:12px;border:2px solid var(--line);background:transparent;color:var(--fg);font:13px/1.4 ui-monospace,Menlo,monospace;word-break:break-all;text-align:left;cursor:pointer}

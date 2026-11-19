@@ -12,9 +12,8 @@ What it covers:
 - Admin page: wrong then right password, the "Is everything OK?" checklist,
   saving a shop notification address, and a signed test notification that the
   test receiver verifies with the displayed secret.
-- Payments: an Ark payment (paid once, one notification), an on-chain payment
-  (not credited in the mempool, credited once after a block, never twice), an
-  on-chain payment replaced by a higher-fee one (credited once), an
+- Payments: an Ark payment (paid once, one notification), the check that no
+  invoice or checkout answer carries an on-chain address or a combined code, an
   underpayment (not marked paid).
 - Failures: barkd down (red checklist, nothing credited, credited after it
   returns) and a server restart (data and the signed-in session survive).

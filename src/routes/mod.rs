@@ -261,6 +261,8 @@ pub fn router(state: AppState) -> Router {
                 // Also checks the admin password.
                 .route("/admin/payout", post(payout::change))
                 .route("/admin/payout/cap", post(payout::change_cap))
+                // Also checks the admin password (the smallest on-chain withdrawal).
+                .route("/admin/payout/min", post(payout::change_onchain_min))
                 // Emergency withdrawal: admin password and two-step code.
                 .route("/admin/exit/start", post(exit::start))
                 .route("/admin/exit/cancel", post(exit::cancel))

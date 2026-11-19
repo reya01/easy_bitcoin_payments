@@ -1720,6 +1720,65 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .await
         .unwrap();
     assert_eq!(r.status().as_u16(), 401);
+
+    // The smallest automatic on-chain withdrawal: the floor is 50,000 and cannot be
+    // undercut; above it the owner decides.
+    let g = get().await;
+    assert_eq!(g["onchain_min_is_custom"], false);
+    assert_eq!(g["onchain_min_floor_sats"], 50_000);
+    assert_eq!(g["min_onchain_sweep_excess_sats"], 50_000);
+    for body in [
+        serde_json::json!({"min_sats": 49_999, "admin_password": "a good long password"}),
+        serde_json::json!({"min_sats": 1_500, "admin_password": "a good long password"}),
+        serde_json::json!({"min_sats": 0, "admin_password": "a good long password"}),
+        serde_json::json!({"min_sats": -1, "admin_password": "a good long password"}),
+        serde_json::json!({"min_sats": 10_000_001i64, "admin_password": "a good long password"}),
+        serde_json::json!({"min_sats": 100_000, "admin_password": "nope nope nope"}),
+    ] {
+        let r = post("/admin/payout/min", body).await.unwrap();
+        assert_eq!(r.status().as_u16(), 400);
+    }
+    assert_eq!(get().await["onchain_min_is_custom"], false);
+    let r: serde_json::Value = post(
+        "/admin/payout/min",
+        serde_json::json!({"min_sats": 250_000, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(r["min_onchain_sweep_excess_sats"], 250_000);
+    let g = get().await;
+    assert_eq!(g["onchain_min_is_custom"], true);
+    assert_eq!(g["min_onchain_sweep_excess_sats"], 250_000);
+    // Exactly the floor is allowed.
+    let r = post(
+        "/admin/payout/min",
+        serde_json::json!({"min_sats": 50_000, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    // Back to the default.
+    let r = post(
+        "/admin/payout/min",
+        serde_json::json!({"min_sats": null, "admin_password": "a good long password"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    assert_eq!(get().await["onchain_min_is_custom"], false);
+    // Not signed in: refused.
+    let r = client
+        .post(format!("{base}/admin/payout/min"))
+        .header("host", "localhost")
+        .header("x-forwarded-for", "10.2.1.4")
+        .json(&serde_json::json!({"min_sats": 100_000, "admin_password": "a good long password"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
 }
 
 /// The code an authenticator app would show for a stored secret at a 30-second step.

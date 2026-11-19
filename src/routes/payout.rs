@@ -37,7 +37,9 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
         "cap_min_sats": crate::payout::MIN_CAP_SATS,
         "cap_max_sats": crate::payout::MAX_CAP_SATS,
         "min_sweep_excess_sats": crate::wallet::settlement::MIN_SWEEP_EXCESS_SATS,
-        "min_onchain_sweep_excess_sats": crate::wallet::settlement::MIN_ONCHAIN_SWEEP_EXCESS_SATS,
+        "min_onchain_sweep_excess_sats": s.onchain_min_override.unwrap_or(crate::payout::ONCHAIN_MIN_FLOOR_SATS),
+        "onchain_min_floor_sats": crate::payout::ONCHAIN_MIN_FLOOR_SATS,
+        "onchain_min_is_custom": s.onchain_min_override.is_some(),
         "small_coin_sats": crate::wallet::settlement::SMALL_COIN_SATS,
         "ark_cap_sats": s.cap_override.unwrap_or(config.hot_wallet_cap_sats),
         "onchain_cap_sats": s.cap_override.unwrap_or(config.onchain_sweep_cap_sats),
@@ -154,6 +156,61 @@ pub async fn change_cap(
             match cap {
                 Some(v) => crate::payout::set_cap(c, v)?,
                 None => crate::payout::clear_cap(c)?,
+            }
+            crate::payout::status(c, cfg.as_deref())
+        })
+        .await?;
+    Ok(Json(view(&s, &state.config)))
+}
+
+#[derive(Deserialize)]
+pub struct MinRequest {
+    /// The smallest automatic on-chain withdrawal, in sats (at least the floor).
+    /// Absent or null = go back to the default.
+    #[serde(default)]
+    pub min_sats: Option<i64>,
+    pub admin_password: String,
+    /// Authenticator code (or passkey approval), needed only when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+/// `POST /admin/payout/min` — change the smallest automatic on-chain withdrawal.
+/// Needs the admin password and, when on, the second step. Takes effect right
+/// away: like the amount kept it cannot send money anywhere new. Below the
+/// floor is refused before the (slow) password check.
+pub async fn change_onchain_min(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<MinRequest>,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    if let Some(v) = req.min_sats {
+        if !(crate::payout::ONCHAIN_MIN_FLOOR_SATS..=crate::payout::MAX_CAP_SATS).contains(&v) {
+            return Err(AppError::BadRequest(format!(
+                "the smallest on-chain withdrawal must be a whole number of sats between {} and {}",
+                crate::payout::ONCHAIN_MIN_FLOOR_SATS,
+                crate::payout::MAX_CAP_SATS
+            )));
+        }
+    }
+    let stored = state.db.call(|c| aa::stored_hash(c)).await?;
+    let ok = aa::verify_login_slow(stored, req.admin_password).await?;
+    if !ok {
+        return Err(AppError::BadRequest(
+            "that admin password isn't right".into(),
+        ));
+    }
+    crate::routes::admin_session::check_second_step(&state, req.code).await?;
+
+    let cfg = state.config.settlement_destination.clone();
+    let min = req.min_sats;
+    let s = state
+        .db
+        .call(move |c| {
+            match min {
+                Some(v) => crate::payout::set_onchain_min(c, v)?,
+                None => crate::payout::clear_onchain_min(c)?,
             }
             crate::payout::status(c, cfg.as_deref())
         })

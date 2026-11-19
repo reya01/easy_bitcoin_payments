@@ -29,6 +29,14 @@ const KEY_CAP: &str = "sweep_cap_sats";
 pub const MIN_CAP_SATS: i64 = 1;
 pub const MAX_CAP_SATS: i64 = 10_000_000;
 
+/// The smallest amount an automatic on-chain withdrawal sends (sats above the
+/// amount kept), when the owner has set one in Settings. Wins over the default.
+const KEY_ONCHAIN_MIN: &str = "onchain_sweep_min_sats";
+/// The lowest value the owner may choose (and the default). Every on-chain
+/// withdrawal pays a high and changing network fee; anything below this is
+/// refused. Above it the owner decides (Settings warns and recommends more).
+pub const ONCHAIN_MIN_FLOOR_SATS: i64 = crate::wallet::settlement::MIN_ONCHAIN_SWEEP_EXCESS_SATS;
+
 const CHARSET: &str = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 /// Checksum constants: bech32 (BIP173) and bech32m (BIP350).
 const BECH32: u32 = 1;
@@ -419,6 +427,8 @@ pub struct Status {
     pub from_server_config: bool,
     /// The amount the till keeps, if the owner set one in Settings.
     pub cap_override: Option<i64>,
+    /// The smallest automatic on-chain withdrawal, if the owner set one in Settings.
+    pub onchain_min_override: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -482,6 +492,7 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             effective_at: None,
             from_server_config: true,
             cap_override: cap_override(conn)?,
+            onchain_min_override: onchain_min_override(conn)?,
         });
     }
     Ok(Status {
@@ -491,7 +502,58 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             .and_then(|v| v.parse::<i64>().ok()),
         from_server_config: false,
         cap_override: cap_override(conn)?,
+        onchain_min_override: onchain_min_override(conn)?,
     })
+}
+
+/// The smallest automatic on-chain withdrawal the owner chose, if any. A stored
+/// value below the floor or above the top (a hand-edited database) is ignored.
+pub fn onchain_min_override(conn: &Connection) -> Result<Option<i64>, AppError> {
+    Ok(crate::settings::get(conn, KEY_ONCHAIN_MIN)?
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|v| (ONCHAIN_MIN_FLOOR_SATS..=MAX_CAP_SATS).contains(v)))
+}
+
+/// The smallest automatic on-chain withdrawal in force: the owner's number or
+/// the floor.
+pub fn onchain_min(conn: &Connection) -> Result<i64, AppError> {
+    Ok(onchain_min_override(conn)?.unwrap_or(ONCHAIN_MIN_FLOOR_SATS))
+}
+
+/// Settings: change the smallest automatic on-chain withdrawal (the caller has
+/// already verified the admin password and, when on, the second step). Below
+/// the floor is refused. Takes effect at once: it cannot send money anywhere
+/// new. Recorded in the security log.
+pub fn set_onchain_min(conn: &Connection, sats: i64) -> Result<(), AppError> {
+    if !(ONCHAIN_MIN_FLOOR_SATS..=MAX_CAP_SATS).contains(&sats) {
+        return Err(AppError::BadRequest(format!(
+            "the smallest on-chain withdrawal must be a whole number of sats between {ONCHAIN_MIN_FLOOR_SATS} and {MAX_CAP_SATS}"
+        )));
+    }
+    let before = onchain_min_override(conn)?;
+    crate::settings::set(conn, KEY_ONCHAIN_MIN, &sats.to_string())?;
+    audit(
+        conn,
+        "payout.onchain_min_changed",
+        &match before {
+            Some(b) => format!("smallest on-chain withdrawal changed from {b} to {sats} sats"),
+            None => format!("smallest on-chain withdrawal set to {sats} sats"),
+        },
+    );
+    Ok(())
+}
+
+/// Settings: go back to the default (the floor).
+pub fn clear_onchain_min(conn: &Connection) -> Result<(), AppError> {
+    if onchain_min_override(conn)?.is_some() {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [KEY_ONCHAIN_MIN])?;
+        audit(
+            conn,
+            "payout.onchain_min_changed",
+            "smallest on-chain withdrawal reset to the default",
+        );
+    }
+    Ok(())
 }
 
 /// The amount the owner chose in Settings, if any. A stored value that is out
@@ -700,6 +762,29 @@ pub(crate) mod tests {
         for junk in ["0", "-1", "abc", "", "99999999999"] {
             crate::settings::set(&c, KEY_CAP, junk).unwrap();
             assert_eq!(cap_override(&c).unwrap(), None, "{junk:?} must be ignored");
+        }
+    }
+
+    #[test]
+    fn the_onchain_minimum_has_a_hard_floor_and_bad_stored_values_are_ignored() {
+        let c = conn();
+        assert_eq!(onchain_min(&c).unwrap(), ONCHAIN_MIN_FLOOR_SATS);
+        assert_eq!(ONCHAIN_MIN_FLOOR_SATS, 50_000);
+        for bad in [-1, 0, 1_500, 49_999, MAX_CAP_SATS + 1, i64::MAX] {
+            assert!(set_onchain_min(&c, bad).is_err(), "{bad} must be refused");
+        }
+        assert_eq!(onchain_min_override(&c).unwrap(), None);
+        set_onchain_min(&c, 50_000).unwrap();
+        assert_eq!(onchain_min(&c).unwrap(), 50_000);
+        set_onchain_min(&c, 400_000).unwrap();
+        assert_eq!(onchain_min(&c).unwrap(), 400_000);
+        assert_eq!(onchain_min_override(&c).unwrap(), Some(400_000));
+        clear_onchain_min(&c).unwrap();
+        assert_eq!(onchain_min_override(&c).unwrap(), None);
+        // A hand-edited database cannot push it under the floor.
+        for junk in ["0", "49999", "abc", "", "99999999999"] {
+            crate::settings::set(&c, KEY_ONCHAIN_MIN, junk).unwrap();
+            assert_eq!(onchain_min(&c).unwrap(), ONCHAIN_MIN_FLOOR_SATS, "{junk:?}");
         }
     }
 

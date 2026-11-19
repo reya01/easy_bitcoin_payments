@@ -46,8 +46,9 @@ const SECS_PER_BLOCK: i64 = 600;
 /// wallet is not a small one, see [`SMALL_COIN_SATS`].
 pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_500;
 
-/// An automatic sweep to an on-chain address waits for at least this many sats
-/// above the amount kept: every on-chain withdrawal pays a network fee that can
+/// The floor, and the default, for the smallest automatic sweep to an on-chain
+/// address (sats above the amount kept; the owner can choose more in Settings,
+/// see `payout::onchain_min`): every on-chain withdrawal pays a network fee that can
 /// be high and changes a lot, so fewer, bigger withdrawals cost much less.
 /// (Ark sweeps are almost free and use [`MIN_SWEEP_EXCESS_SATS`].) "Move my
 /// money now" ignores it.
@@ -850,7 +851,8 @@ impl SettlementEngine {
         let min_excess = if crate::config::is_ark_destination(&destination) {
             MIN_SWEEP_EXCESS_SATS
         } else {
-            MIN_ONCHAIN_SWEEP_EXCESS_SATS
+            // The owner's number from Settings (never under the floor), else the floor.
+            self.db.call(|c| crate::payout::onchain_min(c)).await?
         };
         if !manual && excess < min_excess {
             self.forget_refusal();
@@ -1694,6 +1696,28 @@ mod tests {
         let db = Db::open(":memory:").unwrap();
         let engine = engine_for(&base, &db, ONCHAIN, 100_000);
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(150_000));
+    }
+
+    #[tokio::test]
+    async fn the_owners_onchain_minimum_replaces_the_default() {
+        const ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        // Cap 100,000 and a chosen minimum of 80,000: held 179,999 waits,
+        // held 180,000 goes.
+        let (base, _recorded) = fee_mock(10, 179_999);
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| crate::payout::set_onchain_min(c, 80_000))
+            .await
+            .unwrap();
+        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+
+        let (base, _recorded) = fee_mock(10, 180_000);
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| crate::payout::set_onchain_min(c, 80_000))
+            .await
+            .unwrap();
+        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(180_000));
     }
 
     #[tokio::test]

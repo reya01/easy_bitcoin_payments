@@ -710,6 +710,21 @@ function capPreview() {
 $("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
 $("cap-new").addEventListener("change", function () { clearTimeout(capTimer); capPreview(); });
 
+// Smallest automatic on-chain withdrawal: a plain warning while typing.
+var minFloor = 50000, minTimer = null;
+function minWarn(n) {
+  if (!(n > 0)) return "";
+  if (n < minFloor) return "The lowest allowed is " + fmtSats(minFloor) + ".";
+  if (n < minFloor * 4) return "That is low: each on-chain withdrawal pays a network fee that can be high and changes a lot. We recommend much more.";
+  return "";
+}
+function minPreview() {
+  var n = parseInt($("min-new").value, 10);
+  $("min-usd").textContent = minWarn(n);
+}
+$("min-new").addEventListener("input", function () { clearTimeout(minTimer); $("min-usd").textContent = ""; minTimer = setTimeout(minPreview, 700); });
+$("min-new").addEventListener("change", function () { clearTimeout(minTimer); minPreview(); });
+
 function loadOrders() {
   api("GET", "/api/v1/invoices?" + pageQuery("orders")).then(function (list) {
     if (pageGone("orders", list.length, loadOrders)) return;
@@ -924,6 +939,7 @@ function loadPayout() {
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("cap-box").classList.toggle("hidden", !p.address);
+    $("min-box").classList.toggle("hidden", !(p.address && p.kind === "onchain"));
     if (p.address) {
       $("cap-now").textContent = "This server keeps up to " + fmtSats(p.cap_sats) + " and sends what is above that on to your payout address once at least " + fmtSats(p.kind === "onchain" ? (p.min_onchain_sweep_excess_sats || 50000) : (p.min_sweep_excess_sats || 1500)) + " has built up above it" + (p.cap_is_custom ? " (your setting)" : " (the default)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
       smallCoin = p.small_coin_sats || 1300; minSweep = p.min_sweep_excess_sats || 1500;
@@ -934,6 +950,11 @@ function loadPayout() {
         $("cap-nuance").textContent = "Good to know: sends go out in chunks of at least " + fmtSats(minSweep) + ", so the server can hold up to that much more than the amount above before it sends. We suggest keeping at least " + fmtSats(smallCoin) + ". Coins smaller than about " + fmtSats(smallCoin) + " can fail to send once the Ark server (Second) runs its newest software, until EBP is updated to match, so a smaller amount can leave a coin that is hard to spend for a while. Updating EBP fixes this.";
       }
       $("sweep-small").textContent = fmtSats(smallCoin);
+      minFloor = p.onchain_min_floor_sats || 50000;
+      $("min-floor").textContent = minFloor.toLocaleString("en-US");
+      $("min-now").textContent = "Right now the server waits until at least " + fmtSats(p.min_onchain_sweep_excess_sats || minFloor) + " has built up above the amount it keeps before it sends" + (p.onchain_min_is_custom ? " (your setting)" : " (the default, which is also the lowest allowed)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      $("min-new").min = String(minFloor);
+      $("min-reset").classList.toggle("hidden", !p.onchain_min_is_custom);
       $("cap-new").placeholder = "number of sats";
       $("cap-reset").classList.toggle("hidden", !p.cap_is_custom);
     }
@@ -968,6 +989,22 @@ $("cap-go").addEventListener("click", function () {
   saveCap(n, $("cap-go"));
 });
 $("cap-reset").addEventListener("click", function () { saveCap(null, $("cap-reset")); });
+function saveMin(value, btn) {
+  btn.disabled = true;
+  api("POST", "/admin/payout/min", { min_sats: value, admin_password: $("min-pw").value, code: $("min-code").value }).then(function (r) {
+    $("min-new").value = ""; $("min-usd").textContent = ""; $("min-pw").value = ""; $("min-code").value = "";
+    say("min-msg", value === null ? "Saved. The smallest withdrawal is back to its default." : "Saved. The server now waits for at least " + fmtSats(r.min_onchain_sweep_excess_sats) + " above the amount it keeps." + (minWarn(value) ? " " + minWarn(value) : ""));
+    loadPayout();
+  }).catch(function (e) { say("min-msg", e.message, true); }).then(function () { btn.disabled = false; });
+}
+$("min-go").addEventListener("click", function () {
+  var raw = $("min-new").value.trim();
+  var n = Number(raw);
+  if (!raw || !Number.isInteger(n) || n < 1) { say("min-msg", "Type a whole number of sats, for example 100000.", true); return; }
+  if (n < minFloor) { say("min-msg", "The lowest allowed is " + fmtSats(minFloor) + ".", true); return; }
+  saveMin(n, $("min-go"));
+});
+$("min-reset").addEventListener("click", function () { saveMin(null, $("min-reset")); });
 $("po-cancel").addEventListener("click", function () {
   api("POST", "/admin/payout/cancel", {}).then(function () { say("po-msg", "Cancelled. Nothing changed."); loadPayout(); }).catch(function (e) { say("po-msg", e.message, true); });
 });

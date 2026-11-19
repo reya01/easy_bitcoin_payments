@@ -172,6 +172,17 @@
       <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
       <p class="msg hidden" id="cap-msg"></p>
     </div>
+    <div id="min-box" class="hidden">
+      <h3>Smallest on-chain withdrawal</h3>
+      <p class="muted" id="min-now"></p>
+      <p class="muted">Every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day. The lowest you can choose is <span id="min-floor">50,000</span> sats, and we recommend much more, so you pay that fee less often. It is your decision.</p>
+      <label for="min-new">New smallest withdrawal (sats)</label><input type="number" id="min-new" inputmode="numeric" min="50000" step="1" autocomplete="off">
+      <div class="muted" id="min-usd"></div>
+      <label for="min-pw">Admin password</label><input type="password" id="min-pw" autocomplete="current-password">
+      <div class="needcode hidden"><label for="min-code">Code from your authenticator app</label><input type="text" id="min-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+      <div class="btns"><button id="min-go" type="button">Save amount</button><button id="min-reset" type="button" class="hidden">Go back to the default</button></div>
+      <p class="msg hidden" id="min-msg"></p>
+    </div>
     <div id="sweep-box" class="hidden">
       <p class="muted">Don't want to wait? You can move everything in the till to your payout address right now. This ignores the amount and fee limits above, and on-chain withdrawals then pay whatever the network fee is today. A very small amount (under <span id="sweep-small">1,300</span> sats) can leave you with a small coin that is hard to spend later, so it is usually better to wait for more to build up.</p>
       <div class="btns"><button id="sweep-go" type="button">Move my money to my payout address now</button></div>

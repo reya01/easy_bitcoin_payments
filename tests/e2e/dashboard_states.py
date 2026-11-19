@@ -445,6 +445,68 @@ def main():
 
         ok &= run_case(pw, "settings: an on-chain payout address shows the 50,000 minimum and the fee advice", keep_chain_handler, c_keep_chain)
 
+        # ---- the smallest on-chain withdrawal: a floor of 50,000, a warning, the owner decides above it
+        def min_handler(kind, custom):
+            def h(path, req, calls):
+                if path == "/api/v1/payout":
+                    return 200, {"address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" if kind == "onchain" else "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh",
+                                 "kind": kind, "cap_sats": 1000000, "cap_is_custom": False, "cap_min_sats": 1, "cap_max_sats": 10000000,
+                                 "min_sweep_excess_sats": 1500, "min_onchain_sweep_excess_sats": 250000 if custom else 50000,
+                                 "onchain_min_floor_sats": 50000, "onchain_min_is_custom": custom, "small_coin_sats": 1300,
+                                 "live": True, "set_by_server_config": False}
+                if path == "/admin/payout/min":
+                    return 200, {"min_onchain_sweep_excess_sats": json.loads(req.post_data)["min_sats"] or 50000}
+                return signed_in(path, req, calls)
+            return h
+
+        def open_payout(p):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            p.evaluate("document.getElementById('fold-payout').open = true"); p.wait_for_timeout(500)
+
+        def c_min_default(p, pr, calls):
+            open_payout(p)
+            if not p.is_visible("#min-box"): pr.append("the on-chain minimum box should show for an on-chain address")
+            want(pr, "default line", p.inner_text("#min-now"), "at least 50,000 sats")
+            want(pr, "default line", p.inner_text("#min-now"), "(the default")
+            want(pr, "advice", p.inner_text("#min-box"), "we recommend much more")
+            want(pr, "floor", p.inner_text("#min-box"), "lowest you can choose is 50,000")
+            if p.is_visible("#min-reset"): pr.append("no reset button on the default")
+            # Under the floor: refused on the page, nothing is sent.
+            p.fill("#min-new", "49999"); p.fill("#min-pw", "pw"); p.click("#min-go"); p.wait_for_timeout(400)
+            want(pr, "under the floor", p.inner_text("#min-msg"), "lowest allowed is 50,000")
+            if count(calls, "POST", "/admin/payout/min"): pr.append("nothing is sent under the floor")
+            # Low but allowed: a warning while typing, and it saves.
+            p.fill("#min-new", "60000"); p.wait_for_timeout(1000)
+            want(pr, "low warning", p.inner_text("#min-usd"), "We recommend much more")
+            p.click("#min-go"); p.wait_for_timeout(500)
+            if count(calls, "POST", "/admin/payout/min") != 1: pr.append("the allowed amount should be sent once")
+            else:
+                body = json.loads([c for c in calls if c[1] == "/admin/payout/min"][-1][2])
+                if body.get("min_sats") != 60000 or body.get("admin_password") != "pw": pr.append(f"wrong body {body}")
+            want(pr, "saved", p.inner_text("#min-msg"), "Saved")
+            # Well above: no warning.
+            p.fill("#min-new", "500000"); p.wait_for_timeout(1000)
+            if "recommend" in p.inner_text("#min-usd").lower(): pr.append("a high amount must not warn")
+
+        ok &= run_case(pw, "settings: the smallest on-chain withdrawal has a 50,000 floor, a warning, and saves", min_handler("onchain", False), c_min_default)
+
+        def c_min_custom(p, pr, calls):
+            open_payout(p)
+            want(pr, "custom line", p.inner_text("#min-now"), "at least 250,000 sats")
+            want(pr, "custom line", p.inner_text("#min-now"), "(your setting)")
+            if not p.is_visible("#min-reset"): pr.append("a reset button should show for a custom value")
+            p.fill("#min-pw", "pw"); p.click("#min-reset"); p.wait_for_timeout(500)
+            body = json.loads([c for c in calls if c[1] == "/admin/payout/min"][-1][2])
+            if body.get("min_sats") is not None: pr.append("reset must send null")
+
+        ok &= run_case(pw, "settings: a custom on-chain minimum can be reset to the default", min_handler("onchain", True), c_min_custom)
+
+        def c_min_ark(p, pr, calls):
+            open_payout(p)
+            if p.is_visible("#min-box"): pr.append("the on-chain minimum box must not show for an Ark address")
+
+        ok &= run_case(pw, "settings: an Ark payout address has no on-chain minimum box", min_handler("ark", False), c_min_ark)
+
 
         def pw_handler(path, req, calls):
             if path == "/admin/password":

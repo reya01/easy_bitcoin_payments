@@ -200,7 +200,7 @@ def main():
                         checks.append({"id": "payout", "level": "bad", "title": "Your payout address is not valid", "detail": "Transfers to your own wallet are stopped until this is fixed."})
                     return 200, {"checks": checks, "counters": {}, "wallet": {"offchain_sats": 1200}, "mode": "live", "usd_per_btc": 67000, "version": "0.2.0"}
                 if path == "/admin/exit/status":
-                    return 200, {"allowed": False, "two_step_on": True, "refusal": "Not worth it right now. There is less than 50000 sats on the server (1200 sats), and taking it out on your own costs about 300 sats in network fees and a day or more.", "live": [], "deposit_needed_sats": 0}
+                    return 200, {"opted_in": True, "reserve_floor_sats": 5000, "allowed": False, "two_step_on": True, "refusal": "Not worth it right now. There is less than 50000 sats on the server (1200 sats), and taking it out on your own costs about 300 sats in network fees and a day or more.", "live": [], "deposit_needed_sats": 0}
                 return None
             return h
 

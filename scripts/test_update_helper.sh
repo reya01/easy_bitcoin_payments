@@ -134,7 +134,7 @@ done_sandbox
 # 7. Apply: the exact image is installed and the status says done.
 new_sandbox
 request "{\"action\":\"apply\",\"version\":\"0.2.1-rc1\",\"digest\":\"$DIGEST_OK\",\"id\":\"$ID\"}"; helper
-expect done ok apply
+expect "done" ok apply
 grep -q "^EBP_IMAGE=$REF_OK$" .env || fail "exact image not stored"
 grep -q "start image=$REF_OK require=1" "$work/start.log" || fail "server not started with the signed image"
 echo "ok  apply installs exactly the approved signed image"

@@ -300,7 +300,7 @@ main() {
     status failed start_failed
     exit 1
   fi
-  status done ok
+  status "done" ok
   say
   say "Updated to $version. Check that the admin Home page says the wallet is connected."
   say "To go back to your previous server image if something looks wrong: restore your backup first (docs/UPGRADING.md), then ask for help."

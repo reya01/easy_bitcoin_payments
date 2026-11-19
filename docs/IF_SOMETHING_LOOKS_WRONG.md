@@ -51,7 +51,12 @@ plugin on your WooCommerce site. Do not reuse the old server.
   instead of the 6-digit code. With none left, run
   `cd /opt/ebp && docker compose exec ebp ebp admin reset-2fa` in the server's
   Console, sign in with your password, and turn it on
-  again in Settings.
+  again in Settings. This turns off your passkeys too (they are removed along
+  with the app code), so add them again afterwards if you want them.
+- **Lost the device or password manager that holds your passkey:** sign in with
+  your password and the 6-digit code (or a backup code) as usual, then in
+  Settings turn off or remove that passkey and add a new one. Backup codes work
+  wherever a passkey does.
 - **Recovery words seen by someone else:** treat the small wallet on that
   server as no longer private. Stop using that server, set up a new one with a
   **new wallet (new words)**, and point your shop at it. The small wallet on the server is kept small

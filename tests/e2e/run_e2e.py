@@ -492,6 +492,104 @@ def main():
             assert not page.is_visible("#bk-code"), "no code box once it is off"
             page.context.set_extra_http_headers({})
 
+        @step("passkeys: added with a virtual authenticator, hold the app code on, sign in, approve a backup, backup codes still work, turned off")
+        def _():
+            def open_settings():
+                page.click('#tabs button[data-v="set"]')
+                page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
+
+            def sign_out_and_password():
+                new_visitor(page)
+                page.click("#logout")
+                page.wait_for_selector("#login-form:not(.hidden)")
+                page.fill("#pw", ADMIN_PW)
+                page.click("#login-btn")
+                page.wait_for_selector("#code-box:not(.hidden)")
+
+            new_visitor(page)
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            # The browser's stand-in passkey: it says yes to every prompt, like a person touching a key.
+            cdp = page.context.new_cdp_session(page)
+            cdp.send("WebAuthn.enable")
+            cdp.send("WebAuthn.addVirtualAuthenticator", {"options": {
+                "protocol": "ctap2", "transport": "internal", "hasResidentKey": True,
+                "hasUserVerification": True, "isUserVerified": True, "automaticPresenceSimulation": True}})
+            # The app code first (passkeys are only offered on top of it).
+            open_settings()
+            wait_for(lambda: "once the app code is on" in page.inner_text("#twofa-card"), "passkeys wait for the app code")
+            page.locator("#twofa-card").get_by_role("button", name="Turn on", exact=True).click()
+            page.wait_for_selector("#tf-pw")
+            page.fill("#tf-pw", ADMIN_PW)
+            page.get_by_role("button", name="Continue").click()
+            page.wait_for_selector("#tf-key")
+            secret = page.inner_text("#tf-key").replace(" ", "").strip()
+            page.fill("#tf-code", totp_code(secret, int(time.time()) // 30))
+            page.get_by_role("button", name="Turn on two-step sign-in").click()
+            page.wait_for_selector("#tf-codes")
+            codes = [c for c in page.inner_text("#tf-codes").split() if c]
+            assert len(codes) == 10, codes
+            page.get_by_role("button", name="I saved them").click()
+            wait_for(lambda: "Passkeys (beta)" in page.inner_text("#twofa-card"), "the passkeys section shows once the app code is on")
+            # Add one: the page asks the password and a (backup) code, the browser makes the key.
+            new_visitor(page)
+            page.get_by_role("button", name="Add a passkey", exact=True).click()
+            page.wait_for_selector("#pk-pw")
+            page.fill("#pk-pw", ADMIN_PW)
+            page.fill("#pk-code", codes[0])
+            page.fill("#pk-name", "Test key")
+            page.get_by_role("button", name="Add passkey", exact=True).click()
+            wait_for(lambda: "Test key" in page.inner_text("#pk-box") and "Passkey added" in page.inner_text("#pk-box"), "the passkey is listed")
+            assert page.locator("#twofa-card").get_by_role("button", name="Turn off passkeys", exact=True).count() == 1
+            # While a passkey exists the app code cannot be turned off.
+            new_visitor(page)
+            page.locator("#twofa-card").get_by_role("button", name="Turn off app code", exact=True).click()
+            page.wait_for_selector("#tf-off-pw")
+            page.fill("#tf-off-pw", ADMIN_PW)
+            page.fill("#tf-off-code", codes[1])
+            page.get_by_role("button", name="Turn off app code", exact=True).click()
+            wait_for(lambda: page.is_visible("#tf-msg") and "passkeys first" in page.inner_text("#tf-msg").lower(), "turning the app code off is refused")
+            # Sign out; password, then the passkey instead of a code.
+            sign_out_and_password()
+            assert page.is_visible("#login-pk-btn"), "the sign-in offers the passkey"
+            page.click("#login-pk-btn")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            # Approve a protected action (a backup download) with the passkey instead of a code.
+            open_settings()
+            page.wait_for_selector("#bk-go")
+            wait_for(lambda: page.locator("#bk-code ~ .pkuse button").count() == 1, "the backup code box offers a passkey")
+            new_visitor(page)
+            page.fill("#bk-admin", ADMIN_PW)
+            page.locator("#bk-code ~ .pkuse button").click()
+            wait_for(lambda: page.input_value("#bk-code").startswith("pk:"), "the passkey approval fills the code box")
+            with page.expect_download(timeout=60000) as dl3:
+                page.click("#bk-go")
+            assert dl3.value.suggested_filename.endswith(".ebpbackup"), dl3.value.suggested_filename
+            wait_for(lambda: page.input_value("#bk-code") == "", "the approval is used up and the box is cleared")
+            # A backup code still signs in, as before.
+            sign_out_and_password()
+            page.fill("#code", codes[2])
+            page.click("#login-btn")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            # Turn the passkeys off, then the app code (so the rest of the run uses the password only).
+            open_settings()
+            new_visitor(page)
+            page.locator("#twofa-card").get_by_role("button", name="Turn off passkeys", exact=True).click()
+            page.wait_for_selector("#pk-pw")
+            page.fill("#pk-pw", ADMIN_PW)
+            page.fill("#pk-code", codes[3])
+            page.locator("#pk-box").get_by_role("button", name="Turn off passkeys", exact=True).last.click()
+            wait_for(lambda: "None yet" in page.inner_text("#pk-box"), "passkeys turned off")
+            new_visitor(page)
+            page.locator("#twofa-card").get_by_role("button", name="Turn off app code", exact=True).click()
+            page.wait_for_selector("#tf-off-pw")
+            page.fill("#tf-off-pw", ADMIN_PW)
+            page.fill("#tf-off-code", codes[4])
+            page.get_by_role("button", name="Turn off app code", exact=True).click()
+            wait_for(lambda: "Off (password only)" in page.inner_text("#twofa-card"), "app code turned off")
+            cdp.send("WebAuthn.disable")
+            page.context.set_extra_http_headers({})
+
         @step("connect tab: save webhook, test notification arrives with a valid signature")
         def _():
             page.click("nav button[data-v=hooks]")

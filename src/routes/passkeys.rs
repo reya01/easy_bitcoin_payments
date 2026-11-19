@@ -8,6 +8,9 @@
 //! * `POST /admin/passkeys/remove`  — admin password + a code turns one passkey off.
 //! * `POST /admin/passkeys/disable` — admin password + a code turns all passkeys off.
 //!
+//! * `POST /admin/passkeys/stepup/begin|finish` — approve one protected action with a passkey
+//!   (a signed-in session; the answer is a one-use ticket the action takes in place of a code).
+//!
 //! Everything that checks the password sits behind the password brake.
 
 use axum::extract::State;
@@ -26,6 +29,14 @@ use crate::util::now_unix;
 
 const NEEDS_APP_CODE: &str = "Turn on two-step sign-in with an app code first. Passkeys are added on top of it, and your backup codes cover both.";
 const EXPIRED: &str = "That passkey request expired. Start again.";
+const UNKNOWN_KEY: &str = "That passkey is not one of the passkeys for this server.";
+
+/// Binding of the half-finished sign-in (password right, waiting for the passkey).
+pub(crate) const LOGIN_BINDING: &str = "login";
+/// Binding of an approval ticket (see `stepup_finish`).
+pub(crate) const TICKET_BINDING: &str = "ticket";
+/// A protected action's code box takes `pk:` + a ticket instead of a 6-digit code.
+pub(crate) const TICKET_PREFIX: &str = "pk:";
 
 /// Re-check the admin password (slow hash, off the database thread).
 async fn password_ok(state: &AppState, password: String) -> Result<(), AppError> {
@@ -232,4 +243,97 @@ pub async fn disable(
         })
         .await?;
     Ok(Json(json!({ "passkeys": Vec::<Value>::new() })))
+}
+
+/// What the browser sends back after `navigator.credentials.get`.
+#[derive(Deserialize)]
+pub struct AssertionBody {
+    /// The challenge from the options, handed back (base64url).
+    pub challenge: String,
+    /// The credential id (base64url).
+    pub id: String,
+    pub client_data_json: String,
+    pub authenticator_data: String,
+    pub signature: String,
+}
+
+/// Check a passkey's answer to a challenge we issued (single use, tied to `binding`),
+/// and remember the use. Every failure is a plain 400 (never a 401, which the page
+/// reads as "signed out").
+pub(crate) async fn check_answer(
+    state: &AppState,
+    purpose: Purpose,
+    binding: &str,
+    a: AssertionBody,
+) -> Result<(), AppError> {
+    let rp = passkey::rp_from_base_url(&state.config.public_base_url)?;
+    let challenge = passkey::challenges()
+        .take(&a.challenge, purpose, binding, now_unix())
+        .ok_or_else(|| AppError::BadRequest(EXPIRED.into()))?;
+    state
+        .db
+        .call(move |c| {
+            let Some(stored) = passkey::get_by_credential(c, &a.id)? else {
+                audit(c, "admin.passkey_failed", "unknown passkey");
+                return Err(AppError::BadRequest(UNKNOWN_KEY.into()));
+            };
+            match passkey::verify_assertion(
+                &rp,
+                &challenge,
+                false,
+                &stored,
+                &a.client_data_json,
+                &a.authenticator_data,
+                &a.signature,
+            ) {
+                Ok(ok) => {
+                    passkey::record_use(c, stored.id, ok.new_sign_count, ok.backed_up, now_unix())?;
+                    Ok(())
+                }
+                Err(e) => {
+                    audit(c, "admin.passkey_failed", "passkey check failed");
+                    Err(e)
+                }
+            }
+        })
+        .await
+}
+
+/// `POST /admin/passkeys/stepup/begin` — options for approving one protected action.
+pub async fn stepup_begin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    let token = require_session(&state, &headers).await?;
+    let rp = passkey::rp_from_base_url(&state.config.public_base_url)?;
+    let ids = state
+        .db
+        .call(|c| {
+            Ok(passkey::list(c)?
+                .into_iter()
+                .map(|p| p.credential_id)
+                .collect::<Vec<_>>())
+        })
+        .await?;
+    if ids.is_empty() {
+        return Err(AppError::BadRequest("No passkeys are set up.".into()));
+    }
+    let challenge = passkey::challenges().issue(Purpose::StepUp, &token, now_unix());
+    Ok(Json(json!({
+        "options": passkey::assertion_options(&rp, &challenge, &ids),
+    })))
+}
+
+/// `POST /admin/passkeys/stepup/finish` — the passkey's answer in; a one-use ticket out
+/// (two minutes). The action's own request hands it back as `pk:<ticket>` in its code
+/// field, together with the admin password as always.
+pub async fn stepup_finish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(a): Json<AssertionBody>,
+) -> Result<Json<Value>, AppError> {
+    let token = require_session(&state, &headers).await?;
+    check_answer(&state, Purpose::StepUp, &token, a).await?;
+    let ticket = passkey::challenges().issue(Purpose::StepUp, TICKET_BINDING, now_unix());
+    Ok(Json(json!({ "ticket": passkey::b64url_encode(&ticket) })))
 }

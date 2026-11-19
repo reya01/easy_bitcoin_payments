@@ -226,6 +226,13 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/2fa/status", post(twofa::status))
         .route("/admin/2fa/skip", post(twofa::skip))
         .route("/admin/passkeys/status", post(passkeys::status))
+        // Approving one protected action with a passkey: needs a signed-in session and a
+        // fresh passkey touch and checks no password, so it sits outside the brake.
+        .route("/admin/passkeys/stepup/begin", post(passkeys::stepup_begin))
+        .route(
+            "/admin/passkeys/stepup/finish",
+            post(passkeys::stepup_finish),
+        )
         .route("/admin/pause", post(shopkey::pause))
         .route("/admin/keylock/status", post(shopkey::status))
         .route("/admin/keylock/save", post(shopkey::save))
@@ -234,6 +241,9 @@ pub fn router(state: AppState) -> Router {
                 // BRAKED-GROUP-START (tests/password_brake_guard.rs reads this marker:
                 // every route that checks the admin password must be listed in here)
                 .route("/admin/login", post(admin_session::login))
+                // Finishes a sign-in with a passkey; the challenge only exists after the
+                // password was right, and the route shares the brake all the same.
+                .route("/admin/login/passkey", post(admin_session::login_passkey))
                 // Checks the admin password again, so it shares the brake.
                 .route("/admin/backup", post(backup::download))
                 // Opens a downloaded backup to say what is inside; takes a

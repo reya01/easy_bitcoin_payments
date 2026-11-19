@@ -29,8 +29,14 @@ def run_case(pw, name, handler_for, checks):
     p.add_init_script("""
       window.PublicKeyCredential = window.PublicKeyCredential || function () {};
       if (!navigator.credentials) {
+        var buf = function (n) { return new Uint8Array([n, n + 1]).buffer; };
         Object.defineProperty(navigator, "credentials", { configurable: true, value: {
-          create: function () { return Promise.reject(Object.assign(new Error("test"), { name: "NotAllowedError" })); } } });
+          create: function () { return Promise.reject(Object.assign(new Error("test"), { name: "NotAllowedError" })); },
+          get: function () {
+            window.__pkGets = (window.__pkGets || 0) + 1;
+            if (window.__pkCancel) return Promise.reject(Object.assign(new Error("test"), { name: "NotAllowedError" }));
+            return Promise.resolve({ id: "AAAA", response: { clientDataJSON: buf(1), authenticatorData: buf(3), signature: buf(5) } });
+          } } });
       }""")
 
     def handler(route):
@@ -224,16 +230,28 @@ def main():
                    "user": {"id": "AAAA", "name": "Shop", "displayName": "Shop"}, "pubKeyCredParams": [{"type": "public-key", "alg": -7}],
                    "timeout": 120000, "attestation": "none", "authenticatorSelection": {"userVerification": "preferred"}, "excludeCredentials": []}
 
+        GET_OPTIONS = {"challenge": "AAAA", "rpId": "pay.example.com", "timeout": 120000, "userVerification": "preferred",
+                       "allowCredentials": [{"type": "public-key", "id": "AAAA"}]}
+
         def passkey_handler(keys, unavailable=None, twofa=True):
+            cur = list(keys)
+
             def h(path, req, calls):
                 if path == "/admin/session":
-                    return 200, {"authenticated": True, "csrf": "tok", "password_set": True, "twofa": twofa, "paused": False}
+                    return 200, {"authenticated": True, "csrf": "tok", "password_set": True, "twofa": twofa, "paused": False, "passkeys": bool(cur)}
                 if path == "/admin/2fa/status":
-                    return 200, {"enabled": twofa, "recovery_left": 9, "passkeys": len(keys)}
+                    return 200, {"enabled": twofa, "recovery_left": 9, "passkeys": len(cur)}
                 if path == "/admin/passkeys/status":
-                    return 200, {"two_step_on": twofa, "passkeys": keys, "max": 10, "unavailable": unavailable}
+                    return 200, {"two_step_on": twofa, "passkeys": cur, "max": 10, "unavailable": unavailable}
                 if path == "/admin/passkeys/begin":
                     return 200, {"options": OPTIONS}
+                if path == "/admin/passkeys/stepup/begin":
+                    return 200, {"options": GET_OPTIONS}
+                if path == "/admin/passkeys/stepup/finish":
+                    return 200, {"ticket": "TICKET123"}
+                if path == "/admin/passkeys/disable":
+                    cur.clear()
+                    return 200, {"passkeys": []}
                 return signed_in(path, req, calls)
             return h
 
@@ -302,6 +320,86 @@ def main():
             if p.locator("#pk-box").count(): pr.append("no passkey section while the app code is off")
 
         ok &= run_case(pw, "passkeys: not offered until the app code is on", passkey_handler([], twofa=False), c_pk_off_state)
+
+        def c_pk_stepup(p, pr, calls):
+            open_settings(p)
+            card = p.locator("#twofa-card")
+            card.get_by_role("button", name="Turn off passkeys", exact=True).click(); p.wait_for_timeout(200)
+            if card.get_by_role("button", name="Use a passkey instead").count() != 1: pr.append("the code box should offer a passkey")
+            card.get_by_role("button", name="Use a passkey instead").click(); p.wait_for_timeout(500)
+            if count(calls, "POST", "/admin/passkeys/stepup/begin") != 1 or count(calls, "POST", "/admin/passkeys/stepup/finish") != 1:
+                pr.append("approving should ask the server to begin and finish once")
+            fin = [c for c in calls if c[1] == "/admin/passkeys/stepup/finish"]
+            if fin:
+                for k in ("challenge", "client_data_json", "authenticator_data", "signature", '"id":"AAAA"'):
+                    if k not in (fin[0][2] or ""): pr.append(f"finish body lacks {k}")
+            want(pr, "approved note", card.inner_text(), "Passkey approved")
+            if p.get_attribute("#pk-code", "type") != "password": pr.append("the ticket should be hidden as dots")
+            p.fill("#pk-pw", "a good long password")
+            card.get_by_role("button", name="Turn off passkeys", exact=True).last.click(); p.wait_for_timeout(400)
+            sent = [c for c in calls if c[1] == "/admin/passkeys/disable"]
+            if len(sent) != 1 or '"code":"pk:TICKET123"' not in (sent[0][2] or ""): pr.append(f"the action should carry the ticket as its code, saw {sent}")
+            if p.locator("#pk-code").count(): pr.append("the form should be gone after turning passkeys off")
+            if p.locator(".pkuse").count(): pr.append("no passkeys left, so no passkey buttons")
+
+        ok &= run_case(pw, "passkeys: a code box offers a passkey and sends its ticket in place of a code", passkey_handler([KEY]), c_pk_stepup)
+
+        def c_pk_typing(p, pr, calls):
+            open_settings(p)
+            card = p.locator("#twofa-card")
+            card.get_by_role("button", name="Turn off passkeys", exact=True).click(); p.wait_for_timeout(200)
+            card.get_by_role("button", name="Use a passkey instead").click(); p.wait_for_timeout(400)
+            p.click("#pk-code"); p.keyboard.type("1"); p.wait_for_timeout(100)
+            if p.get_attribute("#pk-code", "type") == "password": pr.append("typing over an approval should show the box as a normal code box again")
+            if p.is_visible("#twofa-card .pknote"): pr.append("the approved note should go when the user types a code instead")
+            p.evaluate("window.__pkCancel = true")
+            p.fill("#pk-code", "")
+            card.get_by_role("button", name="Use a passkey instead").click(); p.wait_for_timeout(400)
+            want(pr, "cancel message", card.inner_text(), "cancelled or timed out")
+            if p.input_value("#pk-code") != "": pr.append("a cancelled passkey must leave the box empty")
+
+        ok &= run_case(pw, "passkeys: typing a code replaces an approval, and a cancelled prompt leaves the box empty", passkey_handler([KEY]), c_pk_typing)
+
+        def login_pk_handler(offer):
+            def h(path, req, calls):
+                if path == "/admin/session":
+                    return 200, {"authenticated": False, "password_set": True}
+                if path == "/admin/login":
+                    return 200, {"code_required": True, "passkey": GET_OPTIONS if offer else None}
+                if path == "/admin/login/passkey":
+                    return 200, {"authenticated": True, "csrf": "tok"}
+                return signed_in(path, req, calls)
+            return h
+
+        def c_login_pk(p, pr, calls):
+            p.fill("#pw", "a good long password"); p.click("#login-btn"); p.wait_for_timeout(400)
+            if not p.is_visible("#code-box"): pr.append("the code box should show")
+            if not p.is_visible("#login-pk-btn"): pr.append("a passkey button should show under the code box")
+            p.click("#login-pk-btn"); p.wait_for_timeout(600)
+            sent = [c for c in calls if c[1] == "/admin/login/passkey"]
+            if len(sent) != 1 or "client_data_json" not in (sent[0][2] or ""): pr.append(f"the passkey answer should be sent once, saw {sent}")
+            if p.is_visible("#v-login"): pr.append("should be signed in")
+            if p.is_visible("#login-pk-btn"): pr.append("the passkey button should be gone once signed in")
+
+        ok &= run_case(pw, "sign-in: a passkey can stand in for the code", login_pk_handler(True), c_login_pk)
+
+        def c_login_no_pk(p, pr, calls):
+            p.fill("#pw", "a good long password"); p.click("#login-btn"); p.wait_for_timeout(400)
+            if not p.is_visible("#code-box"): pr.append("the code box should show")
+            if p.is_visible("#login-pk-btn"): pr.append("no passkeys, so no passkey button")
+
+        ok &= run_case(pw, "sign-in: no passkey button when there are no passkeys", login_pk_handler(False), c_login_no_pk)
+
+        def c_login_pk_cancel(p, pr, calls):
+            p.evaluate("window.__pkCancel = true")
+            p.fill("#pw", "a good long password"); p.click("#login-btn"); p.wait_for_timeout(400)
+            p.click("#login-pk-btn"); p.wait_for_timeout(500)
+            want(pr, "cancel text", p.inner_text("#login-err"), "cancelled or timed out")
+            if count(calls, "POST", "/admin/login/passkey"): pr.append("nothing is sent when the prompt is cancelled")
+            if not p.is_visible("#code-box"): pr.append("the code box should stay so a code can be typed")
+            if not p.is_enabled("#login-pk-btn"): pr.append("the passkey button should work again")
+
+        ok &= run_case(pw, "sign-in: a cancelled passkey prompt says so and lets the user type a code", login_pk_handler(True), c_login_pk_cancel)
 
 
         def pw_handler(path, req, calls):

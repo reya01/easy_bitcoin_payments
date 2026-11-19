@@ -785,11 +785,23 @@ mod tests {
 
     #[test]
     fn validation_rejects_bad_caps() {
-        let c = Config {
+        // Zero is the default now: everything is sent on, nothing is kept.
+        let ok = Config {
             hot_wallet_cap_sats: 0,
+            onchain_sweep_cap_sats: 0,
             ..Config::default()
         };
-        assert!(c.validate().is_err());
+        assert!(ok.validate().is_ok());
+        let bad_ark = Config {
+            hot_wallet_cap_sats: -1,
+            ..Config::default()
+        };
+        assert!(bad_ark.validate().is_err());
+        let bad_onchain = Config {
+            onchain_sweep_cap_sats: -1,
+            ..Config::default()
+        };
+        assert!(bad_onchain.validate().is_err());
     }
 
     #[test]

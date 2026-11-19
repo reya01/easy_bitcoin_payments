@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2-rc1 — release candidate: Lightning and Ark only at checkout, tighter password limits, locked-down container (19 November 2026)
 
 - **The server container is locked down.** EBP's container now has a read-only filesystem (it can only write to its data folder and a small scratch folder that cannot run programs), none of root's special powers, and no way to gain any; Caddy (the padlock) keeps only the one power it needs to listen on ports 80 and 443. If something in the server were ever broken into, it could do much less. `./scripts/verify_container_lockdown.sh` checks all of this on a running server, and our tests run it on every change, including starting the wallet program under the same limits. Nothing to do on your side: it applies when you update. (If you have edited your own `docker-compose.yml`, copy the new `read_only`, `tmpfs`, `cap_drop` and `security_opt` lines across.)
 - **Password limits are tighter.** Every screen that checks your admin password or a code (sign-in, backup, payout address, emergency withdrawal, two-step settings, password change, update) now allows **5 tries a minute and 30 an hour per device**, down from 10 a minute with no hourly limit, and **20 a minute in total** for everyone not signed in (was 60). **Three wrong two-step codes** in a row now pause further tries (was five); the pause is still 10 minutes, then an hour, then six hours. A real person typing a password a few times is not affected. If you do hit a limit, wait a minute (or an hour for the hourly one).

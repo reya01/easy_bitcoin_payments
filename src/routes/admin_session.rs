@@ -36,7 +36,7 @@ pub async fn session(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let token = aa::token_from_headers(&headers, secure(&state));
-    let (set, csrf, twofa, declined, paused) = state
+    let (set, csrf, twofa, declined, paused, passkeys) = state
         .db
         .call(move |c| {
             let csrf = match token {
@@ -49,6 +49,7 @@ pub async fn session(
                 crate::totp::is_enabled(c)?,
                 crate::totp::is_declined(c)?,
                 crate::shopkey::is_paused(c)?,
+                crate::passkey::any(c)?,
             ))
         })
         .await?;
@@ -62,6 +63,7 @@ pub async fn session(
         "twofa": signed_in && twofa,
         "twofa_declined": signed_in && declined,
         "paused": signed_in && paused,
+        "passkeys": signed_in && passkeys,
     })))
 }
 
@@ -75,7 +77,8 @@ pub struct LoginRequest {
 
 enum LoginOutcome {
     Session(aa::Session),
-    NeedCode,
+    /// Password right, second step needed. Carries the passkey options when there are passkeys.
+    NeedCode(Option<serde_json::Value>),
     WrongCode,
     Locked(String),
     Denied,
@@ -98,9 +101,32 @@ pub(crate) async fn check_second_step(
             }
             let Some(code) = code.filter(|x| !x.trim().is_empty()) else {
                 return Err(AppError::BadRequest(
-                    "Enter the 6-digit code from your authenticator app.".into(),
+                    if crate::passkey::any(c)? {
+                        "Enter the 6-digit code from your authenticator app, or use a passkey."
+                    } else {
+                        "Enter the 6-digit code from your authenticator app."
+                    }
+                    .into(),
                 ));
             };
+            // A passkey approval (see `passkeys::stepup_finish`) stands in for a code, once.
+            if let Some(ticket) = code
+                .trim()
+                .strip_prefix(crate::routes::passkeys::TICKET_PREFIX)
+            {
+                return match crate::passkey::challenges().take(
+                    ticket,
+                    crate::passkey::Purpose::StepUp,
+                    crate::routes::passkeys::TICKET_BINDING,
+                    crate::util::now_unix(),
+                ) {
+                    Some(_) => Ok(()),
+                    None => Err(AppError::BadRequest(
+                        "That passkey approval expired or was already used. Use your passkey again."
+                            .into(),
+                    )),
+                };
+            }
             match crate::totp::verify(c, &code, crate::util::now_unix(), true)? {
                 crate::totp::Second::Ok => Ok(()),
                 crate::totp::Second::Wrong => {
@@ -134,6 +160,8 @@ pub async fn login(
     let ok = aa::verify_login_slow(stored, password).await?;
     // 3. Record the outcome (fast, inside the lock).
     let code = req.code;
+    // Passkeys can only be offered when the server's address allows them.
+    let rp = crate::passkey::rp_from_base_url(&state.config.public_base_url).ok();
     let outcome = state
         .db
         .call(move |c| {
@@ -144,7 +172,22 @@ pub async fn login(
             // Password right. If two-step sign-in is on, a code is needed too.
             if crate::totp::is_enabled(c)? {
                 let Some(code) = code.filter(|x| !x.trim().is_empty()) else {
-                    return Ok(LoginOutcome::NeedCode);
+                    let mut options = None;
+                    if let Some(rp) = &rp {
+                        let ids = crate::passkey::list(c)?
+                            .into_iter()
+                            .map(|p| p.credential_id)
+                            .collect::<Vec<_>>();
+                        if !ids.is_empty() {
+                            let challenge = crate::passkey::challenges().issue(
+                                crate::passkey::Purpose::SignIn,
+                                crate::routes::passkeys::LOGIN_BINDING,
+                                crate::util::now_unix(),
+                            );
+                            options = Some(crate::passkey::assertion_options(rp, &challenge, &ids));
+                        }
+                    }
+                    return Ok(LoginOutcome::NeedCode(options));
                 };
                 match crate::totp::verify(c, &code, crate::util::now_unix(), false)? {
                     crate::totp::Second::Ok => {}
@@ -173,8 +216,12 @@ pub async fn login(
         .await?;
     let s = match outcome {
         LoginOutcome::Session(s) => s,
-        LoginOutcome::NeedCode => {
-            return Ok((StatusCode::OK, Json(json!({ "code_required": true }))).into_response())
+        LoginOutcome::NeedCode(passkey) => {
+            return Ok((
+                StatusCode::OK,
+                Json(json!({ "code_required": true, "passkey": passkey })),
+            )
+                .into_response())
         }
         LoginOutcome::WrongCode => {
             return Err(AppError::BadRequest(
@@ -184,6 +231,35 @@ pub async fn login(
         LoginOutcome::Locked(message) => return Err(AppError::BadRequest(message)),
         LoginOutcome::Denied => return Err(AppError::Unauthorized),
     };
+    let body = Json(json!({ "authenticated": true, "csrf": s.csrf }));
+    Ok(with_cookie(
+        (StatusCode::OK, body).into_response(),
+        &aa::set_cookie_value(&s.token, secure(&state)),
+    ))
+}
+
+/// `POST /admin/login/passkey` — finish a sign-in whose password was right, with a
+/// passkey instead of a code. The challenge only exists because the password was
+/// right (see `login`), is single use, and expires after two minutes.
+pub async fn login_passkey(
+    State(state): State<AppState>,
+    Json(answer): Json<crate::routes::passkeys::AssertionBody>,
+) -> Result<Response, AppError> {
+    crate::routes::passkeys::check_answer(
+        &state,
+        crate::passkey::Purpose::SignIn,
+        crate::routes::passkeys::LOGIN_BINDING,
+        answer,
+    )
+    .await?;
+    let s = state
+        .db
+        .call(|c| {
+            let s = aa::create_session(c)?;
+            audit(c, "admin.login", "signed in with a passkey");
+            Ok(s)
+        })
+        .await?;
     let body = Json(json!({ "authenticated": true, "csrf": s.csrf }));
     Ok(with_cookie(
         (StatusCode::OK, body).into_response(),

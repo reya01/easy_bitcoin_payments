@@ -16,7 +16,7 @@ pwHelper("pw-new", "pw-new-show", "pw-new-count");
 (function () {
 "use strict";
 var csrf = "";
-var twofaOn = false, twofaDeclined = false, paused = false;
+var twofaOn = false, twofaDeclined = false, paused = false, passkeysOn = false, loginPasskey = null;
 var $ = function (id) { return document.getElementById(id); };
 var views = ["login", "home", "orders", "alerts", "hooks", "set"];
 
@@ -120,6 +120,10 @@ function pagerFor(box, key, count, reload) {
 }
 
 function api(method, path, body) {
+  var spends = body !== undefined && body !== null && Object.prototype.hasOwnProperty.call(body, "code");
+  return apiCall(method, path, body).then(function (j) { if (spends) resetPkInputs(); return j; }, function (e) { if (spends) resetPkInputs(); throw e; });
+}
+function apiCall(method, path, body) {
   var h = { "accept": "application/json" };
   if (body !== undefined) h["content-type"] = "application/json";
   if (method !== "GET") h["x-ebp-csrf"] = csrf;
@@ -128,7 +132,7 @@ function api(method, path, body) {
     .then(function (r) {
       return r.text().then(function (t) {
         var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
-        if (r.status === 401 && path !== "/admin/login") { signedOut(); throw new Error("Please sign in again."); }
+        if (r.status === 401 && path.indexOf("/admin/login") !== 0) { signedOut(); throw new Error("Please sign in again."); }
         if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many tries. Wait a minute, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
         return j;
       });
@@ -152,12 +156,12 @@ function show(name) {
   if (name === "home" || name === "set") loadTwofa();
   if (name === "home") loadRecon();
 }
-function signedOut() { var n = $("login-note"); if (pwChanged) { n.textContent = "Password changed. Sign in with your new password."; n.classList.remove("hidden"); pwChanged = false; } else { n.classList.add("hidden"); } csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
+function signedOut() { var n = $("login-note"); if (pwChanged) { n.textContent = "Password changed. Sign in with your new password."; n.classList.remove("hidden"); pwChanged = false; } else { n.classList.add("hidden"); } csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; passkeysOn = false; loginPasskey = null; $("login-pk").classList.add("hidden"); $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
 function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show(location.hash === "#test" ? "orders" : "home"); if (location.hash === "#test") { try { $("tp-sats").focus(); } catch (e) {} } }
 
 function boot() {
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
-    if (s.authenticated) { twofaOn = !!s.twofa; twofaDeclined = !!s.twofa_declined; paused = !!s.paused; return signedIn(s.csrf); }
+    if (s.authenticated) { twofaOn = !!s.twofa; twofaDeclined = !!s.twofa_declined; paused = !!s.paused; passkeysOn = !!s.passkeys; return signedIn(s.csrf); }
     $("nopw").classList.toggle("hidden", !!s.password_set);
     show("login");
   }).catch(function () { show("login"); });
@@ -170,8 +174,13 @@ $("login-form").addEventListener("submit", function (e) {
   var body = { password: $("pw").value };
   if (!$("code-box").classList.contains("hidden")) body.code = $("code").value;
   api("POST", "/admin/login", body).then(function (r) {
-    if (r.code_required) { $("code-box").classList.remove("hidden"); $("code").focus(); return; }
-    $("pw").value = ""; $("code").value = ""; $("code-box").classList.add("hidden"); signedIn(r.csrf);
+    if (r.code_required) {
+      $("code-box").classList.remove("hidden"); $("code").focus();
+      loginPasskey = r.passkey || null;
+      $("login-pk").classList.toggle("hidden", !(loginPasskey && passkeysCanSignIn()));
+      return;
+    }
+    $("pw").value = ""; $("code").value = ""; $("code-box").classList.add("hidden"); $("login-pk").classList.add("hidden"); loginPasskey = null; signedIn(r.csrf);
   })
     .catch(function (e) {
       var m = $("login-err");
@@ -857,7 +866,7 @@ $("bk-go").addEventListener("click", function () {
       say("bk-msg", "Saved as " + f.name + ". " + (included ? "It includes your wallet files." : "Your wallet runs outside this app, so its files are NOT inside; your recovery words are its backup.") + " Keep it somewhere safe, away from this server.");
     })
     .catch(function (e) { say("bk-msg", e.message, true); })
-    .then(function () { btn.disabled = false; });
+    .then(function () { btn.disabled = false; resetPkInputs(); });
 });
 
 $("ck-go").addEventListener("click", function () {
@@ -1023,6 +1032,7 @@ function loadTwofa() {
   var clicksAtStart = pauseClicks;
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
     applyTwofa(!!s.twofa, !!s.twofa_declined);
+    passkeysOn = !!s.passkeys; decoratePasskeyInputs();
     if (clicksAtStart === pauseClicks) { paused = !!s.paused; renderPause(); }
     renderPrompt();
     if (!twofaBusy) renderTwofaCard();
@@ -1106,6 +1116,86 @@ function renderTwofaCard() {
 }
 
 // ---- Passkeys (beta) ----
+function passkeysCanSignIn() { return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.get); }
+function requestOptions(o) {
+  return { publicKey: {
+    challenge: b64uToBuf(o.challenge), rpId: o.rpId, timeout: o.timeout, userVerification: o.userVerification,
+    allowCredentials: (o.allowCredentials || []).map(function (c) { return { type: c.type, id: b64uToBuf(c.id) }; })
+  } };
+}
+function assertionBody(challenge, cred) {
+  return {
+    challenge: challenge, id: cred.id,
+    client_data_json: bufToB64u(cred.response.clientDataJSON),
+    authenticator_data: bufToB64u(cred.response.authenticatorData),
+    signature: bufToB64u(cred.response.signature)
+  };
+}
+function passkeyUseErrorText(e) {
+  var n = e && e.name;
+  if (n === "NotAllowedError") return "The passkey was cancelled or timed out. You can try again, or use a code.";
+  return (e && e.message) || "That did not work.";
+}
+// Sign in: the password was right, now the passkey instead of a code.
+$("login-pk-btn").addEventListener("click", function () {
+  var o = loginPasskey; if (!o) return;
+  var m = $("login-err"); m.classList.add("hidden");
+  var btn = $("login-pk-btn"); btn.disabled = true;
+  navigator.credentials.get(requestOptions(o)).then(function (cred) {
+    return api("POST", "/admin/login/passkey", assertionBody(o.challenge, cred));
+  }).then(function (r) {
+    $("pw").value = ""; $("code").value = ""; $("code-box").classList.add("hidden"); $("login-pk").classList.add("hidden"); loginPasskey = null; signedIn(r.csrf);
+  }).catch(function (e) {
+    m.textContent = passkeyUseErrorText(e) + (/expired/i.test(e && e.message || "") ? " Press Sign in again to start over." : "");
+    m.classList.remove("hidden");
+  }).then(function () { btn.disabled = false; });
+});
+// Approve one action: a "Use a passkey instead" button under every code box. A good
+// touch fills the box with a one-use ticket (shown as dots), which the action's own
+// request sends in place of a code. It is wiped after any request that carried a code.
+function pkSpecialInputs() { return document.querySelectorAll('input[id$="-code"]:not(#tf-code), input[id^="resume-code-"]'); }
+function resetPkInputs() {
+  var all = document.querySelectorAll("input[data-pk]");
+  for (var i = 0; i < all.length; i++) { all[i].value = ""; all[i].type = all[i].dataset.pkType || "text"; delete all[i].dataset.pk; }
+  var notes = document.querySelectorAll(".pkuse .pknote");
+  for (var j = 0; j < notes.length; j++) { notes[j].textContent = ""; notes[j].classList.add("hidden"); }
+}
+function decoratePasskeyInputs() {
+  var inputs = pkSpecialInputs();
+  if (!passkeysOn || !passkeysCanSignIn()) {
+    var gone = document.querySelectorAll(".pkuse");
+    for (var g = 0; g < gone.length; g++) gone[g].remove();
+    return;
+  }
+  for (var i = 0; i < inputs.length; i++) {
+    var inp = inputs[i];
+    if (inp.nextElementSibling && inp.nextElementSibling.classList.contains("pkuse")) continue;
+    var wrap = el("div", "", "pkuse"), note = el("p", "", "muted pknote hidden");
+    wrap.appendChild(button("Use a passkey instead", pkApprove(inp, note), "small"));
+    wrap.appendChild(note);
+    inp.insertAdjacentElement("afterend", wrap);
+    inp.addEventListener("input", function (e) { var t = e.target; if (t.dataset.pk) { delete t.dataset.pk; t.type = t.dataset.pkType || "text"; var n = t.nextElementSibling && t.nextElementSibling.querySelector(".pknote"); if (n) { n.textContent = ""; n.classList.add("hidden"); } } });
+  }
+}
+function pkApprove(inp, note) {
+  return function (btn) {
+    note.classList.remove("hidden"); note.textContent = "Waiting for your passkey…";
+    btn.disabled = true;
+    var options;
+    api("POST", "/admin/passkeys/stepup/begin", {}).then(function (r) {
+      options = r.options;
+      return navigator.credentials.get(requestOptions(options));
+    }).then(function (cred) {
+      return api("POST", "/admin/passkeys/stepup/finish", assertionBody(options.challenge, cred));
+    }).then(function (r) {
+      inp.dataset.pkType = inp.type === "password" ? "text" : inp.type;
+      inp.value = "pk:" + r.ticket; inp.type = "password"; inp.dataset.pk = "1";
+      note.textContent = "Passkey approved. It works for one action, for two minutes.";
+    }).catch(function (e) { note.textContent = passkeyUseErrorText(e); })
+      .then(function () { btn.disabled = false; });
+  };
+}
+try { new MutationObserver(function () { decoratePasskeyInputs(); }).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
 function b64uToBuf(s) {
   s = String(s).replace(/-/g, "+").replace(/_/g, "/");
   while (s.length % 4) s += "=";
@@ -1149,6 +1239,7 @@ function pkFormButtons(go, label, again) {
 function renderPasskeys(d) {
   var box = $("pk-box"); if (!box) return; clear(box);
   var keys = d.passkeys || [];
+  passkeysOn = keys.length > 0; decoratePasskeyInputs();
   box.appendChild(el("strong", "Passkeys (beta)"));
   if (d.unavailable) { box.appendChild(el("p", "Passkeys cannot be used on this server's address. " + d.unavailable, "muted")); return; }
   if (!passkeysSupported()) { box.appendChild(el("p", "This browser cannot make passkeys. Try a recent Chrome, Edge, Safari or Firefox.", "muted")); return; }

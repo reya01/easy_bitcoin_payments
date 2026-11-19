@@ -76,3 +76,4 @@ nav button.on{background:var(--tab-on);color:var(--fg);font-weight:700}
 .upd-compare strong{font-size:20px}
 .passkeys{margin-top:18px;padding-top:14px;border-top:1.5px solid var(--soft)}
 .pklist{margin:6px 0 10px}
+.pkuse,.pklogin{margin:6px 0 4px}.pkuse .pknote{margin:6px 0 0}

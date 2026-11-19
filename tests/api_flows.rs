@@ -1728,58 +1728,110 @@ fn app_code(secret_b32: &str, step: i64) -> String {
     easy_bitcoin_payments::totp::code_for_step(&key, step)
 }
 
-/// A software passkey's answer to "add a passkey": what a browser would send back to
-/// `/admin/passkeys/finish` (without the challenge and name). Fresh key every call.
-fn soft_registration(challenge_b64: &str, rp_id: &str, origin: &str) -> serde_json::Value {
-    use easy_bitcoin_payments::passkey::b64url_encode as b64;
-    use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};
-    fn head(major: u8, n: usize) -> Vec<u8> {
-        if n < 24 {
-            vec![(major << 5) | (n as u8)]
-        } else {
-            vec![(major << 5) | 24, n as u8]
+/// A software passkey: signs registrations and sign-ins the way a browser's passkey would.
+struct SoftKey {
+    pair: ring::signature::EcdsaKeyPair,
+    cred_id: Vec<u8>,
+    point: Vec<u8>,
+}
+
+impl SoftKey {
+    fn new() -> Self {
+        use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
+            .unwrap();
+        let point = pair.public_key().as_ref().to_vec();
+        let cred_id = point[1..33].to_vec();
+        SoftKey {
+            pair,
+            cred_id,
+            point,
         }
     }
-    fn text(s: &str) -> Vec<u8> {
-        let mut v = head(3, s.len());
-        v.extend_from_slice(s.as_bytes());
-        v
+
+    fn id(&self) -> String {
+        easy_bitcoin_payments::passkey::b64url_encode(&self.cred_id)
     }
-    let rng = ring::rand::SystemRandom::new();
-    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
-    let pair =
-        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng).unwrap();
-    let point = pair.public_key().as_ref().to_vec();
-    let cred_id = point[1..33].to_vec();
-    let mut cose = vec![0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20];
-    cose.extend_from_slice(&point[1..33]);
-    cose.extend_from_slice(&[0x22, 0x58, 0x20]);
-    cose.extend_from_slice(&point[33..65]);
-    let mut auth = ring::digest::digest(&ring::digest::SHA256, rp_id.as_bytes())
-        .as_ref()
-        .to_vec();
-    auth.push(0x01 | 0x40 | 0x08 | 0x10); // present, new passkey, synced
-    auth.extend_from_slice(&[0, 0, 0, 0]);
-    auth.extend_from_slice(&[0u8; 16]);
-    auth.extend_from_slice(&(cred_id.len() as u16).to_be_bytes());
-    auth.extend_from_slice(&cred_id);
-    auth.extend_from_slice(&cose);
-    let mut att = vec![0xA3];
-    att.extend(text("fmt"));
-    att.extend(text("none"));
-    att.extend(text("attStmt"));
-    att.push(0xA0);
-    att.extend(text("authData"));
-    att.extend(head(2, auth.len()));
-    att.extend_from_slice(&auth);
-    let client = format!(
-        r#"{{"type":"webauthn.create","challenge":"{challenge_b64}","origin":"{origin}","crossOrigin":false}}"#
-    );
-    serde_json::json!({
-        "id": b64(&cred_id),
-        "client_data_json": b64(client.as_bytes()),
-        "attestation_object": b64(&att),
-    })
+
+    /// What a browser sends back to `/admin/passkeys/finish` (without the challenge and name).
+    fn registration(&self, challenge_b64: &str, rp_id: &str, origin: &str) -> serde_json::Value {
+        use easy_bitcoin_payments::passkey::b64url_encode as b64;
+        fn head(major: u8, n: usize) -> Vec<u8> {
+            if n < 24 {
+                vec![(major << 5) | (n as u8)]
+            } else {
+                vec![(major << 5) | 24, n as u8]
+            }
+        }
+        fn text(s: &str) -> Vec<u8> {
+            let mut v = head(3, s.len());
+            v.extend_from_slice(s.as_bytes());
+            v
+        }
+        let point = &self.point;
+        let mut cose = vec![0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20];
+        cose.extend_from_slice(&point[1..33]);
+        cose.extend_from_slice(&[0x22, 0x58, 0x20]);
+        cose.extend_from_slice(&point[33..65]);
+        let mut auth = ring::digest::digest(&ring::digest::SHA256, rp_id.as_bytes())
+            .as_ref()
+            .to_vec();
+        auth.push(0x01 | 0x40 | 0x08 | 0x10); // present, new passkey, synced
+        auth.extend_from_slice(&[0, 0, 0, 0]);
+        auth.extend_from_slice(&[0u8; 16]);
+        auth.extend_from_slice(&(self.cred_id.len() as u16).to_be_bytes());
+        auth.extend_from_slice(&self.cred_id);
+        auth.extend_from_slice(&cose);
+        let mut att = vec![0xA3];
+        att.extend(text("fmt"));
+        att.extend(text("none"));
+        att.extend(text("attStmt"));
+        att.push(0xA0);
+        att.extend(text("authData"));
+        att.extend(head(2, auth.len()));
+        att.extend_from_slice(&auth);
+        let client = format!(
+            r#"{{"type":"webauthn.create","challenge":"{challenge_b64}","origin":"{origin}","crossOrigin":false}}"#
+        );
+        serde_json::json!({
+            "id": b64(&self.cred_id),
+            "client_data_json": b64(client.as_bytes()),
+            "attestation_object": b64(&att),
+        })
+    }
+
+    /// What a browser sends back after `navigator.credentials.get` (a synced passkey:
+    /// counter 0), with the challenge included.
+    fn assertion(&self, challenge_b64: &str, rp_id: &str, origin: &str) -> serde_json::Value {
+        use easy_bitcoin_payments::passkey::b64url_encode as b64;
+        let rng = ring::rand::SystemRandom::new();
+        let mut auth = ring::digest::digest(&ring::digest::SHA256, rp_id.as_bytes())
+            .as_ref()
+            .to_vec();
+        auth.push(0x01 | 0x08 | 0x10); // present, synced
+        auth.extend_from_slice(&[0, 0, 0, 0]);
+        let client = format!(
+            r#"{{"type":"webauthn.get","challenge":"{challenge_b64}","origin":"{origin}","crossOrigin":false}}"#
+        );
+        let mut signed = auth.clone();
+        signed.extend_from_slice(
+            ring::digest::digest(&ring::digest::SHA256, client.as_bytes()).as_ref(),
+        );
+        let sig = self.pair.sign(&rng, &signed).unwrap();
+        serde_json::json!({
+            "challenge": challenge_b64,
+            "id": b64(&self.cred_id),
+            "client_data_json": b64(client.as_bytes()),
+            "authenticator_data": b64(&auth),
+            "signature": b64(sig.as_ref()),
+        })
+    }
+}
+
+fn soft_registration(challenge_b64: &str, rp_id: &str, origin: &str) -> serde_json::Value {
+    SoftKey::new().registration(challenge_b64, rp_id, origin)
 }
 
 #[tokio::test]
@@ -3759,4 +3811,302 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     assert!(!req_file.exists());
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn passkeys_sign_in_approve_actions_and_backup_codes_still_work() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    const RP: &str = "pay.example.com";
+    const ORIGIN: &str = "https://pay.example.com";
+    let step0 = now_unix() / 30;
+    let config = Config {
+        password_hash_iterations: 1_000,
+        trust_proxy_headers: true,
+        public_base_url: ORIGIN.to_string(),
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    let pw = "a good long password";
+    state
+        .db
+        .call(move |c| easy_bitcoin_payments::admin_auth::set_password(c, pw, 1_000))
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+    let n = AtomicU32::new(1);
+    let send = |path: &str, session: Option<(&str, &str)>, body: serde_json::Value| {
+        let mut r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header(
+                "x-forwarded-for",
+                format!("10.5.0.{}", n.fetch_add(1, Ordering::SeqCst)),
+            )
+            .json(&body);
+        if let Some((cookie, csrf)) = session {
+            r = r.header("cookie", cookie).header("x-ebp-csrf", csrf);
+        }
+        r.send()
+    };
+    let json = |r: reqwest::Response| async move { r.json::<serde_json::Value>().await.unwrap() };
+    let cookie_of = |r: &reqwest::Response| {
+        r.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+
+    // Sign in (no second step yet), turn the app code on, add a passkey.
+    let login = send("/admin/login", None, serde_json::json!({"password": pw}))
+        .await
+        .unwrap();
+    let cookie = cookie_of(&login);
+    let csrf = json(login).await["csrf"].as_str().unwrap().to_string();
+    let sess = Some((cookie.as_str(), csrf.as_str()));
+    let started = json(
+        send(
+            "/admin/2fa/start",
+            sess,
+            serde_json::json!({"admin_password": pw}),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    let secret = started["secret"].as_str().unwrap().to_string();
+    let done = json(
+        send(
+            "/admin/2fa/confirm",
+            sess,
+            serde_json::json!({"code": app_code(&secret, step0)}),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    let codes: Vec<String> = done["recovery_codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_str().unwrap().to_string())
+        .collect();
+    let key = SoftKey::new();
+    let begun = json(
+        send(
+            "/admin/passkeys/begin",
+            sess,
+            serde_json::json!({"admin_password": pw, "code": codes[0]}),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    let challenge = begun["options"]["challenge"].as_str().unwrap().to_string();
+    let mut reg = key.registration(&challenge, RP, ORIGIN);
+    reg["challenge"] = serde_json::json!(challenge);
+    reg["name"] = serde_json::json!("Soft key");
+    let r = send("/admin/passkeys/finish", sess, reg).await.unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+
+    // The session page says passkeys exist.
+    let st = json(
+        client
+            .get(format!("{base}/admin/session"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st["passkeys"], true);
+
+    // Wrong password: no passkey options are handed out.
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": "nope nope nope nope"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
+
+    // Right password, no code: the answer offers the passkey.
+    let begin_login = || async {
+        let r = send("/admin/login", None, serde_json::json!({"password": pw}))
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 200);
+        json(r).await
+    };
+    let first = begin_login().await;
+    assert_eq!(first["code_required"], true);
+    assert_eq!(first["passkey"]["rpId"], RP);
+    assert_eq!(first["passkey"]["allowCredentials"][0]["id"], key.id());
+    let ch = first["passkey"]["challenge"].as_str().unwrap().to_string();
+
+    // A passkey this server does not know is refused (400, not "signed out"), and a
+    // challenge that was answered once is gone.
+    let stranger = SoftKey::new();
+    let r = send(
+        "/admin/login/passkey",
+        None,
+        stranger.assertion(&ch, RP, ORIGIN),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = send("/admin/login/passkey", None, key.assertion(&ch, RP, ORIGIN))
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status().as_u16(),
+        400,
+        "a used-up challenge stays used up"
+    );
+
+    // An answer made for another web address is refused.
+    let second = begin_login().await;
+    let ch = second["passkey"]["challenge"].as_str().unwrap().to_string();
+    let r = send(
+        "/admin/login/passkey",
+        None,
+        key.assertion(&ch, RP, "https://evil.example.net"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    // Without ever typing the password there is nothing to answer.
+    let r = send(
+        "/admin/login/passkey",
+        None,
+        key.assertion("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", RP, ORIGIN),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    // The right passkey signs in.
+    let third = begin_login().await;
+    let ch = third["passkey"]["challenge"].as_str().unwrap().to_string();
+    let r = send("/admin/login/passkey", None, key.assertion(&ch, RP, ORIGIN))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let cookie2 = cookie_of(&r);
+    let csrf2 = json(r).await["csrf"].as_str().unwrap().to_string();
+    let sess2 = Some((cookie2.as_str(), csrf2.as_str()));
+
+    // A backup code still signs in too.
+    let r = send(
+        "/admin/login",
+        None,
+        serde_json::json!({"password": pw, "code": codes[1]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+
+    // Approving a protected action with a passkey. The approval is for the session that
+    // asked: another session cannot finish it.
+    let sb = json(
+        send("/admin/passkeys/stepup/begin", sess2, serde_json::json!({}))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(sb["options"]["rpId"], RP);
+    let ch = sb["options"]["challenge"].as_str().unwrap().to_string();
+    let r = send(
+        "/admin/passkeys/stepup/finish",
+        sess,
+        key.assertion(&ch, RP, ORIGIN),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400, "another session cannot use it");
+    let sb = json(
+        send("/admin/passkeys/stepup/begin", sess2, serde_json::json!({}))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let ch = sb["options"]["challenge"].as_str().unwrap().to_string();
+    let fin = json(
+        send(
+            "/admin/passkeys/stepup/finish",
+            sess2,
+            key.assertion(&ch, RP, ORIGIN),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    let ticket = format!("pk:{}", fin["ticket"].as_str().unwrap());
+
+    // Not signed in: nothing to approve.
+    let r = send("/admin/passkeys/stepup/begin", None, serde_json::json!({}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
+
+    // The ticket does not skip the password.
+    let r = send(
+        "/admin/passkeys/begin",
+        sess2,
+        serde_json::json!({"admin_password": "nope nope nope nope", "code": ticket}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    // With the password it stands in for the code, once.
+    let r = send(
+        "/admin/passkeys/begin",
+        sess2,
+        serde_json::json!({"admin_password": pw, "code": ticket}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200, "the passkey approval is accepted");
+    let r = send(
+        "/admin/passkeys/begin",
+        sess2,
+        serde_json::json!({"admin_password": pw, "code": ticket}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(json(r).await.to_string().contains("already used"));
+    // A made-up ticket is no better.
+    let r = send(
+        "/admin/passkeys/begin",
+        sess2,
+        serde_json::json!({"admin_password": pw, "code": "pk:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+
+    // With no passkeys there is nothing to approve with; the backup codes still work
+    // for the turn-off buttons.
+    let r = send(
+        "/admin/passkeys/disable",
+        sess2,
+        serde_json::json!({"admin_password": pw, "code": codes[2]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let r = send("/admin/passkeys/stepup/begin", sess2, serde_json::json!({}))
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    let r = send("/admin/login", None, serde_json::json!({"password": pw}))
+        .await
+        .unwrap();
+    assert_eq!(json(r).await["passkey"], serde_json::Value::Null);
 }

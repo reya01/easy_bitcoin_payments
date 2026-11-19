@@ -106,7 +106,7 @@ open box.
 Draft for the first release candidate that has been tried with real money. The
 facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md).
 
-> **v0.2.1-rc1 — release candidate: faster, checked updates and a tidier admin page**
+> **v0.2.1-rc2 — release candidate: update from the Home tab**
 >
 > Easy Bitcoin Payments takes Bitcoin payments (Lightning and Ark) into a wallet
 > you control, with a WooCommerce plugin and a no-terminal DigitalOcean install.
@@ -121,26 +121,25 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 > the server for fees (at least 1,500 sats), and should pay an address in a
 > wallet you hold outside the server (minimum 50,000 sats).
 >
-> New since rc5:
+> New since rc1:
 >
-> - **Updates:** `./scripts/update.sh VERSION` on your server downloads the signed
->   image instead of building it (about a minute instead of ten), shows the
->   version, image digest and signature result, asks you to type yes, and refuses
->   to go back to an older version. Nothing updates by itself, and building from
->   source is still there (`--from-source`). See `docs/UPGRADING.md`.
-> - **Sign-in:** longer lockouts after wrong codes, a code works once, and
->   resuming payments, the shop-address lock and the alert server ask for a code
->   when two-step sign-in is on.
-> - **Payments:** the watcher no longer re-reads payments it has handled, the
->   payments CSV records what the wallet received, and a Bitcoin price needs two
->   agreeing sources to be set from nothing.
-> - **Admin page:** compact Settings rows, Phone alerts on the Alerts tab, one
->   Turn off button for two-step sign-in, Resend says what happened, and Home no
->   longer reports a routine renewal as a failed withdrawal.
+> - **Update from the admin page (experimental).** With the new update helper
+>   installed, the Home tab offers a new release. Press Start update and it checks
+>   the release first, then shows both version numbers, the signature result from
+>   this project's release workflow, the exact image, and links to inspect it on
+>   GitHub. Only after you type your admin password (and your code, if two-step
+>   sign-in is on) and press Update now is that exact image installed. It never
+>   goes backwards and says why whenever it refuses. EBP itself never gets
+>   control of the server. Install the helper once with
+>   `./scripts/install-update-helper.sh` (new DigitalOcean servers do it for you).
+> - **Release candidates are offered as updates** on the Home tab.
+> - Behind the scenes: a weekly check against new wallet-software releases, and a
+>   check that the server program builds byte-for-byte the same on two machines.
 >
-> The wallet program stays at barkd 0.8.0; the move to 0.8.1 or newer is planned
-> for v0.3. The signed update was first used for real on 18 November 2026 (0.2.0-rc5
-> to 0.2.1-rc1 on a test server) and worked; still update a test server first.
+> The signed Console update was first used for real on 18 November (rc5 to rc1).
+> The Home-tab update has only been tested with stand-in programs and in the
+> browser: its first real use is installing the next release from rc2. The
+> wallet program stays at barkd 0.8.0; the move to 0.8.1 is planned for v0.3.
 >
 > Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >

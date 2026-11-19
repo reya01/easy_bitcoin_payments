@@ -1,0 +1,16 @@
+# The EBP update helper (scripts/update-helper.sh). Runs once per request, as root
+# because it switches the server's image with Docker. It has no network port; it
+# checks a signed release and installs it only when the owner asked twice on the
+# Home tab. Installed by scripts/install-update-helper.sh.
+[Unit]
+Description=EBP update helper: check or install a signed EBP release the owner asked for
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ebp
+ExecStart=/opt/ebp/scripts/update-helper.sh
+TimeoutStartSec=900
+PrivateTmp=yes
+ProtectHome=yes

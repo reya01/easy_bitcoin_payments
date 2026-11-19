@@ -30,6 +30,11 @@ if [ -z "$SKIP_SYSTEM" ]; then
     grep -q "$SWAP_FILE" /etc/fstab || echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
   fi
   systemctl enable --now docker
+  # The update helper, so the owner can update from the admin page's Home tab
+  # (they still decide twice and see the signature first). Harmless to repeat.
+  if [ -x "$EBP_DIR/scripts/install-update-helper.sh" ]; then
+    "$EBP_DIR/scripts/install-update-helper.sh" >/dev/null 2>&1 || true
+  fi
 fi
 
 cd "$EBP_DIR"

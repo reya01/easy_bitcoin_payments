@@ -70,3 +70,7 @@ nav button.on{background:var(--tab-on);color:var(--fg);font-weight:700}
 #logout{margin-left:auto}
 #mode-banner{text-align:center;font-weight:600;color:var(--warn)}
 .btns.btns-gap{margin-top:12px}
+/* Update card: the Now -> New comparison before the second decision. */
+.upd-compare{display:flex;align-items:center;gap:16px;margin:12px 0}
+.upd-compare div{display:flex;flex-direction:column;gap:2px}
+.upd-compare strong{font-size:20px}

@@ -71,6 +71,10 @@ jobs:
       - name: Admin page states
         run: python3 tests/e2e/dashboard_states.py
 
+      # The Home tab's Update card: two decisions, signature and versions shown first, clear refusals.
+      - name: Update card states
+        run: python3 tests/e2e/update_card.py
+
       # Real-money (mainnet) wording and guards on the setup and admin pages,
       # server mocked: the tick-box, the REAL MONEY banners, address hints and the
       # danger box, the emergency withdrawal being off.
@@ -296,6 +300,8 @@ jobs:
         run: bash scripts/test_start_https.sh
       - name: The update script refuses downgrades, bad digests and bad signatures
         run: bash scripts/test_update.sh
+      - name: The update helper reads requests strictly, never goes backwards, installs only the approved digest
+        run: bash scripts/test_update_helper.sh
       - name: The pinned cosign (if any) still matches its fingerprint
         run: bash scripts/get-cosign.sh --check
       - name: Render blueprints keep a paid plan, a disk and manual deploys

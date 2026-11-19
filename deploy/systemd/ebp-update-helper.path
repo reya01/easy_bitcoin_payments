@@ -1,0 +1,12 @@
+# Starts the EBP update helper when the admin page drops an update request.
+# Installed by scripts/install-update-helper.sh, which replaces /opt/ebp with the
+# real EBP folder.
+[Unit]
+Description=EBP update helper: watch for an update request from the admin page
+
+[Path]
+PathExists=/opt/ebp/updates/inbox/request.json
+Unit=ebp-update-helper.service
+
+[Install]
+WantedBy=multi-user.target

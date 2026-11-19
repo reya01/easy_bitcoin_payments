@@ -99,6 +99,11 @@ pub async fn version(
         "update_available": update_available,
         "open_orders": open_orders,
         "host": crate::updates::host_kind(),
+        // The optional update helper (Home tab Update card): installed or not, and
+        // its last answer. Read-only here; see routes/update_helper.rs.
+        "helper_version": crate::updates::helper_installed(),
+        "helper_status": crate::updates::helper_status(),
+        "repo_url": crate::updates::REPO_URL,
     })))
 }
 

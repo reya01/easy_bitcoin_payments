@@ -17,6 +17,7 @@ pub mod shopkey;
 pub mod stores;
 pub mod twofa;
 pub mod unmatched;
+pub mod update_helper;
 
 use std::sync::Arc;
 
@@ -224,6 +225,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/2fa/status", post(twofa::status))
         .route("/admin/2fa/skip", post(twofa::skip))
         .route("/admin/pause", post(shopkey::pause))
+        .route("/admin/update/check", post(update_helper::check))
+        .route("/admin/update/apply", post(update_helper::apply))
         .route("/admin/keylock/status", post(shopkey::status))
         .route("/admin/keylock/save", post(shopkey::save))
         .merge(

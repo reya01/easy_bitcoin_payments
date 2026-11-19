@@ -304,6 +304,11 @@ main() {
   say
   say "Updated to $version. Check that the admin Home page says the wallet is connected."
   say "To go back to your previous server image if something looks wrong: restore your backup first (docs/UPGRADING.md), then ask for help."
+  if [ -z "$STATUS_FILE" ] && [ ! -f /etc/systemd/system/ebp-update-helper.path ] && [ -x ./scripts/install-update-helper.sh ]; then
+    say
+    say "Tip: to update from the admin page's Home tab next time instead of here, run once:"
+    say "  ./scripts/install-update-helper.sh"
+  fi
 }
 
 # Build from the source files of a release: slower, but nothing is downloaded

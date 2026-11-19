@@ -3280,3 +3280,161 @@ async fn hostile_text_is_kept_as_plain_text_and_never_runs_as_code() {
     );
     assert!(!csv.contains(",=HYPERLINK") && !csv.contains("\"=HYPERLINK"));
 }
+
+#[tokio::test]
+async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_digest() {
+    // The helper's folders, in a throwaway place (only this test sets this).
+    let dir = std::env::temp_dir().join(format!("ebp-updates-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("inbox")).unwrap();
+    std::fs::create_dir_all(dir.join("status")).unwrap();
+    std::env::set_var("EBP_UPDATES_DIR", &dir);
+    let req_file = dir.join("inbox").join("request.json");
+    let read_req = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&req_file).unwrap()).unwrap()
+    };
+
+    let (base, state, _shop, _key) = serve_with(Config {
+        update_check: false,
+        password_hash_iterations: 1_000,
+        ..Config::default()
+    })
+    .await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let client = reqwest::Client::new();
+    let post = |path: &str, body: serde_json::Value, signed_in: bool| {
+        let mut r = client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .json(&body);
+        if signed_in {
+            r = r.header("cookie", &cookie).header("x-ebp-csrf", &csrf);
+        }
+        r.send()
+    };
+    let newer = "99.0.0-rc1";
+    let digest = format!("sha256:{}", "a".repeat(64));
+
+    // Not signed in: refused.
+    let r = post(
+        "/admin/update/check",
+        serde_json::json!({"version": newer}),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 401);
+
+    // Helper not installed yet: a clear refusal, and no request is written.
+    let r = post(
+        "/admin/update/check",
+        serde_json::json!({"version": newer}),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 409);
+    assert!(r.text().await.unwrap().contains("not installed"));
+    assert!(!req_file.exists());
+
+    std::fs::write(
+        dir.join("status").join("helper.json"),
+        r#"{"helper_version":1,"at":1}"#,
+    )
+    .unwrap();
+
+    // Never older, never the same, never something that is not a version.
+    for (v, words) in [
+        ("0.0.1", "older"),
+        (env!("CARGO_PKG_VERSION"), "already runs"),
+        ("1.0.0; reboot", "version number"),
+    ] {
+        let r = post(
+            "/admin/update/check",
+            serde_json::json!({"version": v}),
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status().as_u16(), 400, "{v}");
+        assert!(r.text().await.unwrap().contains(words), "{v}");
+        assert!(!req_file.exists(), "no request for {v}");
+    }
+
+    // First decision: a check request with only the version and an id.
+    let r = post(
+        "/admin/update/check",
+        serde_json::json!({"version": newer}),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let req = read_req();
+    assert_eq!(req["action"], "check");
+    assert_eq!(req["version"], newer);
+    assert!(req.get("digest").is_none());
+    std::fs::remove_file(&req_file).unwrap();
+
+    // The version endpoint shows the helper and its answer.
+    let status = format!(
+        r#"{{"state":"ready","code":"ok","request_id":"{}","running":"{}","version":"{newer}","digest":"{digest}","commit":"{}","run_url":"","at":2}}"#,
+        req["id"].as_str().unwrap(),
+        env!("CARGO_PKG_VERSION"),
+        "b".repeat(40)
+    );
+    std::fs::write(dir.join("status").join("status.json"), status).unwrap();
+    let v: serde_json::Value = client
+        .get(format!("{base}/api/v1/admin/version"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(v["helper_version"], 1);
+    assert_eq!(v["helper_status"]["state"], "ready");
+    assert_eq!(v["helper_status"]["digest"], digest);
+
+    // Second decision: a different digest than the one shown is refused.
+    let apply =
+        |d: &str, pw: &str| serde_json::json!({"version": newer, "digest": d, "password": pw});
+    let other = format!("sha256:{}", "c".repeat(64));
+    let r = post(
+        "/admin/update/apply",
+        apply(&other, "a good long password"),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 409);
+    assert!(!req_file.exists());
+    // A wrong password is refused.
+    let r = post(
+        "/admin/update/apply",
+        apply(&digest, "not my password"),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
+    assert!(r.text().await.unwrap().contains("admin password"));
+    assert!(!req_file.exists());
+    // The right password and the shown digest: an apply request for exactly that digest.
+    let r = post(
+        "/admin/update/apply",
+        apply(&digest, "a good long password"),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 200);
+    let req = read_req();
+    assert_eq!(req["action"], "apply");
+    assert_eq!(req["version"], newer);
+    assert_eq!(req["digest"], digest);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -187,27 +187,219 @@ document.addEventListener("click", function (e) {
   if (id && navigator.clipboard) navigator.clipboard.writeText($(id).textContent).then(function () { e.target.textContent = "Copied"; });
 });
 
+// ---- Updates (Home tab: the Version row and the Update card) ----
+// EBP never updates itself. With the update helper installed on the server
+// (scripts/install-update-helper.sh), the owner can update from here: they
+// decide twice (Start update, then Update now after seeing the signature result
+// and both versions), and the second decision needs the admin password and, if
+// two-step sign-in is on, a 6-digit code. Every check runs in the helper.
+var UPD = { busy: false, waitId: "", target: "", timer: null, started: 0 };
+var UPD_REASONS = {
+  older: "This version is older than the one you run. EBP never goes backwards.",
+  same_version: "You already run this version.",
+  signature_failed: "The signature check failed: this image was not built and signed by this project's release workflow. Do not update, and tell the project.",
+  digest_changed: "The release's image changed since you checked it. Press Start update to check it again.",
+  commit_mismatch: "The release's files and its image come from different commits. Do not update, and tell the project.",
+  no_commit: "The signature did not say which commit built the image, so the files could not be matched to it.",
+  no_digest: "Could not download this release's image address from GitHub. Check that the server has internet, then try again later.",
+  bad_digest: "The release's image address is not in the expected form, so it was not used.",
+  no_cosign: "The signature checker could not be set up (it needs internet). Try again later, or update from the Console.",
+  fetch_failed: "Could not reach GitHub to fetch the release files. Try again later.",
+  no_tag: "This release's files are not on GitHub.",
+  no_running_version: "The helper could not read which version runs now, so it refused (it never skips the check against going backwards). Try again in a minute.",
+  arch: "The signed image is only built for x86-64 servers. Update from the Console with ./scripts/update.sh --from-source.",
+  checkout_failed: "The EBP folder could not switch to the release's files (it may have local changes). Update from the Console to see why.",
+  start_failed: "The new version did not start, so the old image setting was put back. In the Console run ./scripts/start.sh, then ask for help."
+};
+function updReason(code) { return UPD_REASONS[code] || ("The update helper stopped (" + (code || "unknown reason") + ")."); }
+function updLink(text, href) { var a = el("a", text); a.href = href; a.target = "_blank"; a.rel = "noopener noreferrer"; return a; }
+function updStop() { if (UPD.timer) { clearTimeout(UPD.timer); UPD.timer = null; } }
+
 function loadVersion() {
   api("GET", "/api/v1/admin/version").then(function (v) {
-    var u = $("update"); clear(u);
-    var h = $("health");
-    h.appendChild(row("Version", v.current));
-    if (!v.update_available || !v.latest) { u.classList.add("hidden"); return; }
+    renderVersionRow(v);
+    if (!UPD.busy) renderUpdate(v);
+  }).catch(function () { if (!UPD.busy) retryCard($("update"), "We couldn't check for updates.", loadVersion); });
+}
+
+function renderVersionRow(v) {
+  var h = $("health");
+  var r = el("div", "", "row"); r.id = "version-row";
+  r.appendChild(el("span", "Version"));
+  var right = el("span", v.current + (v.update_available && v.latest ? " · " : (v.check_enabled ? " · up to date" : "")));
+  if (v.update_available && v.latest) {
+    var a = el("a", "Update available"); a.href = "#update";
+    a.addEventListener("click", function (e) { e.preventDefault(); $("update").scrollIntoView({ behavior: "smooth" }); });
+    right.appendChild(a);
+  }
+  r.appendChild(right);
+  var old = $("version-row"); if (old && old.parentNode) old.parentNode.removeChild(old);
+  h.appendChild(r);
+}
+
+function renderUpdate(v) {
+  var u = $("update"); clear(u);
+  var st = v.helper_status || null;
+  // Just updated: say so once (for a day), with the result.
+  if (st && st.state === "done" && st.version === v.current && (Date.now() / 1000 - st.at) < 86400) {
     u.classList.remove("hidden");
-    u.appendChild(el("strong", (v.latest.security ? "Security update available: " : "Update available: ") + "version " + v.latest.version, v.latest.security ? "bad" : ""));
-    u.appendChild(el("p", "Your server never updates itself — you choose when. " + (v.open_orders > 0 ? "You have " + v.open_orders + " open order(s); it is best to wait until they finish. " : "No open orders right now, so this is a good moment. ") + "Your data is backed up automatically before an update.", "muted"));
-    if (v.host === "render") {
-      u.appendChild(el("p", "To update: open your Render dashboard, choose this service, then Manual Deploy → Deploy latest commit.", "muted"));
-    } else {
-      u.appendChild(el("p", "To update, run these two lines on your server, in the EBP folder. The first one only checks the new version's signature; the second one asks you to type yes before anything changes:", "muted"));
-      u.appendChild(el("div", "./scripts/update.sh --check " + v.latest.version, "secret"));
-      u.appendChild(el("div", "./scripts/update.sh " + v.latest.version, "secret"));
-    }
-    if (/^https:\/\/github\.com\//.test(v.latest.url)) {
-      var a = el("a", "What changed in this version"); a.href = v.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer";
-      u.appendChild(a);
-    }
-  }).catch(function () { retryCard($("update"), "We couldn't check for updates.", loadVersion); });
+    u.appendChild(el("strong", "Updated to version " + v.current, "ok"));
+    u.appendChild(el("p", "The update finished. Check above that the wallet is connected before you take payments again.", "muted"));
+    if (!v.update_available) return;
+    clear(u);
+  }
+  if (st && st.state === "failed") {
+    u.classList.remove("hidden");
+    u.appendChild(el("strong", "The last update did not finish", "bad"));
+    u.appendChild(el("p", updReason(st.code)));
+    if (!v.update_available) return;
+  }
+  if (!v.update_available || !v.latest) { if (!u.firstChild) u.classList.add("hidden"); return; }
+  u.classList.remove("hidden");
+  var L = v.latest;
+  u.appendChild(el("strong", (L.security ? "Security update available: " : "Update available: ") + "version " + L.version, L.security ? "bad" : ""));
+  u.appendChild(el("p", "You run " + v.current + ". Your server never updates itself; you choose when. " + (v.open_orders > 0 ? "You have " + v.open_orders + " open order(s); it is best to wait until they finish. " : "No open orders right now, so this is a good moment. ") + "Your data is backed up automatically before an update.", "muted"));
+  if (/^https:\/\/github\.com\//.test(L.url)) u.appendChild(updLink("What changed in this version", L.url));
+  if (v.host === "render") {
+    u.appendChild(el("p", "To update: open your Render dashboard, choose this service, then Manual Deploy → Deploy latest commit.", "muted"));
+    return;
+  }
+  if (!v.helper_version) {
+    u.appendChild(el("p", "To update from this page, install the update helper once. In your server's Console (at your hosting company), in the EBP folder, run:", "muted"));
+    u.appendChild(el("div", "./scripts/install-update-helper.sh", "secret"));
+    u.appendChild(el("p", "Or update from the Console now with these two lines. The first only checks the new version's signature; the second asks you to type yes before anything changes:", "muted"));
+    u.appendChild(el("div", "./scripts/update.sh --check " + L.version, "secret"));
+    u.appendChild(el("div", "./scripts/update.sh " + L.version, "secret"));
+    return;
+  }
+  // A finished check for this exact version: show the comparison and the second decision.
+  if (st && st.state === "ready" && st.code === "ok" && st.version === L.version && st.running === v.current && st.digest) {
+    renderConfirm(v, st);
+    return;
+  }
+  if (st && st.state === "refused" && st.version === L.version) {
+    u.appendChild(el("p", "The last check was refused: " + updReason(st.code) + " Nothing was changed.", "bad"));
+  }
+  var btns = el("div", "", "btns");
+  btns.appendChild(button("Start update", function (b) { startCheck(v, b); }, "primary"));
+  u.appendChild(btns);
+  u.appendChild(el("p", "Start update only checks the new version first (about a minute). Nothing changes until you confirm on the next screen.", "muted"));
+}
+
+// First decision: ask the helper to check, then wait for its answer.
+function startCheck(v, b) {
+  b.disabled = true;
+  var u = $("update");
+  api("POST", "/admin/update/check", { version: v.latest.version }).then(function (r) {
+    UPD.busy = true; UPD.waitId = r.request_id; UPD.target = v.latest.version; UPD.started = Date.now();
+    clear(u);
+    u.appendChild(el("strong", "Checking version " + v.latest.version));
+    u.appendChild(el("p", "The helper is checking the new version's signature with GitHub and Sigstore. This takes about a minute. Nothing changes yet.", "muted"));
+    u.appendChild(button("Cancel", function () { updStop(); UPD.busy = false; loadVersion(); }, "small"));
+    pollCheck();
+  }).catch(function (e) { b.disabled = false; u.appendChild(el("p", e.message, "bad")); });
+}
+function pollCheck() {
+  updStop();
+  UPD.timer = setTimeout(function () {
+    api("GET", "/api/v1/admin/version").then(function (v) {
+      var st = v.helper_status;
+      if (st && st.request_id === UPD.waitId && st.state !== "checking") { UPD.busy = false; renderVersionRow(v); renderUpdate(v); return; }
+      if (Date.now() - UPD.started > 4 * 60 * 1000) {
+        UPD.busy = false; var u = $("update"); clear(u);
+        u.appendChild(el("strong", "The update helper did not answer", "bad"));
+        u.appendChild(el("p", "It may not be running. In your server's Console run: systemctl status ebp-update-helper.path. Nothing was changed.", "muted"));
+        u.appendChild(button("Try again", function () { loadVersion(); }, "small"));
+        return;
+      }
+      pollCheck();
+    }).catch(function () { pollCheck(); });
+  }, 3000);
+}
+
+// The comparison and the second decision.
+function renderConfirm(v, st) {
+  var u = $("update"); clear(u); u.classList.remove("hidden");
+  u.appendChild(el("strong", "Ready to update: please check, then confirm"));
+  var cmp = el("div", "", "upd-compare");
+  var now = el("div"); now.appendChild(el("span", "Now", "muted")); now.appendChild(el("strong", st.running || v.current));
+  var neu = el("div"); neu.appendChild(el("span", "New", "muted")); neu.appendChild(el("strong", st.version));
+  cmp.appendChild(now); cmp.appendChild(el("span", "→", "muted")); cmp.appendChild(neu);
+  u.appendChild(cmp);
+  u.appendChild(el("p", "✓ Signature OK: built and signed by this project's release workflow for v" + st.version + (st.commit ? ", from commit " + st.commit.slice(0, 12) : "") + ".", "ok"));
+  u.appendChild(el("p", "Image (digest):", "muted"));
+  u.appendChild(el("div", st.digest, "secret"));
+  var repo = v.repo_url || "https://github.com/reya01/easy_bitcoin_payments";
+  var links = el("p", "Inspect it further on GitHub: ", "muted");
+  links.appendChild(updLink("the release page", (v.latest && /^https:\/\/github\.com\//.test(v.latest.url)) ? v.latest.url : repo + "/releases/tag/v" + st.version));
+  links.appendChild(document.createTextNode(" (compare the digest and read the notes), and "));
+  links.appendChild(st.run_url ? updLink("the workflow run that built and signed it", st.run_url) : updLink("the commit and its checks", repo + "/commit/" + st.commit));
+  links.appendChild(document.createTextNode("."));
+  u.appendChild(links);
+  var bk = el("p", "Download a fresh backup first. ", "muted");
+  var ba = el("a", "Go to Download a backup"); ba.href = "#";
+  ba.addEventListener("click", function (e) { e.preventDefault(); show("set"); openFold("fold-backup"); });
+  bk.appendChild(ba); u.appendChild(bk);
+  u.appendChild(field("upd-pw", "Your admin password", "password"));
+  var cw = el("div"); cw.className = "needcode" + (twofaOn ? "" : " hidden");
+  cw.appendChild(field("upd-code", "Code from your authenticator app", "tel", "6 digits"));
+  u.appendChild(cw);
+  var msg = el("p", "", "bad hidden");
+  var btns = el("div", "", "btns");
+  btns.appendChild(button("Update now", function (b) {
+    b.disabled = true; msg.classList.add("hidden");
+    var body = { version: st.version, digest: st.digest, password: $("upd-pw").value };
+    if (twofaOn) body.code = $("upd-code").value.trim();
+    api("POST", "/admin/update/apply", body).then(function () {
+      UPD.busy = true; UPD.target = st.version; UPD.started = Date.now();
+      renderUpdating();
+    }).catch(function (e) { b.disabled = false; msg.textContent = e.message; msg.classList.remove("hidden"); });
+  }, "primary"));
+  btns.appendChild(button("Cancel", function () { clear(u); u.classList.add("hidden"); }, "small"));
+  u.appendChild(btns); u.appendChild(msg);
+}
+
+// Second decision made: the helper checks once more, then switches. EBP restarts.
+function renderUpdating() {
+  var u = $("update"); clear(u);
+  u.appendChild(el("strong", "Updating to version " + UPD.target));
+  u.appendChild(el("p", "The helper checks the release once more, then switches the server. The page reconnects by itself in about a minute; keep it open.", "muted"));
+  pollApply();
+}
+function pollApply() {
+  updStop();
+  UPD.timer = setTimeout(function () {
+    fetch("/api/v1/admin/version", { credentials: "same-origin", headers: { accept: "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (v) {
+        var st = v && v.helper_status;
+        if (v && v.current === UPD.target) {
+          updStop(); UPD.busy = false;
+          var u = $("update"); clear(u);
+          u.appendChild(el("strong", "Updated to version " + UPD.target, "ok"));
+          u.appendChild(el("p", "Done. This page now reloads to show the new version. If it asks you to sign in, sign in again.", "muted"));
+          setTimeout(function () { location.reload(); }, 3000);
+          return;
+        }
+        if (st && (st.state === "refused" || st.state === "failed") && st.version === UPD.target) {
+          updStop(); UPD.busy = false;
+          var u2 = $("update"); clear(u2);
+          u2.appendChild(el("strong", st.state === "refused" ? "Update refused" : "The update did not finish", "bad"));
+          u2.appendChild(el("p", updReason(st.code) + (st.state === "refused" ? " Nothing was changed." : "")));
+          u2.appendChild(button("Back", function () { loadVersion(); }, "small"));
+          return;
+        }
+        if (Date.now() - UPD.started > 6 * 60 * 1000) {
+          updStop(); UPD.busy = false;
+          var u3 = $("update"); clear(u3);
+          u3.appendChild(el("strong", "This is taking longer than expected", "bad"));
+          u3.appendChild(el("p", "Reload this page in a minute. If Home does not show the new version, in your server's Console look at: cat updates/status/last-run.log", "muted"));
+          return;
+        }
+        pollApply();
+      })
+      .catch(function () { pollApply(); });
+  }, 3000);
 }
 
 // ---- Weekly check against your own wallet ----

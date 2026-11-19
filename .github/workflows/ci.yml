@@ -71,6 +71,10 @@ jobs:
       - name: Admin page states
         run: python3 tests/e2e/dashboard_states.py
 
+      # The Home tab's Update card: two decisions, signature and versions shown first, clear refusals.
+      - name: Update card states
+        run: python3 tests/e2e/update_card.py
+
       # Real-money (mainnet) wording and guards on the setup and admin pages,
       # server mocked: the tick-box, the REAL MONEY banners, address hints and the
       # danger box, the emergency withdrawal being off.

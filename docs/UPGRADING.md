@@ -14,14 +14,44 @@ anything. Read the release notes first, and update **one release at a time**.
 Restarting is always safe: pending payments and shop notifications are stored and
 resume.
 
-## While only release candidates exist
+## Release candidates
 
-The "Update available" notice only looks at full releases, so it will not appear for
-a release candidate. You choose the version yourself (the Releases page lists them),
-and the same steps below work. Read the [CHANGELOG](../CHANGELOG.md) first to see what
-changed. Your wallet, settings, orders and shop connection are kept.
+Every release so far is a release candidate, and from 0.2.1-rc2 the Home tab offers them as
+updates too. You still choose; nothing is installed for you. Read the
+[CHANGELOG](../CHANGELOG.md) first to see what changed. Your wallet, settings, orders and shop
+connection are kept.
 
-## Update a DigitalOcean server (the usual way, about a minute)
+## Update from the admin page (Home tab, new in 0.2.1-rc2, experimental)
+
+With the **update helper** installed, you can update without the Console:
+
+1. On the **Home** tab, the Version row says *Update available* and the **Update card** at the
+   top offers the new version. Press **Start update**. This only checks the new version
+   (about a minute); nothing changes.
+2. The card then shows **Now** and **New** side by side, the signature result ("built and
+   signed by this project's release workflow for v..., from commit ..."), the exact image
+   (digest), and links to inspect it further on GitHub: the release page and the workflow run
+   that built it. Download a fresh backup (the card links to it).
+3. To go ahead, type your **admin password** and, if two-step sign-in is on, your **6-digit
+   code**, and press **Update now**. The helper checks everything again and installs only the
+   image you were shown. The page reloads itself when the new version answers.
+
+If anything is wrong the card says why in plain words (for example "older than the version you
+run" or "the signature check failed") and nothing is changed. The helper never goes backwards,
+has no way to skip that check, and only installs this project's signed releases.
+
+**Installing the helper.** New DigitalOcean servers get it automatically. On a server set up
+earlier, open the Console once, in the EBP folder, and run:
+
+```
+./scripts/install-update-helper.sh
+```
+
+It is a short script (`scripts/update-helper.sh`) that runs as root, outside EBP, only when the
+Home tab drops a request, and it runs the same `update.sh` checks described below. EBP itself
+never gets control of the server. To remove it: `./scripts/install-update-helper.sh --uninstall`.
+
+## Update a DigitalOcean server from the Console (about a minute)
 
 In the DigitalOcean website open your server, then **Console**, log in as `root`
 and run these, one at a time (the folder name may differ; `ls` shows it):

@@ -1192,7 +1192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn find_pending_by_address_matches_both_rails() {
+    async fn find_pending_by_address_matches_ark_only_and_never_an_empty_address() {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();
         db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
@@ -1205,11 +1205,19 @@ mod tests {
             .unwrap();
         assert_eq!(by_ark.map(|i| i.id), Some("inv_1".to_string()));
 
+        // On-chain addresses are no longer a way to pay, so nothing matches one.
         let by_chain = db
             .call(|conn| find_pending_by_address(conn, "bc1qinv_1"))
             .await
             .unwrap();
-        assert_eq!(by_chain.map(|i| i.id), Some("inv_1".to_string()));
+        assert!(by_chain.is_none());
+
+        // Invoices store an empty on-chain address now; "" must never match an order.
+        let by_empty = db
+            .call(|conn| find_pending_by_address(conn, ""))
+            .await
+            .unwrap();
+        assert!(by_empty.is_none());
 
         let missing = db
             .call(|conn| find_pending_by_address(conn, "ark1qunknown"))

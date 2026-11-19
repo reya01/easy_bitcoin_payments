@@ -74,3 +74,5 @@ nav button.on{background:var(--tab-on);color:var(--fg);font-weight:700}
 .upd-compare{display:flex;align-items:center;gap:16px;margin:12px 0}
 .upd-compare div{display:flex;flex-direction:column;gap:2px}
 .upd-compare strong{font-size:20px}
+.passkeys{margin-top:18px;padding-top:14px;border-top:1.5px solid var(--soft)}
+.pklist{margin:6px 0 10px}

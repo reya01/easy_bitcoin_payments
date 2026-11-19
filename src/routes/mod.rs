@@ -10,6 +10,7 @@ pub mod exit;
 pub mod health;
 pub mod invoices;
 pub mod page_assets;
+pub mod passkeys;
 pub mod payout;
 pub mod reconcile;
 pub mod setup;
@@ -224,6 +225,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/reconcile/done", post(reconcile::done))
         .route("/admin/2fa/status", post(twofa::status))
         .route("/admin/2fa/skip", post(twofa::skip))
+        .route("/admin/passkeys/status", post(passkeys::status))
         .route("/admin/pause", post(shopkey::pause))
         .route("/admin/keylock/status", post(shopkey::status))
         .route("/admin/keylock/save", post(shopkey::save))
@@ -258,6 +260,12 @@ pub fn router(state: AppState) -> Router {
                 .route("/admin/2fa/start", post(twofa::start))
                 .route("/admin/2fa/confirm", post(twofa::confirm))
                 .route("/admin/2fa/disable", post(twofa::disable))
+                // Passkeys: adding one checks the password and a code; removing one
+                // does too; "finish" completes an adding that was started above.
+                .route("/admin/passkeys/begin", post(passkeys::begin))
+                .route("/admin/passkeys/finish", post(passkeys::finish))
+                .route("/admin/passkeys/remove", post(passkeys::remove))
+                .route("/admin/passkeys/disable", post(passkeys::disable))
                 // Checks the current password, so it shares the brake too.
                 .route("/admin/password", post(admin_session::change_password))
                 // Update from the Home tab: "apply" checks the admin password and a

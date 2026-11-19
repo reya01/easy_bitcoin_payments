@@ -5,6 +5,8 @@
 //! * `POST /admin/2fa/confirm` — a code from the app turns it on; 10 recovery codes out (once).
 //! * `POST /admin/2fa/disable` — admin password + a code turns it off.
 //! * `POST /admin/2fa/skip`    — "password only for now" (remembered, can be undone by turning it on).
+//!
+//! Turning the app code off is refused while passkeys exist (see `routes::passkeys`).
 
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -18,7 +20,7 @@ use crate::routes::admin_session::{check_second_step, require_session};
 use crate::routes::AppState;
 use crate::totp;
 
-fn audit(conn: &rusqlite::Connection, action: &str, detail: &str) {
+pub(crate) fn audit(conn: &rusqlite::Connection, action: &str, detail: &str) {
     if let Ok(Some(store)) = crate::store::first(conn) {
         let _ = crate::audit::record(conn, &store.id, action, Some(detail));
     }
@@ -108,6 +110,13 @@ pub async fn disable(
     Json(req): Json<DisableRequest>,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
+    // While passkeys are new, they need the app code set up first, so the app code
+    // cannot be turned off from under them.
+    if state.db.call(|c| crate::passkey::any(c)).await? {
+        return Err(AppError::BadRequest(
+            "Turn off your passkeys first. Passkeys need the app code to be set up, so the app code can only be turned off once there are no passkeys.".into(),
+        ));
+    }
     password_ok(&state, req.admin_password).await?;
     check_second_step(&state, req.code).await?;
     state
@@ -147,9 +156,17 @@ pub async fn status(
     headers: HeaderMap,
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
-    let (enabled, left) = state
+    let (enabled, left, passkeys) = state
         .db
-        .call(|c| Ok((totp::is_enabled(c)?, totp::recovery_left(c)?)))
+        .call(|c| {
+            Ok((
+                totp::is_enabled(c)?,
+                totp::recovery_left(c)?,
+                crate::passkey::count(c)?,
+            ))
+        })
         .await?;
-    Ok(Json(json!({ "enabled": enabled, "recovery_left": left })))
+    Ok(Json(
+        json!({ "enabled": enabled, "recovery_left": left, "passkeys": passkeys }),
+    ))
 }

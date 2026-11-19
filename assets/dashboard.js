@@ -1066,21 +1066,27 @@ function renderPrompt() {
 function renderTwofaCard() {
   var box = $("twofa-card"); clear(box);
   if (twofaOn) {
-    box.appendChild(el("p", "On. Signing in needs your password and a 6-digit code from your authenticator app. Changing your payout address, password or downloading a backup asks for a code too.", "muted"));
+    box.appendChild(el("p", "On. Signing in needs your password and a second step: a 6-digit code from your authenticator app, or a passkey if you add one below. Changing your payout address, password or downloading a backup asks for it too.", "muted"));
+    box.appendChild(el("p", "What is the difference? An app code is 6 numbers your phone app makes every 30 seconds, and you type them in. A passkey is a saved key in your password manager, phone or security key, and you approve it with a tap or a fingerprint instead of typing. Either one, together with your password, is two-step sign-in. Your backup codes work for both.", "muted"));
+    box.appendChild(el("strong", "Authenticator app code"));
     var left = el("p", "", "muted"); box.appendChild(left);
-    api("POST", "/admin/2fa/status", {}).then(function (s) { left.textContent = "Backup codes left: " + s.recovery_left + " of 10."; }).catch(function () {});
+    var passkeyNote = el("p", "", "muted hidden"); box.appendChild(passkeyNote);
+    api("POST", "/admin/2fa/status", {}).then(function (s) {
+      left.textContent = "Backup codes left: " + s.recovery_left + " of 10.";
+      if (s.passkeys > 0) { passkeyNote.textContent = "To turn the app code off, first turn off your passkeys below: passkeys need it."; passkeyNote.classList.remove("hidden"); }
+    }).catch(function () {});
     var out = el("div"); box.appendChild(out);
     var reveal = el("div", "", "btns");
-    box.appendChild(reveal).appendChild(button("Turn off", function () {
+    box.appendChild(reveal).appendChild(button("Turn off app code", function () {
       // The form below has its own confirm button, so this one goes away (a second
-      // "Turn off" next to it looked like two ways to do the same thing).
+      // button next to it looked like two ways to do the same thing).
       reveal.classList.add("hidden");
       clear(out);
-      out.appendChild(el("p", LESS_SECURE, "muted warnbox"));
+      out.appendChild(el("p", "This stops asking for the 6-digit code. If you have passkeys, turn those off first. With nothing left, anyone who learns your password can sign in and change where your money goes.", "muted warnbox"));
       out.appendChild(field("tf-off-pw", "Admin password", "password"));
       out.appendChild(field("tf-off-code", "Code from your authenticator app (or a backup code)", "tel", "6 digits"));
       var b = el("div", "", "btns");
-      b.appendChild(button("Turn off two-step sign-in", function (btn) {
+      b.appendChild(button("Turn off app code", function (btn) {
         btn.disabled = true;
         api("POST", "/admin/2fa/disable", { admin_password: $("tf-off-pw").value, code: $("tf-off-code").value })
           .then(function () { applyTwofa(false, true); renderPrompt(); renderTwofaCard(); })
@@ -1090,10 +1096,128 @@ function renderTwofaCard() {
       out.appendChild(b);
       var m = el("p", "", "msg hidden"); m.id = "tf-msg"; out.appendChild(m);
     }));
+    var pk = el("div", "", "passkeys"); pk.id = "pk-box"; box.appendChild(pk);
+    loadPasskeys();
     return;
   }
   box.appendChild(el("p", twofaDeclined ? "Off (password only). Anyone who learns your password can sign in. Turn it on to also require a 6-digit code from an app on your phone." : "Off. Turn it on to also require a 6-digit code from an app on your phone when you sign in.", "muted"));
+  box.appendChild(el("p", "Passkeys (a tap or fingerprint instead of typing a code) can be added once the app code is on.", "muted"));
   box.appendChild(el("div", "", "btns")).appendChild(button("Turn on", startTwofaForm, "primary"));
+}
+
+// ---- Passkeys (beta) ----
+function b64uToBuf(s) {
+  s = String(s).replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  var bin = atob(s), a = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return a.buffer;
+}
+function bufToB64u(buf) {
+  var a = new Uint8Array(buf), s = "";
+  for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function passkeysSupported() { return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create); }
+function creationOptions(o) {
+  return { publicKey: {
+    challenge: b64uToBuf(o.challenge), rp: o.rp,
+    user: { id: b64uToBuf(o.user.id), name: o.user.name, displayName: o.user.displayName },
+    pubKeyCredParams: o.pubKeyCredParams, timeout: o.timeout, attestation: o.attestation,
+    authenticatorSelection: o.authenticatorSelection,
+    excludeCredentials: (o.excludeCredentials || []).map(function (c) { return { type: c.type, id: b64uToBuf(c.id) }; })
+  } };
+}
+function passkeyErrorText(e) {
+  var n = e && e.name;
+  if (n === "NotAllowedError") return "The passkey was cancelled or timed out. Nothing was added.";
+  if (n === "InvalidStateError") return "This passkey is already added.";
+  if (n === "NotSupportedError") return "Your browser or device cannot make this kind of passkey.";
+  return (e && e.message) || "That did not work.";
+}
+function loadPasskeys() {
+  var box = $("pk-box"); if (!box) return;
+  api("POST", "/admin/passkeys/status", {}).then(function (d) { renderPasskeys(d || {}); })
+    .catch(function () { clear(box); box.appendChild(el("p", "Passkeys could not be loaded. Reload the page to try again.", "muted")); });
+}
+function pkFormButtons(go, label, again) {
+  var b = el("div", "", "btns");
+  b.appendChild(button(label, go, "primary"));
+  b.appendChild(button("Cancel", again));
+  return b;
+}
+function renderPasskeys(d) {
+  var box = $("pk-box"); if (!box) return; clear(box);
+  var keys = d.passkeys || [];
+  box.appendChild(el("strong", "Passkeys (beta)"));
+  if (d.unavailable) { box.appendChild(el("p", "Passkeys cannot be used on this server's address. " + d.unavailable, "muted")); return; }
+  if (!passkeysSupported()) { box.appendChild(el("p", "This browser cannot make passkeys. Try a recent Chrome, Edge, Safari or Firefox.", "muted")); return; }
+  box.appendChild(el("p", keys.length ? "These passkeys can be used with your password to sign in. Add a second one on another device or in another place, in case one is lost." : "None yet. A passkey can live in your password manager (for example Bitwarden), on your phone, or on a security key.", "muted"));
+  var list = el("div", "", "pklist");
+  keys.forEach(function (k) {
+    var r = el("div", "", "row");
+    var what = k.synced ? "kept in a password manager or your account (works on your other devices)" : "only on the device that made it";
+    r.appendChild(el("span", k.name + " · " + what + " · " + (k.last_used_at ? "last used " + when(new Date(k.last_used_at * 1000).toISOString()) : "not used yet")));
+    r.appendChild(button("Remove", function () { showPasskeyRemove(k); }, "small"));
+    list.appendChild(r);
+  });
+  box.appendChild(list);
+  var btns = el("div", "", "btns"); box.appendChild(btns);
+  if (keys.length < (d.max || 10)) btns.appendChild(button("Add a passkey", showPasskeyAdd, "primary"));
+  if (keys.length) btns.appendChild(button("Turn off passkeys", showPasskeysOff));
+  var m = el("p", "", "msg hidden"); m.id = "pk-msg"; box.appendChild(m);
+}
+function showPasskeyAdd() {
+  var box = $("pk-box"); clear(box);
+  box.appendChild(el("strong", "Add a passkey"));
+  box.appendChild(el("p", "First confirm it is you. Then your browser asks where to keep the passkey (for example Bitwarden or your phone) and you approve it.", "muted"));
+  box.appendChild(field("pk-pw", "Admin password", "password"));
+  box.appendChild(field("pk-code", "Code from your authenticator app (or a backup code)", "tel", "6 digits"));
+  box.appendChild(field("pk-name", "A name for this passkey, so you can tell them apart", "text", "For example: Bitwarden on my laptop"));
+  box.appendChild(pkFormButtons(function (btn) {
+    btn.disabled = true;
+    var challenge = "";
+    api("POST", "/admin/passkeys/begin", { admin_password: $("pk-pw").value, code: $("pk-code").value }).then(function (r) {
+      challenge = r.options.challenge;
+      return navigator.credentials.create(creationOptions(r.options));
+    }).then(function (cred) {
+      return api("POST", "/admin/passkeys/finish", {
+        challenge: challenge, id: bufToB64u(cred.rawId), name: $("pk-name").value,
+        client_data_json: bufToB64u(cred.response.clientDataJSON),
+        attestation_object: bufToB64u(cred.response.attestationObject)
+      });
+    }).then(function () { loadPasskeys(); setTimeout(function () { if ($("pk-msg")) say("pk-msg", "Passkey added. Test it by signing out and back in once you can, and keep your backup codes.", false); }, 300); })
+      .catch(function (e) { say("pk-msg", passkeyErrorText(e), true); btn.disabled = false; });
+  }, "Add passkey", loadPasskeys));
+  var m = el("p", "", "msg hidden"); m.id = "pk-msg"; box.appendChild(m);
+}
+function showPasskeyRemove(k) {
+  var box = $("pk-box"); clear(box);
+  box.appendChild(el("strong", "Remove " + k.name + "?"));
+  box.appendChild(el("p", "This passkey will no longer work for signing in. Your other passkeys and your app code are not affected.", "muted"));
+  box.appendChild(field("pk-pw", "Admin password", "password"));
+  box.appendChild(field("pk-code", "Code from your authenticator app (or a backup code)", "tel", "6 digits"));
+  box.appendChild(pkFormButtons(function (btn) {
+    btn.disabled = true;
+    api("POST", "/admin/passkeys/remove", { admin_password: $("pk-pw").value, code: $("pk-code").value, id: k.id })
+      .then(function () { loadPasskeys(); })
+      .catch(function (e) { say("pk-msg", e.message, true); btn.disabled = false; });
+  }, "Remove passkey", loadPasskeys));
+  var m = el("p", "", "msg hidden"); m.id = "pk-msg"; box.appendChild(m);
+}
+function showPasskeysOff() {
+  var box = $("pk-box"); clear(box);
+  box.appendChild(el("strong", "Turn off passkeys"));
+  box.appendChild(el("p", "This removes all your passkeys. Signing in will go back to your password plus the 6-digit code from your authenticator app (or a backup code). Your app code stays on.", "muted"));
+  box.appendChild(field("pk-pw", "Admin password", "password"));
+  box.appendChild(field("pk-code", "Code from your authenticator app (or a backup code)", "tel", "6 digits"));
+  box.appendChild(pkFormButtons(function (btn) {
+    btn.disabled = true;
+    api("POST", "/admin/passkeys/disable", { admin_password: $("pk-pw").value, code: $("pk-code").value })
+      .then(function () { renderTwofaCard(); })
+      .catch(function (e) { say("pk-msg", e.message, true); btn.disabled = false; });
+  }, "Turn off passkeys", loadPasskeys));
+  var m = el("p", "", "msg hidden"); m.id = "pk-msg"; box.appendChild(m);
 }
 
 function startTwofaForm() {

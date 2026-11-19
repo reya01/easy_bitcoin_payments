@@ -3443,13 +3443,9 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     // The update screens share the password brake (10 a minute per client, counting
     // sign-in and every try above): one more is refused before any password is checked.
     std::fs::remove_file(&req_file).unwrap();
-    let r = post(
-        "/admin/update/apply",
-        apply(&digest, "another guess"),
-        true,
-    )
-    .await
-    .unwrap();
+    let r = post("/admin/update/apply", apply(&digest, "another guess"), true)
+        .await
+        .unwrap();
     assert_eq!(r.status().as_u16(), 429);
     assert!(!req_file.exists());
 

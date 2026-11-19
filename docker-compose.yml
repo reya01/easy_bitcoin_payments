@@ -54,6 +54,10 @@ services:
       - "${EBP_BIND_HOST:-127.0.0.1}:8080:8080"
     volumes:
       - ebp-data:/data
+      # The update helper's two folders (scripts/update-helper.sh): EBP may drop an
+      # update request in inbox, and only reads the helper's answers in status.
+      - ./updates/inbox:/updates/inbox
+      - ./updates/status:/updates/status:ro
     restart: unless-stopped
 
   # Automatic https. Only runs when ./scripts/start.sh --https (or --domain)

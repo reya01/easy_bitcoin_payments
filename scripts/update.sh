@@ -9,6 +9,11 @@
 #   ./scripts/update.sh --check 0.2.1-rc1      # only check it, change nothing
 #   ./scripts/update.sh --from-source 0.2.1-rc1  # build it yourself (slow, fully independent)
 #
+# The update helper (scripts/update-helper.sh) runs this same script when the owner
+# presses Update on the admin page's Home tab. It sets EBP_UPDATE_STATUS so each
+# result is also written as a small status file, and passes --expect-digest so only
+# the exact image the owner was shown can be installed.
+#
 # What it does, in order:
 #   1. works out which version you run now and REFUSES to go backwards
 #   2. downloads the release's image address (a "digest": the exact file)
@@ -31,7 +36,32 @@ OIDC_ISSUER="https://token.actions.githubusercontent.com"
 VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
 
 say() { printf '%s\n' "$*"; }
-die() { printf 'Stopped: %s\nNothing was changed.\n' "$*" >&2; exit 1; }
+
+# For the update helper: when EBP_UPDATE_STATUS names a file, every outcome is also
+# written there as one line of JSON (fixed state and code words, plus version numbers,
+# the digest and the commit, each checked against a strict pattern first). Written to a
+# temporary file and renamed, so a reader never sees half a file and a symlink at the
+# target is replaced, not followed.
+STATUS_FILE="${EBP_UPDATE_STATUS:-}"
+REQUEST_ID="${EBP_UPDATE_REQUEST_ID:-}"
+S_RUNNING=""; S_VERSION=""; S_DIGEST=""; S_COMMIT=""; S_RUN_URL=""
+only() { printf '%s' "$2" | grep -Eq "$1" && printf '%s' "$2" || true; }
+status() {
+  [ -n "$STATUS_FILE" ] || return 0
+  local state="$1" code="${2:-}" dir tmp
+  dir="$(dirname "$STATUS_FILE")"
+  tmp="$(mktemp "$dir/.status.XXXXXX")" || return 0
+  printf '{"state":"%s","code":"%s","request_id":"%s","running":"%s","version":"%s","digest":"%s","commit":"%s","run_url":"%s","at":%s}\n' \
+    "$(only '^[a-z_]+$' "$state")" "$(only '^[a-z_]+$' "$code")" "$(only '^[0-9a-f]{16,64}$' "$REQUEST_ID")" \
+    "$(only "$VERSION_RE" "$S_RUNNING")" "$(only "$VERSION_RE" "$S_VERSION")" \
+    "$(only '^sha256:[0-9a-f]{64}$' "$S_DIGEST")" "$(only '^[0-9a-f]{40}$' "$S_COMMIT")" \
+    "$(only "^https://github\\.com/${REPO}/actions/runs/[0-9]+(/attempts/[0-9]+)?$" "$S_RUN_URL")" \
+    "$(date +%s)" > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f -T "$tmp" "$STATUS_FILE"
+}
+# die "message" [code]: stop, say nothing changed, and record why (code) for the helper.
+die() { status refused "${2:-error}"; printf 'Stopped: %s\nNothing was changed.\n' "$1" >&2; exit 1; }
 
 # Compare two versions like 0.2.0-rc5 and 0.2.1: prints -1, 0 or 1.
 # A version with a "-something" part is OLDER than the same number without it
@@ -119,46 +149,62 @@ usage() {
 main() {
   cd "$(dirname "$0")/.."
 
-  local check_only="" assume_yes="" from_source="" allow_unknown="" version=""
+  local check_only="" assume_yes="" from_source="" allow_unknown="" version="" expect_digest=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --check) check_only=1 ;;
       --yes) assume_yes=1 ;;
       --from-source) from_source=1 ;;
       --allow-unknown-running-version) allow_unknown=1 ;;
+      --expect-digest)
+        shift
+        [ "$#" -gt 0 ] || die "--expect-digest needs a value like sha256:..." bad_request
+        printf '%s' "$1" | grep -Eq '^sha256:[0-9a-f]{64}$' || die "--expect-digest must look like sha256: and 64 hex characters" bad_request
+        expect_digest="$1" ;;
       -h|--help) usage; exit 0 ;;
-      -*) die "unknown option $1 (try --help)" ;;
-      *) [ -z "$version" ] || die "give one version only"; version="${1#v}" ;;
+      -*) die "unknown option $1 (try --help)" bad_request ;;
+      *) [ -z "$version" ] || die "give one version only" bad_request; version="${1#v}" ;;
     esac
     shift
   done
 
+  # Run by the update helper: no escape hatches. Going backwards stays impossible even
+  # when the running version cannot be read, and only the signed image is used.
+  if [ -n "$STATUS_FILE" ]; then
+    [ -z "$allow_unknown" ] || die "the update helper never skips the downgrade check" not_allowed
+    [ -z "$from_source" ] || die "the update helper only installs the signed image" not_allowed
+  fi
+
   if [ -z "$version" ]; then
+    status refused missing_version
     say "Which version? For example:  ./scripts/update.sh 0.2.1-rc1"
     say "The versions are listed on https://github.com/${REPO}/releases"
     say "(Release candidates are never picked for you: you choose.)"
     exit 1
   fi
-  printf '%s' "$version" | grep -Eq "$VERSION_RE" || die "'$version' does not look like a version (like 0.2.1 or 0.2.1-rc1)"
+  printf '%s' "$version" | grep -Eq "$VERSION_RE" || die "'$version' does not look like a version (like 0.2.1 or 0.2.1-rc1)" bad_version
   local tag="v$version"
+  S_VERSION="$version"
 
   # 1. Never go backwards.
   local now
   now="$(running_version)"
+  S_RUNNING="$now"
   if [ -z "$now" ]; then
     if [ -z "$allow_unknown" ]; then
-      die "could not read the version this server runs now (is it running? try ./scripts/start.sh first). To go ahead anyway, add --allow-unknown-running-version"
+      die "could not read the version this server runs now (is it running? try ./scripts/start.sh first). To go ahead anyway, add --allow-unknown-running-version" no_running_version
     fi
     say "Warning: could not read the running version, so the downgrade check was skipped."
   else
     local cmp
     cmp="$(version_cmp "$version" "$now")"
     if [ "$cmp" = 0 ]; then
+      status refused same_version
       say "This server already runs $now. Nothing to do."
       exit 0
     fi
     if [ "$cmp" = -1 ]; then
-      die "$version is OLDER than the $now this server runs. EBP does not go backwards (an older version refuses to start on newer data). If you really need an older version, restore a backup (docs/UPGRADING.md, 'The safety net')."
+      die "$version is OLDER than the $now this server runs. EBP does not go backwards (an older version refuses to start on newer data). If you really need an older version, restore a backup (docs/UPGRADING.md, 'The safety net')." older
     fi
   fi
 
@@ -170,15 +216,19 @@ main() {
   # The released image is built for x86-64 computers only for now.
   case "$(uname -m)" in
     x86_64|amd64) ;;
-    *) die "the signed image is only built for x86-64 computers, and this one is $(uname -m). Build it yourself instead: ./scripts/update.sh --from-source $version" ;;
+    *) die "the signed image is only built for x86-64 computers, and this one is $(uname -m). Build it yourself instead: ./scripts/update.sh --from-source $version" arch ;;
   esac
 
   # 2. The exact image for this release.
   local ref
   ref="$(curl -fsSL -m 30 --max-filesize 2000 "https://github.com/${REPO}/releases/download/${tag}/IMAGE_DIGEST" 2>/dev/null | head -n 1 | tr -d '\r' || true)"
-  [ -n "$ref" ] || die "could not download the image address for $tag. Does that release exist (https://github.com/${REPO}/releases/tag/${tag}), and does this server have internet?"
-  printf '%s' "$ref" | grep -Eq "^${IMAGE_REPO//./\\.}@sha256:[0-9a-f]{64}$" || die "the image address for $tag is not in the expected form (${IMAGE_REPO}@sha256:...), so it was not used"
+  [ -n "$ref" ] || die "could not download the image address for $tag. Does that release exist (https://github.com/${REPO}/releases/tag/${tag}), and does this server have internet?" no_digest
+  printf '%s' "$ref" | grep -Eq "^${IMAGE_REPO//./\\.}@sha256:[0-9a-f]{64}$" || die "the image address for $tag is not in the expected form (${IMAGE_REPO}@sha256:...), so it was not used" bad_digest
   local digest="${ref#*@}"
+  S_DIGEST="$digest"
+  if [ -n "$expect_digest" ] && [ "$digest" != "$expect_digest" ]; then
+    die "the image for $tag is now $digest, not the $expect_digest you were shown. Check again before updating." digest_changed
+  fi
 
   # 3. The signature.
   local cosign
@@ -187,7 +237,7 @@ main() {
     if [ -x ./scripts/get-cosign.sh ] && ./scripts/get-cosign.sh >/dev/null 2>&1 && [ -x ./bin/cosign ]; then
       cosign=./bin/cosign
     else
-      die "the signature checker 'cosign' could not be set up automatically (it needs internet). Install it yourself (https://docs.sigstore.dev/cosign/system_config/installation/) and run this again."
+      die "the signature checker 'cosign' could not be set up automatically (it needs internet). Install it yourself (https://docs.sigstore.dev/cosign/system_config/installation/) and run this again." no_cosign
     fi
   fi
   local identity="https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/${tag}"
@@ -196,16 +246,18 @@ main() {
   if ! out="$("$cosign" verify "$ref" \
         --certificate-identity "$identity" \
         --certificate-oidc-issuer "$OIDC_ISSUER" 2>/dev/null)"; then
-    die "the signature check FAILED for $ref. This image was not signed by this project's release workflow for $tag. It was not used. If you are sure a release exists, try again in a few minutes; otherwise do not update and tell the project."
+    die "the signature check FAILED for $ref. This image was not signed by this project's release workflow for $tag. It was not used. If you are sure a release exists, try again in a few minutes; otherwise do not update and tell the project." signature_failed
   fi
   # The files in this folder must come from the very commit the image was built from.
-  git fetch -q --tags origin 2>/dev/null || die "could not fetch the release files from GitHub"
+  git fetch -q --tags origin 2>/dev/null || die "could not fetch the release files from GitHub" fetch_failed
   local want_sha built_sha
   want_sha="$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" || true)"
   built_sha="$(printf '%s' "$out" | sed -n 's/.*"githubWorkflowSha" *: *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n 1)"
-  [ -n "$want_sha" ] || die "the release files for $tag are not on GitHub (no such tag)"
-  [ -n "$built_sha" ] || die "the signature did not say which commit built the image, so the files could not be matched to it"
-  [ "$want_sha" = "$built_sha" ] || die "the tag $tag points at a different commit than the one the image was built from. Something is wrong; do not update."
+  [ -n "$want_sha" ] || die "the release files for $tag are not on GitHub (no such tag)" no_tag
+  [ -n "$built_sha" ] || die "the signature did not say which commit built the image, so the files could not be matched to it" no_commit
+  [ "$want_sha" = "$built_sha" ] || die "the tag $tag points at a different commit than the one the image was built from. Something is wrong; do not update." commit_mismatch
+  S_COMMIT="$built_sha"
+  S_RUN_URL="$(printf '%s' "$out" | grep -Eo "https://github\.com/${REPO}/actions/runs/[0-9]+(/attempts/[0-9]+)?" | head -n 1 || true)"
 
   # 4. Show everything, then ask.
   say
@@ -222,19 +274,21 @@ main() {
   say "notes first, and download a fresh backup (Settings) before you continue."
   if [ -n "$check_only" ]; then
     say
+    status ready ok
     say "Check only: nothing was changed."
     exit 0
   fi
   if [ -z "$assume_yes" ]; then
-    [ -t 0 ] || die "this needs a person to type yes (or add --yes)"
+    [ -t 0 ] || die "this needs a person to type yes (or add --yes)" needs_person
     printf 'Type yes to update now: '
     local answer=""
     read -r answer
-    [ "$answer" = "yes" ] || die "you did not type yes"
+    [ "$answer" = "yes" ] || die "you did not type yes" not_confirmed
   fi
+  status updating ok
 
   # 5. Switch. The folder's files move to the release's own files first.
-  git -c advice.detachedHead=false checkout -q "$tag" || die "could not switch this folder to the release files (do you have local changes? run: git status)"
+  git -c advice.detachedHead=false checkout -q "$tag" || die "could not switch this folder to the release files (do you have local changes? run: git status)" checkout_failed
   local previous
   previous="$(get_env EBP_IMAGE)"
   set_env EBP_IMAGE "$ref"
@@ -243,8 +297,10 @@ main() {
     if [ -n "$previous" ]; then set_env EBP_IMAGE "$previous"; else unset_env EBP_IMAGE; fi
     say "The update did not finish. The image setting was put back." >&2
     say "Your data was not touched. Run ./scripts/start.sh to start the version you had." >&2
+    status failed start_failed
     exit 1
   fi
+  status done ok
   say
   say "Updated to $version. Check that the admin Home page says the wallet is connected."
   say "To go back to your previous server image if something looks wrong: restore your backup first (docs/UPGRADING.md), then ask for help."

@@ -25,7 +25,9 @@ with_barkd=""
 fails=0
 ok() { printf '  ok    %s\n' "$1"; }
 bad() { printf '  FAIL  %s\n' "$1" >&2; fails=$((fails + 1)); }
-inside() { docker compose exec -T ebp sh -c "$1" 2>&1; }
+# stderr is dropped: docker compose prints warnings there (for example about a symlinked
+# folder) that must not be read as answers.
+inside() { docker compose exec -T ebp sh -c "$1" 2>/dev/null; }
 
 cid="$(docker compose ps -q ebp 2>/dev/null | head -n 1)"
 if [ -z "$cid" ]; then

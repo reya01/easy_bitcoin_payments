@@ -36,6 +36,7 @@ pub mod updates;
 pub mod util;
 pub mod wallet;
 pub mod watcher;
+pub mod weak_password;
 pub mod webhook;
 pub mod webhook_outbox;
 

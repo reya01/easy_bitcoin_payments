@@ -60,7 +60,7 @@ pub fn validate_password(p: &str) -> Result<(), AppError> {
             "that backup password is too long".into(),
         ));
     }
-    Ok(())
+    crate::weak_password::check(p)
 }
 
 /// Entry names are relative, plain and short: no `..`, no absolute paths.
@@ -838,6 +838,7 @@ mod tests {
     fn password_rules() {
         assert!(validate_password("short").is_err());
         assert!(validate_password(PW).is_ok());
+        assert!(validate_password("passwordpassword").is_err());
         assert!(validate_password(&"x".repeat(201)).is_err());
     }
 

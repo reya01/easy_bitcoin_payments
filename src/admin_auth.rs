@@ -82,7 +82,7 @@ pub fn validate_password(password: &str) -> Result<(), AppError> {
     if n > MAX_PASSWORD_LEN {
         return Err(AppError::BadRequest("that password is too long".into()));
     }
-    Ok(())
+    crate::weak_password::check(password)
 }
 
 /// `pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>`
@@ -325,6 +325,10 @@ mod tests {
         assert!(validate_password("fifteen chars!!").is_err());
         assert!(validate_password("sixteen chars!!!").is_ok());
         assert!(validate_password("long enough password").is_ok());
+        // Long enough is not enough: the obvious ones are refused.
+        assert!(validate_password("passwordpassword").is_err());
+        assert!(validate_password("aaaaaaaaaaaaaaaa").is_err());
+        assert!(validate_password("1234567890123456").is_err());
         assert!(validate_password(&"a".repeat(201)).is_err());
     }
 

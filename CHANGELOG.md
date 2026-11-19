@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **"Update now" can no longer be used to guess your admin password.** The Home tab's Update screens (`/admin/update/check` and `/admin/update/apply`) checked your admin password but were missing the 10-tries-a-minute brake every other password screen has. They now share it. Someone would first have needed to steal a signed-in session, but the brake is there so a stolen session cannot also be used to guess the password.
+- **A check you looked at long ago cannot be approved.** "Update now" now needs the helper's check to be less than 30 minutes old (it was only checking that the version and image address matched). The helper still re-checks the signature and image when you press it; this just makes sure what you approve is what you were just shown.
+- **The update helper also works when the EBP folder is under /root or /home.** Its systemd unit hid those folders from it, so on such a server it could not read its own folder. New servers use /opt/ebp and were not affected. Run `sudo ./scripts/install-update-helper.sh` once to refresh the unit.
+
 ## 0.2.1-rc2 — release candidate: update from the Home tab (18 November 2026)
 
 - **What is in rc2.** The update helper and the Home tab Update card, release candidates offered as updates, the weekly Bark canary and the first reproducible-build check (both CI only). The wallet program stays at barkd 0.8.0. The way to try it: update a server to rc2 from the Console as for rc1, run `./scripts/install-update-helper.sh` once, then install the next release (0.2.2-rc1) from the Home tab. That will be the helper's first real use.

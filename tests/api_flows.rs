@@ -3378,10 +3378,14 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
 
     // The version endpoint shows the helper and its answer.
     let status = format!(
-        r#"{{"state":"ready","code":"ok","request_id":"{}","running":"{}","version":"{newer}","digest":"{digest}","commit":"{}","run_url":"","at":2}}"#,
+        r#"{{"state":"ready","code":"ok","request_id":"{}","running":"{}","version":"{newer}","digest":"{digest}","commit":"{}","run_url":"","at":{}}}"#,
         req["id"].as_str().unwrap(),
         env!("CARGO_PKG_VERSION"),
-        "b".repeat(40)
+        "b".repeat(40),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
     );
     std::fs::write(dir.join("status").join("status.json"), status).unwrap();
     let v: serde_json::Value = client
@@ -3435,6 +3439,19 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     assert_eq!(req["action"], "apply");
     assert_eq!(req["version"], newer);
     assert_eq!(req["digest"], digest);
+
+    // The update screens share the password brake (10 a minute per client, counting
+    // sign-in and every try above): one more is refused before any password is checked.
+    std::fs::remove_file(&req_file).unwrap();
+    let r = post(
+        "/admin/update/apply",
+        apply(&digest, "another guess"),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 429);
+    assert!(!req_file.exists());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

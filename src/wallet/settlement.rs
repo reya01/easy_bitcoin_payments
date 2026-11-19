@@ -42,8 +42,16 @@ const SECS_PER_BLOCK: i64 = 600;
 /// for a refresh to be retried.
 /// An automatic sweep only goes ahead when at least this many sats are above
 /// the amount the server keeps. Below it, the money stays and the next payment
-/// adds to it.
-pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_000;
+/// adds to it. 1,500 (it was 1,000) so the coin that arrives at the payout
+/// wallet is not a small one, see [`SMALL_COIN_SATS`].
+pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_500;
+
+/// Bark 0.9's changelog: a payment that spends a coin under "about 1,300 sats"
+/// can fail with an upgrade error when the wallet is Bark 0.8.1 or older and
+/// the Ark server is 0.9 (see docs/dev/BARK_0_9_REVIEW.md). Shown on Settings
+/// as guidance next to the kept amount; nothing is forced. The figure is from
+/// the changelog and is to be confirmed by Second.
+pub const SMALL_COIN_SATS: i64 = 1_300;
 
 const MIN_TRIGGER_BLOCKS: i64 = 12;
 
@@ -1575,8 +1583,8 @@ mod tests {
     async fn an_automatic_sweep_waits_for_a_minimum_excess_but_the_button_does_not() {
         const ARK: &str =
             "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
-        // The server keeps 1,000. With 1,999 held the excess is 999: not sent.
-        // With 2,000 held the excess is 1,000: sent. "Move my money now" always sends.
+        // The server keeps 1,000. With 2,499 held the excess is 1,499: not sent.
+        // With 2,500 held the excess is 1,500: sent. "Move my money now" always sends.
         let engine_holding = |held: i64| async move {
             let (base, _recorded) = mock::spawn(move |req| match req.route() {
                 "/api/v1/wallet/vtxos" => (
@@ -1597,12 +1605,12 @@ mod tests {
             (engine_for(&base, &db, ARK, 1_000), base)
         };
 
-        let (engine, _base) = engine_holding(1_999).await;
+        let (engine, _base) = engine_holding(2_499).await;
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
-        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(1_999));
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(2_499));
 
-        let (engine, _base) = engine_holding(2_000).await;
-        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_000));
+        let (engine, _base) = engine_holding(2_500).await;
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_500));
     }
 
     #[tokio::test]

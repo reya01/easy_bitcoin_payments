@@ -863,6 +863,11 @@ impl SettlementEngine {
         // being taken for the old one.
         if excess <= 0 {
             self.forget_refusal();
+            if manual && locked_sats > 0 {
+                report.sweep_refused = Some(
+                    "The Ark server is renewing your coins right now, so they cannot be sent for a little while (usually under an hour). Nothing is lost: try again later, or the automatic transfer sends them once the renewal is done.".to_string(),
+                );
+            }
             return Ok(report);
         }
         // An automatic sweep waits until the excess is worth sending, so the
@@ -2438,10 +2443,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(saved.as_deref(), Some("604800"));
-        // The owner's button reads the wallet again after the renewal and
-        // moves what is spendable (the mock still reports the full balance).
+        // The owner's button reads the wallet again after the renewal. The only
+        // coin is now waiting in the round (the mock still lists it as
+        // spendable, as barkd 0.8.0 does), so nothing is sent and it says why.
         let report = engine.sweep_now().await.unwrap();
-        assert_eq!(report.swept_sats, Some(150_000));
+        assert_eq!(report.swept_sats, None);
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap_or("")
+            .contains("renewing your coins"));
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/send"));
     }
 
     #[tokio::test]

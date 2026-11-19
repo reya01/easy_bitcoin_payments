@@ -17,7 +17,7 @@
 #
 # Run it from the folder that holds docker-compose.yml.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 2
 
 with_barkd=""
 [ "${1:-}" = "--with-barkd" ] && with_barkd=1

@@ -32,6 +32,28 @@ fn audit(conn: &rusqlite::Connection, action: &str, detail: &str) {
     }
 }
 
+/// A check older than this is not what the owner is looking at any more.
+const CHECK_MAX_AGE_SECS: i64 = 30 * 60;
+
+/// Does the helper's last answer show exactly this version and digest, fresh
+/// and ready? Only then may "Update now" be approved.
+fn check_is_current(
+    shown: Option<&updates::HelperStatus>,
+    version: &str,
+    digest: &str,
+    now: i64,
+) -> bool {
+    shown.is_some_and(|s| {
+        s.state == "ready"
+            && s.code == "ok"
+            && s.version == version
+            && !s.digest.is_empty()
+            && s.digest == digest
+            && s.at > 0
+            && now - s.at <= CHECK_MAX_AGE_SECS
+    })
+}
+
 fn not_installed() -> AppError {
     AppError::Conflict(
         "The update helper is not installed on this server, so updates still run from the Console. See the Update card for the one line that installs it.".into(),
@@ -108,16 +130,15 @@ pub async fn apply(
     }
     // Only what the helper's last check showed the owner can be installed.
     let shown = updates::helper_status();
-    let matches = shown.as_ref().is_some_and(|s| {
-        s.state == "ready"
-            && s.code == "ok"
-            && s.version == version
-            && !s.digest.is_empty()
-            && s.digest == req.digest
-    });
+    let matches = check_is_current(
+        shown.as_ref(),
+        &version,
+        &req.digest,
+        crate::util::now_unix(),
+    );
     if !matches {
         return Err(AppError::Conflict(
-            "What you are approving is not what the last check showed. Press Start update again to check it first.".into(),
+            "What you are approving is not what the last check showed, or that check is more than 30 minutes old. Press Start update again to check it first.".into(),
         ));
     }
     // Password first (slow hash, outside the database lock), then the second step.
@@ -156,4 +177,43 @@ pub async fn apply(
         })
         .await?;
     Ok(Json(json!({ "request_id": id })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ready(version: &str, digest: &str, at: i64) -> updates::HelperStatus {
+        updates::HelperStatus {
+            state: "ready".into(),
+            code: "ok".into(),
+            version: version.into(),
+            digest: digest.into(),
+            at,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn only_a_fresh_ready_check_for_the_same_version_and_digest_counts() {
+        let d = format!("sha256:{}", "a".repeat(64));
+        let other = format!("sha256:{}", "b".repeat(64));
+        let now = 1_000_000;
+        let ok = ready("0.2.2-rc1", &d, now - 60);
+        assert!(check_is_current(Some(&ok), "0.2.2-rc1", &d, now));
+        // No answer, a different digest or version, or something that is not "ready".
+        assert!(!check_is_current(None, "0.2.2-rc1", &d, now));
+        assert!(!check_is_current(Some(&ok), "0.2.2-rc1", &other, now));
+        assert!(!check_is_current(Some(&ok), "0.2.3", &d, now));
+        let mut refused = ok.clone();
+        refused.state = "refused".into();
+        assert!(!check_is_current(Some(&refused), "0.2.2-rc1", &d, now));
+        // A check from yesterday, or one with no time, is too old to approve.
+        let old = ready("0.2.2-rc1", &d, now - CHECK_MAX_AGE_SECS - 1);
+        assert!(!check_is_current(Some(&old), "0.2.2-rc1", &d, now));
+        let edge = ready("0.2.2-rc1", &d, now - CHECK_MAX_AGE_SECS);
+        assert!(check_is_current(Some(&edge), "0.2.2-rc1", &d, now));
+        let untimed = ready("0.2.2-rc1", &d, 0);
+        assert!(!check_is_current(Some(&untimed), "0.2.2-rc1", &d, now));
+    }
 }

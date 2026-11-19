@@ -13,4 +13,3 @@ WorkingDirectory=/opt/ebp
 ExecStart=/opt/ebp/scripts/update-helper.sh
 TimeoutStartSec=900
 PrivateTmp=yes
-ProtectHome=yes

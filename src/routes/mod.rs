@@ -225,8 +225,6 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/2fa/status", post(twofa::status))
         .route("/admin/2fa/skip", post(twofa::skip))
         .route("/admin/pause", post(shopkey::pause))
-        .route("/admin/update/check", post(update_helper::check))
-        .route("/admin/update/apply", post(update_helper::apply))
         .route("/admin/keylock/status", post(shopkey::status))
         .route("/admin/keylock/save", post(shopkey::save))
         .merge(
@@ -260,6 +258,11 @@ pub fn router(state: AppState) -> Router {
                 .route("/admin/2fa/disable", post(twofa::disable))
                 // Checks the current password, so it shares the brake too.
                 .route("/admin/password", post(admin_session::change_password))
+                // Update from the Home tab: "apply" checks the admin password and a
+                // code, so it shares the brake; "check" makes the helper do network
+                // work as root, so it shares it too.
+                .route("/admin/update/check", post(update_helper::check))
+                .route("/admin/update/apply", post(update_helper::apply))
                 // An overall cap that does not depend on trusting any client
                 // address (covers a misconfigured proxy setup). Added first so
                 // it runs AFTER the per-client brake: one noisy client is

@@ -608,9 +608,6 @@ impl Challenges {
 // Stored passkeys
 // ---------------------------------------------------------------------------
 
-const COLS: &str =
-    "id, credential_id, public_key, sign_count, name, backup_eligible, backed_up, created_at, last_used_at";
-
 fn row_to_passkey(r: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPasskey> {
     Ok(StoredPasskey {
         id: r.get(0)?,
@@ -627,7 +624,10 @@ fn row_to_passkey(r: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPasskey> {
 
 /// All passkeys, oldest first.
 pub fn list(conn: &Connection) -> Result<Vec<StoredPasskey>, AppError> {
-    let mut stmt = conn.prepare(&format!("SELECT {COLS} FROM admin_passkeys ORDER BY id"))?;
+    let mut stmt = conn.prepare(
+        "SELECT id, credential_id, public_key, sign_count, name, backup_eligible, backed_up, created_at, last_used_at
+         FROM admin_passkeys ORDER BY id",
+    )?;
     let rows = stmt.query_map([], row_to_passkey)?;
     let mut out = Vec::new();
     for r in rows {
@@ -651,7 +651,8 @@ pub fn get_by_credential(
 ) -> Result<Option<StoredPasskey>, AppError> {
     Ok(conn
         .query_row(
-            &format!("SELECT {COLS} FROM admin_passkeys WHERE credential_id = ?1"),
+            "SELECT id, credential_id, public_key, sign_count, name, backup_eligible, backed_up, created_at, last_used_at
+             FROM admin_passkeys WHERE credential_id = ?1",
             params![credential_id],
             row_to_passkey,
         )

@@ -2,20 +2,22 @@
 "use strict";
 var id = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
 function $(x) { return document.getElementById(x); }
-var els = { method: $("method"), store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner"), back: $("back"), backLink: $("back-link"), open: $("open-wallet"), copy: $("copy-btn"), copyAddr: $("copy-addr"), help: $("tab-help") };
-var tabs = { bip321: $("tab-bip321"), ln: $("tab-ln"), ark: $("tab-ark"), chain: $("tab-chain") };
-// Default = the combined payment link (one QR that most wallets understand).
-// The per-method tabs are a second choice under "Other ways to pay".
-var s = { tab: "bip321", data: null, ln: null, uri: "", deadline: 0, poll: null, delay: 1000, t0: Date.now(),
+var els = { method: $("method"), store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner"), back: $("back"), backLink: $("back-link"), open: $("open-wallet"), copy: $("copy-btn"), help: $("tab-help"), choice: $("ark-choice"), useArk: $("use-ark"), lead: $("lead") };
+// Two ways to pay. Lightning is the default whenever there is a Lightning invoice;
+// one box under the code switches to Ark. There is no regular (on-chain) Bitcoin
+// payment and no combined "one code" link.
+var s = { tab: "ark", data: null, ln: null, deadline: 0, poll: null, delay: 1000, t0: Date.now(),
   // part-paid top-up, connection and expiry guards
   part: null, topupDeadline: 0, copyValue: "", fails: 0, lastOk: Date.now(), lost: false, offExp: false };
 var WAITING = "Waiting for your payment. This page updates by itself.";
-var methodName = { ln: "Lightning", bip321: "one code for any wallet", ark: "Ark", chain: "regular Bitcoin" };
+var methodName = { ln: "Lightning", ark: "Ark" };
 var helpText = {
-  bip321: "This one code carries every way to pay; your wallet picks the one it supports best.",
   ln: "Lightning is fast and usually costs a tiny fee. Your wallet must support Lightning.",
-  ark: "Ark is fast and adds no extra fee. Your wallet must support Ark.",
-  chain: "Regular Bitcoin works with every wallet, but it can take 10 to 60 minutes to confirm."
+  ark: "Ark is fast and adds no extra fee. Your wallet must support Ark."
+};
+var leadText = {
+  ln: "Scan this code with your wallet app, or tap the button below if you are on your phone.",
+  ark: "Scan this code with your wallet app. It needs to support Ark."
 };
 function setStatus(t, k) { els.st.textContent = t; els.st.className = "status" + (k ? " " + k : ""); }
 // A headline, a sentence and an optional note, built from text nodes only.
@@ -52,26 +54,27 @@ function fmtSats(n) {
 }
 function walletLink(shown) {
   if (!shown) return "";
-  if (s.tab === "bip321") return /^bitcoin:/i.test(shown) ? shown : "";
   if (s.tab === "ln") return "lightning:" + shown;
-  if (s.tab === "chain" && s.data) {
-    // During a top-up the amount is only what is still missing.
-    var due = s.part ? s.part.remaining : Number(s.data.amount_sats);
-    if (due > 0) return "bitcoin:" + shown + "?amount=" + (due / 1e8).toFixed(8);
-  }
   return "";
 }
 function render() {
-  var m = { bip321: s.uri, ln: s.ln && s.ln.bolt11, ark: s.data && s.data.ark_address, chain: s.data && s.data.onchain_address };
+  var m = { ln: s.ln && s.ln.bolt11, ark: s.data && s.data.ark_address };
   var shown = (s.data ? m[s.tab] : "") || "";
   els.addr.textContent = shown || "—";
   var link = walletLink(shown);
-  // The on-chain QR and the main Copy button carry the amount too (a bitcoin: link), so
-  // what is scanned or pasted is the same payment as what is shown. The plain
-  // address stays visible and has its own "Copy address only" button.
-  s.copyValue = (s.tab === "chain" && link) ? link : shown;
+  // What is scanned, copied and shown is the same thing.
+  s.copyValue = shown;
   drawQr(s.copyValue);
-  els.copyAddr.classList.toggle("hidden", !shown || s.copyValue === shown);
+  // The Ark box is offered only while there is a Lightning invoice to switch away
+  // from, and not during a top-up (a top-up can only be paid over Ark).
+  var offerArk = !!(s.ln && !s.part);
+  els.choice.classList.toggle("hidden", !offerArk);
+  els.useArk.checked = s.tab === "ark";
+  if (s.data) {
+    els.lead.textContent = "";
+    var lb = document.createElement("b"); lb.textContent = "Pay from your Bitcoin wallet app. ";
+    els.lead.appendChild(lb); els.lead.appendChild(document.createTextNode(leadText[s.tab]));
+  }
   if (link) { els.open.href = link; els.open.classList.remove("hidden"); } else { els.open.classList.add("hidden"); }
   // Ark: the code has no amount in it, so the payer must type it. Make that the loudest thing on the card.
   var arkDue = s.part ? s.part.remaining : (s.data ? Number(s.data.amount_sats) : 0);
@@ -83,10 +86,10 @@ function render() {
   } else if (s.part && shown) {
     els.method.textContent = "Paying the rest with " + methodName[s.tab] + ": " + fmtSats(s.part.remaining) + ".";
   } else {
-    els.method.textContent = shown ? "Paying with " + methodName[s.tab] + (Object.keys(tabs).filter(function (j) { return !tabs[j].hidden; }).length > 1 ? ". Not what your wallet supports? Open \u201cOther ways to pay\u201d." : ".") : "";
+    els.method.textContent = shown ? "Paying with " + methodName[s.tab] + (s.tab === "ln" && offerArk ? ". Does your wallet support Ark instead? Tick \u201cArk (fast)\u201d above." : ".") : "";
   }
   els.help.textContent = helpText[s.tab] || "";
-  els.help.classList.toggle("hidden", !helpText[s.tab]);
+  els.help.classList.toggle("hidden", !helpText[s.tab] || !offerArk || s.tab === "ln");
   if (s.tab === "ln" && s.ln && typeof s.ln.fee_estimate_sat === "number" && s.ln.fee_estimate_sat > 0) {
     // The Lightning invoice already includes the fee (the customer pays it).
     els.fee.textContent = "Lightning adds a small network fee of about " + fmtSats(s.ln.fee_estimate_sat) +
@@ -97,21 +100,18 @@ function render() {
 }
 function select(k) {
   s.tab = k;
-  Object.keys(tabs).forEach(function (j) { tabs[j].setAttribute("aria-selected", String(j === k)); });
   render();
 }
-Object.keys(tabs).forEach(function (k) { tabs[k].addEventListener("click", function () { select(k); }); });
+els.useArk.addEventListener("change", function () { select(els.useArk.checked ? "ark" : "ln"); });
 function copyText(t, btn, label) {
   if (!t || t === "—") return;
   var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = label; }, 1500); };
   try { navigator.clipboard.writeText(t).then(done, function () {}); } catch (e) {}
 }
-// The main button copies the full payment (a link with the amount for on-chain);
-// tapping the visible address, or "Copy address only", copies just the address.
-els.addr.addEventListener("click", function () { copyText(els.addr.textContent, els.copyAddr.classList.contains("hidden") ? els.copy : els.copyAddr, els.copyAddr.classList.contains("hidden") ? "Copy payment details" : "Copy address only"); });
+// The main button and the visible payment details copy the same thing.
+els.addr.addEventListener("click", function () { copyText(els.addr.textContent, els.copy, "Copy payment details"); });
 els.copy.addEventListener("click", function () { copyText(s.copyValue || els.addr.textContent, els.copy, "Copy payment details"); });
 $("copy-ark-amount").addEventListener("click", function () { copyText(String(s.arkDue || ""), $("copy-ark-amount"), "Copy the number"); });
-els.copyAddr.addEventListener("click", function () { copyText(els.addr.textContent, els.copyAddr, "Copy address only"); });
 // Once a payment is finished (paid, expired or cancelled) the pay details go
 // away, so nobody sends money to a request that is no longer open.
 function closeCard() { $("pay-card").classList.add("hidden"); els.cd.textContent = ""; s.deadline = 0; s.topupDeadline = 0; }
@@ -134,13 +134,10 @@ fetch("/i/" + encodeURIComponent(id) + "/json", { headers: { "accept": "applicat
   .then(function (r) { return r.ok ? r.json() : null; })
   .then(function (d) {
     if (!d) { setStatus("We could not find this payment. Please go back to the shop and try again.", "err"); return; }
-    s.data = d; s.uri = d.bip321 || ""; s.deadline = d.expires_at_unix || 0;
-    if (d.lightning && d.lightning.bolt11) { s.ln = d.lightning; tabs.ln.hidden = false; }
-    // Lightning first when there is an invoice for it; otherwise the one combined code.
-    s.tab = s.ln ? "ln" : "bip321";
-    Object.keys(tabs).forEach(function (j) { tabs[j].setAttribute("aria-selected", String(j === s.tab)); });
-    // On-chain is off by default (server config onchain_rail_enabled): hide its tab.
-    if (!d.onchain_enabled) tabs.chain.hidden = true;
+    s.data = d; s.deadline = d.expires_at_unix || 0;
+    if (d.lightning && d.lightning.bolt11) s.ln = d.lightning;
+    // Lightning first when there is an invoice for it; otherwise Ark is the only way to pay.
+    s.tab = s.ln ? "ln" : "ark";
     if (d.test_mode) {
       els.banner.classList.remove("hidden");
     } else if (d.test_mode === false) {
@@ -202,11 +199,10 @@ function showPart(b) {
     setStatusRich("Part of your payment arrived, but the rest didn't come in time.", " Contact the store and quote reference " + id + ". They can refund what you sent or take it off your order.", "", "warn");
     return;
   }
-  // Lightning and the one-code link carry the full amount, so they would overpay: hide them for the top-up.
-  // (Done on every answer: the page may finish loading after this first runs.)
-  tabs.ln.hidden = true; tabs.bip321.hidden = true;
-  if (s.tab === "ln" || s.tab === "bip321") s.tab = "ark";
-  Object.keys(tabs).forEach(function (j) { tabs[j].setAttribute("aria-selected", String(j === s.tab)); });
+  // A Lightning invoice carries the full amount, so it would overpay: a top-up goes over Ark only.
+  // (render() hides the Ark box while s.part is set; it runs on every answer, so a page that
+  // finishes loading after this still ends up right.)
+  s.tab = "ark";
   s.part = { remaining: remaining, received: received };
   s.topupDeadline = Number(b.topup_closes_at_unix) || 0;
   setTotals(); render();
@@ -268,10 +264,6 @@ function poll() {
       if (b.status === "underpaid") {
         if (typeof b.remaining_sats === "number" && b.remaining_sats > 0) { showPart(b); }
         else { setStatus("We received part of your payment, but not all of it. Please contact the store so they can help.", "warn"); }
-        return again();
-      }
-      if (b.status === "pending" && b.onchain_confirmations !== null && b.onchain_confirmations !== undefined) {
-        setStatus("We can see your payment. Now waiting for the Bitcoin network to confirm it (" + b.onchain_confirmations + " of " + b.onchain_confirmations_required + " confirmations). This usually takes 10 to 60 minutes. You can keep this page open.", "");
         return again();
       }
       if (b.status === "expired") {

@@ -734,7 +734,7 @@ var ALERT_WHY = {
   invoice_expired: "money arrived after the payment window closed \u2014 fulfil the order by hand or refund",
   paid_after_expiry: "money arrived after the payment window closed \u2014 fulfil the order by hand or refund",
   topup_window_closed: "a top-up arrived too late to count toward the order \u2014 refund it or fulfil by hand",
-  onchain_rail_disabled: "money arrived by regular Bitcoin, which is switched off for this shop"
+  onchain_rail_disabled: "money arrived by regular (on-chain) Bitcoin, which this shop does not accept. It was not counted toward any order. Refund it or handle it by hand"
 };
 
 function loadAlerts() {

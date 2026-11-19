@@ -82,20 +82,6 @@ pub struct Config {
     /// `main`, never from file/env). Typed codes are then compared
     /// case-/separator-insensitively.
     pub setup_token_generated: bool,
-    /// Offer the on-chain rail at checkout. DEFAULT OFF (beta): barkd's
-    /// on-chain receive entry in `/wallet/history` is not yet pinned by a
-    /// live drill, so on-chain payments cannot be detected with confidence
-    /// and a customer could pay an address we would never credit. Off =
-    /// no on-chain tab, no on-chain path in the BIP321 URI, `null`
-    /// `onchain_address` in the API, and any on-chain payment that still
-    /// arrives is parked in `unmatched_payments`, never auto-credited.
-    /// Enable with `EBP_ONCHAIN_RAIL_ENABLED=true` once the signet drill in
-    /// docs/dev/SIGNET_DRILL.md has passed.
-    pub onchain_rail_enabled: bool,
-    /// Block confirmations required before an on-chain payment counts as
-    /// paid (minimum 1: zero-confirmation payments can be replaced by the
-    /// sender via RBF, so they are never credited).
-    pub onchain_min_confirmations: u64,
     /// Allow the setup wizard over plain HTTP on a non-local address. Off by
     /// default: the setup code and API keys would cross the network in the
     /// clear. Meant only for a trusted LAN or throwaway testing.
@@ -146,8 +132,6 @@ impl Default for Config {
             trust_proxy_headers: false,
             setup_token: None,
             setup_token_generated: false,
-            onchain_rail_enabled: false,
-            onchain_min_confirmations: 1,
             allow_insecure_setup: false,
             managed_barkd: false,
             update_check: true,
@@ -243,7 +227,11 @@ struct FileConfig {
     public_rate_limit_per_min: Option<u32>,
     trust_proxy_headers: Option<bool>,
     setup_token: Option<String>,
+    // Old settings from when EBP could take on-chain payments. They are still
+    // accepted (an old config file must not stop the server starting) and ignored.
+    #[allow(dead_code)]
     onchain_rail_enabled: Option<bool>,
+    #[allow(dead_code)]
     onchain_min_confirmations: Option<u64>,
     allow_insecure_setup: Option<bool>,
     managed_barkd: Option<bool>,
@@ -401,9 +389,6 @@ impl Config {
         if let Some(v) = file.trust_proxy_headers {
             self.trust_proxy_headers = v;
         }
-        if let Some(v) = file.onchain_rail_enabled {
-            self.onchain_rail_enabled = v;
-        }
         if let Some(v) = file.update_check {
             self.update_check = v;
         }
@@ -412,9 +397,6 @@ impl Config {
         }
         if let Some(v) = file.allow_insecure_setup {
             self.allow_insecure_setup = v;
-        }
-        if let Some(v) = file.onchain_min_confirmations {
-            self.onchain_min_confirmations = v.max(1);
         }
         if let Some(v) = file.setup_token {
             self.setup_token = Some(v.trim().to_string()).filter(|t| !t.is_empty());
@@ -548,9 +530,6 @@ impl Config {
                     value: v.clone(),
                 })?;
         }
-        if let Some(v) = lookup("EBP_ONCHAIN_RAIL_ENABLED") {
-            self.onchain_rail_enabled = parse_bool("EBP_ONCHAIN_RAIL_ENABLED", &v)?;
-        }
         if let Some(v) = lookup("EBP_UPDATE_CHECK") {
             self.update_check = parse_bool("EBP_UPDATE_CHECK", &v)?;
         }
@@ -559,9 +538,6 @@ impl Config {
         }
         if let Some(v) = lookup("EBP_ALLOW_INSECURE_SETUP") {
             self.allow_insecure_setup = parse_bool("EBP_ALLOW_INSECURE_SETUP", &v)?;
-        }
-        if let Some(v) = lookup("EBP_ONCHAIN_MIN_CONFIRMATIONS") {
-            self.onchain_min_confirmations = positive_u64("EBP_ONCHAIN_MIN_CONFIRMATIONS", &v)?;
         }
         if let Some(v) = lookup("EBP_SETUP_TOKEN") {
             // Compose passes an empty string when unset: treat as absent.

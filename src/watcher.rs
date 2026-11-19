@@ -60,13 +60,6 @@ pub struct PollingWatcher {
     /// Renewal lead time in seconds; each expiry-queue row's `renew_by` is
     /// its per-VTXO expiry minus this.
     renewal_lead_secs: i64,
-    /// Credit on-chain-rail payments? Set from `config.onchain_rail_enabled`
-    /// via [`PollingWatcher::with_onchain_rail`]; `new()` defaults to true so
-    /// existing tests keep their behaviour. When false, on-chain payments are
-    /// parked in `unmatched_payments` instead of crediting an invoice.
-    onchain_rail_enabled: bool,
-    /// Block confirmations an on-chain payment needs before it is credited.
-    onchain_min_confirmations: i64,
     /// Wallet history entries the database already holds (in `payments` or
     /// `unmatched_payments`), with the time the set was last emptied. The
     /// wallet sends its whole history every tick; these are skipped instead of
@@ -110,73 +103,8 @@ impl PollingWatcher {
             interval,
             cursor: Mutex::new(0),
             renewal_lead_secs,
-            onchain_rail_enabled: true,
-            onchain_min_confirmations: 1,
             handled: Mutex::new((HashSet::new(), 0)),
         }
-    }
-
-    /// Builder: enable/disable crediting of on-chain-rail payments.
-    pub fn with_onchain_rail(mut self, enabled: bool) -> Self {
-        self.onchain_rail_enabled = enabled;
-        self
-    }
-
-    /// Builder: confirmations an on-chain payment needs (minimum 1).
-    pub fn with_onchain_min_confirmations(mut self, n: i64) -> Self {
-        self.onchain_min_confirmations = n.max(1);
-        self
-    }
-
-    /// On-chain outputs that reached the required depth, as payments.
-    ///
-    /// Zero-confirmation (mempool) outputs are recorded as "seen" but never
-    /// returned: the sender can replace them via RBF. `detected_at` is the
-    /// time EBP FIRST saw the output, so a payment broadcast before the
-    /// deadline that confirms after it is not treated as late.
-    async fn confirmed_onchain(&self) -> Result<Vec<WalletPayment>, AppError> {
-        let watch = self
-            .db
-            .call(|c| invoice::onchain_watch_addresses(c))
-            .await?;
-        if watch.is_empty() {
-            return Ok(Vec::new());
-        }
-        let wallet = Arc::clone(&self.wallet);
-        let observed = tokio::task::spawn_blocking(move || wallet.poll_onchain(&watch))
-            .await
-            .map_err(|e| AppError::Internal(format!("on-chain poll task failed: {e}")))?;
-        let observed = match observed {
-            Ok(o) => o,
-            Err(err) => {
-                // Fail closed: nothing is credited, the Ark path still runs.
-                tracing::warn!(error = %err, "on-chain poll failed; no on-chain payment credited this tick");
-                return Ok(Vec::new());
-            }
-        };
-        let mut out = Vec::new();
-        for o in observed {
-            let seen = o.clone();
-            let Some(first_seen) = self
-                .db
-                .call(move |c| invoice::note_onchain_seen(c, &seen))
-                .await?
-            else {
-                continue;
-            };
-            if o.confirmations >= self.onchain_min_confirmations {
-                out.push(WalletPayment {
-                    address: o.address,
-                    rail: crate::models::Rail::Onchain,
-                    amount_sats: o.amount_sats,
-                    vtxo_id: None,
-                    txid: Some(format!("{}:{}", o.txid, o.vout)),
-                    detected_at: first_seen,
-                    confirmed_at: Some(now_unix()),
-                });
-            }
-        }
-        Ok(out)
     }
 
     /// Run forever, polling on the configured interval.
@@ -247,15 +175,6 @@ impl PollingWatcher {
             .map_err(|e| AppError::Internal(format!("wallet poll task failed: {e}")))?
             .map_err(|e| AppError::Internal(format!("wallet poll failed: {e}")))?;
 
-        // On-chain receipts are NEVER credited from the history feed (it may
-        // report them before they are mined, and an unconfirmed transaction
-        // can be replaced by its sender). With the rail on they come from the
-        // confirmation-gated path instead; with it off they are parked below.
-        if self.onchain_rail_enabled {
-            payments.retain(|p| !matches!(p.rail, crate::models::Rail::Onchain));
-            payments.extend(self.confirmed_onchain().await?);
-        }
-
         let mut applied = 0usize;
         let mut newest = since;
         // The cursor follows everything the wallet reported, skipped or not.
@@ -284,10 +203,10 @@ impl PollingWatcher {
         for payment in payments {
             newest = newest.max(payment.detected_at);
 
-            // On-chain rail switched off (default): never auto-credit it. The
-            // on-chain receive shape is unpinned, so we park the payment for
-            // the merchant instead of risking a wrong credit.
-            if matches!(payment.rail, crate::models::Rail::Onchain) && !self.onchain_rail_enabled {
+            // EBP takes no regular (on-chain) Bitcoin payments. Money that still
+            // arrives that way (for example sent to an old invoice address) is
+            // never credited to an order: it is parked for the merchant to see.
+            if matches!(payment.rail, crate::models::Rail::Onchain) {
                 let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
                 let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
                 let (amount, seen) = (payment.amount_sats, payment.detected_at);
@@ -311,7 +230,7 @@ impl PollingWatcher {
                 if is_new {
                     tracing::warn!(
                         amount_sats = payment.amount_sats,
-                        "on-chain payment seen while the on-chain rail is disabled; parked in unmatched_payments"
+                        "on-chain payment seen; EBP does not take on-chain payments, so it is parked in unmatched_payments"
                     );
                 }
                 continue;
@@ -701,7 +620,6 @@ mod tests {
         fn receive_addresses(&self, invoice_id: &str) -> Result<ReceiveAddresses, WalletError> {
             Ok(ReceiveAddresses {
                 ark_address: format!("ark1q{invoice_id}"),
-                onchain_address: format!("bc1q{invoice_id}"),
             })
         }
 
@@ -749,7 +667,6 @@ mod tests {
                     rate_source: None,
                     rate_locked_at: None,
                     ark_address: "ark1qinv_1".to_string(),
-                    onchain_address: "bc1qinv_1".to_string(),
                     expires_at: now_unix() + 1200,
                     confs_required: 1,
                     metadata_json: "{}".to_string(),
@@ -874,7 +791,6 @@ mod tests {
             rate_source: None,
             rate_locked_at: None,
             ark_address: String::new(),
-            onchain_address: String::new(),
             expires_at: 0,
             paid_at: None,
             paid_sats: 0,
@@ -932,8 +848,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn onchain_payment_is_parked_not_credited_when_the_rail_is_disabled() {
+    async fn money_that_arrives_on_chain_is_parked_never_credited() {
+        // EBP takes no on-chain payments. An old invoice may still hold the
+        // on-chain address it was given earlier; money sent there must be shown
+        // to the merchant, not credited.
         let (db, store_id) = setup(vec![]).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET onchain_address = 'bc1qinv_1' WHERE id = 'inv_1'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
         let watcher = PollingWatcher::new(
             Arc::new(FakeWallet {
                 payments: vec![onchain_payment()],
@@ -943,8 +871,7 @@ mod tests {
             Arc::new(WebhookEmitter::new(1)),
             Duration::from_secs(1),
             604_800,
-        )
-        .with_onchain_rail(false);
+        );
 
         assert_eq!(watcher.tick().await.unwrap(), 0, "must not credit");
 
@@ -969,22 +896,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn onchain_history_entries_are_never_credited_directly() {
-        // Even with the rail on, a history-feed on-chain receipt (possibly
-        // unconfirmed, replaceable) must not credit the invoice.
+    async fn on_chain_money_to_an_address_no_invoice_owns_is_left_alone() {
+        // For example the merchant funding the emergency-exit fee money: no
+        // invoice owns the address, so nothing is parked and nothing is credited.
         let (db, store_id) = setup(vec![]).await;
+        let mut stray = onchain_payment();
+        stray.address = "bc1qsomeoneelse".to_string();
         let watcher = PollingWatcher::new(
             Arc::new(FakeWallet {
-                payments: vec![onchain_payment()],
+                payments: vec![stray],
                 vtxos: vec![],
             }),
             db.clone(),
             Arc::new(WebhookEmitter::new(1)),
             Duration::from_secs(1),
             604_800,
-        )
-        .with_onchain_rail(true);
-
+        );
         assert_eq!(watcher.tick().await.unwrap(), 0);
         let invoice = db
             .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
@@ -992,199 +919,11 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(invoice.status, InvoiceStatus::Pending);
-    }
-
-    /// Wallet whose on-chain view is scripted by the test.
-    struct ChainWallet {
-        confirmations: std::sync::atomic::AtomicI64,
-    }
-
-    impl WalletAdapter for ChainWallet {
-        fn receive_addresses(&self, id: &str) -> Result<ReceiveAddresses, WalletError> {
-            FakeWallet {
-                payments: vec![],
-                vtxos: vec![],
-            }
-            .receive_addresses(id)
-        }
-        fn balance_sats(&self) -> Result<i64, WalletError> {
-            Ok(0)
-        }
-        fn poll_payments(&self, _since: i64) -> Result<Vec<WalletPayment>, WalletError> {
-            Ok(vec![])
-        }
-        fn poll_onchain(
-            &self,
-            watch: &[String],
-        ) -> Result<Vec<crate::wallet::OnchainObservation>, WalletError> {
-            let c = self.confirmations.load(std::sync::atomic::Ordering::SeqCst);
-            Ok(watch
-                .iter()
-                .filter(|a| a.as_str() == "bc1qinv_1")
-                .map(|a| crate::wallet::OnchainObservation {
-                    address: a.clone(),
-                    txid: "tx1".into(),
-                    vout: 0,
-                    amount_sats: 1000,
-                    confirmations: c,
-                })
-                .collect())
-        }
-        fn health(&self) -> WalletHealth {
-            FakeWallet {
-                payments: vec![],
-                vtxos: vec![],
-            }
-            .health()
-        }
-    }
-
-    fn chain_watcher(db: &Db, wallet: Arc<ChainWallet>, min: i64) -> PollingWatcher {
-        PollingWatcher::new(
-            wallet,
-            db.clone(),
-            Arc::new(WebhookEmitter::new(1)),
-            Duration::from_secs(1),
-            604_800,
-        )
-        .with_onchain_rail(true)
-        .with_onchain_min_confirmations(min)
-    }
-
-    #[tokio::test]
-    async fn onchain_payment_credits_only_once_confirmed() {
-        let (db, store_id) = setup(vec![]).await;
-        let wallet = Arc::new(ChainWallet {
-            confirmations: std::sync::atomic::AtomicI64::new(0),
-        });
-        let watcher = chain_watcher(&db, Arc::clone(&wallet), 1);
-
-        // In the mempool: seen, not credited (RBF-replaceable).
-        assert_eq!(watcher.tick().await.unwrap(), 0);
-        let sid = store_id.clone();
-        let inv = db
-            .call(move |c| invoice::get(c, &sid, "inv_1"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(inv.status, InvoiceStatus::Pending);
-        let depth = db
-            .call(|c| invoice::onchain_seen_depth(c, "inv_1"))
-            .await
-            .unwrap();
-        assert_eq!(depth, Some(0));
-
-        // One block later: credited exactly once.
-        wallet
-            .confirmations
-            .store(1, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(watcher.tick().await.unwrap(), 1);
-        assert_eq!(watcher.tick().await.unwrap(), 0);
-        let inv = db
-            .call(move |c| invoice::get(c, &store_id, "inv_1"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(inv.status, InvoiceStatus::Paid);
-        assert_eq!(inv.paid_sats, 1000);
-    }
-
-    #[tokio::test]
-    async fn min_confirmations_is_respected() {
-        let (db, store_id) = setup(vec![]).await;
-        let wallet = Arc::new(ChainWallet {
-            confirmations: std::sync::atomic::AtomicI64::new(1),
-        });
-        let watcher = chain_watcher(&db, Arc::clone(&wallet), 3);
-        assert_eq!(watcher.tick().await.unwrap(), 0);
-        wallet
-            .confirmations
-            .store(3, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(watcher.tick().await.unwrap(), 1);
-        let inv = db
-            .call(move |c| invoice::get(c, &store_id, "inv_1"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(inv.status, InvoiceStatus::Paid);
-    }
-
-    #[tokio::test]
-    async fn invoice_with_a_seen_onchain_payment_is_held_past_its_deadline() {
-        let (db, store_id) = setup(vec![]).await;
-        let wallet = Arc::new(ChainWallet {
-            confirmations: std::sync::atomic::AtomicI64::new(0),
-        });
-        let watcher = chain_watcher(&db, Arc::clone(&wallet), 1);
-        assert_eq!(watcher.tick().await.unwrap(), 0); // seen, unconfirmed
-
-        // The deadline passes while the payment is still in the mempool.
-        db.call(|c| {
-            c.execute(
-                "UPDATE invoices SET expires_at = ?1 WHERE id = 'inv_1'",
-                [now_unix() - 60],
-            )?;
-            Ok(())
-        })
-        .await
-        .unwrap();
-        assert_eq!(watcher.tick().await.unwrap(), 0);
-        let sid = store_id.clone();
-        let inv = db
-            .call(move |c| invoice::get(c, &sid, "inv_1"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(inv.status, InvoiceStatus::Pending, "held open, not expired");
-
-        // It confirms after the deadline: still credited (first seen in time).
-        wallet
-            .confirmations
-            .store(1, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(watcher.tick().await.unwrap(), 1);
-        let inv = db
-            .call(move |c| invoice::get(c, &store_id, "inv_1"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(inv.status, InvoiceStatus::Paid);
-    }
-
-    #[tokio::test]
-    async fn unseen_expired_invoice_is_not_held_and_late_confirmation_is_parked() {
-        let (db, store_id) = setup(vec![]).await;
-        let wallet = Arc::new(ChainWallet {
-            confirmations: std::sync::atomic::AtomicI64::new(0),
-        });
-        let watcher = chain_watcher(&db, Arc::clone(&wallet), 1);
-        // Deadline passes BEFORE anything is seen: the invoice expires.
-        db.call(|c| {
-            c.execute(
-                "UPDATE invoices SET expires_at = ?1 WHERE id = 'inv_1'",
-                [now_unix() - 600],
-            )?;
-            Ok(())
-        })
-        .await
-        .unwrap();
-        wallet
-            .confirmations
-            .store(1, std::sync::atomic::Ordering::SeqCst);
-        watcher.tick().await.unwrap();
-        let inv = db
-            .call(move |c| invoice::get(c, &store_id, "inv_1"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_ne!(inv.status, InvoiceStatus::Paid);
         let parked: i64 = db
             .call(|c| Ok(c.query_row("SELECT COUNT(*) FROM unmatched_payments", [], |r| r.get(0))?))
             .await
             .unwrap();
-        assert_eq!(
-            parked, 1,
-            "late money is parked for the merchant, never lost"
-        );
+        assert_eq!(parked, 0);
     }
 
     #[tokio::test]

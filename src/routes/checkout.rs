@@ -1,6 +1,6 @@
-//! Public checkout routes (unauthenticated). Byte Store drill 2026-11-02:
-//! the default QR is the combined BIP321 URI (crate::uri) — on-chain path
-//! + ark/lightning params per enabled rail; per-rail tabs are copies.
+//! Public checkout routes (unauthenticated). The checkout offers two ways to
+//! pay: Lightning (the default) and Ark. EBP takes no regular (on-chain)
+//! Bitcoin payments and shows no combined "one code" link.
 
 use axum::{
     extract::{Path, State},
@@ -9,7 +9,7 @@ use axum::{
 };
 use rusqlite::OptionalExtension;
 
-use crate::{error::AppError, invoice, routes::AppState, uri};
+use crate::{error::AppError, invoice, routes::AppState};
 
 /// The vendored QR generator (`assets/qr.js`), served same-origin so the
 /// page CSP (`script-src 'self'`) holds without a CDN. Public, cacheable.
@@ -56,7 +56,7 @@ pub async fn page() -> Html<&'static str> {
     Html(include_str!("../../assets/checkout.html"))
 }
 
-/// One payload for everything the page renders once, incl. the default-QR URI.
+/// One payload for everything the page renders once.
 pub async fn invoice_json(
     Path(id): Path<String>,
     State(app): State<AppState>,
@@ -78,18 +78,12 @@ pub async fn invoice_json(
                 .and_then(|v| v.as_str().map(str::to_owned))
         })
         .filter(|u| crate::routes::invoices::valid_return_url(u));
-    let onchain_enabled = app.config.onchain_rail_enabled;
     let usd_per_btc = app.usd_per_btc();
     Ok(Json(serde_json::json!({
         "return_url": return_url,
         "store_name": store_name, "status": inv.status.as_str(), "amount_sats": inv.amount_sats,
         "fiat_currency": inv.fiat_currency, "fiat_amount": inv.fiat_amount,
         "ark_address": inv.ark_address, "expires_at_unix": inv.expires_at,
-        // On-chain rail is OFF by default (config.onchain_rail_enabled): no
-        // address, no URI path, and the page hides the tab.
-        "onchain_enabled": onchain_enabled,
-        "onchain_address": onchain_enabled.then(|| inv.onchain_address.clone()),
-        "bip321": uri::combined(inv.amount_sats, onchain_enabled.then_some(inv.onchain_address.as_str()), uri::lightning_for_combined(bolt11.as_deref(), fee), Some(&inv.ark_address)),
         "lightning": bolt11.map(|b| serde_json::json!({ "bolt11": b, "fee_estimate_sat": fee })),
         "test_mode": app.config.mode == "test",
         // For showing "(about $0.40)" next to sats; null when no price is known.
@@ -107,16 +101,6 @@ pub async fn status(
         .call(move |c| invoice::expire_if_due(c, &id))
         .await?
         .ok_or(AppError::NotFound)?;
-    // On-chain payment seen but not yet deep enough: the page says so
-    // instead of looking stuck (or, worse, showing "paid" too early).
-    let inv_id = inv.id.clone();
-    let seen_depth = if inv.status == crate::models::InvoiceStatus::Pending {
-        app.db
-            .call(move |c| invoice::onchain_seen_depth(c, &inv_id))
-            .await?
-    } else {
-        None
-    };
     // Part-paid invoices: how much has arrived, how much is still missing and
     // whether a top-up is still accepted, so the page can say so honestly.
     // Additive: older pages ignore these fields.
@@ -132,8 +116,6 @@ pub async fn status(
     let now = crate::util::now_unix();
     Ok(Json(serde_json::json!({
         "status": inv.status.as_str(),
-        "onchain_confirmations": seen_depth,
-        "onchain_confirmations_required": app.config.onchain_min_confirmations,
         "amount_sats": inv.amount_sats,
         "received_sats": inv.paid_sats,
         "remaining_sats": underpaid.then(|| (inv.amount_sats - inv.paid_sats).max(0)),

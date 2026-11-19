@@ -23,8 +23,7 @@ Make a test order on **your WooCommerce site** priced at about 1,500 sats
       amount using **Ark**. Within a few seconds the page should say **Part paid:
       N sats to go**, show how much has arrived, count down **Time left to send
       the rest**, and say **Don't send the full amount again**. The Lightning and
-      "One code, any wallet" choices should be gone; Ark (and regular Bitcoin, if
-      on) stay.
+      "Ark (fast)" box should be gone and the page should show Ark.
 - [ ] **Finish it.** Pay exactly the rest. The page changes to **Paid. Thank you!**
       and the order moves to Processing on **your WooCommerce site**.
 - [ ] **Window runs out.** Make a second test order, pay about half, then wait

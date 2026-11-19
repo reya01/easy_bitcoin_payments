@@ -32,8 +32,6 @@ services:
       EBP_MAX_INVOICE_SATS: ${EBP_MAX_INVOICE_SATS:-100000000}
       EBP_PUBLIC_BASE_URL: ${EBP_PUBLIC_BASE_URL:-http://localhost:8080}
       EBP_KEY_ENCRYPTION_KEY: ${EBP_KEY_ENCRYPTION_KEY:-}
-      EBP_ONCHAIN_RAIL_ENABLED: ${EBP_ONCHAIN_RAIL_ENABLED:-false}
-      EBP_ONCHAIN_MIN_CONFIRMATIONS: ${EBP_ONCHAIN_MIN_CONFIRMATIONS:-1}
       # Where the small till wallet empties to (your own wallet's address) and
       # how much it may hold before it does. Leave the address empty to keep
       # money in the till for now.

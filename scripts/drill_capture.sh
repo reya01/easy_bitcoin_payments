@@ -42,7 +42,6 @@ for path in \
   /api/v1/history \
   /api/v1/wallet/movements \
   /api/v1/onchain/balance \
-  /api/v1/onchain/transactions \
   /api/v1/onchain/utxos \
   /api/v1/bitcoin/tip \
   /api/v1/exits/status/all \

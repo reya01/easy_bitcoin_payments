@@ -189,7 +189,8 @@ def main():
             )
             inv = json.load(urllib.request.urlopen(req, timeout=60))
             assert str(inv.get("ark_address", "")).startswith("tark1"), "no tark1 address"
-            notes.append(f"Invoice created. ark_address prefix ok; lightning invoice present: {bool(inv.get('lightning_invoice'))}; onchain address present: {bool(inv.get('onchain_address'))}")
+            notes.append(f"Invoice created. ark_address prefix ok; lightning invoice present: {bool(inv.get('lightning_invoice'))}")
+            assert "onchain_address" not in inv, "EBP no longer offers an on-chain address"
 
         @step("capture: barkd's real read-only answers (scripts/drill_capture.sh)")
         def _():

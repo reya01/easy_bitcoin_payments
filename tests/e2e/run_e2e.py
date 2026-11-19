@@ -55,17 +55,44 @@ def http(method, url, body=None, headers=None, timeout=10):
             return e.code, raw.decode(errors="replace")
 
 
+_visitor_n = [0]
+
+
+def next_visitor():
+    """A fresh pretend visitor address. The sign-in brake counts tries per visitor
+    (5 a minute), so a step that signs in or checks the password several times
+    takes a new address between groups of tries."""
+    _visitor_n[0] += 1
+    return f"10.77.{_visitor_n[0] // 250}.{_visitor_n[0] % 250 + 1}"
+
+
+def new_visitor(page):
+    page.context.set_extra_http_headers({"x-forwarded-for": next_visitor()})
+
+
+_owner_cookie = [None]
+
+
 def owner_get(path):
-    """GET a page the shop key may not read (payout, logs, late payments): sign in as the owner."""
-    req = urllib.request.Request(
-        f"{BASE}/admin/login",
-        data=json.dumps({"password": ADMIN_PW}).encode(),
-        method="POST",
-        headers={"content-type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=10) as r:
-        cookie = r.headers.get("set-cookie", "").split(";")[0]
-    return http("GET", f"{BASE}{path}", headers={"cookie": cookie})
+    """GET a page the shop key may not read (payout, logs, late payments): sign in as the owner.
+
+    Signs in once and reuses the session (every sign-in counts against the password
+    brake, and some callers poll); signs in again if the session was ended."""
+    for _ in range(2):
+        if _owner_cookie[0] is None:
+            req = urllib.request.Request(
+                f"{BASE}/admin/login",
+                data=json.dumps({"password": ADMIN_PW}).encode(),
+                method="POST",
+                headers={"content-type": "application/json", "x-forwarded-for": next_visitor()},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                _owner_cookie[0] = r.headers.get("set-cookie", "").split(";")[0]
+        code, body = http("GET", f"{BASE}{path}", headers={"cookie": _owner_cookie[0]})
+        if code not in (401, 403):
+            return code, body
+        _owner_cookie[0] = None
+    return code, body
 
 
 def ctl(**kw):
@@ -108,7 +135,7 @@ def start_ebp():
         "EBP_SETUP_TOKEN": SETUP_CODE,
         "EBP_WEBHOOK_ALLOW_PRIVATE": "1",
         # Lets a step pretend to be a different visitor (X-Forwarded-For), so the
-        # sign-in brake (10 tries a minute per visitor) does not trip a long run.
+        # sign-in brake (5 tries a minute per visitor) does not trip a long run.
         "EBP_TRUST_PROXY_HEADERS": "true",
         "EBP_UPDATE_CHECK": "false",
         "EBP_LOG_LEVEL": "info",
@@ -386,7 +413,7 @@ def main():
 
         @step("two-step sign-in: offered with a warning to skip, turned on with an app code, asked at sign-in, turned off")
         def _():
-            page.context.set_extra_http_headers({"x-forwarded-for": "10.77.0.1"})
+            new_visitor(page)
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             wait_for(lambda: page.is_visible("#twofa-prompt"), "the offer to turn on two-step sign-in")
@@ -417,6 +444,7 @@ def main():
             page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             assert page.is_visible("#bk-code"), "protected actions now ask for a code"
             # Sign out and back in: the password alone is no longer enough.
+            new_visitor(page)
             page.click("#logout")
             page.wait_for_selector("#login-form:not(.hidden)")
             page.fill("#pw", ADMIN_PW)
@@ -434,6 +462,7 @@ def main():
             page.click('#tabs button[data-v="set"]')
             page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#bk-go")
+            new_visitor(page)
             page.fill("#bk-admin", ADMIN_PW)
             page.fill("#bk-code", totp_code(secret, cur + 1))
             with page.expect_download(timeout=60000) as dl2:
@@ -451,6 +480,7 @@ def main():
                 assert n == 0, f"{tbl} must not travel in a backup ({n} rows)"
             con.close()
             # Turn it off again (so the rest of the run signs in with the password only).
+            new_visitor(page)
             page.click('#tabs button[data-v="set"]')
             page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.locator("#twofa-card").get_by_role("button", name="Turn off", exact=True).click()
@@ -735,7 +765,7 @@ def main():
         @step("password: a mistyped current password is a message (still signed in); a real change signs out and the new one works; changed back")
         def _():
             newpw = "a second long password for testing"
-            page.context.set_extra_http_headers({"x-forwarded-for": "10.77.0.2"})
+            new_visitor(page)
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
@@ -750,6 +780,7 @@ def main():
             page.fill("#pw-new", newpw)
             page.click("#pw-save")
             page.wait_for_selector("#login-form:not(.hidden)")
+            new_visitor(page)
             page.fill("#pw", ADMIN_PW)
             page.click("#login-btn")
             wait_for(lambda: page.inner_text("#login-err").strip() != "", "old password refused")
@@ -759,6 +790,7 @@ def main():
             page.click('#tabs button[data-v="set"]')
             page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
             page.wait_for_selector("#pw-save")
+            new_visitor(page)
             page.fill("#pw-cur", newpw)
             page.fill("#pw-new", ADMIN_PW)
             page.click("#pw-save")

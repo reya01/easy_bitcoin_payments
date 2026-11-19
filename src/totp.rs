@@ -7,7 +7,7 @@
 //! How (background detail): HMAC-SHA1 with 30-second steps and 6 digits, the
 //! settings every authenticator app supports. The shared secret is stored
 //! encrypted (`secrets`), recovery codes are stored hashed, a code cannot be used
-//! twice, and five wrong codes lock further tries (for ten minutes the first
+//! twice, and three wrong codes lock further tries (for ten minutes the first
 //! time, then an hour, then six hours if it keeps happening; a good code starts
 //! again at ten minutes). A code that has approved one protected action cannot
 //! approve a second one. HMAC-SHA1 is what the standard specifies for this use;
@@ -24,8 +24,9 @@ use crate::util::now_unix;
 const STEP_SECS: i64 = 30;
 const DIGITS: u32 = 6;
 const SECRET_LEN: usize = 20;
-const MAX_FAILS: i64 = 5;
-/// How long five wrong codes lock further tries, by how many times in a row it
+/// Wrong codes in a row before further tries are locked.
+pub const MAX_FAILS: i64 = 3;
+/// How long three wrong codes lock further tries, by how many times in a row it
 /// has happened: ten minutes, an hour, then six hours at most.
 const LOCK_LADDER: [i64; 3] = [600, 3_600, 21_600];
 /// A lock last started longer ago than this no longer counts towards the next.

@@ -297,6 +297,9 @@ pub fn database_entry(conn: &rusqlite::Connection) -> Result<Entry, AppError> {
             // to turn it on again.
             copy.execute("DELETE FROM admin_totp", [])?;
             copy.execute("DELETE FROM admin_recovery_codes", [])?;
+            // Passkeys are the same kind of second step, and are tied to this
+            // server's web address, which a restored server may not share.
+            copy.execute("DELETE FROM admin_passkeys", [])?;
         }
         std::fs::read(&tmp).map_err(|e| AppError::Internal(format!("backup read failed: {e}")))
     })();
@@ -1185,6 +1188,8 @@ mod tests {
                  INSERT INTO admin_totp VALUES ('secret'); \
                  CREATE TABLE admin_recovery_codes(code_hash TEXT); \
                  INSERT INTO admin_recovery_codes VALUES ('hash'); \
+                 CREATE TABLE admin_passkeys(credential_id TEXT); \
+                 INSERT INTO admin_passkeys VALUES ('key'); \
                  CREATE TABLE keep(x); INSERT INTO keep VALUES (7);",
             )
             .unwrap();
@@ -1198,7 +1203,7 @@ mod tests {
             .query_row("SELECT count(*) FROM admin_sessions", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
-        for table in ["admin_totp", "admin_recovery_codes"] {
+        for table in ["admin_totp", "admin_recovery_codes", "admin_passkeys"] {
             let n: i64 = c
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();

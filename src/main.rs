@@ -53,7 +53,7 @@ fn print_help() {
          \x20     Revoke every API key of a store and print a new one once\n\
          \x20     (lost-key recovery; --store is optional with one store)\n\
          \x20 ebp admin set-password          Set/reset the admin-page password\n\
-         \x20 ebp admin reset-2fa             Turn off two-step sign-in (lost phone)\n\
+         \x20 ebp admin reset-2fa             Turn off two-step sign-in and passkeys (lost phone)\n\
          \x20 ebp backup verify <FILE>       Check a downloaded backup opens (asks for its password)\n\
          \x20 ebp backup restore <FILE> <NEW-FOLDER>\n\
          \x20     Unpack a backup into a new, empty folder (never overwrites)\n\
@@ -449,6 +449,9 @@ async fn admin_command(args: &[String]) -> Result<(), Box<dyn std::error::Error>
     if sub == Some("reset-2fa") {
         db.call(|conn| {
             easy_bitcoin_payments::totp::disable(conn)?;
+            // Passkeys are a second step too: lost phone or lost passkey, this
+            // is the way back in, so it removes them as well.
+            easy_bitcoin_payments::passkey::remove_all(conn)?;
             // Not "declined": the admin page will offer to turn it on again.
             easy_bitcoin_payments::totp::set_declined(conn, false)?;
             if let Some(store) = easy_bitcoin_payments::store::first(conn)? {

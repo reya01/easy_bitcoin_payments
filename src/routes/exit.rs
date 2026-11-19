@@ -81,7 +81,7 @@ async fn authorize(
             "that admin password isn't right".into(),
         ));
     }
-    crate::routes::admin_session::check_second_step(state, code).await
+    crate::routes::admin_session::check_second_step(state, headers, code).await
 }
 
 /// `POST /admin/exit/status` — everything the page shows before (and while)
@@ -93,7 +93,7 @@ pub async fn status(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     let c = client(&state)?;
-    let (two_step_on, started_at, destination) = state
+    let (two_step_on, started_at, destination, opted_in) = state
         .db
         .call(|conn| {
             Ok((
@@ -101,6 +101,7 @@ pub async fn status(
                 crate::settings::get(conn, ee::EXIT_STARTED_AT_KEY)?
                     .and_then(|v| v.parse::<i64>().ok()),
                 crate::settings::get(conn, EXIT_DESTINATION_KEY)?,
+                ee::opted_in(conn)?,
             ))
         })
         .await?;
@@ -171,6 +172,9 @@ pub async fn status(
         "refusal": refusal,
         "unpriceable": unpriceable,
         "switched_off": off.is_some(),
+        "opted_in": opted_in,
+        "reserve_floor_sats": ee::RESERVE_FLOOR_SATS,
+        "reserve_short_sats": confirmed.map(ee::reserve_short_sats),
         "reserve_min_sats": ee::RESERVE_MIN_SATS,
         "reserve_target_sats": reserve_target,
         "reserve_high_sats": ee::reserve_high(reserve_target),
@@ -493,8 +497,82 @@ pub async fn claim(
     })))
 }
 
-/// `POST /admin/exit/leftover` — send what is left of the fee deposit back.
-/// Refused while an exit is still running (it may need that money).
+#[derive(Deserialize)]
+pub struct OptInRequest {
+    /// true = turn the emergency withdrawal on; false = turn it off.
+    pub on: bool,
+    pub admin_password: String,
+    /// Authenticator code (or passkey approval), when two-step sign-in is on.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+/// `POST /admin/exit/optin` — turn the emergency withdrawal on or off. It is
+/// off until the owner turns it on. Turning it on needs what an emergency
+/// withdrawal itself needs (two-step sign-in on, the admin password, a code).
+/// While it is on the server keeps at least [`ee::RESERVE_FLOOR_SATS`] of
+/// regular Bitcoin for the fees and never sends it out. Turning it off needs
+/// the password and, when two-step sign-in is on, a code; it forgets any amount
+/// kept for the withdrawal (so everything is sent on at the next check) and
+/// frees the fee money to be taken back. Refused while a withdrawal runs: that
+/// money is in use. Starting, stopping and claiming a withdrawal never depend
+/// on this switch, so an emergency is never blocked by it.
+pub async fn set_opt_in(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<OptInRequest>,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    if req.on {
+        if let Some(off) = ee::not_enabled_reason(&state.config.mode, None) {
+            return Err(AppError::BadRequest(off.into()));
+        }
+        authorize(&state, &headers, req.admin_password, req.code).await?;
+    } else {
+        let stored = state.db.call(|c| aa::stored_hash(c)).await?;
+        if !aa::verify_login_slow(stored, req.admin_password).await? {
+            return Err(AppError::BadRequest(
+                "that admin password isn't right".into(),
+            ));
+        }
+        crate::routes::admin_session::check_second_step(&state, &headers, req.code).await?;
+        let running = state
+            .db
+            .call(|c| crate::settings::get(c, ee::EXIT_STARTED_AT_KEY))
+            .await?
+            .is_some();
+        if running {
+            return Err(AppError::BadRequest(
+                "An emergency withdrawal is in progress. Wait until it has finished before turning this off: it is using the fee money.".into(),
+            ));
+        }
+    }
+    let on = req.on;
+    state
+        .db
+        .call(move |conn| {
+            ee::set_opted_in(conn, on)?;
+            if on {
+                audit(conn, "exit.turned_on", "emergency withdrawal turned on");
+            } else {
+                // Nothing is kept for it any more: the whole balance is sent on.
+                crate::payout::clear_cap(conn)?;
+                audit(conn, "exit.turned_off", "emergency withdrawal turned off");
+            }
+            Ok(())
+        })
+        .await?;
+    let message = if on {
+        "Turned on. The server now keeps at least 5,000 sats of regular Bitcoin for the fees and never sends that part out. Add it below, and choose how much money to keep here if you want a withdrawal to be possible."
+    } else {
+        "Turned off. Everything is sent on to your payout address as usual, and you can take the fee money back with the button below."
+    };
+    Ok(Json(json!({ "opted_in": on, "message": message })))
+}
+
+/// `POST /admin/exit/leftover` — send the fee money back. Refused while an exit
+/// is still running (it may need that money). While the emergency withdrawal is
+/// turned on, only what is above the 5,000-sat floor goes (after the fee).
 pub async fn leftover(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -506,6 +584,17 @@ pub async fn leftover(
     if let Some(off) = ee::not_enabled_reason(&state.config.mode, None) {
         return Err(AppError::BadRequest(off.into()));
     }
+    // While the emergency withdrawal is turned on (and none has started), at
+    // least 5,000 sats of this money stays as its fee reserve (see below).
+    let (opted_in, started) = state
+        .db
+        .call(|c| {
+            Ok((
+                ee::opted_in(c)?,
+                crate::settings::get(c, ee::EXIT_STARTED_AT_KEY)?.is_some(),
+            ))
+        })
+        .await?;
     let saved = state
         .db
         .call(|c| crate::settings::get(c, EXIT_DESTINATION_KEY))
@@ -522,13 +611,44 @@ pub async fn leftover(
             "Wait until the emergency withdrawal has finished: it may still need this money for fees.".into(),
         ));
     }
-    let answer = c.onchain_drain(&destination).await?;
+    let plan = if opted_in && !started {
+        let _ = c.onchain_sync().await;
+        let confirmed = c
+            .onchain_balance_raw()
+            .await
+            .ok()
+            .as_ref()
+            .and_then(ee::confirmed_onchain_sats)
+            .unwrap_or(0);
+        // The wallet sends at a rate aimed at the next few blocks: estimate with the fast rate.
+        let rate = c.onchain_fee_rates().await.map_err(|_| {
+            AppError::BadRequest(
+                "Could not read the network fee right now, so nothing was sent. Try again in a few minutes.".into(),
+            )
+        })?;
+        ee::leftover_plan(true, false, confirmed, rate.fast_sat_per_vb)
+            .map_err(AppError::BadRequest)?
+    } else {
+        ee::Leftover::Everything
+    };
+    let answer = match plan {
+        ee::Leftover::Everything => c.onchain_drain(&destination).await?,
+        ee::Leftover::Amount(sats) => c.onchain_send(&destination, sats).await?,
+    };
     let txid = answer
         .get("txid")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let detail = format!("left-over on-chain money sent to {}", short(&destination));
+    let detail = match plan {
+        ee::Leftover::Everything => {
+            format!("left-over on-chain money sent to {}", short(&destination))
+        }
+        ee::Leftover::Amount(sats) => format!(
+            "{sats} sats of on-chain money sent to {} (5,000 kept for the emergency withdrawal)",
+            short(&destination)
+        ),
+    };
     state
         .db
         .call(move |conn| {
@@ -537,9 +657,17 @@ pub async fn leftover(
             Ok(())
         })
         .await?;
+    let message = match plan {
+        ee::Leftover::Everything => "Sent the left-over on-chain money to your address.".to_string(),
+        ee::Leftover::Amount(sats) => format!(
+            "Sent {} sats to your address. At least {} sats stays on the server for the emergency withdrawal's fees.",
+            crate::payout::commas(sats),
+            crate::payout::commas(ee::RESERVE_FLOOR_SATS)
+        ),
+    };
     Ok(Json(json!({
         "sent": true,
         "txid": txid,
-        "message": "Sent the left-over on-chain money to your address.",
+        "message": message,
     })))
 }

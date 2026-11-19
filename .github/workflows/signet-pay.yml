@@ -49,11 +49,9 @@ jobs:
           restore-keys: signet-payer-
       - name: Build and start the stack
         env:
-          # Small cap and fast checks so the automatic transfer to the
-          # payout wallet shows up during the drill.
-          EBP_HOT_WALLET_CAP_SATS: "3000"
+          # Fast checks so the automatic transfer to the payout wallet shows
+          # up during the drill (it sends everything once 1,500 sats are held).
           EBP_SETTLEMENT_INTERVAL_SECS: "30"
-          EBP_ONCHAIN_SWEEP_CAP_SATS: "1000"
           # Allow switching the payout address without the 24-hour wait.
           EBP_PAYOUT_CHANGE_DELAY_SECS: "0"
           # Signet coins live about a day, shorter than the real-world 7-day

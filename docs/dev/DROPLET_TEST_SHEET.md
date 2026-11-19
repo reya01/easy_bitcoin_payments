@@ -65,21 +65,32 @@ own wallet**. No earlier round has tested this.
       address you gave as the payout address, and that it shows under **Recent
       transfers to your own wallet**. Write down how long it took and the amount
       that arrived compared to what Home showed (any fee).
-- [ ] **Change how much the server keeps (Settings).** In Settings, under **Where your
-      money goes**, find **How much to keep on this server**. It should show the current
-      amount. Type a new amount (for example 2000), enter your admin password (and a
-      2FA code if asked) and save: it should say saved and show the new amount straight
-      away. Then pay a test payment above it and check the next transfer leaves exactly
-      that much on the server. Press **Go back to the default** and check it shows
-      "(the default)" again.
+- [ ] **Change when the server sends your money (Settings).** In Settings, under **Where
+      your money goes**, find **When to send my money**. It should show the current
+      minimum (1,500 sats for an Ark payout address, 50,000 for an on-chain one) and say
+      it is the default. Type a number **under** that minimum and press save: the page
+      must refuse with a plain reason (for Ark: very small coins can get stuck; for
+      on-chain: network fees), and nothing is saved. Type a higher number (for example
+      3000 for Ark), enter your admin password (and a 2FA code if asked) and save: it
+      should say saved and show your number straight away. Press **Go back to the
+      default** and check it shows "(the default ...)" again.
 - [ ] **Money moves out by itself.** On your payment server's Home, use the test
       payment box to make one test payment of **3000** sats and pay it (the server
-      keeps 1,000 and sends on what is above that, once at least 1,500 sats are
-      above it). Within about 10 minutes, without pressing anything, a transfer to
-      your payout wallet should appear under **Recent transfers to your own
-      wallet**, and the money should arrive there. Then pay a **300**-sat test
-      payment: nothing should be sent yet (the server just holds it). Pay another
-      **1300**: now a transfer of about 1,600 should appear.
+      keeps nothing and sends **all** of it once at least 1,500 sats are held).
+      Within about 10 minutes, without pressing anything, a transfer of the whole
+      3,000 to your payout wallet should appear under **Recent transfers to your own
+      wallet**, and the money should arrive there, with nothing left on the server.
+      Then pay a **300**-sat test payment: nothing should be sent yet (the server
+      just holds it). Pay another **1300**: now a transfer of all 1,600 should appear.
+- [ ] **The emergency withdrawal is opt-in.** In Settings, open **Emergency: withdraw
+      without the Ark server**. It should say it is **turned off** and explain what
+      turning it on does (5,000 sats of fee money kept, optional money kept), with no
+      Start button. Turn it on (password and a code): the page should now ask for at
+      least 5,000 sats of fee money and let you choose an amount to keep. Send in, say,
+      **8,000** sats of fee money: a button **Send back what is above 5,000 sats** should
+      appear. Press it: about 2,000 to 3,000 should arrive (the network fee comes out of
+      it) and the page should still show **at least 5,000** on the server. Turn it off:
+      the amount you chose should be forgotten, and the button sends back all of it.
 - [ ] **Restore drill (new server).** Follow `docs/RECIPE_BACKUP.md` → "Practice a restore once": on your current server note the balance, orders count and payout address, download a backup, **power off the first droplet** (never run both at once: same wallet, same shop connection), then make a second server and restore it from the 12 words and the backup file on its setup page. Write down anything that did not match the page, and whether the balance, orders, payout address and shop connection all came back. Also check, in the first hour after the restore, that no old order suddenly shows as overpaid and no "payment can't be matched" item appears (the restored wallet re-reads its coins; this is the part automated tests cannot cover).
 - [ ] **Coins you received keep their expiry.** In your own wallet, list the coins that
       the transfer delivered (for `bark`: `bark vtxos`) and write down their expiry

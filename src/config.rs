@@ -22,12 +22,6 @@ pub struct Config {
     /// How many payment requests one shop key may create per minute (0 = no limit).
     pub invoice_rate_limit_per_min: u32,
     pub default_currency: String,
-    /// How much the till may hold before it sweeps to an ARK payout address.
-    /// Low on purpose: Ark transfers cost (almost) nothing.
-    pub hot_wallet_cap_sats: i64,
-    /// Same, when the payout address is an ON-CHAIN address. Higher, because
-    /// every on-chain withdrawal pays a network fee.
-    pub onchain_sweep_cap_sats: i64,
     /// An AUTOMATIC on-chain sweep waits until the network fee rate (sat/vB,
     /// ~3-block target) is at or below this. Manual sweeps ignore it.
     pub onchain_sweep_max_fee_sat_vb: i64,
@@ -110,8 +104,6 @@ impl Default for Config {
             max_invoice_sats: 100_000_000,
             invoice_rate_limit_per_min: 60,
             default_currency: "EUR".to_string(),
-            hot_wallet_cap_sats: 1_000,
-            onchain_sweep_cap_sats: 1_000_000,
             onchain_sweep_max_fee_sat_vb: 50,
             watcher_interval_secs: 10,
             webhook_timeout_secs: 10,
@@ -206,8 +198,10 @@ struct FileConfig {
     // Retired (the price now always comes from live sources): still accepted
     // in an old config file so an upgrade does not stop the server, then ignored.
     static_rates: Option<toml::Value>,
-    hot_wallet_cap_sats: Option<i64>,
-    onchain_sweep_cap_sats: Option<i64>,
+    // Retired (nothing is kept on the server unless the owner turns on the
+    // emergency withdrawal and chooses an amount in Settings): accepted, then ignored.
+    hot_wallet_cap_sats: Option<toml::Value>,
+    onchain_sweep_cap_sats: Option<toml::Value>,
     onchain_sweep_max_fee_sat_vb: Option<i64>,
     watcher_interval_secs: Option<u64>,
     webhook_timeout_secs: Option<u64>,
@@ -239,16 +233,6 @@ struct FileConfig {
 }
 
 impl Config {
-    /// The till cap that applies to a payout destination: Ark addresses use
-    /// the low cap, anything else (on-chain) the higher one.
-    pub fn sweep_cap_for(&self, destination: &str) -> i64 {
-        if is_ark_destination(destination) {
-            self.hot_wallet_cap_sats
-        } else {
-            self.onchain_sweep_cap_sats
-        }
-    }
-
     /// May the setup wizard run? Yes over HTTPS, on a loopback address
     /// (reached locally or through an SSH tunnel), or when explicitly
     /// overridden. Judged from `public_base_url`, which is what the merchant
@@ -335,11 +319,8 @@ impl Config {
         if let Some(v) = file.onchain_sweep_max_fee_sat_vb {
             self.onchain_sweep_max_fee_sat_vb = v;
         }
-        if let Some(v) = file.onchain_sweep_cap_sats {
-            self.onchain_sweep_cap_sats = v;
-        }
-        if let Some(v) = file.hot_wallet_cap_sats {
-            self.hot_wallet_cap_sats = v;
+        if file.hot_wallet_cap_sats.is_some() || file.onchain_sweep_cap_sats.is_some() {
+            eprintln!("note: hot_wallet_cap_sats and onchain_sweep_cap_sats in the config file are no longer used; the server keeps nothing back unless the emergency withdrawal is turned on in Settings");
         }
         if let Some(v) = file.watcher_interval_secs {
             self.watcher_interval_secs = v;
@@ -449,11 +430,10 @@ impl Config {
         if let Some(v) = lookup("EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB") {
             self.onchain_sweep_max_fee_sat_vb = parse_int("EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB", &v)?;
         }
-        if let Some(v) = lookup("EBP_ONCHAIN_SWEEP_CAP_SATS") {
-            self.onchain_sweep_cap_sats = parse_int("EBP_ONCHAIN_SWEEP_CAP_SATS", &v)?;
-        }
-        if let Some(v) = lookup("EBP_HOT_WALLET_CAP_SATS") {
-            self.hot_wallet_cap_sats = parse_int("EBP_HOT_WALLET_CAP_SATS", &v)?;
+        if lookup("EBP_ONCHAIN_SWEEP_CAP_SATS").is_some()
+            || lookup("EBP_HOT_WALLET_CAP_SATS").is_some()
+        {
+            eprintln!("note: EBP_HOT_WALLET_CAP_SATS and EBP_ONCHAIN_SWEEP_CAP_SATS are no longer used; the server keeps nothing back unless the emergency withdrawal is turned on in Settings");
         }
         if let Some(v) = lookup("EBP_WATCHER_INTERVAL_SECS") {
             self.watcher_interval_secs = positive_u64("EBP_WATCHER_INTERVAL_SECS", &v)?;
@@ -586,18 +566,6 @@ impl Config {
                 value: self.onchain_sweep_max_fee_sat_vb.to_string(),
             });
         }
-        if self.onchain_sweep_cap_sats <= 0 {
-            return Err(ConfigError::Invalid {
-                key: "onchain_sweep_cap_sats".into(),
-                value: self.onchain_sweep_cap_sats.to_string(),
-            });
-        }
-        if self.hot_wallet_cap_sats <= 0 {
-            return Err(ConfigError::Invalid {
-                key: "hot_wallet_cap_sats".into(),
-                value: self.hot_wallet_cap_sats.to_string(),
-            });
-        }
         if self.watcher_interval_secs == 0 {
             return Err(ConfigError::Invalid {
                 key: "watcher_interval_secs".into(),
@@ -710,8 +678,6 @@ mod tests {
     fn defaults_are_sane() {
         let c = Config::default();
         assert_eq!(c.default_expiry_minutes, 20);
-        assert_eq!(c.hot_wallet_cap_sats, 1_000);
-        assert_eq!(c.onchain_sweep_cap_sats, 1_000_000);
         assert_eq!(c.onchain_sweep_max_fee_sat_vb, 50);
         c.validate().expect("defaults validate");
     }
@@ -722,13 +688,13 @@ mod tests {
         let env: HashMap<&str, &str> = HashMap::from([
             ("EBP_BIND_ADDR", "127.0.0.1:9999"),
             ("EBP_DEFAULT_CURRENCY", "usd"),
+            // Retired: accepted and ignored, never an error.
             ("EBP_HOT_WALLET_CAP_SATS", "12345"),
             ("EBP_PUBLIC_BASE_URL", "https://pay.example.com"),
         ]);
         c.apply_env(|k| env.get(k).map(|v| v.to_string())).unwrap();
         assert_eq!(c.bind_addr.to_string(), "127.0.0.1:9999");
         assert_eq!(c.default_currency, "USD");
-        assert_eq!(c.hot_wallet_cap_sats, 12_345);
         assert_eq!(c.public_base_url, "https://pay.example.com");
     }
 
@@ -782,12 +748,17 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_bad_caps() {
-        let c = Config {
-            hot_wallet_cap_sats: 0,
-            ..Config::default()
-        };
-        assert!(c.validate().is_err());
+    fn retired_keep_amounts_in_an_old_config_file_are_ignored() {
+        let file: FileConfig = toml::from_str(
+            r#"
+            hot_wallet_cap_sats = 20000
+            onchain_sweep_cap_sats = 1000000
+            "#,
+        )
+        .expect("an old config file still loads");
+        let mut c = Config::default();
+        c.apply_file(file).expect("the retired keys are ignored");
+        c.validate().expect("and validates");
     }
 
     #[test]

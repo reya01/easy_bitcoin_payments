@@ -91,8 +91,13 @@ const SPENT_MSG: &str = "That code was already used for an action. Wait for the 
 /// Does nothing when two-step sign-in is off. Call it after the password check.
 pub(crate) async fn check_second_step(
     state: &AppState,
+    headers: &HeaderMap,
     code: Option<String>,
 ) -> Result<(), AppError> {
+    // A passkey approval is only good for the signed-in session it was made in.
+    let ticket_binding = crate::routes::passkeys::ticket_binding(
+        &aa::token_from_headers(headers, secure(state)).unwrap_or_default(),
+    );
     state
         .db
         .call(move |c| {
@@ -117,7 +122,7 @@ pub(crate) async fn check_second_step(
                 return match crate::passkey::challenges().take(
                     ticket,
                     crate::passkey::Purpose::StepUp,
-                    crate::routes::passkeys::TICKET_BINDING,
+                    &ticket_binding,
                     crate::util::now_unix(),
                 ) {
                     Some(_) => Ok(()),
@@ -341,7 +346,7 @@ pub async fn change_password(
             "That is not your current password.".into(),
         ));
     }
-    check_second_step(&state, req.code).await?;
+    check_second_step(&state, &headers, req.code).await?;
     state
         .db
         .call(move |c| {

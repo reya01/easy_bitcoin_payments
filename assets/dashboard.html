@@ -161,19 +161,19 @@
       <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
     </div>
-    <div id="cap-box" class="hidden">
-      <h3>How much to keep on this server</h3>
-      <p class="muted" id="cap-now"></p>
-      <p class="muted" id="cap-nuance"></p>
-      <label for="cap-new">New amount to keep (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
-      <div class="muted" id="cap-usd"></div>
-      <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
-      <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
-      <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Go back to the default</button></div>
-      <p class="msg hidden" id="cap-msg"></p>
+    <div id="min-box" class="hidden">
+      <h3>When to send my money</h3>
+      <p class="muted" id="min-now"></p>
+      <p class="muted" id="min-why"></p>
+      <label for="min-new">Send once the till holds at least (sats)</label><input type="number" id="min-new" inputmode="numeric" min="1500" step="1" autocomplete="off">
+      <div class="muted" id="min-usd"></div>
+      <label for="min-pw">Admin password</label><input type="password" id="min-pw" autocomplete="current-password">
+      <div class="needcode hidden"><label for="min-code">Code from your authenticator app</label><input type="text" id="min-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+      <div class="btns"><button id="min-go" type="button">Save amount</button><button id="min-reset" type="button" class="hidden">Go back to the default</button></div>
+      <p class="msg hidden" id="min-msg"></p>
     </div>
     <div id="sweep-box" class="hidden">
-      <p class="muted">Don't want to wait? You can move everything in the till to your payout address right now. This ignores the amount and fee limits above, and on-chain withdrawals then pay whatever the network fee is today. A very small amount (under <span id="sweep-small">1,300</span> sats) can leave you with a small coin that is hard to spend later, so it is usually better to wait for more to build up.</p>
+      <p class="muted">Don't want to wait? You can move everything in the till to your payout address right now. This ignores the minimum and fee limit above (and any money kept for the emergency withdrawal), and on-chain withdrawals then pay whatever the network fee is today. A very small amount (under <span id="sweep-small">1,300</span> sats) can end up as a small coin that is hard to spend later, so it is usually better to wait for more to build up.</p>
       <div class="btns"><button id="sweep-go" type="button">Move my money to my payout address now</button></div>
       <p class="msg hidden" id="sweep-msg"></p>
     </div>
@@ -201,6 +201,37 @@
   <details class="fold" id="ex-box"><summary><span class="fx"><span class="ft bad">Emergency: withdraw without the Ark server</span><span class="fs">A last resort for taking your money out yourself if the Ark server is gone or refuses to help.</span></span></summary>
     <div class="card">
       <div class="warnbox"><strong>For emergencies only.</strong> You always hold the keys to this money, so this lets you take it out on your own even if the Ark server is gone or refuses to help. On real money it is new: it has only been tried in small tests so far, so keep only amounts you can afford to lose on this server. This is for emergencies only. It takes several Bitcoin transactions, each paying network fees, and at least a day. Fees can be high, and on small amounts they can be more than the money itself. If the Ark server is working, use <strong>Move my money now</strong> instead: it is cheaper and faster.</div>
+      <div id="ex-off-box" class="hidden">
+        <h3>The emergency withdrawal is turned off</h3>
+        <p class="muted">It is your choice, and it is off until you turn it on. Turning it on does two things. First, the server keeps at least <span id="exo-floor">5,000</span> sats of regular Bitcoin on it to pay the network fees of a withdrawal, and never sends that money out. Second, you can choose to keep some of your money on the server too, because a withdrawal only works when at least <span id="exo-min">50,000</span> sats are there (below that the fees cost more than they save).</p>
+        <p class="muted">Money kept on the server is exposed if the Ark server fails, so the safest setting is the default: everything is sent to your payout address as soon as it reaches the minimum, and nothing is kept. You can turn this off again at any time.</p>
+        <p class="msg muted" id="exo-twostep">To turn it on you need two-step sign-in (above): it asks for your password and a code from your authenticator app.</p>
+        <label for="exo-pw">Admin password</label><input type="password" id="exo-pw" autocomplete="current-password">
+        <label for="exo-code">Code from your authenticator app</label><input type="text" id="exo-code" inputmode="numeric" autocomplete="off" placeholder="6 digits">
+        <div class="btns"><button id="exo-on" type="button">Turn on the emergency withdrawal</button></div>
+      </div>
+      <div id="ex-on-box" class="hidden">
+        <p class="msg ok" id="exo-state">Turned on.</p>
+        <div id="cap-box">
+          <h3>Money to keep on this server</h3>
+          <p class="muted" id="cap-now"></p>
+          <p class="muted" id="cap-nuance"></p>
+          <label for="cap-new">Amount to keep here (sats)</label><input type="number" id="cap-new" inputmode="numeric" min="1" step="1" autocomplete="off">
+          <div class="muted" id="cap-usd"></div>
+          <label for="cap-pw">Admin password</label><input type="password" id="cap-pw" autocomplete="current-password">
+          <div class="needcode hidden"><label for="cap-code">Code from your authenticator app</label><input type="text" id="cap-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+          <div class="btns"><button id="cap-go" type="button">Save amount</button><button id="cap-reset" type="button" class="hidden">Keep nothing</button></div>
+          <p class="msg hidden" id="cap-msg"></p>
+        </div>
+        <div id="exo-off">
+          <h3>Turn it off</h3>
+          <p class="muted">Turning it off sends everything on to your payout address as usual, forgets the amount kept here, and lets you take the fee money back. It cannot be turned off while a withdrawal is running.</p>
+          <label for="exoff-pw">Admin password</label><input type="password" id="exoff-pw" autocomplete="current-password">
+          <div class="needcode hidden"><label for="exoff-code">Code from your authenticator app</label><input type="text" id="exoff-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+          <div class="btns"><button id="exo-off-go" type="button">Turn off the emergency withdrawal</button></div>
+        </div>
+      </div>
+      <p class="msg hidden" id="exo-msg"></p>
       <div id="ex-facts"></div>
       <p class="msg hidden" id="ex-refusal"></p>
       <div id="ex-deposit" class="hidden">
@@ -234,7 +265,7 @@
         <div class="btns"><button id="ex-claim" type="button" class="hidden">Send to my address</button><button id="ex-stop" type="button">Stop</button></div>
       </div>
       <div id="ex-left-box" class="hidden">
-        <p class="muted">This takes back the fee money on the server (the money set aside above), sending it to the address you typed.</p>
+        <p class="muted" id="ex-left-note">This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.</p>
         <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
       </div>
       <p class="msg hidden" id="ex-msg"></p>

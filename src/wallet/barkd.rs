@@ -130,6 +130,9 @@ const PATH_EXITS_CLAIM_ALL: &str = "/exits/claim/all";
 const PATH_ONCHAIN_SYNC: &str = "/onchain/sync";
 /// Send the whole on-chain balance to one address. POST.
 const PATH_ONCHAIN_DRAIN: &str = "/onchain/drain";
+/// Send a chosen amount of the on-chain balance to one address; the fee comes
+/// on top, out of what stays (`{"destination", "amount_sat"}` in, `{"txid"}` out). POST.
+const PATH_ONCHAIN_SEND: &str = "/onchain/send";
 /// Lightning invoice via the ASP gateway. POST.
 const PATH_LN_INVOICE: &str = "/lightning/receives/invoice";
 /// Whether the wallet is connected to its ASP. GET.
@@ -849,6 +852,20 @@ impl BarkdClient {
         self.post(
             PATH_ONCHAIN_DRAIN,
             &serde_json::json!({ "destination": destination }),
+        )
+        .await
+    }
+
+    /// Send `amount_sats` of the on-chain balance to `destination` (the network fee
+    /// is paid on top, from what stays in the wallet).
+    pub async fn onchain_send(
+        &self,
+        destination: &str,
+        amount_sats: i64,
+    ) -> Result<Json, WalletError> {
+        self.post(
+            PATH_ONCHAIN_SEND,
+            &serde_json::json!({ "destination": destination, "amount_sat": amount_sats }),
         )
         .await
     }

@@ -401,51 +401,6 @@ def main():
 
         ok &= run_case(pw, "sign-in: a cancelled passkey prompt says so and lets the user type a code", login_pk_handler(True), c_login_pk_cancel)
 
-        # ---- the amount kept on the server: the sweep minimum and the small-coin note
-        def keep_handler(path, req, calls):
-            if path == "/api/v1/payout":
-                return 200, {"address": "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh", "kind": "ark",
-                             "cap_sats": 1500, "cap_is_custom": False, "cap_min_sats": 1, "cap_max_sats": 1000000,
-                             "min_sweep_excess_sats": 1500, "small_coin_sats": 1300, "live": False, "set_by_server_config": False}
-            return signed_in(path, req, calls)
-
-        def c_keep(p, pr, calls):
-            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
-            p.evaluate("document.getElementById('fold-payout').open = true"); p.wait_for_timeout(500)
-            now = p.inner_text("#cap-now")
-            for w in ("keeps up to 1,500 sats", "at least 1,500 sats", "(the default)"):
-                want(pr, "keep line", now, w)
-            nuance = p.inner_text("#cap-nuance")
-            for w in ("chunks of at least 1,500 sats", "keeping at least 1,300 sats", "about 1,300 sats", "Updating EBP fixes this"):
-                want(pr, "good to know", nuance, w)
-            want(pr, "manual note", p.inner_text("#sweep-box"), "under 1,300 sats")
-            p.fill("#cap-new", "1000"); p.wait_for_timeout(1000)
-            want(pr, "warns under the limit", p.inner_text("#cap-usd"), "under 1,300 sats")
-            p.fill("#cap-new", "1500"); p.wait_for_timeout(1000)
-            if "under 1,300" in p.inner_text("#cap-usd"): pr.append("1,500 must not warn")
-
-        ok &= run_case(pw, "settings: the kept amount explains the 1,500 minimum and the small-coin limit", keep_handler, c_keep)
-
-        def keep_chain_handler(path, req, calls):
-            if path == "/api/v1/payout":
-                return 200, {"address": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "kind": "onchain",
-                             "cap_sats": 1000000, "cap_is_custom": False, "cap_min_sats": 1, "cap_max_sats": 10000000,
-                             "min_sweep_excess_sats": 1500, "min_onchain_sweep_excess_sats": 50000, "small_coin_sats": 1300,
-                             "live": True, "set_by_server_config": False}
-            return signed_in(path, req, calls)
-
-        def c_keep_chain(p, pr, calls):
-            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
-            p.evaluate("document.getElementById('fold-payout').open = true"); p.wait_for_timeout(500)
-            want(pr, "keep line", p.inner_text("#cap-now"), "at least 50,000 sats")
-            nuance = p.inner_text("#cap-nuance")
-            for w in ("chunks of at least 50,000 sats", "We recommend much more", "can be high and changes a lot", "Ark payout address is almost free"):
-                want(pr, "on-chain note", nuance, w)
-            if "1,300" in nuance: pr.append("the small-coin note is for Ark payout addresses")
-
-        ok &= run_case(pw, "settings: an on-chain payout address shows the 50,000 minimum and the fee advice", keep_chain_handler, c_keep_chain)
-
-
         def pw_handler(path, req, calls):
             if path == "/admin/password":
                 return 200, {}
@@ -538,7 +493,7 @@ def main():
                     return 200, {"min_exit_sats": 50000, "ark_sats": 500000, "fee": {"broadcast_sat": 894, "claim_sat": 28, "total_sat": 922, "txs_to_broadcast": 3},
                                  "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": needed, "deadline": 1900000000,
                                  "asp_connected": True, "two_step_on": True, "allowed": True, "refusal": None, "in_progress_since": None, "live": [],
-                                 "claimable": False, "destination": None}
+                                 "claimable": False, "destination": None, "opted_in": True, "reserve_floor_sats": 5000}
                 if path == "/admin/exit/deposit-address":
                     return 200, {"address": TB}
                 return signed_in(path, req, calls)
@@ -636,7 +591,7 @@ def main():
                     return 200, {"min_exit_sats": 50000, "ark_sats": 500000, "fee": None, "onchain_confirmed_sats": 0, "onchain_pending_sats": 0,
                                  "deposit_needed_sats": None, "deadline": 1900000000, "asp_connected": True, "two_step_on": True, "allowed": False,
                                  "refusal": "The wallet cannot work out the fee yet for some of your coins. This page asks the server to refresh them automatically.",
-                                 "unpriceable": True, "preparing_since": None, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
+                                 "unpriceable": True, "preparing_since": None, "in_progress_since": None, "live": [], "claimable": False, "destination": None, "opted_in": True, "reserve_floor_sats": 5000}
                 if path == "/admin/exit/prepare":
                     return 200, {"started": True}
                 return base(path, req, calls)
@@ -652,52 +607,250 @@ def main():
 
         ok &= run_case(pw, "emergency withdrawal: unpriceable coins are refreshed automatically, with a hover explanation", unpriceable_handler(), c_unpriceable)
 
-        def preset_handler(switched_off=False, mode="test", confirmed=0, pending=0):
+        def preset_handler(switched_off=False, mode="test", confirmed=0, pending=0, target=5000):
             base = exit_handler(mode=mode)
             def h(path, req, calls):
                 if path == "/admin/exit/status":
                     return 200, {"min_exit_sats": 50000, "ark_sats": 5000, "fee": {"broadcast_sat": 300, "claim_sat": 50, "total_sat": 350, "txs_to_broadcast": 1},
                                  "onchain_confirmed_sats": confirmed, "onchain_pending_sats": pending, "deposit_needed_sats": 0, "deadline": 1900000000,
                                  "asp_connected": True, "two_step_on": True, "allowed": False, "refusal": "Not worth it right now.", "unpriceable": False,
-                                 "switched_off": switched_off, "reserve_min_sats": 1500, "reserve_target_sats": 5000, "reserve_high_sats": 10000, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
+                                 "switched_off": switched_off, "reserve_min_sats": 1500, "reserve_floor_sats": 5000, "reserve_target_sats": target, "reserve_high_sats": 10000, "opted_in": True, "in_progress_since": None, "live": [], "claimable": False, "destination": None}
                 return base(path, req, calls)
             return h
 
         def c_preset(p, pr, calls):
             open_exit(p)
-            want(pr, "optional heading", p.inner_text("#ex-deposit"), "Set aside fee money now (optional)")
-            want(pr, "the minimum", p.inner_text("#ex-fee-rows"), "1,500")
-            want(pr, "the recommendation", p.inner_text("#ex-fee-rows"), "5,000")
+            want(pr, "heading", p.inner_text("#ex-deposit"), "Keep fee money on the server")
+            want(pr, "the floor", p.inner_text("#ex-fee-rows"), "The server keeps at least")
+            want(pr, "the floor amount", p.inner_text("#ex-fee-rows"), "5,000")
             want(pr, "the recommendation range", p.inner_text("#ex-fee-rows"), "10,000")
             want(pr, "still to send", p.inner_text("#ex-fee-rows"), "Still to send")
-            want(pr, "optional wording", p.inner_text("#ex-fee-verdict"), "Optional: send at least")
+            want(pr, "asks for the floor, not optional", p.inner_text("#ex-fee-verdict"), "Please send at least 5,000")
+            want(pr, "says why", p.inner_text("#ex-fee-verdict"), "turned on")
             want(pr, "address shows", p.inner_text("#ex-addr"), TB)
             want(pr, "hover explains the sweep promise", p.get_attribute("#ex-deposit-need", "title") or "", "never touch this money")
             if not p.is_disabled("#ex-start") if p.is_visible("#ex-start") else False: pr.append("Start must stay grey")
 
-        ok &= run_case(pw, "emergency withdrawal: fee money can be set aside ahead of time, optional", preset_handler(), c_preset)
+        ok &= run_case(pw, "emergency withdrawal: while on, the server asks for 5,000 sats of fee money", preset_handler(), c_preset)
 
         def c_preset_done(p, pr, calls):
             open_exit(p)
             want(pr, "done", p.inner_text("#ex-fee-verdict"), "Set aside")
             if p.is_visible("#ex-addr-box"): pr.append("no address needed once it is set aside")
             if count(calls, "POST", "/admin/exit/deposit-address") != 0: pr.append("no address should be fetched when none is needed")
-            want(pr, "leftover button explained", p.inner_text("#ex-left-box"), "takes back the fee money")
+            if p.is_visible("#ex-left-box"): pr.append("at the 5,000 floor there is nothing above it to send back")
+            want(pr, "send-back explained (hidden at the floor)", p.inner_text("#ex-left-box"), "stays here while the emergency withdrawal is turned on")
 
         ok &= run_case(pw, "emergency withdrawal: fee money already set aside", preset_handler(confirmed=5000), c_preset_done)
 
         def c_preset_min(p, pr, calls):
             open_exit(p)
-            want(pr, "enough to start", p.inner_text("#ex-fee-verdict"), "Enough to start a withdrawal today")
+            want(pr, "keeping enough", p.inner_text("#ex-fee-verdict"), "The server is keeping enough")
             want(pr, "still suggests more", p.inner_text("#ex-fee-verdict"), "safer")
 
-        ok &= run_case(pw, "emergency withdrawal: above the minimum but below the recommendation", preset_handler(confirmed=2000), c_preset_min)
+        ok &= run_case(pw, "emergency withdrawal: above the 5,000 floor but below the recommendation", preset_handler(confirmed=6000, target=8000), c_preset_min)
+
+        def c_preset_below(p, pr, calls):
+            open_exit(p)
+            want(pr, "asks for the rest", p.inner_text("#ex-fee-verdict"), "Please send at least 3,000")
+            want(pr, "state line warns", p.inner_text("#exo-state"), "please add")
+
+        ok &= run_case(pw, "emergency withdrawal: below the 5,000 floor asks for the rest", preset_handler(confirmed=2000), c_preset_below)
 
         def c_off(p, pr, calls):
             open_exit(p)
             if p.is_visible("#ex-deposit"): pr.append("no fee-money prompt where the withdrawal is switched off")
 
         ok &= run_case(pw, "emergency withdrawal: switched off on real money shows no fee-money prompt", preset_handler(switched_off=True, mode="live"), c_off)
+
+        # ---- the emergency withdrawal is opt-in; what is kept; the send minimum with its hard floors
+        def pay_view(kind="ark", **over):
+            d = {"address": ARK if kind == "ark" else TB, "kind": kind,
+                 "sweep_min_sats": 1500 if kind == "ark" else 50000, "sweep_min_floor_sats": 1500 if kind == "ark" else 50000,
+                 "sweep_min_is_custom": False, "ark_min_floor_sats": 1500, "onchain_min_floor_sats": 50000,
+                 "keep_sats": 0, "keep_is_custom": False, "keep_min_sats": 1, "keep_max_sats": 10000000,
+                 "exit_opted_in": False, "exit_min_sats": 50000, "small_coin_sats": 1300, "live": False, "set_by_server_config": False}
+            d.update(over)
+            return d
+
+        def pay_handler(kind="ark", opted=False, two_step=True, confirmed=0, running=False, **over):
+            base = exit_handler(confirmed=confirmed, needed=0)
+            def h(path, req, calls):
+                if path == "/api/v1/payout":
+                    return 200, pay_view(kind, exit_opted_in=opted, **over)
+                if path == "/admin/payout/min":
+                    b = json.loads(req.post_data)
+                    return 200, pay_view(kind, sweep_min_sats=b["min_sats"] or (1500 if kind == "ark" else 50000), sweep_min_is_custom=b["min_sats"] is not None)
+                if path == "/admin/payout/cap":
+                    b = json.loads(req.post_data)
+                    return 200, pay_view(kind, exit_opted_in=True, keep_sats=b["cap_sats"] or 0, keep_is_custom=b["cap_sats"] is not None)
+                if path == "/admin/exit/optin":
+                    b = json.loads(req.post_data)
+                    return 200, {"opted_in": b["on"], "message": "Turned on." if b["on"] else "Turned off."}
+                if path == "/admin/exit/status":
+                    code, body = base(path, req, calls)
+                    body["opted_in"] = opted
+                    body["two_step_on"] = two_step
+                    if running:
+                        body["in_progress_since"] = 1900000000 - 3600
+                        body["live"] = [{"vtxo_id": "abcdef0123456789", "state": "processing", "words": "sending its transactions"}]
+                    return code, body
+                return base(path, req, calls)
+            return h
+
+        def open_payout(p):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            p.evaluate("document.getElementById('fold-payout').open = true"); p.wait_for_timeout(500)
+
+        def posted(calls, path):
+            return json.loads([c for c in calls if c[1] == path][-1][2])
+
+        def c_min_ark(p, pr, calls):
+            open_payout(p)
+            if not p.is_visible("#min-box"): pr.append("the send-minimum box should show")
+            for w in ("at least 1,500 sats", "(the default, which is also the lowest we allow)", "sends all of the money"):
+                want(pr, "now line", p.inner_text("#min-now"), w)
+            for w in ("1,300 sats", "all of it at once"):
+                want(pr, "why line", p.inner_text("#min-why"), w)
+            want(pr, "manual note", p.inner_text("#sweep-box"), "under 1,300 sats")
+            if p.is_visible("#min-reset"): pr.append("no reset button on the default")
+            # Under the floor: refused on the page with a plain reason, nothing is sent.
+            # Typed and Save clicked straight away (the box loses focus on that click: nothing
+            # may move the button from under it).
+            p.fill("#min-pw", "pw"); p.fill("#min-new", "1000"); p.click("#min-go"); p.wait_for_timeout(400)
+            for w in ("1,000 sats is lower than the smallest amount we allow", "1,500 sats", "get stuck", "Please type 1,500 sats or more"):
+                want(pr, "floor refusal", p.inner_text("#min-msg"), w)
+            if count(calls, "POST", "/admin/payout/min"): pr.append("nothing is sent under the floor")
+            p.fill("#min-new", "1499"); p.wait_for_timeout(1000)
+            want(pr, "explained while typing", p.inner_text("#min-usd"), "lower than the smallest amount we allow")
+            # Exactly the floor and above save, as the Ark kind.
+            p.fill("#min-new", "3000"); p.wait_for_timeout(1000)
+            if p.inner_text("#min-usd"): pr.append("an allowed Ark amount must not warn")
+            p.click("#min-go"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/payout/min")
+            if b.get("kind") != "ark" or b.get("min_sats") != 3000 or b.get("admin_password") != "pw": pr.append(f"wrong body {b}")
+            want(pr, "saved", p.inner_text("#min-msg"), "Saved")
+
+        ok &= run_case(pw, "settings: an Ark payout address sends everything at 1,500 sats or more, with a hard floor", pay_handler("ark"), c_min_ark)
+
+        def c_min_chain(p, pr, calls):
+            open_payout(p)
+            want(pr, "now line", p.inner_text("#min-now"), "at least 50,000 sats")
+            for w in ("recommend much more", "network fee that can be high and changes a lot", "Ark payout address is almost free"):
+                want(pr, "why line", p.inner_text("#min-why"), w)
+            p.fill("#min-pw", "pw"); p.fill("#min-new", "49999"); p.click("#min-go"); p.wait_for_timeout(400)
+            for w in ("49,999 sats is lower than the smallest amount we allow for on-chain sends", "50,000 sats", "network fee", "Please type 50,000 sats or more", "Ark payout address"):
+                want(pr, "floor refusal", p.inner_text("#min-msg"), w)
+            if count(calls, "POST", "/admin/payout/min"): pr.append("nothing is sent under the floor")
+            p.fill("#min-new", "60000"); p.wait_for_timeout(1000)
+            want(pr, "low warning", p.inner_text("#min-usd"), "We recommend much more")
+            p.click("#min-go"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/payout/min")
+            if b.get("kind") != "onchain" or b.get("min_sats") != 60000: pr.append(f"wrong body {b}")
+            p.fill("#min-new", "500000"); p.wait_for_timeout(1000)
+            if p.inner_text("#min-usd"): pr.append("a high amount must not warn")
+
+        ok &= run_case(pw, "settings: an on-chain payout address has a hard 50,000 floor, a warning and an explanation", pay_handler("onchain"), c_min_chain)
+
+        def c_min_custom(p, pr, calls):
+            open_payout(p)
+            want(pr, "custom line", p.inner_text("#min-now"), "at least 250,000 sats")
+            want(pr, "custom line", p.inner_text("#min-now"), "(your setting)")
+            if not p.is_visible("#min-reset"): pr.append("a reset button should show for a custom value")
+            p.fill("#min-pw", "pw"); p.click("#min-reset"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/payout/min")
+            if b.get("min_sats") is not None or b.get("kind") != "onchain": pr.append(f"reset must send null for its kind: {b}")
+
+        ok &= run_case(pw, "settings: a custom send minimum can be reset to the default", pay_handler("onchain", sweep_min_sats=250000, sweep_min_is_custom=True), c_min_custom)
+
+        def c_optin_off(p, pr, calls):
+            open_exit(p)
+            if not p.is_visible("#ex-off-box"): pr.append("the turned-off panel should show")
+            if p.is_visible("#ex-on-box"): pr.append("the turned-on panel must stay hidden")
+            for sel in ("#ex-deposit", "#ex-start-box", "#ex-running", "#ex-left-box"):
+                if p.is_visible(sel): pr.append(f"{sel} must stay hidden while it is off")
+            if p.inner_text("#ex-facts"): pr.append("no exit figures while it is off")
+            for w in ("turned off", "5,000 sats of regular Bitcoin", "50,000 sats are there", "everything is sent to your payout address"):
+                want(pr, "off text", p.inner_text("#ex-off-box"), w)
+            if p.is_visible("#exo-twostep"): pr.append("the two-step note is only for when it is off")
+            p.fill("#exo-pw", "pw"); p.fill("#exo-code", "123456"); p.click("#exo-on"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/exit/optin")
+            if b != {"on": True, "admin_password": "pw", "code": "123456"}: pr.append(f"wrong body {b}")
+            want(pr, "reply shown", p.inner_text("#exo-msg"), "Turned on")
+
+        ok &= run_case(pw, "emergency withdrawal: it is opt-in, off until the owner turns it on", pay_handler("ark", opted=False), c_optin_off)
+
+        def c_optin_no2fa(p, pr, calls):
+            open_exit(p)
+            if not p.is_visible("#exo-twostep"): pr.append("without two-step sign-in the page should say it is needed")
+            want(pr, "note", p.inner_text("#exo-twostep"), "two-step sign-in")
+
+        ok &= run_case(pw, "emergency withdrawal: without two-step sign-in the opt-in says why it cannot be used yet", pay_handler("ark", opted=False, two_step=False), c_optin_no2fa)
+
+        def c_off_leftover(p, pr, calls):
+            open_exit(p)
+            if not p.is_visible("#ex-left-box"): pr.append("while it is off the fee money can be taken back")
+            if not p.is_visible("#ex-auth"): pr.append("the address, password and code boxes should show for it")
+            want(pr, "explained", p.inner_text("#ex-left-box"), "takes back all of the fee money")
+            want(pr, "button", p.inner_text("#ex-left"), "Send leftover to my address")
+
+        ok &= run_case(pw, "emergency withdrawal: turned off, the fee money on the server can be sent out", pay_handler("ark", opted=False, confirmed=7000), c_off_leftover)
+
+        def c_running_while_off(p, pr, calls):
+            open_exit(p)
+            if not p.is_visible("#ex-running"): pr.append("a withdrawal already running always shows")
+            if p.is_visible("#ex-off-box"): pr.append("no turn-on panel while one is running")
+
+        ok &= run_case(pw, "emergency withdrawal: one that is running shows whatever the switch says", pay_handler("ark", opted=False, running=True), c_running_while_off)
+
+        def c_optin_on(p, pr, calls):
+            open_exit(p)
+            open_payout(p)
+            p.evaluate("document.getElementById('ex-box').open = true"); p.wait_for_timeout(700)
+            if not p.is_visible("#ex-on-box"): pr.append("the turned-on panel should show")
+            if p.is_visible("#ex-off-box"): pr.append("the turn-on panel must be hidden")
+            want(pr, "state", p.inner_text("#exo-state"), "keeps at least 5,000 sats of regular Bitcoin")
+            want(pr, "keep line", p.inner_text("#cap-now"), "keeps nothing")
+            # 7,000 confirmed while on: what is above the 5,000 floor can be sent back.
+            if not p.is_visible("#ex-left-box"): pr.append("the part above 5,000 can be sent back while on")
+            want(pr, "send-back button", p.inner_text("#ex-left"), "Send back what is above 5,000 sats")
+            want(pr, "send-back note", p.inner_text("#ex-left-note"), "At least 5,000 sats stays here")
+            # An amount under what an exit needs is allowed, with a plain warning.
+            p.fill("#cap-new", "10000"); p.wait_for_timeout(1000)
+            want(pr, "warns", p.inner_text("#cap-usd"), "under 50,000 sats")
+            p.fill("#cap-pw", "pw"); p.click("#cap-go"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/payout/cap")
+            if b.get("cap_sats") != 10000: pr.append(f"wrong body {b}")
+            want(pr, "saved", p.inner_text("#cap-msg"), "keeps")
+            p.fill("#cap-new", "80000"); p.wait_for_timeout(1000)
+            if "under 50,000" in p.inner_text("#cap-usd"): pr.append("80,000 must not warn")
+            # Typed and Save clicked straight away: the click must still land.
+            n_caps = count(calls, "POST", "/admin/payout/cap")
+            p.fill("#cap-pw", "pw"); p.fill("#cap-new", "20000"); p.click("#cap-go"); p.wait_for_timeout(500)
+            if count(calls, "POST", "/admin/payout/cap") != n_caps + 1: pr.append("Save clicked right after typing must still save")
+            # Turning it off asks first; confirming sends it.
+            p.fill("#exoff-pw", "pw"); p.click("#exo-off-go")
+            want(pr, "confirm title", p.inner_text("#dlg-title"), "Turn off the emergency withdrawal?")
+            p.click("#dlg-back button:text-is(\"Keep it on\")"); p.wait_for_timeout(100)
+            if count(calls, "POST", "/admin/exit/optin"): pr.append("nothing is sent before confirming")
+            p.click("#exo-off-go"); p.click("#dlg-back .btns button:last-child"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/exit/optin")
+            if b.get("on") is not False or b.get("admin_password") != "pw": pr.append(f"wrong body {b}")
+
+        ok &= run_case(pw, "emergency withdrawal: turned on, it keeps fee money, can keep some Ark money, and can be turned off", pay_handler("ark", opted=True, confirmed=7000), c_optin_on)
+
+        def c_keep_custom(p, pr, calls):
+            open_exit(p)
+            want(pr, "keep line", p.inner_text("#cap-now"), "keeps")
+            want(pr, "keep line", p.inner_text("#cap-now"), "60,000 sats")
+            want(pr, "keep line", p.inner_text("#cap-now"), "(your setting)")
+            want(pr, "min line mentions it", p.inner_text("#min-now"), "not counting the")
+            if not p.is_visible("#cap-reset"): pr.append("a button to keep nothing should show")
+            p.fill("#cap-pw", "pw"); p.click("#cap-reset"); p.wait_for_timeout(500)
+            b = posted(calls, "/admin/payout/cap")
+            if b.get("cap_sats") is not None: pr.append(f"keeping nothing must send null: {b}")
+
+        ok &= run_case(pw, "emergency withdrawal: a kept amount is shown and can be set back to nothing", pay_handler("ark", opted=True, confirmed=7000, keep_sats=60000, keep_is_custom=True), c_keep_custom)
 
         # --- optional first test payment on Home
         def tp_handler(paid=False, mode="live"):

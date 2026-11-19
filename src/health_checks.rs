@@ -62,6 +62,8 @@ pub struct Facts {
     pub onchain_sats: Option<i64>,
     /// An emergency withdrawal can be used on this server (not switched off).
     pub exit_available: bool,
+    /// The owner turned the emergency withdrawal on (it is opt-in).
+    pub exit_opted_in: bool,
     pub hot_wallet_cap_sats: i64,
     pub unmatched_open: i64,
     pub webhooks_failed: i64,
@@ -247,24 +249,26 @@ pub fn build(f: &Facts) -> Vec<Check> {
         Some(_) => {}
     }
 
-    // Fee money for an emergency withdrawal: only worth mentioning when the
-    // withdrawal is available and there is enough on the server to need it.
-    if f.exit_available && f.offchain_sats.unwrap_or(0) >= crate::emergency_exit::MIN_EXIT_SATS {
-        if f.onchain_sats.unwrap_or(0) >= crate::emergency_exit::RESERVE_MIN_SATS {
+    // Fee money for an emergency withdrawal. The withdrawal is opt-in, so this
+    // is only said once the owner turned it on: the server then keeps at least
+    // the floor of regular Bitcoin for the fees and never sends it out.
+    if f.exit_available && f.exit_opted_in {
+        let floor = crate::emergency_exit::RESERVE_FLOOR_SATS;
+        if f.onchain_sats.unwrap_or(0) >= floor {
             push(
                 "reserve",
                 Level::Ok,
                 "Emergency fee money is set aside",
-                "Some regular Bitcoin is on the server to pay the network fees of an emergency withdrawal. Automatic withdrawals never touch it. If fees rise, 5,000 to 10,000 sats is the safer amount.",
+                "Regular Bitcoin is on the server to pay the network fees of an emergency withdrawal, and the server keeps it there while the emergency withdrawal is turned on. Automatic withdrawals never touch it. If fees rise, 5,000 to 10,000 sats is the safer amount.",
             );
         } else {
             push(
                 "reserve",
                 Level::Warn,
-                "Emergency fee money is not set aside (optional)",
+                "Emergency fee money is below what this server keeps for it",
                 &format!(
-                    "An emergency withdrawal pays its network fees from regular Bitcoin held on the server, and the server has almost none. Setting aside at least {} sats (5,000 to 10,000 is recommended, in case fees rise) means you can start one at any time. Open Settings, Emergency to get the address.",
-                    crate::emergency_exit::RESERVE_MIN_SATS
+                    "You turned the emergency withdrawal on. It pays its network fees from regular Bitcoin held on the server, and the server wants at least {} sats there (5,000 to 10,000 is recommended, in case fees rise). Open Settings, Emergency to get the address, or turn the emergency withdrawal off there.",
+                    crate::payout::commas(floor)
                 ),
             );
         }
@@ -384,7 +388,7 @@ pub fn build(f: &Facts) -> Vec<Check> {
                 Level::Warn,
                 "A large balance is sitting in the shop wallet",
                 &format!(
-                    "{first} If the Ark server ever stopped working, getting a large balance out costs real network fees, and more coins cost more. We recommend sending money on to an Ark mobile wallet such as Noah or Arké (use its Ark address as your withdrawal address) and setting \"How much to keep on this server\" in Settings below 5,000 sats, so money moves on more often."
+                    "{first} If the Ark server ever stopped working, getting a large balance out costs real network fees, and more coins cost more. We recommend sending money on to an Ark mobile wallet such as Noah or Arké (use its Ark address as your withdrawal address) and, if you turned on the emergency withdrawal, keeping less money here (Settings, Emergency) or sending money on at a lower amount (Settings, Where your money goes), so money moves on more often."
                 ),
             );
         }
@@ -484,24 +488,30 @@ mod tests {
     fn emergency_fee_money_is_mentioned_only_when_it_matters() {
         let mut f = healthy();
         f.offchain_sats = Some(500_000);
-        // Withdrawal switched off (real money): nothing to say.
+        // Not turned on (it is opt-in): nothing to say, whatever is held.
+        f.exit_available = true;
+        assert!(build(&f).iter().all(|c| c.id != "reserve"));
+        // Turned on, but switched off on this server: nothing to say.
+        f.exit_opted_in = true;
+        f.exit_available = false;
         assert!(build(&f).iter().all(|c| c.id != "reserve"));
         f.exit_available = true;
         let c = build(&f);
         assert_eq!(find(&c, "reserve").level, Level::Warn);
         assert!(find(&c, "reserve").detail.contains("Settings, Emergency"));
-        f.onchain_sats = Some(1_499);
+        // The floor is 5,000: 4,999 warns, 5,000 is fine.
+        f.onchain_sats = Some(4_999);
         assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
         assert!(find(&build(&f), "reserve")
             .detail
             .contains("5,000 to 10,000"));
         f.onchain_sats = Some(1_500);
+        assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
+        f.onchain_sats = Some(5_000);
         assert_eq!(find(&build(&f), "reserve").level, Level::Ok);
-        // Too little on the server to ever be worth an exit: stay quiet.
-        f.offchain_sats = Some(crate::emergency_exit::MIN_EXIT_SATS - 1);
+        // Opted in, the reserve matters even before much money is held.
+        f.offchain_sats = Some(1_000);
         f.onchain_sats = None;
-        assert!(build(&f).iter().all(|c| c.id != "reserve"));
-        f.offchain_sats = Some(crate::emergency_exit::MIN_EXIT_SATS);
         assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
     }
 
@@ -662,7 +672,7 @@ mod tests {
         assert_eq!(line.level, Level::Warn);
         assert!(line.detail.contains("keep a lot"));
         assert!(line.detail.contains("Noah"));
-        assert!(line.detail.contains("5,000"));
+        assert!(line.detail.contains("Emergency"));
         // Under the floor nothing is said, whatever the kept amount.
         f.offchain_sats = Some(100_000);
         assert!(build(&f).iter().all(|x| x.id != "balance"));

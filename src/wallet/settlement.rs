@@ -5,9 +5,9 @@
 //! 1. **Renewal** — refresh spendable VTXOs inside the renewal window,
 //!    before their per-VTXO expiry (learn_lifetime.md). Renewal never moves
 //!    funds.
-//! 2. **Sweep** — move the excess above the till cap (`hot_wallet_cap_sats`
-//!    for an Ark payout address, `onchain_sweep_cap_sats` for an on-chain one) to the
-//!    merchant's own wallet: an Ark send when the destination is on the
+//! 2. **Sweep** — once the till holds the send minimum (`payout::sweep_min`), move
+//!    all of it (less any amount the owner keeps for the emergency withdrawal,
+//!    `payout::cap_for`) to the merchant's own wallet: an Ark send when the destination is on the
 //!    same ASP (e.g. their Arké wallet), or a cooperative offboard of the
 //!    whole till when it is an on-chain address (learn_offboard.md).
 //!    Emergency exits are never automated: the owner starts one from
@@ -46,8 +46,8 @@ const SECS_PER_BLOCK: i64 = 600;
 /// wallet is not a small one, see [`SMALL_COIN_SATS`].
 pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_500;
 
-/// An automatic sweep to an on-chain address waits for at least this many sats
-/// above the amount kept: every on-chain withdrawal pays a network fee that can
+/// The floor, and the default, for the smallest automatic sweep to an on-chain
+/// address (the owner can choose more in Settings, see `payout::sweep_min`): every on-chain withdrawal pays a network fee that can
 /// be high and changes a lot, so fewer, bigger withdrawals cost much less.
 /// (Ark sweeps are almost free and use [`MIN_SWEEP_EXCESS_SATS`].) "Move my
 /// money now" ignores it.
@@ -825,16 +825,12 @@ impl SettlementEngine {
         };
 
         let offchain = balances.offchain_sats;
-        // Ark payout: low cap (almost free). On-chain payout: higher cap
-        // (every withdrawal pays a network fee).
+        // What stays behind: nothing, unless the owner turned on the emergency
+        // withdrawal and chose an amount to keep for it. The button sends it all.
         let cap = if manual {
             0
         } else {
-            let config = self.config.clone();
-            let dest = destination.clone();
-            self.db
-                .call(move |conn| crate::payout::cap_for(conn, &config, &dest))
-                .await?
+            self.db.call(|c| crate::payout::cap_for(c)).await?
         };
         let excess = offchain.saturating_sub(cap);
         // Nothing to send (or not yet worth sending) ends any refusal being
@@ -847,11 +843,15 @@ impl SettlementEngine {
         // An automatic sweep waits until the excess is worth sending, so the
         // payout wallet receives a few bigger coins instead of many tiny ones.
         // "Move my money now" always sends whatever is there.
-        let min_excess = if crate::config::is_ark_destination(&destination) {
-            MIN_SWEEP_EXCESS_SATS
-        } else {
-            MIN_ONCHAIN_SWEEP_EXCESS_SATS
-        };
+        // The owner's number from Settings for this kind of address (never
+        // under its floor), else the floor. When it is reached, everything above
+        // the amount kept goes in one send (the whole balance, unless the owner
+        // turned on the emergency withdrawal and chose an amount to keep).
+        let rail = crate::payout::Rail::of(&destination);
+        let min_excess = self
+            .db
+            .call(move |c| crate::payout::sweep_min(c, rail))
+            .await?;
         if !manual && excess < min_excess {
             self.forget_refusal();
             return Ok(report);
@@ -1086,14 +1086,30 @@ mod tests {
     use super::*;
     use crate::wallet::barkd::mock;
 
-    fn test_config(destination: Option<&str>, cap: i64) -> Arc<Config> {
+    fn test_config(destination: Option<&str>) -> Arc<Config> {
         Arc::new(Config {
             settlement_destination: destination.map(str::to_string),
-            hot_wallet_cap_sats: cap,
-            onchain_sweep_cap_sats: cap,
             renewal_lead_time_secs: 604_800,
             ..Config::default()
         })
+    }
+
+    /// An engine whose till keeps `cap` sats: the emergency withdrawal is turned on
+    /// with that amount chosen (0 = keep nothing, the default).
+    fn test_engine(
+        client: crate::wallet::barkd::BarkdClient,
+        db: Db,
+        destination: Option<&str>,
+        cap: i64,
+    ) -> SettlementEngine {
+        if cap > 0 {
+            db.call_now(move |c| {
+                crate::emergency_exit::set_opted_in(c, true)?;
+                crate::payout::set_cap(c, cap)
+            })
+            .unwrap();
+        }
+        SettlementEngine::new(client, db, test_config(destination))
     }
 
     #[tokio::test]
@@ -1125,7 +1141,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let engine = SettlementEngine::new(client, db.clone(), test_config(None, 100_000));
+        let engine = test_engine(client, db.clone(), None, 100_000);
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(50_000));
         let destination = {
@@ -1165,13 +1181,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                100_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(50_000));
@@ -1235,10 +1249,11 @@ mod tests {
         .unwrap();
         let db = Db::open(":memory:").unwrap();
         // A real-money (mainnet) address on a test-mode server.
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), 100_000),
+            Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, None);
@@ -1309,10 +1324,11 @@ mod tests {
         .unwrap();
         let db = Db::open(":memory:").unwrap();
         // A real-money address on a test-mode server: always refused.
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"), 100_000),
+            Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            100_000,
         );
         let count = |db: Db| async move {
             db.call(|conn| {
@@ -1370,13 +1386,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                100_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            100_000,
         );
         let count = |status: &'static str| {
             let db = db.clone();
@@ -1460,10 +1474,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"), 100_000),
+            Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
+            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
@@ -1511,10 +1526,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"), 100_000),
+            Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
+            100_000,
         );
         engine.tick().await.unwrap();
         engine.sweep_now().await.unwrap();
@@ -1599,7 +1615,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(base, "t"),
         )
         .unwrap();
-        SettlementEngine::new(client, db.clone(), test_config(Some(destination), cap))
+        test_engine(client, db.clone(), Some(destination), cap)
     }
 
     #[tokio::test]
@@ -1697,6 +1713,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_owners_onchain_minimum_replaces_the_default() {
+        const ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        // Cap 100,000 and a chosen minimum of 80,000: held 179,999 waits,
+        // held 180,000 goes.
+        let (base, _recorded) = fee_mock(10, 179_999);
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
+            .await
+            .unwrap();
+        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+
+        let (base, _recorded) = fee_mock(10, 180_000);
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
+            .await
+            .unwrap();
+        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(180_000));
+    }
+
+    /// An engine holding `held` sats in one Ark coin, paying out to an Ark
+    /// address, with the server-configuration amount kept set to `cap`.
+    async fn ark_engine_holding(held: i64, cap: i64) -> (SettlementEngine, Db) {
+        const ARK: &str =
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+        let (base, _recorded) = mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                format!(
+                    r#"[{{"id": "v1", "amount_sat": {held}, "expires_at": 9999999999, "state": {{"type": "spendable"}}}}]"#
+                ),
+            ),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, format!(r#"{{"spendable_sat": {held}}}"#)),
+            "/api/v1/wallet/send" => (200, r#"{"message": "ok"}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        });
+        let db = Db::open(":memory:").unwrap();
+        (engine_for(&base, &db, ARK, cap), db)
+    }
+
+    #[tokio::test]
+    async fn an_ark_sweep_sends_the_whole_balance_once_the_minimum_is_reached() {
+        // Keeps nothing: 1,499 waits, 1,500 sends all 1,500, 2,345 sends all 2,345.
+        let (engine, _db) = ark_engine_holding(1_499, 0).await;
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        let (engine, _db) = ark_engine_holding(1_500, 0).await;
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_500));
+        let (engine, _db) = ark_engine_holding(2_345, 0).await;
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(2_345));
+    }
+
+    #[tokio::test]
+    async fn the_owners_ark_minimum_replaces_the_default() {
+        let (engine, db) = ark_engine_holding(2_999, 0).await;
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Ark, 3_000))
+            .await
+            .unwrap();
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        let (engine, db) = ark_engine_holding(3_000, 0).await;
+        db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Ark, 3_000))
+            .await
+            .unwrap();
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(3_000));
+    }
+
+    #[tokio::test]
+    async fn money_kept_for_the_emergency_withdrawal_stays_only_while_it_is_on() {
+        // 60,000 held; the owner chose to keep 50,000. Off: everything goes.
+        let (engine, db) = ark_engine_holding(60_000, 0).await;
+        db.call(|c| crate::payout::set_cap(c, 50_000))
+            .await
+            .unwrap();
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(60_000));
+        // On: only what is above the kept amount goes.
+        let (engine, db) = ark_engine_holding(60_000, 0).await;
+        db.call(|c| {
+            crate::emergency_exit::set_opted_in(c, true)?;
+            crate::payout::set_cap(c, 50_000)
+        })
+        .await
+        .unwrap();
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(10_000));
+        // On and nothing above the kept amount: nothing is sent.
+        let (engine, db) = ark_engine_holding(50_000, 0).await;
+        db.call(|c| {
+            crate::emergency_exit::set_opted_in(c, true)?;
+            crate::payout::set_cap(c, 50_000)
+        })
+        .await
+        .unwrap();
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+    }
+
+    #[tokio::test]
     async fn a_renewal_asks_for_at_most_1000_coins_soonest_expiring_first() {
         let soon = crate::util::now_unix() + 86_400;
         // 1,200 coins, all due; coin vN expires N seconds after the first.
@@ -1719,11 +1834,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = SettlementEngine::new(
-            client,
-            Db::open(":memory:").unwrap(),
-            test_config(None, 100_000),
-        );
+        let engine = test_engine(client, Db::open(":memory:").unwrap(), None, 100_000);
         assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1_000);
         let requests = recorded.lock().unwrap();
         let refresh = requests
@@ -1835,13 +1946,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                100_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(100_001));
@@ -1852,19 +1961,6 @@ mod tests {
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/send");
         assert!(sent, "the Ark send must be made");
-    }
-
-    #[test]
-    fn each_payout_type_has_its_own_cap() {
-        let c = Config {
-            hot_wallet_cap_sats: 20_000,
-            onchain_sweep_cap_sats: 1_000_000,
-            ..Config::default()
-        };
-        assert_eq!(c.sweep_cap_for("ark1abc"), 20_000);
-        assert_eq!(c.sweep_cap_for("TARK1abc"), 20_000);
-        assert_eq!(c.sweep_cap_for("bc1qabc"), 1_000_000);
-        assert_eq!(c.sweep_cap_for("tb1qabc"), 1_000_000);
     }
 
     #[tokio::test]
@@ -1890,13 +1986,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                100_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 1);
@@ -1941,7 +2035,7 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(client, db, test_config(None, 100_000));
+        let engine = test_engine(client, db, None, 100_000);
         let report = engine.tick().await.unwrap();
         assert_eq!(
             report.refreshed_vtxos, 1,
@@ -1987,11 +2081,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = SettlementEngine::new(
-            client,
-            Db::open(":memory:").unwrap(),
-            test_config(None, 100_000),
-        );
+        let engine = test_engine(client, Db::open(":memory:").unwrap(), None, 100_000);
         (engine, recorded)
     }
 
@@ -2130,11 +2220,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        SettlementEngine::new(
-            client,
-            Db::open(":memory:").unwrap(),
-            test_config(None, 100_000),
-        )
+        test_engine(client, Db::open(":memory:").unwrap(), None, 100_000)
     }
 
     #[tokio::test]
@@ -2210,13 +2296,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                100_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            100_000,
         );
         (engine, db, recorded)
     }
@@ -2295,11 +2379,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = SettlementEngine::new(
-            client,
-            Db::open(":memory:").unwrap(),
-            test_config(None, 100_000),
-        );
+        let engine = test_engine(client, Db::open(":memory:").unwrap(), None, 100_000);
         assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
         assert!(recorded
             .lock()
@@ -2407,7 +2487,7 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(client, db.clone(), test_config(None, 100_000));
+        let engine = test_engine(client, db.clone(), None, 100_000);
         (engine, db, recorded)
     }
 
@@ -2634,13 +2714,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                1_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            1_000,
         );
         let report = engine.sweep_now().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 1);
@@ -2731,13 +2809,11 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = SettlementEngine::new(
+        let engine = test_engine(
             client,
             db.clone(),
-            test_config(
-                Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-                1_000,
-            ),
+            Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
+            1_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 0);
@@ -2774,7 +2850,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let engine = SettlementEngine::new(client, db.clone(), test_config(None, 1_000));
+        let engine = test_engine(client, db.clone(), None, 1_000);
         engine.tick().await.unwrap();
         assert!(
             !recorded

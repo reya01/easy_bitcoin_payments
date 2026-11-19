@@ -168,14 +168,6 @@ pub async fn status(
         })
         .await?;
 
-    // The amount the owner chose to keep on the server (Settings), if any.
-    let cap_override = state
-        .db
-        .call(|c| crate::payout::cap_override(c))
-        .await
-        .ok()
-        .flatten();
-
     // Wallet figures straight from barkd (best effort).
     let wallet = match BarkdClient::from_app_config(&state.config) {
         Err(err) => json!({ "error": err.to_string() }),
@@ -188,10 +180,6 @@ pub async fn status(
                     out.insert("onchain_sats".into(), json!(b.onchain_sats));
                     out.insert("needs_refresh_sats".into(), json!(b.needs_refresh_sats));
                     out.insert("in_transit_sats".into(), json!(b.in_transit_sats()));
-                    out.insert(
-                        "hot_wallet_cap_sats".into(),
-                        json!(cap_override.unwrap_or(state.config.hot_wallet_cap_sats)),
-                    );
                 }
                 Err(e) => errors.push(format!("balances: {e}")),
             }
@@ -221,7 +209,8 @@ pub async fn status(
             let host = u.split("://").nth(1).unwrap_or("");
             host.starts_with("localhost") || host.starts_with("127.") || host.starts_with("[::1]")
         },
-        hot_wallet_cap_sats: state.config.hot_wallet_cap_sats,
+        // Filled in below from the payout settings (the most the server normally holds).
+        hot_wallet_cap_sats: 0,
         unmatched_open: counters["unmatched_payments_open"].as_i64().unwrap_or(0),
         webhooks_failed: counters["webhooks_failed"].as_i64().unwrap_or(0),
         webhook_configured,
@@ -287,10 +276,23 @@ pub async fn status(
             .await
         {
             use crate::health_checks::Payout;
+            facts.exit_opted_in = s.exit_opted_in;
             if let Some(active) = s.active.as_deref() {
-                facts.hot_wallet_cap_sats = s
-                    .cap_override
-                    .unwrap_or_else(|| state.config.sweep_cap_for(active));
+                // The most the server normally holds: what it keeps plus the
+                // amount at which it sends everything on.
+                use crate::payout::Rail;
+                let keep = if s.exit_opted_in {
+                    s.cap_override.unwrap_or(0)
+                } else {
+                    0
+                };
+                let rail = Rail::of(active);
+                let min = match rail {
+                    Rail::Ark => s.ark_min_override,
+                    Rail::Onchain => s.onchain_min_override,
+                }
+                .unwrap_or(rail.floor());
+                facts.hot_wallet_cap_sats = keep.saturating_add(min);
             }
             let invalid = s
                 .active

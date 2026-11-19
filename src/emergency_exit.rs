@@ -13,8 +13,11 @@
 //! Pure rules live here; the barkd calls are in `wallet::barkd` and the HTTP
 //! handlers in `routes::exit`.
 
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value as Json;
+
+use crate::error::AppError;
 
 /// On for real money since 15 November 2026, at the owner's request, after
 /// small live mainnet drills (exit started, broadcast, confirmed, claim
@@ -60,6 +63,84 @@ pub fn reserve_target(fee: Option<&ExitFee>) -> i64 {
 /// The high end of the recommendation (twice the low end, at least 10,000).
 pub fn reserve_high(target: i64) -> i64 {
     target.saturating_mul(2).max(RESERVE_RECOMMENDED_HIGH_SATS)
+}
+
+/// Settings key: "true" once the owner has turned the emergency withdrawal on
+/// (it is opt-in, off until then). While it is on, the server keeps at least
+/// [`RESERVE_FLOOR_SATS`] of regular Bitcoin for the fees and never sends it
+/// out, and the owner may also choose an amount of Ark money to keep here.
+pub const OPT_IN_KEY: &str = "exit_opt_in";
+/// While the emergency withdrawal is on, at least this much regular Bitcoin
+/// stays on the server to pay its network fees: nothing here sends it out, and
+/// the page asks for more until it is there. Turn the emergency withdrawal off
+/// and the money can be taken back.
+pub const RESERVE_FLOOR_SATS: i64 = 5_000;
+const _: () = assert!(RESERVE_FLOOR_SATS >= RESERVE_MIN_SATS);
+
+/// Has the owner turned the emergency withdrawal on?
+pub fn opted_in(conn: &Connection) -> Result<bool, AppError> {
+    Ok(crate::settings::get(conn, OPT_IN_KEY)?.as_deref() == Some("true"))
+}
+
+/// Turn it on or off (the caller has already checked the password and codes).
+pub fn set_opted_in(conn: &Connection, on: bool) -> Result<(), AppError> {
+    if on {
+        crate::settings::set(conn, OPT_IN_KEY, "true")
+    } else {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [OPT_IN_KEY])?;
+        Ok(())
+    }
+}
+
+/// How much transaction space the "send back" estimate allows for (a few
+/// inputs and two outputs, generously), times the network fee rate.
+pub const LEFTOVER_FEE_VBYTES: i64 = 400;
+/// Less than this above the floor is not worth a transaction.
+pub const MIN_LEFTOVER_SEND_SATS: i64 = 1_000;
+
+/// What the "send the fee money back" button sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Leftover {
+    /// The emergency withdrawal is off (or one has run): everything goes.
+    Everything,
+    /// It is on: only what is above the 5,000-sat floor, after the network fee.
+    Amount(i64),
+}
+
+/// Decide what the button sends. While the emergency withdrawal is turned on
+/// (and none has started), at least [`RESERVE_FLOOR_SATS`] stays: the amount is
+/// the confirmed balance less the floor less an estimate of the network fee
+/// (`fee_rate` sat/vB). Too little left is a plain refusal.
+pub fn leftover_plan(
+    opted_in: bool,
+    exit_started: bool,
+    confirmed_sats: i64,
+    fee_rate_sat_vb: i64,
+) -> Result<Leftover, String> {
+    if !opted_in || exit_started {
+        return Ok(Leftover::Everything);
+    }
+    let fee = fee_rate_sat_vb.max(1).saturating_mul(LEFTOVER_FEE_VBYTES);
+    let amount = confirmed_sats
+        .max(0)
+        .saturating_sub(RESERVE_FLOOR_SATS)
+        .saturating_sub(fee);
+    if amount < MIN_LEFTOVER_SEND_SATS {
+        return Err(format!(
+            "The emergency withdrawal is turned on, so at least {} sats of this money stays on the server for its fees. There are {} confirmed sats here; after keeping {} and paying about {} in network fees, too little would be left to send. To take all of it back, turn the emergency withdrawal off first (in this same section).",
+            crate::payout::commas(RESERVE_FLOOR_SATS),
+            crate::payout::commas(confirmed_sats.max(0)),
+            crate::payout::commas(RESERVE_FLOOR_SATS),
+            crate::payout::commas(fee),
+        ));
+    }
+    Ok(Leftover::Amount(amount))
+}
+
+/// How many more confirmed on-chain sats the reserve needs to reach the floor
+/// (0 = enough). Shown while the emergency withdrawal is on.
+pub fn reserve_short_sats(confirmed_onchain_sats: i64) -> i64 {
+    (RESERVE_FLOOR_SATS - confirmed_onchain_sats.max(0)).max(0)
 }
 
 /// Below this many sats on the server an emergency withdrawal is refused.
@@ -277,6 +358,62 @@ pub fn check_destination(input: &str, mode: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_emergency_withdrawal_is_opt_in_and_guards_its_fee_money() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0);",
+        )
+        .unwrap();
+        assert!(!opted_in(&c).unwrap(), "off until the owner turns it on");
+        set_opted_in(&c, true).unwrap();
+        assert!(opted_in(&c).unwrap());
+        set_opted_in(&c, false).unwrap();
+        assert!(!opted_in(&c).unwrap());
+        // Off: the fee money can be sent out. On: it cannot, unless a
+        // withdrawal is running (the running rules apply then).
+        // Off, or a withdrawal has run: everything goes back.
+        assert_eq!(
+            leftover_plan(false, false, 50_000, 10),
+            Ok(Leftover::Everything)
+        );
+        assert_eq!(
+            leftover_plan(false, true, 50_000, 10),
+            Ok(Leftover::Everything)
+        );
+        assert_eq!(
+            leftover_plan(true, true, 50_000, 10),
+            Ok(Leftover::Everything)
+        );
+        // On: only what is above 5,000, after the fee (10 sat/vB x 400 = 4,000).
+        assert_eq!(
+            leftover_plan(true, false, 50_000, 10),
+            Ok(Leftover::Amount(41_000))
+        );
+        assert_eq!(
+            leftover_plan(true, false, 10_000, 1),
+            Ok(Leftover::Amount(4_600))
+        );
+        // Too little above the floor: refused, in plain words.
+        let why = leftover_plan(true, false, 9_000, 10).expect_err("too little");
+        assert!(why.contains("5,000"), "{why}");
+        assert!(why.contains("9,000"), "{why}");
+        assert!(why.contains("turn the emergency withdrawal off"), "{why}");
+        assert!(leftover_plan(true, false, 0, 10).is_err());
+        assert!(leftover_plan(true, false, -5, 10).is_err());
+        // A fee rate of 0 is treated as 1 sat/vB, never as free.
+        assert_eq!(
+            leftover_plan(true, false, 6_000, 0),
+            Err(leftover_plan(true, false, 6_000, 1).unwrap_err())
+        );
+        assert_eq!(RESERVE_FLOOR_SATS, 5_000);
+        assert_eq!(reserve_short_sats(0), 5_000);
+        assert_eq!(reserve_short_sats(-3), 5_000);
+        assert_eq!(reserve_short_sats(4_999), 1);
+        assert_eq!(reserve_short_sats(5_000), 0);
+        assert_eq!(reserve_short_sats(9_000), 0);
+    }
 
     fn fee(total: i64) -> ExitFee {
         ExitFee {

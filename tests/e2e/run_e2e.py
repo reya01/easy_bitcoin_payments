@@ -904,34 +904,44 @@ def main():
             page.click('#tabs button[data-v="home"]')
             wait_for(lambda: "Payout address is set" in page.inner_text("#health"), "home says the payout address is set")
 
-        @step("sweep amount: Settings shows the current amount and the owner can change it and reset it")
+        @step("send minimum: Settings shows it, refuses a number under the floor with a reason, and the owner can change and reset it")
         def _():
             page.goto(f"{BASE}/admin")
             page.wait_for_selector("#v-home:not(.hidden)")
             page.click('#tabs button[data-v="set"]')
             page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
-            page.wait_for_selector("#cap-go")
-            wait_for(lambda: "(the default)" in page.inner_text("#cap-now"), "default amount shown")
-            assert not page.is_visible("#cap-reset"), "no reset button while on the default"
-            # Nonsense is refused before anything is sent.
-            page.fill("#cap-new", "0")
-            page.click("#cap-go")
-            wait_for(lambda: "whole number" in page.inner_text("#cap-msg"), "zero refused")
-            # A wrong password is refused by the server.
-            page.fill("#cap-new", "3000")
-            page.fill("#cap-pw", "not the password at all")
-            page.click("#cap-go")
-            wait_for(lambda: "isn't right" in page.inner_text("#cap-msg"), "wrong password refused")
+            page.wait_for_selector("#min-go")
+            wait_for(lambda: "(the default, which is also the lowest we allow)" in page.inner_text("#min-now"), "default minimum shown")
+            assert not page.is_visible("#min-reset"), "no reset button while on the default"
+            # Under the floor is refused on the page, with the reason, before anything is sent.
+            page.fill("#min-new", "1000")
+            page.click("#min-go")
+            wait_for(lambda: "is lower than the smallest amount we allow" in page.inner_text("#min-msg"), "under the floor refused with a reason")
+            # A wrong password is refused by the server (60,000 is allowed for either kind of address).
+            page.fill("#min-new", "60000")
+            page.fill("#min-pw", "not the password at all")
+            page.click("#min-go")
+            wait_for(lambda: "isn't right" in page.inner_text("#min-msg"), "wrong password refused")
             # The right one saves, and the box then shows the owner's number.
-            page.fill("#cap-new", "3000")
-            page.fill("#cap-pw", ADMIN_PW)
-            page.click("#cap-go")
-            wait_for(lambda: "your setting" in page.inner_text("#cap-now") and "3,000" in page.inner_text("#cap-now"), "new amount shown")
-            wait_for(lambda: page.is_visible("#cap-reset"), "reset button appears")
+            page.fill("#min-new", "60000")
+            page.fill("#min-pw", ADMIN_PW)
+            page.click("#min-go")
+            wait_for(lambda: "your setting" in page.inner_text("#min-now") and "60,000" in page.inner_text("#min-now"), "new minimum shown")
+            wait_for(lambda: page.is_visible("#min-reset"), "reset button appears")
             # Back to the default.
-            page.fill("#cap-pw", ADMIN_PW)
-            page.click("#cap-reset")
-            wait_for(lambda: "(the default)" in page.inner_text("#cap-now"), "default again")
+            page.fill("#min-pw", ADMIN_PW)
+            page.click("#min-reset")
+            wait_for(lambda: "(the default, which is also the lowest we allow)" in page.inner_text("#min-now"), "default again")
+
+        @step("emergency withdrawal: off until turned on; the page says what turning it on does")
+        def _():
+            page.goto(f"{BASE}/admin")
+            page.wait_for_selector("#v-home:not(.hidden)")
+            page.click('#tabs button[data-v="set"]')
+            page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
+            wait_for(lambda: page.is_visible("#ex-off-box"), "the turned-off panel shows by default")
+            assert not page.is_visible("#ex-on-box"), "the turned-on panel stays hidden by default"
+            assert "5,000 sats of regular Bitcoin" in page.inner_text("#ex-off-box")
 
         @step("pause + key limit: pausing refuses new payments, the shop key can be limited to an address, both undone")
         def _():

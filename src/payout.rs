@@ -20,14 +20,103 @@ const KEY_PENDING: &str = "payout_destination_pending";
 const KEY_EFFECTIVE_AT: &str = "payout_destination_effective_at";
 pub const DEFAULT_DELAY_SECS: i64 = 86_400;
 
-/// The amount the till keeps, when the owner has set one in Settings. Wins over
-/// the server's default (`hot_wallet_cap_sats` / `onchain_sweep_cap_sats`).
+/// The amount the till keeps for the emergency withdrawal, when the owner has
+/// turned that on and chosen one in Settings. Ignored while it is off.
 const KEY_CAP: &str = "sweep_cap_sats";
-/// Bounds for that amount. The top is the largest single coin the Ark server
+/// Bounds for that amount (kept only for the emergency withdrawal). The top is the largest single coin the Ark server
 /// accepts (10,000,000 sats): holding more than that on the server defeats the
 /// point of sweeping.
 pub const MIN_CAP_SATS: i64 = 1;
 pub const MAX_CAP_SATS: i64 = 10_000_000;
+
+/// The smallest amount an automatic withdrawal sends, when the owner chose one
+/// in Settings (one for an Ark payout address, one for an on-chain one). When it
+/// is reached the WHOLE balance is sent (minus the amount kept for the emergency
+/// withdrawal, when that is turned on).
+const KEY_ARK_MIN: &str = "ark_sweep_min_sats";
+const KEY_ONCHAIN_MIN: &str = "onchain_sweep_min_sats";
+/// The lowest value allowed for an Ark payout address (and the default). Coins
+/// under about 1,300 sats can fail to send for a while once the Ark server
+/// updates (Bark 0.9), so a send waits until this much has built up.
+pub const ARK_MIN_FLOOR_SATS: i64 = crate::wallet::settlement::MIN_SWEEP_EXCESS_SATS;
+/// The lowest value allowed for an on-chain payout address (and the default).
+/// Every on-chain withdrawal pays a network fee that is high and changes a lot.
+pub const ONCHAIN_MIN_FLOOR_SATS: i64 = crate::wallet::settlement::MIN_ONCHAIN_SWEEP_EXCESS_SATS;
+
+/// Which kind of payout address a sweep minimum is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rail {
+    Ark,
+    Onchain,
+}
+
+impl Rail {
+    /// The kind of an address (anything that is not an Ark address is on-chain,
+    /// as in the sweep itself).
+    pub fn of(destination: &str) -> Rail {
+        if crate::config::is_ark_destination(destination) {
+            Rail::Ark
+        } else {
+            Rail::Onchain
+        }
+    }
+    pub fn parse(name: &str) -> Option<Rail> {
+        match name {
+            "ark" => Some(Rail::Ark),
+            "onchain" => Some(Rail::Onchain),
+            _ => None,
+        }
+    }
+    pub fn floor(self) -> i64 {
+        match self {
+            Rail::Ark => ARK_MIN_FLOOR_SATS,
+            Rail::Onchain => ONCHAIN_MIN_FLOOR_SATS,
+        }
+    }
+    fn key(self) -> &'static str {
+        match self {
+            Rail::Ark => KEY_ARK_MIN,
+            Rail::Onchain => KEY_ONCHAIN_MIN,
+        }
+    }
+    fn words(self) -> &'static str {
+        match self {
+            Rail::Ark => "Ark",
+            Rail::Onchain => "on-chain",
+        }
+    }
+}
+
+/// 1500 -> "1,500".
+pub fn commas(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    if n < 0 {
+        out.insert(0, '-');
+    }
+    out
+}
+
+/// Why a number under the floor is refused, in words for a beginner.
+pub fn floor_message(rail: Rail, sats: i64) -> String {
+    let floor = commas(rail.floor());
+    match rail {
+        Rail::Ark => format!(
+            "{} sats is lower than the smallest amount we allow, which is {floor} sats. Very small coins (under about 1,300 sats) can get stuck and fail to send for a while when the Ark server updates its software. So the server waits until at least {floor} sats has built up, then sends all of it in one go. Please type {floor} or more.",
+            commas(sats)
+        ),
+        Rail::Onchain => format!(
+            "{} sats is lower than the smallest amount we allow for on-chain sends, which is {floor} sats. Every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so on a small amount the fee could take a big part of it. Please type {floor} or more (we recommend much more). If you would rather send small amounts often, use an Ark payout address: it is almost free.",
+            commas(sats)
+        ),
+    }
+}
 
 const CHARSET: &str = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 /// Checksum constants: bech32 (BIP173) and bech32m (BIP350).
@@ -419,6 +508,13 @@ pub struct Status {
     pub from_server_config: bool,
     /// The amount the till keeps, if the owner set one in Settings.
     pub cap_override: Option<i64>,
+    /// The owner turned the emergency withdrawal on (the amount above only
+    /// counts while it is on).
+    pub exit_opted_in: bool,
+    /// The smallest automatic withdrawal, if the owner set one in Settings
+    /// (one for an Ark payout address, one for an on-chain one).
+    pub ark_min_override: Option<i64>,
+    pub onchain_min_override: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -482,6 +578,9 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             effective_at: None,
             from_server_config: true,
             cap_override: cap_override(conn)?,
+            exit_opted_in: crate::emergency_exit::opted_in(conn)?,
+            ark_min_override: min_override(conn, Rail::Ark)?,
+            onchain_min_override: min_override(conn, Rail::Onchain)?,
         });
     }
     Ok(Status {
@@ -491,7 +590,73 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             .and_then(|v| v.parse::<i64>().ok()),
         from_server_config: false,
         cap_override: cap_override(conn)?,
+        exit_opted_in: crate::emergency_exit::opted_in(conn)?,
+        ark_min_override: min_override(conn, Rail::Ark)?,
+        onchain_min_override: min_override(conn, Rail::Onchain)?,
     })
+}
+
+/// The smallest automatic withdrawal the owner chose for this kind of address,
+/// if any. A stored value under the floor or above the top (a hand-edited
+/// database) is ignored.
+pub fn min_override(conn: &Connection, rail: Rail) -> Result<Option<i64>, AppError> {
+    Ok(crate::settings::get(conn, rail.key())?
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|v| (rail.floor()..=MAX_CAP_SATS).contains(v)))
+}
+
+/// The smallest automatic withdrawal in force: the owner's number or the floor.
+pub fn sweep_min(conn: &Connection, rail: Rail) -> Result<i64, AppError> {
+    Ok(min_override(conn, rail)?.unwrap_or(rail.floor()))
+}
+
+/// Is this an allowed smallest withdrawal for this kind of address? Under the
+/// floor is refused with an explanation a beginner can follow.
+pub fn check_min(rail: Rail, sats: i64) -> Result<(), AppError> {
+    if sats < rail.floor() {
+        return Err(AppError::BadRequest(floor_message(rail, sats)));
+    }
+    if sats > MAX_CAP_SATS {
+        return Err(AppError::BadRequest(format!(
+            "{} sats is more than the largest amount we allow here, {} sats.",
+            commas(sats),
+            commas(MAX_CAP_SATS)
+        )));
+    }
+    Ok(())
+}
+
+/// Settings: change the smallest automatic withdrawal (the caller has already
+/// verified the admin password and, when on, the second step). Under the floor
+/// is refused with an explanation. Takes effect at once: it cannot send money
+/// anywhere new. Recorded in the security log.
+pub fn set_min(conn: &Connection, rail: Rail, sats: i64) -> Result<(), AppError> {
+    check_min(rail, sats)?;
+    let before = min_override(conn, rail)?;
+    crate::settings::set(conn, rail.key(), &sats.to_string())?;
+    let words = rail.words();
+    audit(
+        conn,
+        "payout.min_changed",
+        &match before {
+            Some(b) => format!("smallest {words} withdrawal changed from {b} to {sats} sats"),
+            None => format!("smallest {words} withdrawal set to {sats} sats"),
+        },
+    );
+    Ok(())
+}
+
+/// Settings: go back to the default (the floor).
+pub fn clear_min(conn: &Connection, rail: Rail) -> Result<(), AppError> {
+    if min_override(conn, rail)?.is_some() {
+        conn.execute("DELETE FROM settings WHERE key = ?1", [rail.key()])?;
+        audit(
+            conn,
+            "payout.min_changed",
+            &format!("smallest {} withdrawal reset to the default", rail.words()),
+        );
+    }
+    Ok(())
 }
 
 /// The amount the owner chose in Settings, if any. A stored value that is out
@@ -503,15 +668,16 @@ pub fn cap_override(conn: &Connection) -> Result<Option<i64>, AppError> {
         .filter(|v| (MIN_CAP_SATS..=MAX_CAP_SATS).contains(v)))
 }
 
-/// How much the till keeps before the rest is sent on to `destination`: the
-/// owner's number from Settings, otherwise the server's default for that kind
-/// of address (low for Ark, higher for on-chain).
-pub fn cap_for(
-    conn: &Connection,
-    config: &crate::config::Config,
-    destination: &str,
-) -> Result<i64, AppError> {
-    Ok(cap_override(conn)?.unwrap_or_else(|| config.sweep_cap_for(destination)))
+/// How much the till keeps before the rest is sent on. Nothing, unless the
+/// owner turned the emergency withdrawal on and chose an amount to keep for it
+/// (a saved amount is ignored while it is off). Same for both kinds of payout
+/// address.
+pub fn cap_for(conn: &Connection) -> Result<i64, AppError> {
+    if crate::emergency_exit::opted_in(conn)? {
+        Ok(cap_override(conn)?.unwrap_or(0))
+    } else {
+        Ok(0)
+    }
 }
 
 /// Settings: change the amount the till keeps (the caller has already
@@ -537,7 +703,7 @@ pub fn set_cap(conn: &Connection, cap_sats: i64) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Settings: go back to the server's default amount.
+/// Settings: go back to keeping nothing.
 pub fn clear_cap(conn: &Connection) -> Result<(), AppError> {
     if cap_override(conn)?.is_some() {
         conn.execute("DELETE FROM settings WHERE key = ?1", [KEY_CAP])?;
@@ -658,33 +824,26 @@ pub(crate) mod tests {
     use super::*;
 
     #[test]
-    fn the_amount_kept_can_be_set_changed_and_reset() {
+    fn nothing_is_kept_unless_the_emergency_withdrawal_is_on() {
         let c = conn();
-        let cfg = crate::config::Config::default();
-        // Nothing saved: the server's default for each kind of address.
+        // Nothing saved: the whole balance goes, for both kinds of address.
         assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(
-            cap_for(&c, &cfg, "ark1abc").unwrap(),
-            cfg.hot_wallet_cap_sats
-        );
-        assert_eq!(
-            cap_for(&c, &cfg, "bc1qabc").unwrap(),
-            cfg.onchain_sweep_cap_sats
-        );
-        // The owner's number wins for both kinds.
+        assert_eq!(cap_for(&c).unwrap(), 0);
+        assert_eq!(cap_for(&c).unwrap(), 0);
+        // A saved amount is ignored while the emergency withdrawal is off.
         set_cap(&c, 5_000).unwrap();
         assert_eq!(cap_override(&c).unwrap(), Some(5_000));
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 5_000);
-        assert_eq!(cap_for(&c, &cfg, "bc1qabc").unwrap(), 5_000);
-        set_cap(&c, 2_500).unwrap();
-        assert_eq!(cap_for(&c, &cfg, "ark1abc").unwrap(), 2_500);
-        // Reset goes back to the defaults.
+        assert_eq!(cap_for(&c).unwrap(), 0);
+        // Turned on: the owner's number applies to both kinds.
+        crate::emergency_exit::set_opted_in(&c, true).unwrap();
+        assert_eq!(cap_for(&c).unwrap(), 5_000);
+        assert_eq!(cap_for(&c).unwrap(), 5_000);
+        set_cap(&c, 60_000).unwrap();
+        assert_eq!(cap_for(&c).unwrap(), 60_000);
+        // Reset goes back to keeping nothing.
         clear_cap(&c).unwrap();
         assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(
-            cap_for(&c, &cfg, "ark1abc").unwrap(),
-            cfg.hot_wallet_cap_sats
-        );
+        assert_eq!(cap_for(&c).unwrap(), 0);
     }
 
     #[test]
@@ -701,6 +860,70 @@ pub(crate) mod tests {
             crate::settings::set(&c, KEY_CAP, junk).unwrap();
             assert_eq!(cap_override(&c).unwrap(), None, "{junk:?} must be ignored");
         }
+    }
+
+    #[test]
+    fn each_kind_of_address_has_a_hard_floor_with_a_plain_explanation() {
+        let c = conn();
+        assert_eq!(ARK_MIN_FLOOR_SATS, 1_500);
+        assert_eq!(ONCHAIN_MIN_FLOOR_SATS, 50_000);
+        assert_eq!(sweep_min(&c, Rail::Ark).unwrap(), 1_500);
+        assert_eq!(sweep_min(&c, Rail::Onchain).unwrap(), 50_000);
+        for bad in [-1, 0, 1_499, MAX_CAP_SATS + 1, i64::MAX] {
+            assert!(set_min(&c, Rail::Ark, bad).is_err(), "ark {bad}");
+        }
+        for bad in [-1, 0, 1_500, 49_999, MAX_CAP_SATS + 1, i64::MAX] {
+            assert!(set_min(&c, Rail::Onchain, bad).is_err(), "onchain {bad}");
+        }
+        assert_eq!(min_override(&c, Rail::Ark).unwrap(), None);
+        assert_eq!(min_override(&c, Rail::Onchain).unwrap(), None);
+        // The refusal explains itself, in words and without jargon.
+        let AppError::BadRequest(why) = set_min(&c, Rail::Ark, 1_000).unwrap_err() else {
+            panic!("a request error")
+        };
+        assert!(why.contains("1,000 sats is lower than the smallest amount we allow"));
+        assert!(why.contains("1,500"));
+        assert!(why.contains("get stuck"));
+        let AppError::BadRequest(why) = set_min(&c, Rail::Onchain, 20_000).unwrap_err() else {
+            panic!("a request error")
+        };
+        assert!(why.contains("20,000 sats is lower than the smallest amount we allow"));
+        assert!(why.contains("50,000"));
+        assert!(why.contains("network fee"));
+        assert!(why.contains("Ark payout address"));
+        // Exactly the floor and above are fine, and the two kinds are separate.
+        set_min(&c, Rail::Ark, 1_500).unwrap();
+        set_min(&c, Rail::Ark, 3_000).unwrap();
+        set_min(&c, Rail::Onchain, 50_000).unwrap();
+        set_min(&c, Rail::Onchain, 400_000).unwrap();
+        assert_eq!(sweep_min(&c, Rail::Ark).unwrap(), 3_000);
+        assert_eq!(sweep_min(&c, Rail::Onchain).unwrap(), 400_000);
+        clear_min(&c, Rail::Onchain).unwrap();
+        assert_eq!(sweep_min(&c, Rail::Onchain).unwrap(), 50_000);
+        assert_eq!(sweep_min(&c, Rail::Ark).unwrap(), 3_000);
+        // A hand-edited database cannot push either under its floor.
+        for junk in ["0", "1499", "abc", "", "99999999999"] {
+            crate::settings::set(&c, KEY_ARK_MIN, junk).unwrap();
+            assert_eq!(sweep_min(&c, Rail::Ark).unwrap(), 1_500, "{junk:?}");
+        }
+        crate::settings::set(&c, KEY_ONCHAIN_MIN, "1500").unwrap();
+        assert_eq!(sweep_min(&c, Rail::Onchain).unwrap(), 50_000);
+    }
+
+    #[test]
+    fn numbers_get_commas_and_rails_are_told_apart() {
+        assert_eq!(commas(0), "0");
+        assert_eq!(commas(999), "999");
+        assert_eq!(commas(1_000), "1,000");
+        assert_eq!(commas(1_500), "1,500");
+        assert_eq!(commas(50_000), "50,000");
+        assert_eq!(commas(10_000_001), "10,000,001");
+        assert_eq!(Rail::of("ark1abc"), Rail::Ark);
+        assert_eq!(Rail::of("tark1abc"), Rail::Ark);
+        assert_eq!(Rail::of("bc1qabc"), Rail::Onchain);
+        assert_eq!(Rail::parse("ark"), Some(Rail::Ark));
+        assert_eq!(Rail::parse("onchain"), Some(Rail::Onchain));
+        assert_eq!(Rail::parse("lightning"), None);
     }
 
     fn conn() -> Connection {

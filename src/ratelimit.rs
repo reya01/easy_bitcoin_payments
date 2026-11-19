@@ -202,10 +202,13 @@ mod tests {
 
     #[test]
     fn the_password_limits_stay_tight() {
-        assert!(PASSWORD_TRIES_PER_MINUTE <= 5);
-        assert!(PASSWORD_TRIES_PER_HOUR <= 30);
-        assert!(PASSWORD_TRIES_ALL_CLIENTS_PER_MINUTE <= 20);
-        assert!(PASSWORD_TRIES_PER_HOUR > PASSWORD_TRIES_PER_MINUTE);
+        // Checked when the program is built: loosening a limit stops the build.
+        const {
+            assert!(PASSWORD_TRIES_PER_MINUTE <= 5);
+            assert!(PASSWORD_TRIES_PER_HOUR <= 30);
+            assert!(PASSWORD_TRIES_ALL_CLIENTS_PER_MINUTE <= 20);
+            assert!(PASSWORD_TRIES_PER_HOUR > PASSWORD_TRIES_PER_MINUTE);
+        }
     }
 
     #[test]

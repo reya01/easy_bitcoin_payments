@@ -604,6 +604,12 @@ impl Challenges {
     }
 }
 
+/// The one challenge store for this server (they only live two minutes, in memory).
+pub fn challenges() -> &'static Challenges {
+    static STORE: std::sync::OnceLock<Challenges> = std::sync::OnceLock::new();
+    STORE.get_or_init(Challenges::new)
+}
+
 // ---------------------------------------------------------------------------
 // Stored passkeys
 // ---------------------------------------------------------------------------

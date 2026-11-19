@@ -24,6 +24,14 @@ def run_case(pw, name, handler_for, checks):
     p.on("pageerror", lambda e: errs.append(str(e)))
     watch_csp(p, errs)
     p.add_init_script("window.confirm = function () { window.__nativeConfirm = true; return false; };")
+    # The test address is plain http, where browsers hide passkeys; stand in for them,
+    # and answer "add" the way a cancelled prompt does.
+    p.add_init_script("""
+      window.PublicKeyCredential = window.PublicKeyCredential || function () {};
+      if (!navigator.credentials) {
+        Object.defineProperty(navigator, "credentials", { configurable: true, value: {
+          create: function () { return Promise.reject(Object.assign(new Error("test"), { name: "NotAllowedError" })); } } });
+      }""")
 
     def handler(route):
         req = route.request
@@ -197,18 +205,104 @@ def main():
             p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
             p.evaluate("var d = document.getElementById('twofa-card').closest('details'); if (d) d.open = true;"); p.wait_for_timeout(200)
             card = p.locator("#twofa-card")
-            if card.get_by_role("button", name="Turn off", exact=True).count() != 1: pr.append("before opening: expected one Turn off button")
-            card.get_by_role("button", name="Turn off", exact=True).click(); p.wait_for_timeout(200)
+            if card.get_by_role("button", name="Turn off app code", exact=True).count() != 1: pr.append("before opening: expected one Turn off app code button")
+            card.get_by_role("button", name="Turn off app code", exact=True).click(); p.wait_for_timeout(200)
             names = [b.inner_text() for b in card.locator("button:visible").all()]
             offs = [n for n in names if n.lower().startswith("turn off")]
-            if offs != ["Turn off two-step sign-in"]: pr.append(f"after opening: expected exactly one turn-off button, saw {names}")
+            if offs != ["Turn off app code"]: pr.append(f"after opening: expected exactly one turn-off button, saw {names}")
             card.get_by_role("button", name="Cancel").click(); p.wait_for_timeout(200)
-            if card.get_by_role("button", name="Turn off", exact=True).count() != 1 or not card.get_by_role("button", name="Turn off", exact=True).is_visible(): pr.append("Cancel should bring the first button back")
-            if card.get_by_role("button", name="Turn off two-step sign-in").count(): pr.append("Cancel should close the form")
+            if card.get_by_role("button", name="Turn off app code", exact=True).count() != 1 or not card.get_by_role("button", name="Turn off app code", exact=True).is_visible(): pr.append("Cancel should bring the first button back")
+            if card.locator("#tf-off-pw").count(): pr.append("Cancel should close the form")
 
         ok &= run_case(pw, "turning off two-step sign-in shows one Turn off button at a time", off_handler, c_one_off)
 
         ok &= run_case(pw, "destructive buttons ask in the page first, and nothing happens until confirmed", hooks_handler, c_confirms)
+
+        # ---- passkeys (beta) in the two-step card
+        KEY = {"id": 1, "name": "Bitwarden on my laptop", "synced": True, "created_at": 1700000000, "last_used_at": None}
+        OPTIONS = {"challenge": "AAAA", "rp": {"id": "pay.example.com", "name": "Easy Bitcoin Payments"},
+                   "user": {"id": "AAAA", "name": "Shop", "displayName": "Shop"}, "pubKeyCredParams": [{"type": "public-key", "alg": -7}],
+                   "timeout": 120000, "attestation": "none", "authenticatorSelection": {"userVerification": "preferred"}, "excludeCredentials": []}
+
+        def passkey_handler(keys, unavailable=None, twofa=True):
+            def h(path, req, calls):
+                if path == "/admin/session":
+                    return 200, {"authenticated": True, "csrf": "tok", "password_set": True, "twofa": twofa, "paused": False}
+                if path == "/admin/2fa/status":
+                    return 200, {"enabled": twofa, "recovery_left": 9, "passkeys": len(keys)}
+                if path == "/admin/passkeys/status":
+                    return 200, {"two_step_on": twofa, "passkeys": keys, "max": 10, "unavailable": unavailable}
+                if path == "/admin/passkeys/begin":
+                    return 200, {"options": OPTIONS}
+                return signed_in(path, req, calls)
+            return h
+
+        def open_settings(p):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
+            p.evaluate("var d = document.getElementById('twofa-card').closest('details'); if (d) d.open = true;"); p.wait_for_timeout(300)
+
+        def c_pk_list(p, pr, calls):
+            open_settings(p)
+            card = p.locator("#twofa-card"); txt = card.inner_text()
+            for w in ("Authenticator app code", "Passkeys (beta)", "Bitwarden on my laptop", "kept in a password manager", "not used yet",
+                      "What is the difference?", "To turn the app code off, first turn off your passkeys"):
+                want(pr, "card shows", txt, w)
+            for b in ("Turn off app code", "Add a passkey", "Turn off passkeys", "Remove"):
+                if card.get_by_role("button", name=b, exact=True).count() != 1: pr.append(f"expected one '{b}' button")
+            card.get_by_role("button", name="Turn off passkeys", exact=True).click(); p.wait_for_timeout(200)
+            if not p.is_visible("#pk-pw") or not p.is_visible("#pk-code"): pr.append("turning passkeys off asks for the password and a code")
+            want(pr, "explains what stays", p.inner_text("#pk-box"), "Your app code stays on")
+            card.get_by_role("button", name="Cancel", exact=True).last.click(); p.wait_for_timeout(200)
+            card.get_by_role("button", name="Remove", exact=True).click(); p.wait_for_timeout(200)
+            want(pr, "remove names the passkey", p.inner_text("#pk-box"), "Remove Bitwarden on my laptop?")
+            if p.is_visible("#pk-name"): pr.append("removing does not ask for a name")
+            card.get_by_role("button", name="Cancel", exact=True).last.click(); p.wait_for_timeout(200)
+            want(pr, "list comes back", p.inner_text("#pk-box"), "Bitwarden on my laptop")
+
+        ok &= run_case(pw, "passkeys: the list, both turn-off choices and the remove form", passkey_handler([KEY]), c_pk_list)
+
+        def c_pk_add(p, pr, calls):
+            open_settings(p)
+            card = p.locator("#twofa-card")
+            card.get_by_role("button", name="Add a passkey", exact=True).click(); p.wait_for_timeout(200)
+            for i in ("#pk-pw", "#pk-code", "#pk-name"):
+                if not p.is_visible(i): pr.append(f"the add form needs {i}")
+            p.fill("#pk-pw", "a good long password"); p.fill("#pk-code", "123456"); p.fill("#pk-name", "My phone")
+            card.get_by_role("button", name="Add passkey", exact=True).click(); p.wait_for_timeout(500)
+            if count(calls, "POST", "/admin/passkeys/begin") != 1: pr.append("adding should ask the server to begin once")
+            if count(calls, "POST", "/admin/passkeys/finish"): pr.append("a cancelled prompt must not save anything")
+            want(pr, "cancelled prompt message", p.inner_text("#pk-msg"), "cancelled or timed out")
+            if not card.get_by_role("button", name="Add passkey", exact=True).is_enabled(): pr.append("the button should work again after a cancelled prompt")
+
+        ok &= run_case(pw, "passkeys: a cancelled browser prompt says so and saves nothing", passkey_handler([]), c_pk_add)
+
+        def c_pk_none(p, pr, calls):
+            open_settings(p)
+            card = p.locator("#twofa-card"); txt = card.inner_text()
+            want(pr, "empty state", txt, "None yet")
+            if card.get_by_role("button", name="Turn off passkeys", exact=True).count(): pr.append("nothing to turn off yet")
+            if card.get_by_role("button", name="Add a passkey", exact=True).count() != 1: pr.append("one Add a passkey button")
+            if p.is_visible("#twofa-card .hidden"): pr.append("hidden note should stay hidden with no passkeys")
+
+        ok &= run_case(pw, "passkeys: none yet offers only Add", passkey_handler([]), c_pk_none)
+
+        def c_pk_unavailable(p, pr, calls):
+            open_settings(p)
+            txt = p.locator("#twofa-card").inner_text()
+            want(pr, "reason", txt, "cannot be used on this server's address")
+            want(pr, "reason detail", txt, "web address with a name")
+            if p.locator("#twofa-card").get_by_role("button", name="Add a passkey").count(): pr.append("no Add button when passkeys cannot work here")
+
+        ok &= run_case(pw, "passkeys: a server address that cannot hold them says why", passkey_handler([], unavailable="Passkeys need this server to have a web address with a name"), c_pk_unavailable)
+
+        def c_pk_off_state(p, pr, calls):
+            open_settings(p)
+            txt = p.locator("#twofa-card").inner_text()
+            want(pr, "tells when passkeys come", txt, "once the app code is on")
+            if p.locator("#pk-box").count(): pr.append("no passkey section while the app code is off")
+
+        ok &= run_case(pw, "passkeys: not offered until the app code is on", passkey_handler([], twofa=False), c_pk_off_state)
+
 
         def pw_handler(path, req, calls):
             if path == "/admin/password":

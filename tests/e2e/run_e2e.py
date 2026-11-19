@@ -474,7 +474,7 @@ def main():
             assert rest2.returncode == 0, (rest2.stdout, rest2.stderr)
             import sqlite3
             con = sqlite3.connect(os.path.join(rdir, "ebp.sqlite3"))
-            for tbl in ("admin_totp", "admin_recovery_codes"):
+            for tbl in ("admin_totp", "admin_recovery_codes", "admin_passkeys"):
                 n = con.execute(f"SELECT count(*) FROM {tbl}").fetchone()[0]
                 assert n == 0, f"{tbl} must not travel in a backup ({n} rows)"
             con.close()
@@ -482,12 +482,12 @@ def main():
             new_visitor(page)
             page.click('#tabs button[data-v="set"]')
             page.evaluate("document.querySelectorAll('#v-set details.fold').forEach(function(d){d.open=true})")
-            page.locator("#twofa-card").get_by_role("button", name="Turn off", exact=True).click()
+            page.locator("#twofa-card").get_by_role("button", name="Turn off app code", exact=True).click()
             page.wait_for_selector("#tf-off-pw")
             page.fill("#tf-off-pw", ADMIN_PW)
             # The code that just approved the backup is spent; a backup code is a fresh one.
             page.fill("#tf-off-code", codes[0])
-            page.get_by_role("button", name="Turn off two-step sign-in").click()
+            page.get_by_role("button", name="Turn off app code", exact=True).click()
             wait_for(lambda: "Off (password only)" in page.inner_text("#twofa-card"), "turned off")
             assert not page.is_visible("#bk-code"), "no code box once it is off"
             page.context.set_extra_http_headers({})

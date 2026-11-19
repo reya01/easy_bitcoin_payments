@@ -1,4 +1,4 @@
-# First real-money release: where things stand (updated 17 November 2026)
+# First real-money release: where things stand (updated 18 November 2026)
 
 This is the one page to read before deciding to cut the first release that is
 meant to be tried with real money. It replaces the signet-only wording in
@@ -23,6 +23,7 @@ repository. Results are described in words.
 | Ark checkout: the new "type this exact amount" box (309 sats), typed into Arké | Box clear and prominent; order paid and the shop was notified | owner's run, 16 Nov |
 | Weekly wallet check on a new server; Pause and Resume; test notification; payments CSV; backup download and check | All worked: the check waited until 22 November, pausing refused new payments, the CSV matched every payment, the backup held 6 files | owner's run, 16 Nov |
 | Test server, 17 Nov: pause and resume with a code box, a phone test alert, one Ark and one Lightning order through the real shop (about 155 sats each, the paid page showed a mascot), the payments CSV with the new `received_sats` column, Resend, a backup download and check, the "not available right now" message at the shop while paused, the checkout on a phone, and a server restart | All worked | owner's run, 17 Nov |
+| Test server, 18 Nov: the first real signed update, 0.2.0-rc5 to 0.2.1-rc1 with `update.sh` (cosign signature checked against the release workflow and tag commit, digest identical to the release notes, version and balance and history unchanged, wallet connected). Then on rc1: the new Settings and Alerts tabs, pause and resume with a code, a phone test alert, one Lightning and one Ark order, a backup download and check, `update.sh --check` for the same version ("already runs") and for the older rc5 (refused as older), and a restart | All worked | owner's run, 18 Nov |
 | Receive fees on Lightning | Receiver pays nothing at any size; EBP's crediting rule is correct | `LIGHTNING_RECEIVE_FEES_2026-11-15.md` |
 | Duplicate and late payments, stuck claims, fee ranges, board and offboard sizes | Measured; code changed to match (late full payment now completes) | `SERIES2_TESTS_2026-11-15.md`, `MAINNET_DRILL_RESPONSE.md` |
 | Wallet restore from the 12 words, crash recovery | Worked (about a second) | `MAINNET_DRILL_2026-11-15_round2.md` |

@@ -1,7 +1,7 @@
 # Phase 0 — Bark Integration Spike Plan
 
 **Status:** ANSWERED — Phase 0 completed 2026-11-01; Q1–Q5 were answered by
-the live signet drills recorded in docs/dev/PHASE1_PLAN.md (drill log) and
+the live signet drills recorded in docs/dev/archive/PHASE1_PLAN.md (drill log) and
 docs/dev/HANDOFF.md (drills section). This file is retained as the original
 question sheet; the pinned-version rule below still applies when re-running
 any of these commands.

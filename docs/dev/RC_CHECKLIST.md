@@ -5,9 +5,10 @@
 > mainnet, what is not, and the decisions left. This file still holds the release
 > steps and the signet-era notes.
 
-Goal of the first tag: a **release candidate** (`v0.1.0-rc1`) that testers can
-install with play money (signet) and that has a documented, short list of
-things it does not do. **Not** a "ready for real money" release.
+Goal of every tag so far: a **release candidate** that testers can install (play
+money by default, real money experimental) and that has a documented, short list
+of things it does not do. **Not** a "ready for real money" release. The first one
+was `v0.1.0-rc1`; the latest is `v0.2.2-rc1`. Sections 3 and 4 below apply to each.
 
 Nothing here is published until a person pushes a tag. Tags on a public
 repository cannot be taken back cleanly, so the last section lists exactly
@@ -82,13 +83,13 @@ open box.
    any other dependency update, and do not merge one in the same release as a
    risky change without a dry run.
 2. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
-   heading (for example `0.2.1-rc1`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
+   heading (for example `0.2.2-rc1`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
    so Home and the Plugins page show which build is running. The release
    workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
    before building if any of these disagree with the tag (you can run it
    yourself first).
-3. Tag the new version (for example `v0.2.1-rc1`) on `main` and push it. The
+3. Tag the new version (for example `v0.2.2-rc1`) on `main` and push it. The
    `-rcN` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.
@@ -97,7 +98,7 @@ open box.
    command, and the verify command works on your machine.
 5. Install that release on a fresh server exactly as `START_HERE.md` says, using
    the digest-pinned image.
-6. Only then tell testers. The final release (`v0.2.0`, the number these candidates are
+6. Only then tell testers. The final release (`v0.2.2`, the number the latest candidates are
    candidates for) comes after the checklist in
    section 2 is fully ticked; the dashboard will tell rc users when it exists.
 
@@ -157,6 +158,11 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 
 ## 6. When live mode exists
 
+**Status, 19 November 2026:** live mode exists and has been tried with small real money
+(see [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md)). This section is the original plan,
+kept for history: an unticked box here is a to-do only if `MAINNET_RELEASE_STATUS.md` or
+[KNOWN_ISSUES.md](../KNOWN_ISSUES.md) still lists it.
+
 Decision (8 Nov 2026): the public walkthrough `docs/START_HERE.md` stays in its
 play-money wording until live mode is supported. The version written for real use
 (no test or signet wording, `ark1` / `bc1` addresses) is ready on branch
@@ -187,7 +193,7 @@ real money. Its items, in order:
       renewal point and expiry), even though it costs the fee.
 - [ ] **Docs sweep for both modes**, then the mainnet test sheet with small real money.
 
-barkd stays on 0.8.0 during alpha; moving to the latest Bark is its own piece of work at beta.
+barkd stays on 0.8.0 until v0.3, which means running Bark 0.9 ([BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)).
 
 ### Follow-ups from the 9 November review (need mainnet or a later test)
 

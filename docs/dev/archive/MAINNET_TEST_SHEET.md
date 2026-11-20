@@ -1,6 +1,6 @@
 # Test-day sheet: the first test with real bitcoin (mainnet)
 
-Stage 4 of [MAINNET_PLAN.md](MAINNET_PLAN.md). Keep it open beside you, do the
+Stage 4 of [MAINNET_PLAN.md](../MAINNET_PLAN.md). Keep it open beside you, do the
 steps in order and **write down every place you hesitated, guessed or got
 stuck**, plus the real times. Each step says where it happens: **your payment
 server** (its Console or its `/admin` page), **your WooCommerce site**, or **your
@@ -20,9 +20,9 @@ without the money arriving.
 
 Your money is in the wallet on the payment server, and **you hold its 12
 recovery words**, so it can always be restored (see
-[RESTORE_DRILL.md](../RESTORE_DRILL.md)). Do not retry anything in a hurry. Match
+[RESTORE_DRILL.md](../../RESTORE_DRILL.md)). Do not retry anything in a hurry. Match
 what you see to a line below, write it down, then go to
-[IF_SOMETHING_LOOKS_WRONG.md](../IF_SOMETHING_LOOKS_WRONG.md).
+[IF_SOMETHING_LOOKS_WRONG.md](../../IF_SOMETHING_LOOKS_WRONG.md).
 
 | What you see | What it means | What to do |
 |---|---|---|
@@ -34,7 +34,7 @@ what you see to a line below, write it down, then go to
 | You cannot open the server's pages | The server may be off or restarting (it restarts once after setup). | Wait a few minutes, then use **your hosting company's Console** to check the server is running. Do not delete the server: the money can be restored from the 12 words onto a new one. |
 
 What the server is expected to do when something fails, read from the code, is in
-[MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md).
+[MAINNET_CODE_PATHS.md](../MAINNET_CODE_PATHS.md).
 
 ## Before you start
 
@@ -49,7 +49,7 @@ What the server is expected to do when something fails, read from the code, is i
 ## 1. A new server set to real money (about 30 minutes)
 
 - [ ] **On DigitalOcean:** make a **new** Droplet exactly as in
-      [START_HERE.md](../START_HERE.md) steps 1 to 3.
+      [START_HERE.md](../../START_HERE.md) steps 1 to 3.
 - [ ] **On the payment server, in the Console** (log in as `root`):
       ```
       cd /opt/ebp
@@ -168,7 +168,7 @@ address change is waiting" line: `bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4`,
 - [ ] **Home:** the weekly wallet check shows the right figures and folds away
       after "I checked: it matches".
 - [ ] **Settings:** download a backup and check it.
-- [ ] Do [RESTORE_DRILL.md](../RESTORE_DRILL.md) onto a second **real-money**
+- [ ] Do [RESTORE_DRILL.md](../../RESTORE_DRILL.md) onto a second **real-money**
       server (set `EBP_MODE=live` there too, step 1 above), with only the kept
       1,000 sats at stake. Note any extra upkeep row right after the restore.
 

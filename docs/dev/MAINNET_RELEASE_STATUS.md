@@ -1,4 +1,4 @@
-# First real-money release: where things stand (updated 18 November 2026)
+# First real-money release: where things stand (updated 19 November 2026)
 
 This is the one page to read before deciding to cut the first release that is
 meant to be tried with real money. It replaces the signet-only wording in
@@ -14,7 +14,7 @@ repository. Results are described in words.
 | What | Result | Where recorded |
 | --- | --- | --- |
 | Setup on a fresh server in live mode, wizard end to end | Worked | owner's run, 15 Nov |
-| Lightning payment, 1,000 sats (admin test payment) | Paid; the server held the full amount, no fee taken | `MAINNET_DRILL_2026-11-15.md`, owner's run |
+| Lightning payment, 1,000 sats (admin test payment) | Paid; the server held the full amount, no fee taken | `archive/MAINNET_DRILL_2026-11-15.md`, owner's run |
 | Ark payment, 1,000 sats | Paid; full amount held | owner's run |
 | Shop link-up (real WooCommerce store), then two small orders, one Lightning and one Ark (about 154 sats each) | Both orders paid and the shop received the payment notices ("Your shop is receiving payment notices") | owner's run, 15 Nov |
 | Sweep to the owner's own Ark wallet | 1,000 sats arrived | owner's run |
@@ -24,9 +24,9 @@ repository. Results are described in words.
 | Weekly wallet check on a new server; Pause and Resume; test notification; payments CSV; backup download and check | All worked: the check waited until 22 November, pausing refused new payments, the CSV matched every payment, the backup held 6 files | owner's run, 16 Nov |
 | Test server, 17 Nov: pause and resume with a code box, a phone test alert, one Ark and one Lightning order through the real shop (about 155 sats each, the paid page showed a mascot), the payments CSV with the new `received_sats` column, Resend, a backup download and check, the "not available right now" message at the shop while paused, the checkout on a phone, and a server restart | All worked | owner's run, 17 Nov |
 | Test server, 18 Nov: the first real signed update, 0.2.0-rc5 to 0.2.1-rc1 with `update.sh` (cosign signature checked against the release workflow and tag commit, digest identical to the release notes, version and balance and history unchanged, wallet connected). Then on rc1: the new Settings and Alerts tabs, pause and resume with a code, a phone test alert, one Lightning and one Ark order, a backup download and check, `update.sh --check` for the same version ("already runs") and for the older rc5 (refused as older), and a restart | All worked | owner's run, 18 Nov |
-| Receive fees on Lightning | Receiver pays nothing at any size; EBP's crediting rule is correct | `LIGHTNING_RECEIVE_FEES_2026-11-15.md` |
-| Duplicate and late payments, stuck claims, fee ranges, board and offboard sizes | Measured; code changed to match (late full payment now completes) | `SERIES2_TESTS_2026-11-15.md`, `MAINNET_DRILL_RESPONSE.md` |
-| Wallet restore from the 12 words, crash recovery | Worked (about a second) | `MAINNET_DRILL_2026-11-15_round2.md` |
+| Receive fees on Lightning | Receiver pays nothing at any size; EBP's crediting rule is correct | `archive/LIGHTNING_RECEIVE_FEES_2026-11-15.md` |
+| Duplicate and late payments, stuck claims, fee ranges, board and offboard sizes | Measured; code changed to match (late full payment now completes) | `archive/SERIES2_TESTS_2026-11-15.md`, `archive/MAINNET_DRILL_RESPONSE.md` |
+| Wallet restore from the 12 words, crash recovery | Worked (about a second) | `archive/MAINNET_DRILL_2026-11-15_round2.md` |
 | Emergency exit, whole lifecycle on about 99,000 sats | Worked: claimable after about 24 hours at the predicted block; the claim paid the owner's own Bitcoin address directly; total cost about 700 sats (0.7%) | `EMERGENCY_EXIT_2026-11-15.md` |
 
 ## 2. Built since those tests, proven by CI and browser tests only
@@ -62,6 +62,16 @@ at the folded Settings tab; set up phone alerts from Home; set up a fresh
 server and look at the test-payment prompt on its setup page and Home (a play
 money server shows the same screens); and, when there is enough on the server,
 open the emergency-exit page.
+
+**Added in 0.2.2-rc1 (19 November 2026), CI and browser tests only; the owner's test of it is the next step:**
+
+- The whole balance is sent once it reaches a minimum, and nothing is kept by default (hard floors 1,500 sats for an Ark payout address, 50,000 for an on-chain one; the owner can raise them in Settings). Open question for the live test: an Ark send of an exact whole balance, with no change coin left, and whether the wallet takes any fee on it.
+- The emergency withdrawal is opt-in. While on, 5,000 sats of regular Bitcoin stay as fee money and an owner-chosen amount of Ark money can be kept; **Send back what is above 5,000 sats** returns the extra (barkd `/onchain/send`). Not yet run on real money.
+- Passkeys (beta): add, sign in with one, approve protected actions; the approval is tied to the signed-in session.
+- A transfer never sends coins that are waiting in a renewal round (found in the pre-release review).
+- A locked-down container, tighter password limits and a weak-password block.
+- The checkout offers only Lightning and Ark; the code for regular Bitcoin payments is gone.
+- The update helper's first real use is this update (0.2.1-rc2 to 0.2.2-rc1).
 
 ## 3. Still open
 
@@ -105,9 +115,10 @@ Replace the signet-only line in `RC_CHECKLIST.md` section 5 with:
 > the owner's own wallet, and a full emergency withdrawal. It is still
 > experimental. Use only an amount you can afford to lose, keep payments small
 > (the server can cap each one), and read `docs/KNOWN_ISSUES.md` first. The
-> emergency withdrawal takes at least a day, needs a little regular Bitcoin on
-> the server for fees (at least 1,500 sats), and should pay an address in a
-> wallet you hold outside the server.
+> emergency withdrawal is off until you turn it on, takes at least a day, needs
+> regular Bitcoin on the server for fees (the page asks for at least 5,000 sats
+> once it is on), and should pay an address in a wallet you hold outside the
+> server.
 
 Before tagging: move the `Unreleased` part of `CHANGELOG.md` under a new
 heading, update the version in the places `RC_CHECKLIST.md` section 4 lists

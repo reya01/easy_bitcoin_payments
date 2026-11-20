@@ -6,64 +6,74 @@ Easy Bitcoin Payments (EBP) is a single Rust binary plus SQLite that sits betwee
 your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
-This repository is at **Phase 1 code-complete** (2026-11-01) and remains
-**EXPERIMENTAL**: signet by default; mainnet is opt-in (`EBP_MODE=live`) for small test amounts only; it has been tried end to end with small real-money amounts (see [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md)) but is not for production. CI is green; the canonical suite is `cargo test --all --all-features` (**234 passed, 0 failed**).
-Every Lightning-side client-facing barkd shape is live-verified against
-**barkd 0.8.0 on signet** and pinned in
-[`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs) with shape tests;
-the on-chain receive history entry shape is still **UNPINNED** and crediting is
-fail-closed. Remaining `VERIFY` markers are limited to request/edge shapes the
-pinned OpenAPI does not schema. The wallet layer talks to a
-[barkd](https://second.tech/docs/barkd_index.md) sidecar (Second's reference
-Bark wallet daemon) over its local REST API: Ark + on-chain + Lightning
-receive, a polling payment watcher with a persisted cursor, a per-VTXO expiry
-queue, and a settlement engine that sweeps the capped till to your own wallet.
+This repository is at **v0.2.2-rc1** (a release candidate, 19 November 2026) and remains
+**EXPERIMENTAL**: signet (play money) by default; mainnet is opt-in (`EBP_MODE=live`) for
+small test amounts only. It has been tried end to end with small real-money amounts (see
+[MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md)) but is not for production. CI is the
+source of truth for tests (it builds, runs `cargo test --all --all-features`, and runs the
+browser tests in `tests/e2e/`, see [E2E_TESTING.md](E2E_TESTING.md)); test counts are not
+written down here because they go stale at once.
 
-**RESOLVED 2026-11-03:** the tester's AWS t4g (aarch64) VPS restart-loop was
-caused by the Dockerfile's dependency-cache placeholder binary shipping
-instead of the server (a cargo mtime-skip trap; mechanism + fix in
-[docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md), which now also carries a build
-smoke test guarding against the class). Rebuilt and serving on the VPS.
+The wallet layer talks to a [barkd](https://second.tech/docs/barkd_index.md) sidecar
+(Second's reference Bark wallet daemon, **pinned to barkd 0.8.0**; the move to Bark 0.9 is
+planned for v0.3, see [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)) over its local REST API:
+Ark and Lightning receive, a polling payment watcher with a persisted cursor, a per-coin
+expiry queue, and a settlement engine that sends the whole balance to your own wallet once
+it reaches a minimum. **EBP takes no regular (on-chain) payments**; the only on-chain things
+are the payout to your own on-chain address and the emergency withdrawal. The barkd
+request and response shapes EBP relies on are pinned in
+[`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs) with shape tests, and
+`scripts/check_barkd_drift.sh` checks every endpoint against the pinned OpenAPI in CI.
 
 ### Documentation map
 
 For shop owners: [START_HERE.md](../START_HERE.md), [WOOCOMMERCE.md](../WOOCOMMERCE.md),
-[OTHER_HOSTS.md](../OTHER_HOSTS.md), [RECIPE_BACKUP.md](../RECIPE_BACKUP.md),
+[KEEPING_WORDPRESS_SAFE.md](../KEEPING_WORDPRESS_SAFE.md), [OTHER_HOSTS.md](../OTHER_HOSTS.md),
+[RECIPE_BACKUP.md](../RECIPE_BACKUP.md), [RESTORE_DRILL.md](../RESTORE_DRILL.md),
 [UPGRADING.md](../UPGRADING.md), [IF_SOMETHING_LOOKS_WRONG.md](../IF_SOMETHING_LOOKS_WRONG.md),
-[KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
+[KNOWN_ISSUES.md](../KNOWN_ISSUES.md), [SILENT_PAYMENTS.md](../SILENT_PAYMENTS.md).
 
 For developers (this folder):
 
-- [HANDOFF.md](HANDOFF.md): one-stop context for a new developer or agent.
-- [RC_CHECKLIST.md](RC_CHECKLIST.md), [SIGNET_DRILL.md](SIGNET_DRILL.md),
-  [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md), [E2E_TESTING.md](E2E_TESTING.md): release and testing.
-- [PHASE1_PLAN.md](PHASE1_PLAN.md): the barkd integration plan and its close-out block.
-- [BARK_AUDIT.md](BARK_AUDIT.md): the audit of the Bark wallet we build on.
-- [archive/](archive/README.md): finished plans, reviews and test notes, kept for history (Phase 0 spike, beta hardening, beginner roadmap, the 5 November reviews, the 8 November droplet test).
-- [WATCHER_DESIGN_NOTE.md](WATCHER_DESIGN_NOTE.md), [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md):
-  design notes and the original spec.
+- [HANDOFF.md](HANDOFF.md): one-stop context for a new developer or agent. Start here.
+- Where things stand: [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md) (what is proven on real money and what is not),
+  [MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md) (how the real-money code paths behave),
+  [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md) (what Bark 0.9 changes, and the v0.3 plan).
+- Release and testing: [RC_CHECKLIST.md](RC_CHECKLIST.md), [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md) (the test-day sheet for a live server),
+  [SIGNET_DRILL.md](SIGNET_DRILL.md), [E2E_TESTING.md](E2E_TESTING.md), [REPRODUCIBLE_BUILDS.md](REPRODUCIBLE_BUILDS.md).
+- Security and wallet: [SHOP_COMPROMISE.md](SHOP_COMPROMISE.md) (what a hacked shop can and cannot do),
+  [BARK_AUDIT.md](BARK_AUDIT.md) (audit of the Bark wallet we build on),
+  [EMERGENCY_EXIT_2026-11-15.md](EMERGENCY_EXIT_2026-11-15.md) (the real-money exit drill).
+- Plans and design notes: [MAINNET_PLAN.md](MAINNET_PLAN.md) (the agreed plan, kept as history),
+  [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md) (the original spec).
+- [archive/](archive/README.md): finished plans, reviews, drills and test notes, kept for history.
 - [CONTRIBUTING.md](../../CONTRIBUTING.md), [ebp.example.toml](../../ebp.example.toml) (every config key), [LICENSE](../../LICENSE).
 
 ---
 
 ## What ships today
 
-- **Rust server skeleton** — axum 0.8 + SQLite (rusqlite, bundled), single binary, MIT licensed, CI on main and pull requests.
-- **Invoice API** — create / get / list / cancel, authenticated with per-store API keys (hashed at rest).
-- **Hosted checkout page** — static, mobile-first, live status polling, plain-language states.
-- **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, VTXO expiry queue.
-- **Signed webhook emitter** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window.
-- **Merchant dashboard shell** — mobile-first admin page at `/admin` (also `/dashboard`) with password login (status,
-  recent payments, a "Try a payment" button, shop connection, backup download; real orders come from your shop through the API, see below).
+- **Rust server** — axum 0.8 + SQLite (rusqlite, bundled), single binary, MIT licensed, CI on main and pull requests.
+- **Invoice API** — create / get / list / cancel, authenticated with per-store API keys (hashed at rest); the shop's key can do only what a shop needs (see [SHOP_COMPROMISE.md](SHOP_COMPROMISE.md)).
+- **Hosted checkout page** — static, mobile-first, live status polling, plain-language states. Lightning is the default; one box switches to Ark. Dollar amounts come from one stored Bitcoin price.
+- **Payment watcher** — polls barkd's wallet history with a persisted cursor; address matching, idempotent payment recording, per-coin expiry queue, late and unmatched payments listed for the owner.
+- **Signed webhooks** — `X-EBP-Signature: t=<unix>,v1=<HMAC_SHA256>` with a replay window, a durable delivery queue with a Resend button, and an hourly shop-side check that finishes orders whose notice was lost.
+- **Payouts** — the whole balance goes to the owner's own wallet once it reaches a minimum (hard floor per kind of address); a payout-address change waits a day; "Move my money now" by hand; coins that are renewing are never sent.
+- **Emergency withdrawal** — opt-in, started by hand, with protected fee money (see "What stays on the server" below).
+- **Admin page** at `/admin` (also `/dashboard`) — mobile-first: Home, payments, shop connection, alerts, settings. Sign-in is the admin password plus two-step sign-in (authenticator app, recovery codes) and passkeys (beta); protected actions need the password plus a code or a passkey approval.
+- **Backup and restore** — one encrypted backup file plus the 12 recovery words; restore on a new server at setup.
+- **Phone alerts** (ntfy) and a daily summary that never carries amounts or addresses.
+- **Updates from the Home tab** — a root helper outside EBP checks the signature and image and updates only after the owner confirms; `scripts/update.sh` does the same from the Console.
+- **WooCommerce plugin** (`integrations/woocommerce/`), built and tested against a real WordPress in CI.
 - **Config** — env vars plus an optional TOML file, with sane defaults.
-- **Deployment** — Docker one-liner on a VPS (public IP, DNS, TLS; clearnet HTTPS), plus multi-stage Dockerfile, `.dockerignore`, GitHub Actions CI.
+- **Deployment** — a pasted setup block on a DigitalOcean droplet (public IP, DNS, TLS), or Docker Compose on any VPS; the container runs read-only with no extra powers.
 
 ### The wallet layer: the barkd sidecar
 
 Payments run through a **barkd sidecar** — Second's reference Bark wallet
 daemon — on the internal network. barkd holds the keys (Custody Level 0: a
-capped hot "till" on the server; everything the server sweeps is already
-yours). The server authenticates with a bearer token:
+small "till" on the server that is sent whole to your own wallet once it reaches a
+minimum; everything the server sends is already yours). The server authenticates with a bearer token:
 
 ```bash
 # barkd generates the token on first start and stores it in its datadir.
@@ -77,7 +87,7 @@ off on the compose service; the setup wizard's one-time backup ceremony runs
 a separate temporary barkd WITH the flag, reads `GET /wallet/mnemonic` exactly
 once, then removes it — the words are never stored or logged by EBP.
 
-Without a token the server boots on the Phase 0 stub wallet (deterministic
+Without a token the server boots on a stub wallet (deterministic
 placeholder addresses, no payments observed) so development and tests never
 need a running barkd.
 
@@ -113,8 +123,9 @@ curl -sS -X POST http://localhost:8080/api/v1/invoices \
       }'
 ```
 
-The response contains `checkout_url`, `ark_address`, `onchain_address`,
-`amount_sats`, the locked `rate`, and `expires_at`. Open `checkout_url` on a
+The response contains `checkout_url`, `ark_address`, `lightning_invoice` and
+`lightning_fee_estimate_sat` (when Lightning is on), `amount_sats`, the locked `rate`, and
+`expires_at`. There is no on-chain address: EBP takes no regular Bitcoin payments. Open `checkout_url` on a
 phone — that is the customer's page.
 
 ```bash
@@ -132,7 +143,7 @@ curl -sS -X POST http://localhost:8080/api/v1/invoices/inv_.../cancel \
 curl -sS http://localhost:8080/api/v1/health
 ```
 
-### With the barkd sidecar (Phase 1)
+### With the barkd sidecar
 
 ```bash
 # 1. Run barkd (see https://second.tech/docs/barkd/install.md) and get its token.
@@ -153,10 +164,10 @@ curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
   -d '{"network": "signet", "ark": "https://ark.signet.2nd.dev"}'
 ```
 
-With the sidecar running, invoices get real Ark + on-chain addresses and a
-Lightning invoice (best effort, via the ASP gateway), the watcher polls
-`/history` (barkd's current history endpoint) with a persisted cursor, and the settlement engine sweeps
-the till to `EBP_SETTLEMENT_DESTINATION`.
+With the sidecar running, invoices get a real Ark address and a Lightning invoice
+(best effort, via the ASP gateway), the watcher polls `/history` (barkd's current history
+endpoint) with a persisted cursor, and the settlement engine sends the whole balance to
+`EBP_SETTLEMENT_DESTINATION` (or the payout address saved in Settings) once it reaches the minimum.
 
 ---
 
@@ -169,6 +180,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/invoices` | Create an invoice (fiat-priced or sats-priced); optional `return_url` (http/https) adds a "Back to the shop" link on the checkout page |
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
+| `GET` | `/api/v1/invoices.csv` | Payments export (CSV; includes what the wallet actually received next to what was credited) |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
 | `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Payments that could not complete an order: part payments after expiry, extra payments on a paid order, or anything more than 3 hours late (needs merchant action) (**admin session only**) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled (**admin session only**; the shop's API key is refused) |
@@ -180,12 +192,28 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `POST` | `/api/v1/stores/webhook/test` | (**admin session only**) Send a harmless `webhook.test` notification to the store's webhook |
 | `POST` | `/api/v1/stores/rotate-key` | (**admin session only**) Revoke all API keys for the store and issue a new one (shown once) |
 | `GET` | `/api/v1/admin/status` | Operator view: counters, settlements, till (needs `EBP_ADMIN_TOKEN` bearer; 404 if unset) |
+| `GET` | `/api/v1/admin/settlements` | Recent transfers to the owner's wallet (**admin session only**) |
+| `GET` | `/api/v1/payout` | The saved payout address and any pending change (**admin session only**) |
 | `GET` | `/api/v1/health` | Server, database, wallet, ASP reachability |
 | `GET` | `/i/{id}` | Hosted checkout page |
 | `GET` | `/i/{id}/json` | Full invoice JSON (fetched once by the checkout page) |
 | `GET` | `/i/{id}/status` | Checkout status JSON (polled by the page) |
+| `GET` | `/i/{id}/rails` | Which ways to pay this order offers (Lightning, Ark) |
 | `GET` | `/admin`, `/dashboard` | Merchant admin page (password login; session cookie + CSRF) |
-| `POST` | `/admin/login`, `/admin/logout`, `/admin/password` | Admin session endpoints; `GET /admin/session` reports login state |
+| `POST` | `/admin/login`, `/admin/login/passkey`, `/admin/logout`, `/admin/password` | Admin session endpoints; `GET /admin/session` reports login state |
+
+### Admin page routes
+
+All `POST`, all need a signed-in session and the CSRF header. Anything that moves money, changes who can sign in or changes where money goes also needs the admin password and a second step (an app code, a recovery code, or `pk:<ticket>` from a passkey approval). Every route that checks the password sits behind the password brake (`tests/password_brake_guard.rs` fails the build if one does not).
+
+| Group | Routes |
+| --- | --- |
+| Payouts | `/admin/payout` (change address, waits a day), `/admin/payout/cancel`, `/admin/payout/min` (send minimum), `/admin/payout/cap` (amount kept; only while the emergency withdrawal is on), `/admin/sweep` ("Move my money now") |
+| Emergency withdrawal | `/admin/exit/status`, `/admin/exit/optin`, `/admin/exit/deposit-address`, `/admin/exit/prepare`, `/admin/exit/start`, `/admin/exit/cancel`, `/admin/exit/claim`, `/admin/exit/leftover` |
+| Sign-in | `/admin/2fa/status`, `/admin/2fa/skip`, `/admin/2fa/start`, `/admin/2fa/confirm`, `/admin/2fa/disable`; `/admin/passkeys/status`, `/begin`, `/finish`, `/remove`, `/disable`, `/stepup/begin`, `/stepup/finish` |
+| Shop | `/admin/pause`, `/admin/keylock/status`, `/admin/keylock/save` |
+| Alerts and reconcile | `/admin/alerts/status`, `/enable`, `/disable`, `/test`, `/activity`; `/admin/reconcile/status`, `/admin/reconcile/done` |
+| Backup and update | `/admin/backup`, `/admin/update/check`, `/admin/update/apply` |
 
 ### Invoice states
 
@@ -258,11 +286,27 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_MANAGED_BARKD` | `false` (`true` in the default Docker image) | EBP runs the barkd wallet daemon itself, so setup needs no token copying or terminal commands. Use `docker-compose.managed.yml` |
 | `EBP_ALLOW_INSECURE_SETUP` | `false` | The setup wizard refuses to run over plain `http://` on a non-local address (your recovery words and keys would cross the network unprotected). Set `true` only on a trusted LAN or for throwaway testing |
 | `EBP_SETUP_TOKEN` | unset | Optional fixed setup code for automation. Normally leave it unset: until setup is finished the server makes a one-time **SETUP CODE** on every start, prints it where the server runs (`docker compose logs ebp`), and the setup page asks for it |
-| `EBP_ADMIN_TOKEN` | unset | Optional admin bearer token (static bearer for now; passkey/TOTP is a v1.0 target) |
+| `EBP_ADMIN_TOKEN` | unset | Optional static bearer token for the operator-only `GET /api/v1/admin/status` (404 when unset). It does not sign anyone in to the admin page; that is the password, two-step sign-in and passkeys |
+| `EBP_PAYOUT_CHANGE_DELAY_SECS` | `86400` | How long a payout-address change waits before it applies (`0` = at once, for tests) |
+| `EBP_ALERTS_SERVER` | `https://ntfy.sh` | The ntfy server phone alerts use unless the owner saved another one in Settings |
+| `EBP_BARKD_BIN` | `barkd` | Path of the barkd program in managed mode |
+| `EBP_UPDATES_DIR` | `/updates` | Where the update helper's request and answer folders are mounted |
 
-**What stays on the server, and when the rest is sent (from 19 November 2026).** The two cap settings above are the amount kept (never sent on) and default to **0**: when the till holds at least the **send minimum**, the whole balance goes to the payout address in one send. The minimum has a hard floor per kind of payout address, `payout::Rail::floor`: **1,500 sats for Ark** (`ARK_MIN_FLOOR_SATS`) and **50,000 sats for on-chain** (`ONCHAIN_MIN_FLOOR_SATS`). The owner can raise either in **Settings → Where your money goes → When to send my money** (`POST /admin/payout/min` with `kind` `ark` or `onchain` and `min_sats`; null goes back to the floor): signed in, CSRF, admin password, second step when on, in the password-brake group; takes effect at once; security log `payout.min_changed`. Stored as `ark_sweep_min_sats` / `onchain_sweep_min_sats`; a stored value under its floor is ignored. Under the floor the route answers 400 with a plain explanation (`payout::floor_message`) before the slow password check, and the page shows the same words. "Move my money now" ignores the minimum, the fee limit and the kept amount.
+**Retired settings.** `EBP_HOT_WALLET_CAP_SATS` and `EBP_ONCHAIN_SWEEP_CAP_SATS` (and `hot_wallet_cap_sats` / `onchain_sweep_cap_sats` in the config file) were removed on 19 November 2026. If still set they are ignored, and the server says so when it starts. The one rule for what stays on the server is the emergency-withdrawal opt-in below.
 
-**The emergency withdrawal is opt-in.** The setting `exit_opt_in` (`emergency_exit::opted_in`) is off by default; `POST /admin/exit/optin` (`on` true/false, password, code) turns it on (needs two-step sign-in, like the withdrawal itself) or off (password, plus a code when two-step is on; refused while a withdrawal runs; clears the amount kept). While it is on: (1) the owner may choose an amount of Ark money to keep with `POST /admin/payout/cap` (`cap_sats`, 1 to 10,000,000; refused while off; stored as `sweep_cap_sats`, ignored while off, `payout.cap_changed`), and `payout::cap_for` sweeps only what is above it; (2) the server keeps at least `RESERVE_FLOOR_SATS` (5,000) of regular Bitcoin for exit fees: nothing sweeps it, `POST /admin/exit/leftover` (the only route that spends it, via barkd `onchain/drain`) is refused with an explanation while it is on and no exit runs, and Home warns when it is under the floor. Starting, stopping and claiming a withdrawal, and any exit already in progress, never depend on the switch (so an emergency is never blocked by it); the technical minimum for starting one (`RESERVE_MIN_SATS`, the fee estimate) is unchanged.
+**What stays on the server, and when the rest is sent (from 19 November 2026).** By default the server keeps **nothing**: when the till holds at least the **send minimum**, the whole balance goes to the payout address in one send. That also leaves no small "change" coin behind (Bark 0.9 can refuse to spend coins under about 1,300 sats). The minimum has a hard floor per kind of payout address, `payout::Rail::floor`: **1,500 sats for Ark** (`ARK_MIN_FLOOR_SATS`) and **50,000 sats for on-chain** (`ONCHAIN_MIN_FLOOR_SATS`). The owner can raise either in **Settings → Where your money goes → When to send my money** (`POST /admin/payout/min` with `kind` `ark` or `onchain` and `min_sats`; null goes back to the floor): signed in, CSRF, admin password, second step when on, in the password-brake group; takes effect at once; security log `payout.min_changed`. Stored as `ark_sweep_min_sats` / `onchain_sweep_min_sats`; a stored value under its floor is ignored. Under the floor the route answers 400 with a plain explanation (`payout::floor_message`) before the slow password check, and the page shows the same words. An automatic on-chain send also waits for `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB`. "Move my money now" ignores the minimum, the fee limit and any kept amount.
+
+Coins that the wallet has registered for a renewal round are never sent: barkd 0.8.0 can list them as spendable for up to about an hour. The automatic transfer waits (and forgets its refusal) while any such coin is in a round, for at most `REQUESTED_GIVE_UP_SECS` (2 hours); "Move my money now" sends only the free coins and says so if nothing else is left.
+
+**The emergency withdrawal is opt-in.** The setting `exit_opt_in` (`emergency_exit::opted_in`) is off by default; `POST /admin/exit/optin` (`on` true/false, password, code) turns it on (needs two-step sign-in, like the withdrawal itself) or off (password, plus a code when two-step is on; refused while a withdrawal runs; clears the amount kept). While it is on:
+
+1. The owner may choose an amount of Ark money to keep with `POST /admin/payout/cap` (`cap_sats`, 1 to 10,000,000; refused while off; stored as `sweep_cap_sats`, ignored while off, `payout.cap_changed`). `payout::cap_for` returns it only while opted in, and sweeps send only what is above it. Without a kept amount the server holds nothing between sends, so there would be nothing to withdraw in an emergency (the IF_SOMETHING_LOOKS_WRONG guide says so).
+2. The server keeps at least `RESERVE_FLOOR_SATS` (5,000) of regular Bitcoin in barkd's own on-chain wallet for exit fees. No sweep touches it, and Home warns when the confirmed amount is under the floor.
+3. `POST /admin/exit/leftover` (the **Send back what is above 5,000 sats** button) returns the extra: `emergency_exit::leftover_plan` takes the confirmed balance, less 5,000, less the fast network fee rate times `LEFTOVER_FEE_VBYTES` (400), and refuses with an explanation when under `MIN_LEFTOVER_SEND_SATS` (1,000) would be left to send. It sends through barkd `POST /onchain/send` (`{destination, amount_sat}`).
+
+While it is off, or once a withdrawal has been started, the same route sends everything through barkd `POST /onchain/drain` (the button reads **Send leftover to my address**). It is refused while a withdrawal is still running (the money may be needed for fees). Its destination is the address saved when the withdrawal started, never a later one.
+
+Starting, stopping and claiming a withdrawal, and any exit already in progress, never depend on the switch, so an emergency is never blocked by it. The technical rules for starting one are unchanged: at least `MIN_EXIT_SATS` (50,000) on the server, a fresh fee estimate worth it (`MIN_FEE_MULTIPLE` 2), and confirmed fee money that covers the fees (`RESERVE_MIN_SATS` 1,500 is the technical minimum; 5,000 to 10,000 is recommended).
 
 ---
 
@@ -332,11 +376,31 @@ conversion, database migrations, and the watcher's payment application path.
   versions are encrypted automatically at startup.
 - **No customer PII is required.** An invoice needs an amount and an opaque
   order reference.
-- **Custody, Phase 1 (Level 0).** barkd holds the keys on the server; the
-  server's bearer token can spend the capped hot float but cannot touch
-  anything already swept to your wallet. Sweeps go out automatically on the
-  hot cap and ahead of VTXO expiry. A
-  compromised server can steal at most the float.
+- **Custody (Level 0).** barkd holds the keys on the server; the server's
+  bearer token can spend what the till holds but cannot touch anything already
+  sent to your wallet. The whole balance goes out automatically once it reaches
+  the minimum (and ahead of coin expiry), so a compromised server can steal at
+  most what is in the till at that moment, plus the fee money if the emergency
+  withdrawal is on. The payout address takes a day to change and a change needs
+  your password and a second step, and a hacked shop cannot do either
+  ([SHOP_COMPROMISE.md](SHOP_COMPROMISE.md)).
+- **Sign-in and protected actions.** The admin password (16+ characters, a small
+  block list refuses obvious ones), two-step sign-in with an app code and
+  recovery codes, and passkeys (beta, `src/passkey.rs`). Every screen that checks
+  the password sits behind one brake: 5 tries a minute and 30 an hour per device,
+  20 a minute in total for everyone not signed in, and three wrong codes in a row
+  pause code tries for longer each time. A code approves one protected action.
+  `tests/password_brake_guard.rs` fails the build if a route that calls
+  `verify_login_slow(` is outside the braked group in `src/routes/mod.rs`.
+- **Passkeys.** WebAuthn with no attestation and ES256 (checked with `ring`).
+  Challenges live only in memory, are single use, expire after two minutes and are
+  tied to their purpose and to the signed-in session. A passkey approval for a
+  protected action is a one-use ticket tied to the session it was made in
+  (`passkeys::ticket_binding`), handed back as `pk:<ticket>` in the action's code
+  field. Passkeys sit on top of the app code (it must be on first); the recovery
+  codes cover both, and `ebp admin reset-2fa` removes passkeys too.
+- **The container is locked down.** Read-only filesystem, no extra Linux powers,
+  `no-new-privileges`; see "Docker" above and `scripts/verify_container_lockdown.sh`.
 - **No inline code in the pages.** The checkout, admin and setup pages load their
   script and stylesheet as files from the server (`assets/<page>.js` and
   `assets/<page>.css`, compiled in and served by `src/routes/page_assets.rs`), so

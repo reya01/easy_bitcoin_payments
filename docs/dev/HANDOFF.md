@@ -1,65 +1,52 @@
 # Handoff — Easy Bitcoin Payments (EBP)
 
-## Update 2026-11-13 (read this first)
+For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md).
 
-`v0.1.0-rc2` is published (signet only; restore on a new server, the 1,000-sat sweep
-minimum and the keep-amount setting). The signet restore drill passed on 12 November.
-The mainnet code (MAINNET_PLAN Stage 2, PRs A to H) is merged after rc2: live mode,
-legacy payout addresses, the renewal changes, `--no-ui`, the emergency withdrawal
-(switched off on mainnet until its signet drill) and the real-money docs. Next: a
-release candidate with these changes, its signet checks, then the first mainnet test
-([MAINNET_TEST_SHEET.md](MAINNET_TEST_SHEET.md)).
+## Where things stand (19 November 2026)
 
-## Update 2026-11-11
+- **Latest release:** `v0.2.2-rc1` (pre-release). Earlier candidates: `v0.1.0-rc1`, `-rc2`,
+  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`. The release process is in
+  [RC_CHECKLIST.md](RC_CHECKLIST.md); [CHANGELOG.md](../../CHANGELOG.md) says what is in each.
+- **Experimental.** Signet (play money) is the default; mainnet is opt-in and has been tried end
+  to end with small real money (Lightning and Ark payments, a real WooCommerce shop, payouts,
+  renewals, restore, a full emergency exit). What is proven on real money and what is not:
+  [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). How the real-money code paths behave:
+  [MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md).
+- **0.2.2-rc1 in one paragraph:** the server sends the **whole balance** to the owner's wallet
+  once it reaches a minimum (floors 1,500 sats Ark, 50,000 on-chain) and keeps nothing; the
+  emergency withdrawal is **opt-in** with 5,000 sats of protected fee money and a **send back
+  what is above 5,000** button; **passkeys** (beta) for sign-in and protected actions; a transfer
+  never sends coins waiting in a renewal round; a locked-down container; checkout is Lightning
+  and Ark only. It is being tested on the owner's test server (the first real use of the Home-tab
+  update); the run order is the "Round 3" section of [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md).
+- **barkd stays pinned at 0.8.0.** **v0.3 means running Bark 0.9** (its dust-output change affects
+  sweeps and exits): [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md).
 
-`v0.1.0-rc1` is published (signet only). The next piece of work is the move to mainnet with
-small real money, and the agreed plan is [MAINNET_PLAN.md](MAINNET_PLAN.md): restore from
-the 12 words, mainnet wallet and addresses, three renewal changes, a docs sweep, then a
-mainnet test sheet. Follow it in order. barkd stays on 0.8.0 during alpha.
+## Working rules
 
-## Update 2026-11-06
-
-Since the notes below were written, these were added and are on `main` with CI
-green: phone alerts (ntfy), a working WooCommerce plugin (real WordPress +
-WooCommerce end-to-end test in CI), a return-to-shop link, the DigitalOcean
-no-terminal install (rehearsed on clean Ubuntu in CI), hosting docs
-(`OTHER_HOSTS.md`, `OTHER_HOSTS.md`), a weekly own-wallet check and a shop-side
-tripwire, a security pass (alerts address guard, order-total mismatch guard),
-an upgrade and backup-restore test in CI, a hung-barkd fix for the health
-endpoint, and a release dry run that packages everything without publishing.
-Still **not** done: the live signet drill, a real DigitalOcean run, Render on
-real Render, Shopify (`SHOPIFY.md` is a plan only), the first release tag.
-The checklist for getting from here to a release candidate is
-[RC_CHECKLIST.md](RC_CHECKLIST.md). Test counts change often; CI is the source
-of truth, not the number below.
-
-**Status:** Phase 1 code-complete (2026-11-01), **EXPERIMENTAL — not for real funds**.
-Tests: see CI. All client-facing barkd response shapes are
-live-verified against **barkd 0.8.0 on signet** (Lightning side; the on-chain
-receive history entry shape is still unpinned — crediting is fail-closed) and
-pinned in
-[`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs) with shape tests.
-Remaining `VERIFY` markers are limited to request/edge shapes the pinned OpenAPI
-does not schema.
-
-**Resolved 2026-11-03:** the tester's AWS t4g (aarch64) VPS restart-loop was
-the Dockerfile's dependency-cache placeholder binary shipping instead of the
-server (cargo mtime-skip trap; fix + build smoke test in place; rebuilt and
-serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
+- **Money safety comes first.** When in doubt, refuse and say why in plain words; nothing may move
+  funds without the admin password and a second step.
+- **Beginner-friendly, no jargon, no terminal.** The owner works from a phone. Every screen and
+  message must make sense to a first-time shop owner.
+- **The owner owns** tags, releases, GitHub settings, the DigitalOcean test server and anything
+  that spends real money. Agents prepare PRs and docs; they do not tag or release.
+- **CI is the compiler.** There is no local `cargo build` in the usual agent environment; push a
+  branch and read the checks. Browser page tests (`tests/e2e/`) and `rustfmt` can run locally.
+- **Never commit real Bitcoin addresses** (treat them like personal data); use dummy ones.
+- **Docs move with the code.** A change to behavior updates `CHANGELOG.md`, the user guide it
+  touches, `TECHNICAL.md`, `MAINNET_CODE_PATHS.md` and, if it needs a live check,
+  `DROPLET_TEST_SHEET.md`. Finished plans and dated reports go to [archive/](archive/README.md).
 
 ## Read first
 
-1. [README.md](../../README.md) — what this is, quickstart, API, config.
-2. [docs/dev/PHASE1_PLAN.md](PHASE1_PLAN.md) — Phase 1 tasks and close-out status.
-3. [docs/dev/archive/PHASE0_SPIKE_PLAN.md](archive/PHASE0_SPIKE_PLAN.md) — Phase 0 spike questions/log.
-4. [docs/START_HERE.md](../START_HERE.md) — the beginner install.
-5. [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md) — open issues and debug procedures.
-6. [docs/START_HERE.md](../START_HERE.md) — beginner AWS + iPhone walkthrough.
-7. [CONTRIBUTING.md](../../CONTRIBUTING.md) — build, test, contribution rules.
-8. [ebp.example.toml](../../ebp.example.toml) — every config key.
-9. [RC_CHECKLIST.md](RC_CHECKLIST.md) — what CI proves, what a person must still do, how to cut a release candidate.
-10. [BETA_PLAN.md](archive/BETA_PLAN.md) — history of the first hardening pass (not a to-do list).
-11. [SECURITY.md](../../SECURITY.md) and [SILENT_PAYMENTS.md](../SILENT_PAYMENTS.md) — reporting, and why payout cannot use silent payment addresses.
+1. [README.md](../../README.md): what this is.
+2. [TECHNICAL.md](TECHNICAL.md): the technical overview, API, config and security notes.
+3. [START_HERE.md](../START_HERE.md): the beginner install; [UPGRADING.md](../UPGRADING.md): updating.
+4. [KNOWN_ISSUES.md](../KNOWN_ISSUES.md): open issues and what has not been tested enough.
+5. [RC_CHECKLIST.md](RC_CHECKLIST.md): what CI proves, what a person must do, how to cut a release candidate.
+6. [CONTRIBUTING.md](../../CONTRIBUTING.md) and [ebp.example.toml](../../ebp.example.toml) (every config key).
+7. [SECURITY.md](../../SECURITY.md) and [SILENT_PAYMENTS.md](../SILENT_PAYMENTS.md): reporting, and why payout cannot use silent payment addresses.
+8. History, only if you need the why: [MAINNET_PLAN.md](MAINNET_PLAN.md) and [archive/](archive/README.md).
 
 ## Architecture decisions and WHY
 
@@ -90,8 +77,9 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
 ## Verified live shapes
 
 - Pointer: [`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs).
-- Pinned against: **barkd 0.8.0, signet** (responses 2026-11-01; the full
-  `/wallet/history` page 2026-11-03).
+- Pinned against: **barkd 0.8.0** (signet responses 2026-11-01 and 2026-11-03; the
+  mainnet drills of 15 to 16 November confirmed the Lightning, Ark, renewal, exit and
+  restore shapes on real money).
 - Covered: wallet mnemonic (`{"mnemonic": "…"}` under `--expose-mnemonic`),
   wallet connected (`{"connected": true}`), Lightning receive fee body, VTXO
   list empty shape (`[]`), and the other client-facing response bodies used by
@@ -105,8 +93,8 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
   receive evidence (`subsystem.kind = "receive"`, non-empty `received_on`,
   or an explicit `direction: "receive"`). Round/send/board movements and
   signal-less entries NEVER credit; a refused payment-looking entry logs a
-  loud pin-me warning. STILL UNPINNED: the on-chain receive entry's exact
-  shape — watch for that warning in any on-chain drill.
+  loud pin-me warning. (EBP no longer takes regular on-chain payments, so the
+  on-chain receive entry shape no longer matters for crediting.)
 - Drift check: [`scripts/check_barkd_drift.sh`](../../scripts/check_barkd_drift.sh)
   verifies every `PATH_*` constant against
   [`docs/barkd-openapi.json`](../barkd-openapi.json) in CI (and fails loudly if
@@ -149,36 +137,23 @@ serving on the VPS). Full story: [docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md).
   checkout; proved invoice creation, checkout polling, payment attribution,
   state transition, and signed webhook emission.
 
-## Phase plan
+## What is open
 
-- **Phase 0:** [docs/dev/archive/PHASE0_SPIKE_PLAN.md](archive/PHASE0_SPIKE_PLAN.md) — Bark/barkd
-  spike questions, commands, and observed outputs.
-- **Phase 1:** [docs/dev/PHASE1_PLAN.md](PHASE1_PLAN.md) — barkd integration,
-  watcher, expiry queue, settlement engine, setup wizard, live shape pinning.
+The authoritative lists are [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and section 3 of
+[MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). In short, on 19 November 2026:
 
-## What remains
-
-The authoritative list is [RC_CHECKLIST.md](RC_CHECKLIST.md) (sections 2 and 3).
-In short:
-
-1. **Things only a person can do**: the live signet drill
-   ([SIGNET_DRILL.md](SIGNET_DRILL.md)), a real DigitalOcean run
-   ([VPS_DIGITALOCEAN.md](../START_HERE.md)), WooCommerce on a real shop host,
-   phone alerts on a real phone, a backup restore on a second machine, and a
-   newcomer following [START_HERE.md](../START_HERE.md) without help.
-2. **Decisions**: the public GitHub name (it appears in several files; change it
-   before the first tag), turning on private vulnerability reporting, protecting
-   `v*` tags, and deleting stale branches (never merge `mut-test`).
-3. **The release cut.** A human chooses and confirms the tag. Start with
-   `v0.1.0-rc1` (a pre-release; play money only). Pushing a `v*` tag makes
-   `.github/workflows/release.yml` build the binaries, `SHA256SUMS`, the plugin
-   zip and the multi-arch image. Signing has not been exercised yet. A manual
-   run of the workflow is a dry run that publishes nothing.
-4. **Still unpinned**: the on-chain receive history entry shape. Crediting is
-   fail-closed, and the on-chain rail is off by default until the signet drill
-   has been run.
-5. **Not built**: Shopify ([SHOPIFY.md](SHOPIFY.md) is a plan), Lightning
-   payouts, silent payment payouts, refunds, automatic updates.
+1. **Owner's test of 0.2.2-rc1:** the Home-tab update, a whole-balance Ark send with nothing
+   kept (does the wallet take a fee on an exact whole balance?), the minimums, the emergency
+   withdrawal opt-in and its send-back, passkeys. Problems become 0.2.2-rc2.
+2. **Move to Bark 0.9 before v0.3-rc1**, with an explicit `"method":"ark"` on sends, a guardrail
+   that checks the net amount before an on-chain sweep, and a re-drill of the emergency exit on
+   0.9 with small coins. Waiting on answers from Second (when the Ark server moves to 0.9, the
+   exact figures and error text in the review).
+3. **Owner actions:** GitHub secret scanning and push protection, a `main` ruleset, the README
+   comparison-table wording, and the decisions in `RC_CHECKLIST.md` section 3.
+4. **Later:** `update.sh --first-install`, a webhook DNS-rebinding guard, `--locked` in the
+   Dockerfile, Shopify ([SHOPIFY.md](SHOPIFY.md) is a plan), Lightning and silent-payment
+   payouts, refunds, automatic updates.
 
 ## Cold-start commands
 

@@ -1,6 +1,6 @@
 # Easy Bitcoin Payments
 
-**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning, Ark or regular on-chain), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **testing**: play money by default, real bitcoin only in small amounts.
+**Easy Bitcoin Payments lets an online store accept Bitcoin without a payment company in the middle.** You run a small server of your own, and a plugin connects it to your WooCommerce shop. Customers pay with Bitcoin on a simple checkout page (Lightning or Ark), and the order is marked paid automatically. Your earnings are moved to a wallet that you control, and there are no software fees. It is free and open source, and for now it is for **testing**: play money by default, real bitcoin only in small amounts.
 
 > **⚠ EXPERIMENTAL: NOT FOR PRODUCTION USE.** This is pre-release software. Its
 > wallet integration has not been audited and no independent security audit has
@@ -89,7 +89,7 @@ the keys, no middleman) but aims at a different merchant.
 | Inbound liquidity | You must arrange it | None needed |
 | Bitcoin node | Full node required | None |
 | Upkeep | Chain sync, channel management, several services | One server, no chain sync |
-| Money on the server | Lightning keys and channel funds | A small capped "till", swept to your wallet automatically |
+| Money on the server | Lightning keys and channel funds | A small "till", sent whole to your wallet automatically |
 | Setup | Sysadmin-grade | Paste one block of text, no terminal |
 | Lightning trust | No third party on the payment path | Depends on the Ark server |
 | Features | POS, crowdfunding, pay buttons, plugins | Invoice API, checkout page, WooCommerce plugin |

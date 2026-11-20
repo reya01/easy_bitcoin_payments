@@ -320,6 +320,51 @@ mod lightning_fee_tests {
     }
 }
 
+/// Orders (store + order id) that are being turned into a payment request
+/// right now. A shop that double-clicks "Pay" or retries after a timeout sends
+/// the same order twice within moments; without this both could pass the
+/// "is there already one?" look-up before either had saved its invoice, and
+/// the customer would get two. Single server process, so a lock in memory is
+/// enough (EBP runs one process with one database connection).
+static ORDERS_IN_PROGRESS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<String>>,
+> = std::sync::OnceLock::new();
+
+/// Held from the look-up to the end of creating the request; releases the
+/// order when dropped (also if the request fails or is cancelled).
+struct OrderInProgress(String);
+
+impl Drop for OrderInProgress {
+    fn drop(&mut self) {
+        if let Some(set) = ORDERS_IN_PROGRESS.get() {
+            set.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.0);
+        }
+    }
+}
+
+/// Wait (at most about 20 seconds) until no other request is working on this
+/// same order, then claim it. Gives up with a plain "try again" instead of
+/// letting two requests run side by side.
+async fn claim_order(store_id: &str, order_id: &str) -> Result<OrderInProgress, AppError> {
+    let key = format!("{store_id}\u{0}{order_id}");
+    let set = ORDERS_IN_PROGRESS.get_or_init(Default::default);
+    for _ in 0..200 {
+        let claimed = set
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone());
+        if claimed {
+            return Ok(OrderInProgress(key));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Err(AppError::Conflict(
+        "This payment is still being set up. Please try again in a moment.".into(),
+    ))
+}
+
 pub async fn create(
     State(state): State<AppState>,
     auth: StoreAuth,
@@ -444,6 +489,12 @@ pub async fn create(
     // minting a new one. "Same amount" = same fiat amount+currency for fiat
     // requests (the sats figure drifts with the rate), same sats otherwise.
     // A changed amount creates a new invoice; the old one simply expires.
+    // The order is claimed for the whole creation, so a second request for the
+    // same order waits here and then finds the invoice this one made.
+    let _order_claim = match req.order_id.as_deref().filter(|o| !o.trim().is_empty()) {
+        Some(order_id) => Some(claim_order(&auth.store.id, order_id).await?),
+        None => None,
+    };
     if let Some(order_id) = req.order_id.clone().filter(|o| !o.trim().is_empty()) {
         let store_id = auth.store.id.clone();
         let existing = state
@@ -573,7 +624,7 @@ pub async fn create(
 
     let invoice = state
         .db
-        .call(move |conn| invoice::insert(conn, &new_invoice))
+        .call(move |conn| invoice::insert_with_cap(conn, &new_invoice, invoice::MAX_OPEN_INVOICES))
         .await?;
 
     // Lightning receive (Phase 1): ask the wallet for an LN invoice through

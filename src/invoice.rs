@@ -753,9 +753,16 @@ pub fn record_payment(
     )?;
     if changed == 0 {
         // Raced with a concurrent transition (possible once Db ever swaps
-        // its single Mutex connection for a pool). Treat as a no-op: the
-        // payment row is already durably recorded above.
-        return Ok(None);
+        // its single Mutex connection for a pool). The payment row inserted
+        // above is NOT saved: returning here drops the transaction, which
+        // rolls it back. So this must be an error, never "nothing to do":
+        // the watcher stops this tick and looks at the payment again on the
+        // next one, when the invoice's new state is read. (Before, this
+        // returned `Ok(None)` under a comment claiming the row was safe, which
+        // would have lost the payment from the books.)
+        return Err(AppError::Unavailable(
+            "the invoice changed while a payment was being recorded; the payment is looked at again shortly".into(),
+        ));
     }
 
     let updated = tx.query_row(
@@ -1027,6 +1034,49 @@ mod tests {
 
         assert_eq!(status, InvoiceStatus::Overpaid);
         assert_eq!(invoice.paid_sats, 1500);
+    }
+
+    #[tokio::test]
+    async fn a_lost_race_is_an_error_and_the_payment_is_recorded_on_the_retry() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| insert(conn, &new_invoice(&sid, "inv_1", 1000)))
+            .await
+            .unwrap();
+        // Make the invoice update change nothing, as a lost race would.
+        db.call(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER no_update BEFORE UPDATE ON invoices BEGIN SELECT RAISE(IGNORE); END;",
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let err = db
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_1"))))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::Unavailable(_)), "{err:?}");
+        let rows: i64 = db
+            .call(|conn| Ok(conn.query_row("SELECT COUNT(*) FROM payments", [], |r| r.get(0))?))
+            .await
+            .unwrap();
+        assert_eq!(rows, 0, "the half-done payment must not be left behind");
+
+        // The race is over: the same payment, seen again, is recorded.
+        db.call(|conn| {
+            conn.execute_batch("DROP TRIGGER no_update;")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let (invoice, status) = db
+            .call(|conn| record_payment(conn, &obs("inv_1", "ark", 1000, Some("vtxo_1"))))
+            .await
+            .unwrap()
+            .expect("payment applied on the retry");
+        assert_eq!(status, InvoiceStatus::Paid);
+        assert_eq!(invoice.paid_sats, 1000);
     }
 
     #[tokio::test]

@@ -92,9 +92,12 @@ pub fn set_opted_in(conn: &Connection, on: bool) -> Result<(), AppError> {
     }
 }
 
-/// How much transaction space the "send back" estimate allows for (a few
+/// How much transaction space the "send back" estimate allows for (many small
 /// inputs and two outputs, generously), times the network fee rate.
-pub const LEFTOVER_FEE_VBYTES: i64 = 400;
+pub const LEFTOVER_FEE_VBYTES: i64 = 600;
+/// The estimate is padded by half again, so a fee that comes out higher than
+/// expected cannot dent the 5,000-sat floor the emergency withdrawal needs.
+pub const LEFTOVER_FEE_PAD_PERCENT: i64 = 150;
 /// Less than this above the floor is not worth a transaction.
 pub const MIN_LEFTOVER_SEND_SATS: i64 = 1_000;
 
@@ -120,7 +123,11 @@ pub fn leftover_plan(
     if !opted_in || exit_started {
         return Ok(Leftover::Everything);
     }
-    let fee = fee_rate_sat_vb.max(1).saturating_mul(LEFTOVER_FEE_VBYTES);
+    let fee = fee_rate_sat_vb
+        .max(1)
+        .saturating_mul(LEFTOVER_FEE_VBYTES)
+        .saturating_mul(LEFTOVER_FEE_PAD_PERCENT)
+        / 100;
     let amount = confirmed_sats
         .max(0)
         .saturating_sub(RESERVE_FLOOR_SATS)
@@ -386,15 +393,27 @@ mod tests {
             leftover_plan(true, true, 50_000, 10),
             Ok(Leftover::Everything)
         );
-        // On: only what is above 5,000, after the fee (10 sat/vB x 400 = 4,000).
+        // On: only what is above 5,000, after the padded fee
+        // (10 sat/vB x 600 vB x 1.5 = 9,000).
         assert_eq!(
             leftover_plan(true, false, 50_000, 10),
-            Ok(Leftover::Amount(41_000))
+            Ok(Leftover::Amount(36_000))
         );
         assert_eq!(
             leftover_plan(true, false, 10_000, 1),
-            Ok(Leftover::Amount(4_600))
+            Ok(Leftover::Amount(4_100))
         );
+        // The floor holds even if the real fee is as much as the padded
+        // estimate: what is left is never under 5,000.
+        for confirmed in [6_000, 9_999, 12_345, 50_000, 1_000_000] {
+            for rate in [1, 7, 25, 120] {
+                if let Ok(Leftover::Amount(sent)) = leftover_plan(true, false, confirmed, rate) {
+                    let padded_fee = rate * LEFTOVER_FEE_VBYTES * LEFTOVER_FEE_PAD_PERCENT / 100;
+                    assert!(confirmed - sent - padded_fee >= RESERVE_FLOOR_SATS);
+                    assert!(confirmed - sent >= RESERVE_FLOOR_SATS + padded_fee);
+                }
+            }
+        }
         // Too little above the floor: refused, in plain words.
         let why = leftover_plan(true, false, 9_000, 10).expect_err("too little");
         assert!(why.contains("5,000"), "{why}");

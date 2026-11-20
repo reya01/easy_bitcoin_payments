@@ -1,4 +1,4 @@
-# Does the barkd we ship (0.8.0, the checksum-pinned build from the Dockerfile) work
+# Does the barkd we ship (0.9.0, the checksum-pinned build from the Dockerfile) work
 # against Second's real MAINNET Ark server? Run by hand:
 # Actions -> mainnet-compat-check -> Run workflow.
 #
@@ -16,13 +16,13 @@ permissions:
 
 jobs:
   check:
-    name: barkd 0.8.0 against the mainnet Ark server
+    name: barkd 0.9.0 against the mainnet Ark server
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       ARK_SERVER: https://ark.second.tech
-      BARK_VERSION: "0.8.0"
-      BARK_SHA_X86_64: e78bb35dbfb4c9b639a505e12e8cf3c3ab0a730c0fa4d42032b053a7b9db2a14
+      BARK_VERSION: "0.9.0"
+      BARK_SHA_X86_64: 840d559de5a6b744bac0fedeea66e32d985e01c62763393f1e896e0c53dc1eb4
     steps:
       - name: Download barkd (checksum-pinned, same build as the Dockerfile)
         run: |
@@ -60,5 +60,5 @@ jobs:
       - name: Show the result
         if: always()
         run: |
-          { echo '### barkd 0.8.0 against the mainnet Ark server'; echo; echo '```'; cat "$RUNNER_TEMP/result.txt" 2>/dev/null; echo '```'; echo; echo 'barkd log (last lines; contains no words):'; echo '```'; tail -n 25 "$RUNNER_TEMP/barkd.log" 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### barkd 0.9.0 against the mainnet Ark server'; echo; echo '```'; cat "$RUNNER_TEMP/result.txt" 2>/dev/null; echo '```'; echo; echo 'barkd log (last lines; contains no words):'; echo '```'; tail -n 25 "$RUNNER_TEMP/barkd.log" 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           rm -rf "$RUNNER_TEMP/bark-mainnet-check"

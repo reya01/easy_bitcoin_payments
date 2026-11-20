@@ -6,6 +6,12 @@
 # install), as a user that can run docker:
 #
 #   ./scripts/drill_capture.sh            # writes drill-capture-<time>.txt here
+#   ./scripts/drill_capture.sh --with-debug-info
+#                                         # also reads /wallet/debug-info (one more
+#                                         # read-only GET). Used before and after a
+#                                         # barkd move to confirm the VTXO xpub is
+#                                         # identical. It holds the xpub, so keep
+#                                         # that capture private.
 #
 # Safety:
 #  * Only a fixed list of read-only GET requests is made (no mnemonic
@@ -17,9 +23,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+EXTRA=""
+case "${1:-}" in
+  "") ;;
+  --with-debug-info) EXTRA="/api/v1/wallet/debug-info" ;;
+  *) echo "usage: $0 [--with-debug-info]" >&2; exit 2 ;;
+esac
+
 out="drill-capture-$(date -u +%Y%m%dT%H%M%SZ).txt"
 
-docker compose exec -T ebp sh -s >"$out" <<'INNER'
+docker compose exec -T -e EXTRA_PATH="$EXTRA" ebp sh -s >"$out" <<'INNER'
 set -u
 DATADIR=/data/barkd
 T="$(barkd --datadir "$DATADIR" secret show 2>/dev/null | tr -d '\r\n')"
@@ -46,7 +59,8 @@ for path in \
   /api/v1/bitcoin/tip \
   /api/v1/exits/status/all \
   /api/v1/fees/onchain \
-  /api/v1/boards/pending
+  /api/v1/boards/pending \
+  $EXTRA_PATH
 do
   echo "## GET $path"
   curl -sS -m 20 -w '\n[http %{http_code}]\n' -H "Authorization: Bearer $T" "$B$path" || echo "[curl failed]"

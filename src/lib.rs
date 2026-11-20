@@ -1,7 +1,7 @@
 //! Easy Bitcoin Payments — Phase 1 code-complete, EXPERIMENTAL.
 //!
 //! A free, open-source, self-hosted Bitcoin payments server for online stores.
-//! The payment loop is implemented against a barkd 0.8.0 sidecar: invoice API,
+//! The payment loop is implemented against a barkd 0.9.0 sidecar: invoice API,
 //! hosted checkout, polling watcher with a persisted cursor, VTXO expiry queue,
 //! settlement engine, setup wizard, and signed webhooks. This build is
 //! EXPERIMENTAL. Signet (play money) is the default; mainnet is opt-in with

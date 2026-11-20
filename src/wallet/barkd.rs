@@ -753,7 +753,14 @@ impl BarkdClient {
     pub async fn ark_send(&self, destination: &str, amount_sats: i64) -> Result<Json, WalletError> {
         // Shape pinned by docs/barkd-openapi.json for /wallet/send (checked in CI by scripts/check_barkd_contract.py); live-confirm in the signet drill; destination/amount_sats is our best-effort model.
         // Pinned OpenAPI SendRequest: `amount_sat` (NOT `amount_sats`).
-        let body = serde_json::json!({ "destination": destination, "amount_sat": amount_sats });
+        // `"method": "ark"` names the rail: with no method the wallet picks Ark, then Lightning,
+        // then on-chain (and from 0.8.1 pays a bare bitcoin address on-chain), so a refused Ark
+        // payment must never turn into a different rail with different fees.
+        let body = serde_json::json!({
+            "destination": destination,
+            "amount_sat": amount_sats,
+            "method": "ark",
+        });
         self.post(PATH_ARK_SEND, &body).await
     }
 
@@ -2432,6 +2439,8 @@ mod tests {
         let body: serde_json::Value = serde_json::from_str(&all[0].body).unwrap();
         assert_eq!(body["destination"], "ark1merchant");
         assert_eq!(body["amount_sat"], 50_000);
+        // The rail is named, so a refused Ark send can never become a different kind of payment.
+        assert_eq!(body["method"], "ark");
     }
 
     #[tokio::test]

@@ -137,7 +137,7 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 >   with it.
 > - **Safer sign-in:** obviously weak passwords are refused; password screens
 >   allow 5 tries a minute and 30 an hour; three wrong codes lock further tries.
-> - **Checkout:** Lightning by default and one Ark box; EBP no longer takes
+> - **Checkout:** Lightning by default with a Lightning / Ark choice under the code; EBP no longer takes
 >   regular (on-chain) Bitcoin payments.
 > - **Server:** the container runs read-only, without root's special powers.
 > - Removed: the server settings `EBP_HOT_WALLET_CAP_SATS` and

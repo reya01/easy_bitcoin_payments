@@ -92,8 +92,8 @@ payout sweep to your own on-chain address is tested in step 6.
 
 | # | Do | Expect |
 |---|----|--------|
-| 3.1 | Open the checkout page of a test payment | One QR (Lightning), one **Ark (fast)** box under it, no "Other ways to pay", no regular Bitcoin address |
-| 3.2 | Tick **Ark (fast)** | The Ark address and the "type exactly" amount box show; unticking returns to Lightning |
+| 3.1 | Open the checkout page of a test payment | One QR (Lightning), two choices under it (**Lightning (fast)** checked, **Ark (also fast)**), no "Other ways to pay", no regular Bitcoin address |
+| 3.2 | Choose **Ark (also fast)** | The check moves to Ark; the Ark address and the "type exactly" amount box show; choosing **Lightning (fast)** returns to Lightning |
 
 ## 4. Admin page, alerts, webhooks
 

@@ -25,7 +25,10 @@
 <button class="btn small" id="copy-ark-amount" type="button">Copy the number</button>
 </div>
 <div class="qr" id="qr">Use the button below to pay.</div>
-<label class="choice hidden" id="ark-choice" title="Ark: a newer, fast way to send Bitcoin. Your wallet must support it. (Technical: an Ark address.)"><input type="checkbox" id="use-ark"><span>Ark (fast)</span></label>
+<div class="choices hidden" id="ark-choice" role="radiogroup" aria-label="How do you want to pay?">
+<button class="choice on" id="pick-ln" type="button" role="radio" aria-checked="true" title="Lightning: a fast way to send Bitcoin with a tiny fee. Your wallet must support it. (Technical: a Lightning invoice.)"><span class="tick" aria-hidden="true"></span><span>Lightning (fast)</span></button>
+<button class="choice" id="pick-ark" type="button" role="radio" aria-checked="false" title="Ark: a newer, fast way to send Bitcoin. Your wallet must support it. (Technical: an Ark address.)"><span class="tick" aria-hidden="true"></span><span>Ark (also fast)</span></button>
+</div>
 <p class="tab-help hidden" id="tab-help"></p>
 <p class="method" id="method"></p>
 <p class="ln-fee hidden" id="ln-fee"></p>
@@ -42,9 +45,9 @@
 <summary>Help</summary>
 <p><b>I need a Bitcoin wallet.</b> You pay from a Bitcoin wallet app on your phone that already holds some bitcoin. If you do not have one, go back to the shop and choose another way to pay.</p>
 <p><b>What is a sat?</b> A tiny piece of a bitcoin. 100 million sats make one bitcoin.</p>
-<p><b>Which way should I choose?</b> We start with Lightning, which is fast and usually costs a tiny fee. If your wallet cannot pay Lightning but supports Ark, tick the "Ark (fast)" box under the code. This store does not take regular Bitcoin payments.</p>
+<p><b>Which way should I choose?</b> We start with Lightning, which is fast and usually costs a tiny fee. If your wallet cannot pay Lightning but supports Ark, choose "Ark (also fast)" under the code. You can switch back to Lightning at any time. This store does not take regular Bitcoin payments.</p>
 <p><b>Why is there a timer?</b> The price of bitcoin moves, so the store holds today's price for a short time. If it runs out, go back to the shop and start again.</p>
-<p><b>Technical details.</b> The code is a Lightning invoice (BOLT 11) until you tick "Ark (fast)", which shows an Ark address instead.</p>
+<p><b>Technical details.</b> The code is a Lightning invoice (BOLT 11) until you choose "Ark (also fast)", which shows an Ark address instead.</p>
 <p><b>I paid but it still says waiting.</b> Give it a minute. If nothing changes, contact the store and tell them the time you paid.</p>
 </details>
 <footer><p>Bitcoin payments cannot be reversed, so refunds are up to the store. We do not ask for an account or email, and we do not track you.</p></footer>

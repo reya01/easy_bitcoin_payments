@@ -2,7 +2,7 @@
 "use strict";
 var id = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
 function $(x) { return document.getElementById(x); }
-var els = { method: $("method"), store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner"), back: $("back"), backLink: $("back-link"), open: $("open-wallet"), copy: $("copy-btn"), help: $("tab-help"), choice: $("ark-choice"), useArk: $("use-ark"), lead: $("lead") };
+var els = { method: $("method"), store: $("store-name"), amount: $("amount"), sats: $("sats"), cd: $("countdown"), addr: $("address"), st: $("status"), fee: $("ln-fee"), banner: $("test-banner"), back: $("back"), backLink: $("back-link"), open: $("open-wallet"), copy: $("copy-btn"), help: $("tab-help"), choice: $("ark-choice"), pickLn: $("pick-ln"), pickArk: $("pick-ark"), lead: $("lead") };
 // Two ways to pay. Lightning is the default whenever there is a Lightning invoice;
 // one box under the code switches to Ark. There is no regular (on-chain) Bitcoin
 // payment and no combined "one code" link.
@@ -65,11 +65,16 @@ function render() {
   // What is scanned, copied and shown is the same thing.
   s.copyValue = shown;
   drawQr(s.copyValue);
-  // The Ark box is offered only while there is a Lightning invoice to switch away
-  // from, and not during a top-up (a top-up can only be paid over Ark).
+  // The two choices (Lightning on top, Ark below) are offered only while there is a
+  // Lightning invoice, and not during a top-up (a top-up can only be paid over Ark).
+  // Both are always shown; a check mark says which one is selected.
   var offerArk = !!(s.ln && !s.part);
   els.choice.classList.toggle("hidden", !offerArk);
-  els.useArk.checked = s.tab === "ark";
+  [["ln", els.pickLn], ["ark", els.pickArk]].forEach(function (p) {
+    var on = s.tab === p[0];
+    p[1].classList.toggle("on", on);
+    p[1].setAttribute("aria-checked", on ? "true" : "false");
+  });
   if (s.data) {
     els.lead.textContent = "";
     var lb = document.createElement("b"); lb.textContent = "Pay from your Bitcoin wallet app. ";
@@ -86,7 +91,7 @@ function render() {
   } else if (s.part && shown) {
     els.method.textContent = "Paying the rest with " + methodName[s.tab] + ": " + fmtSats(s.part.remaining) + ".";
   } else {
-    els.method.textContent = shown ? "Paying with " + methodName[s.tab] + (s.tab === "ln" && offerArk ? ". Does your wallet support Ark instead? Tick \u201cArk (fast)\u201d above." : ".") : "";
+    els.method.textContent = shown ? "Paying with " + methodName[s.tab] + (s.tab === "ln" && offerArk ? ". Does your wallet support Ark instead? Choose \u201cArk (also fast)\u201d above." : ".") : "";
   }
   els.help.textContent = helpText[s.tab] || "";
   els.help.classList.toggle("hidden", !helpText[s.tab] || !offerArk || s.tab === "ln");
@@ -102,7 +107,8 @@ function select(k) {
   s.tab = k;
   render();
 }
-els.useArk.addEventListener("change", function () { select(els.useArk.checked ? "ark" : "ln"); });
+els.pickLn.addEventListener("click", function () { select("ln"); });
+els.pickArk.addEventListener("click", function () { select("ark"); });
 function copyText(t, btn, label) {
   if (!t || t === "—") return;
   var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = label; }, 1500); };
@@ -200,7 +206,7 @@ function showPart(b) {
     return;
   }
   // A Lightning invoice carries the full amount, so it would overpay: a top-up goes over Ark only.
-  // (render() hides the Ark box while s.part is set; it runs on every answer, so a page that
+  // (render() hides the two choices while s.part is set; it runs on every answer, so a page that
   // finishes loading after this still ends up right.)
   s.tab = "ark";
   s.part = { remaining: remaining, received: received };

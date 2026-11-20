@@ -1072,7 +1072,6 @@ mod tests {
     }
 
     #[tokio::test]
-<<<<<<< HEAD
     async fn a_lost_race_is_an_error_and_the_payment_is_recorded_on_the_retry() {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();
@@ -1113,7 +1112,9 @@ mod tests {
             .expect("payment applied on the retry");
         assert_eq!(status, InvoiceStatus::Paid);
         assert_eq!(invoice.paid_sats, 1000);
-=======
+    }
+
+    #[tokio::test]
     async fn an_underpaid_invoice_is_still_the_open_one_for_its_order() {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();
@@ -1170,7 +1171,6 @@ mod tests {
         db.call(move |conn| insert_with_cap(conn, &new_invoice(&store_id, "inv_3", 1000), 2))
             .await
             .unwrap();
->>>>>>> a48f956 (Invoice creation: one invoice per order even when retried at once, reuse part-paid invoices, cap open invoices)
     }
 
     #[tokio::test]

@@ -469,11 +469,17 @@ pub fn find_open_by_order_id(
     order_id: &str,
 ) -> Result<Option<Invoice>, AppError> {
     conn.query_row(
+        // A part-paid invoice is handed back only while it still accepts a
+        // top-up (15 minutes from its first payment). After that a retry gets a
+        // fresh invoice, and the part payment stays visible as underpaid.
         "SELECT * FROM invoices
-         WHERE store_id = ?1 AND order_id = ?2
-           AND status IN ('pending', 'underpaid') AND expires_at > ?3
+         WHERE store_id = ?1 AND order_id = ?2 AND expires_at > ?3
+           AND (status = 'pending'
+                OR (status = 'underpaid'
+                    AND COALESCE((SELECT MIN(detected_at) FROM payments
+                                  WHERE invoice_id = invoices.id), ?3) + ?4 > ?3))
          ORDER BY created_at DESC LIMIT 1",
-        params![store_id, order_id, now_unix()],
+        params![store_id, order_id, now_unix(), TOPUP_WINDOW_SECS],
         row_to_invoice,
     )
     .optional()
@@ -1141,6 +1147,37 @@ mod tests {
             .await
             .unwrap();
         assert!(none.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_part_paid_invoice_is_handed_back_only_while_it_still_accepts_a_top_up() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        let mut one = new_invoice(&sid, "inv_1", 1000);
+        one.order_id = Some("wc-7".to_string());
+        db.call(move |conn| insert(conn, &one)).await.unwrap();
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 400, Some("vtxo_1"))))
+            .await
+            .unwrap();
+        let find = |db: Db, sid: String| async move {
+            db.call(move |conn| find_open_by_order_id(conn, &sid, "wc-7"))
+                .await
+                .unwrap()
+        };
+        // Inside the window: handed back.
+        assert!(find(db.clone(), store_id.clone()).await.is_some());
+        // The first payment is now older than the top-up window (the invoice
+        // itself has not expired yet): a retry must not get it back.
+        db.call(|conn| {
+            conn.execute(
+                "UPDATE payments SET detected_at = ?1 WHERE invoice_id = 'inv_1'",
+                [now_unix() - TOPUP_WINDOW_SECS - 60],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(find(db.clone(), store_id.clone()).await.is_none());
     }
 
     #[tokio::test]

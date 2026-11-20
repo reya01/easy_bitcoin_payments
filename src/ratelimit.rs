@@ -217,6 +217,7 @@ pub async fn limit_failed_tries(
     next: Next,
 ) -> Response {
     let key = limiter.client_key(&req);
+    let refundable = good_try_is_given_back(req.uri().path());
     let (allowed, window_start) = limiter.take(&key, now_unix());
     if !allowed {
         return (
@@ -227,15 +228,62 @@ pub async fn limit_failed_tries(
             .into_response();
     }
     let response = next.run(req).await;
-    if response.status().is_success() {
+    if refundable && response.status().is_success() {
         limiter.refund(&key, window_start);
     }
     response
 }
 
+/// The screens whose success PROVES the admin password (and the second step) was right.
+/// Only these give a good try back. Every other screen behind the brake (sign-in,
+/// the update check that makes the helper do network work as root, the backup check,
+/// setting up the app code, finishing a passkey) keeps counting every request: a
+/// success there proves nothing about a password, so it must stay limited as before.
+const GOOD_TRY_GIVEN_BACK: &[&str] = &[
+    "/admin/backup",
+    "/admin/payout",
+    "/admin/payout/cap",
+    "/admin/payout/min",
+    "/admin/exit/optin",
+    "/admin/exit/start",
+    "/admin/exit/cancel",
+    "/admin/exit/claim",
+    "/admin/exit/leftover",
+    "/admin/2fa/disable",
+    "/admin/passkeys/begin",
+    "/admin/passkeys/remove",
+    "/admin/passkeys/disable",
+    "/admin/password",
+    "/admin/update/apply",
+];
+
+fn good_try_is_given_back(path: &str) -> bool {
+    GOOD_TRY_GIVEN_BACK.contains(&path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_screens_that_prove_the_password_give_a_try_back() {
+        assert!(good_try_is_given_back("/admin/payout/min"));
+        assert!(good_try_is_given_back("/admin/update/apply"));
+        // Nothing here proves a password: these keep counting every request.
+        for path in [
+            "/admin/login",
+            "/admin/login/passkey",
+            "/admin/update/check",
+            "/admin/backup/check",
+            "/admin/2fa/start",
+            "/admin/2fa/confirm",
+            "/admin/passkeys/finish",
+            "/admin/payout/min/",
+            "",
+        ] {
+            assert!(!good_try_is_given_back(path), "{path} must not refund");
+        }
+    }
 
     #[test]
     fn a_refunded_try_does_not_count_but_a_wrong_one_does() {

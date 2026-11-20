@@ -277,7 +277,7 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 | `EBP_RATES_TIMEOUT_SECS` | `4` | How long each Bitcoin-price source gets to answer. The price is fetched in the background (see "The Bitcoin price" below), so this never slows a page down |
 | `EBP_MAX_EXPIRY_MINUTES` | `1440` | Upper bound on invoice lifetime |
 | `EBP_WEBHOOK_TIMEOUT_SECS` | `10` | Webhook delivery timeout |
-| `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses (local dev only; env-only, not in the TOML) |
+| `EBP_WEBHOOK_ALLOW_PRIVATE` | unset | `1` lets webhook URLs target loopback/private addresses, and turns off the connection-time check that a website name points at a public address (local dev, or a shop on your own private network; env-only, not in the TOML) |
 | `EBP_MAX_INVOICE_SATS` | `100000000` | Largest single payment request the server accepts (1 up to 21 million BTC in sats; the shop's key cannot raise it) |
 | `EBP_INVOICE_RATE_LIMIT_PER_MIN` | `60` | New payment requests one shop key may make per minute; over it the server answers 429 `rate_limited` (`0` disables) |
 | `EBP_PUBLIC_RATE_LIMIT_PER_MIN` | `120` | Per-client request limit on public `/i/*` checkout routes (`0` disables) |

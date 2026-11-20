@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use hmac::digest::KeyInit;
@@ -118,9 +119,10 @@ fn ip_is_private(ip: std::net::IpAddr) -> bool {
 /// Rejects non-http(s) schemes, embedded credentials, and hosts that are
 /// loopback / private / link-local IP literals or `localhost`-style names,
 /// unless `allow_private` is true (local development, and the test suite's
-/// loopback mock). LIMITATION: this is a textual check — a public DNS name
-/// that resolves to a private IP (DNS rebinding) is NOT caught; pair with
-/// network egress rules in production. See docs/KNOWN_ISSUES.md.
+/// loopback mock). This is only the textual first line of defence (it gives
+/// the owner a plain message when saving): a public name that points at a
+/// private address, or changes its answer later (DNS rebinding), is stopped
+/// when connecting, by [`PublicOnlyResolver`] in [`WebhookEmitter`].
 pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String> {
     let url = reqwest::Url::parse(raw).map_err(|e| {
         format!(
@@ -160,6 +162,48 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
     Ok(())
 }
 
+/// Keep only the addresses a webhook may be sent to (see [`ip_is_private`]).
+fn public_addresses_only(addrs: Vec<std::net::SocketAddr>) -> Vec<std::net::SocketAddr> {
+    addrs
+        .into_iter()
+        .filter(|a| !ip_is_private(a.ip()))
+        .collect()
+}
+
+/// Looks a website name up and hands the connection ONLY its public
+/// addresses. The textual check in [`validate_webhook_url`] cannot know what a
+/// name will point to later; a name that points at this server's own network
+/// (the wallet, the cloud's metadata address) would pass it, and so would a
+/// name that changes its answer after the check ("DNS rebinding"). Checking
+/// here, at the moment of connecting, uses the very address that is then
+/// connected to, so there is no gap to slip through. Addresses written as
+/// numbers in the URL never reach this resolver; the textual check covers them.
+struct PublicOnlyResolver;
+
+impl reqwest::dns::Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let found: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+                .collect();
+            let public = public_addresses_only(found);
+            if public.is_empty() {
+                let refused: Box<dyn std::error::Error + Send + Sync> = Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "that website name points at a private or local address, so nothing was sent",
+                    ),
+                );
+                return Err(refused);
+            }
+            let addrs: reqwest::dns::Addrs = Box::new(public.into_iter());
+            Ok(addrs)
+        })
+    }
+}
+
 /// Whether private/loopback webhook targets are allowed
 /// (`EBP_WEBHOOK_ALLOW_PRIVATE=1`; local development only).
 pub fn allow_private_from_env() -> bool {
@@ -193,8 +237,15 @@ pub struct WebhookEmitter {
 
 impl WebhookEmitter {
     pub fn new(timeout_secs: u64) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(timeout_secs.max(1)))
+        let mut builder =
+            reqwest::Client::builder().timeout(Duration::from_secs(timeout_secs.max(1)));
+        // A name must resolve to public addresses only, at connection time
+        // (unless the owner turned on EBP_WEBHOOK_ALLOW_PRIVATE for a shop on
+        // their own network).
+        if !allow_private_from_env() {
+            builder = builder.dns_resolver(Arc::new(PublicOnlyResolver));
+        }
+        let client = builder
             // SECURITY (beta hardening): never follow redirects. A merchant
             // URL that 302s to an internal address (cloud metadata,
             // barkd on 127.0.0.1) would otherwise bypass URL validation.
@@ -296,6 +347,51 @@ mod tests {
                 "should allow {good}"
             );
         }
+    }
+
+    #[test]
+    fn only_public_addresses_are_kept_when_a_name_is_resolved() {
+        let addr = |s: &str| s.parse::<std::net::SocketAddr>().unwrap();
+        let kept = public_addresses_only(vec![
+            addr("127.0.0.1:0"),
+            addr("10.1.2.3:0"),
+            addr("[::1]:0"),
+            addr("169.254.169.254:0"),
+            addr("203.0.113.9:0"),
+            addr("[2001:db8::1]:0"),
+        ]);
+        assert_eq!(kept, vec![addr("203.0.113.9:0"), addr("[2001:db8::1]:0")]);
+        assert!(public_addresses_only(vec![addr("192.168.0.9:0")]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_name_that_points_at_this_machine_is_never_connected_to() {
+        // "localhost" passes no public check: nothing may connect, even though
+        // a listener is right there.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let emitter = WebhookEmitter::new(2);
+        let result = emitter
+            .emit(
+                &format!("http://localhost:{port}/hook"),
+                SECRET,
+                "invoice.paid",
+                "key-1",
+                &serde_json::json!({"event": "invoice.paid"}),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(WebhookError::Transport(_))),
+            "{result:?}"
+        );
+        assert!(
+            matches!(
+                listener.accept(),
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+            ),
+            "no connection may reach the local listener"
+        );
     }
 
     #[test]

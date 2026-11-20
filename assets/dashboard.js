@@ -1206,7 +1206,7 @@ function assertionBody(challenge, cred) {
 }
 function passkeyUseErrorText(e) {
   var n = e && e.name;
-  if (n === "NotAllowedError") return "The passkey was cancelled or timed out. You can try again, or use a code.";
+  if (n === "NotAllowedError") return "The passkey was cancelled or timed out. You can try again, or type your app code instead.";
   return (e && e.message) || "That did not work.";
 }
 // Sign in: the password was right, now the passkey instead of a code.
@@ -1227,11 +1227,24 @@ $("login-pk-btn").addEventListener("click", function () {
 // touch fills the box with a one-use ticket (shown as dots), which the action's own
 // request sends in place of a code. It is wiped after any request that carried a code.
 function pkSpecialInputs() { return document.querySelectorAll('input[id$="-code"]:not(#tf-code), input[id^="resume-code-"]'); }
+// Back to a normal code box: drops a passkey approval, so an app code (or a backup code) can be typed.
+function pkShowCodeBox(inp, clearValue) {
+  if (clearValue) inp.value = "";
+  delete inp.dataset.pk; inp.type = inp.dataset.pkType || "text";
+  var w = inp.nextElementSibling;
+  if (w && w.classList.contains("pkuse")) {
+    var n = w.querySelector(".pknote"), s = w.querySelector(".pkswitch");
+    if (n) { n.textContent = ""; n.classList.add("hidden"); }
+    if (s) s.classList.add("hidden");
+  }
+}
 function resetPkInputs() {
   var all = document.querySelectorAll("input[data-pk]");
-  for (var i = 0; i < all.length; i++) { all[i].value = ""; all[i].type = all[i].dataset.pkType || "text"; delete all[i].dataset.pk; }
+  for (var i = 0; i < all.length; i++) pkShowCodeBox(all[i], true);
   var notes = document.querySelectorAll(".pkuse .pknote");
   for (var j = 0; j < notes.length; j++) { notes[j].textContent = ""; notes[j].classList.add("hidden"); }
+  var sw = document.querySelectorAll(".pkuse .pkswitch");
+  for (var k = 0; k < sw.length; k++) sw[k].classList.add("hidden");
 }
 function decoratePasskeyInputs() {
   var inputs = pkSpecialInputs();
@@ -1244,13 +1257,16 @@ function decoratePasskeyInputs() {
     var inp = inputs[i];
     if (inp.nextElementSibling && inp.nextElementSibling.classList.contains("pkuse")) continue;
     var wrap = el("div", "", "pkuse"), note = el("p", "", "muted pknote hidden");
-    wrap.appendChild(button("Use a passkey instead", pkApprove(inp, note), "small"));
+    var back = button("Use an app code instead", (function (box) { return function () { pkShowCodeBox(box, true); box.focus(); }; })(inp), "small pkswitch hidden");
+    wrap.appendChild(button("Use a passkey instead", pkApprove(inp, note, back), "small"));
+    wrap.appendChild(back);
     wrap.appendChild(note);
+    wrap.appendChild(el("p", "Passkey not working? Type the 6-digit code from your authenticator app (or a backup code) in the box above instead.", "muted pkhint"));
     inp.insertAdjacentElement("afterend", wrap);
-    inp.addEventListener("input", function (e) { var t = e.target; if (t.dataset.pk) { delete t.dataset.pk; t.type = t.dataset.pkType || "text"; var n = t.nextElementSibling && t.nextElementSibling.querySelector(".pknote"); if (n) { n.textContent = ""; n.classList.add("hidden"); } } });
+    inp.addEventListener("input", function (e) { if (e.target.dataset.pk) pkShowCodeBox(e.target, false); });
   }
 }
-function pkApprove(inp, note) {
+function pkApprove(inp, note, back) {
   return function (btn) {
     note.classList.remove("hidden"); note.textContent = "Waiting for your passkey…";
     btn.disabled = true;
@@ -1264,7 +1280,8 @@ function pkApprove(inp, note) {
       inp.dataset.pkType = inp.type === "password" ? "text" : inp.type;
       inp.value = "pk:" + r.ticket; inp.type = "password"; inp.dataset.pk = "1";
       note.textContent = "Passkey approved. It works for one action, for two minutes.";
-    }).catch(function (e) { note.textContent = passkeyUseErrorText(e); })
+      back.classList.remove("hidden");
+    }).catch(function (e) { note.textContent = passkeyUseErrorText(e) + (e && e.name === "NotAllowedError" ? "" : " You can also type your app code in the box above."); })
       .then(function () { btn.disabled = false; });
   };
 }

@@ -232,6 +232,8 @@ def handle(method, path, query, body):
                 "lightning_send": {"min_fee_sat": 20, "base_fee_sat": 0, "ppm_expiry_table": table},
             },
             "max_vtxo_exit_depth": 100,
+            # New required field in the barkd 0.9.0 spec (a refresh takes at most this many coins).
+            "max_round_participation_outputs": 1000,
             "tos_link": None,
             "max_offboard_inputs": 100,
             "vtxo_expiry_delta": 144,

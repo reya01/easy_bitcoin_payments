@@ -234,6 +234,16 @@ pub async fn status(
     )
     .is_none();
     facts.live = state.config.mode == "live";
+    facts.wallet_update_needed = state
+        .db
+        .call(|c| {
+            Ok(crate::wallet::settlement::update_needed_showing(
+                c,
+                crate::util::now_unix(),
+            ))
+        })
+        .await
+        .unwrap_or(false);
     if let Ok((started, claimable)) = state
         .db
         .call(|c| {

@@ -178,7 +178,7 @@ fn public_addresses_only(addrs: Vec<std::net::SocketAddr>) -> Vec<std::net::Sock
 /// here, at the moment of connecting, uses the very address that is then
 /// connected to, so there is no gap to slip through. Addresses written as
 /// numbers in the URL never reach this resolver; the textual check covers them.
-struct PublicOnlyResolver;
+pub(crate) struct PublicOnlyResolver;
 
 impl reqwest::dns::Resolve for PublicOnlyResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {

@@ -47,6 +47,61 @@ const HANDLED_MAX: usize = 50_000;
 /// `settings` key holding the persisted history cursor (UNIX seconds).
 const HISTORY_CURSOR_KEY: &str = "watcher.history_cursor";
 
+/// When the watcher first failed to save a payment it could see in the wallet
+/// (unix seconds; empty or 0 = no trouble). Cleared by the next clean tick.
+pub const SAVE_TROUBLE_KEY: &str = "payment_save_trouble_at";
+/// Set once the phone alert for the current trouble has been queued, so a long
+/// outage sends one alert, not one per retry.
+const SAVE_TROUBLE_ALERTED_KEY: &str = "payment_save_trouble_alerted";
+/// A short hiccup (a busy moment, a restart) is not worth a phone alert.
+pub const SAVE_TROUBLE_ALERT_AFTER_SECS: i64 = 300;
+/// Home stops showing the line after this long without a fresh failure, in
+/// case the watcher itself stopped and can no longer clear it.
+const SAVE_TROUBLE_SHOW_SECS: i64 = 86_400;
+
+fn save_trouble_at(conn: &Connection) -> i64 {
+    crate::settings::get(conn, SAVE_TROUBLE_KEY)
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0)
+}
+
+/// A payment the wallet shows could not be saved. Remember since when, and
+/// queue ONE phone alert once it has lasted [`SAVE_TROUBLE_ALERT_AFTER_SECS`].
+/// The payment is not lost: the watcher tries it again every tick.
+pub fn note_save_trouble(conn: &Connection, now: i64) -> Result<(), AppError> {
+    let mut since = save_trouble_at(conn);
+    if since <= 0 {
+        since = now;
+        crate::settings::set(conn, SAVE_TROUBLE_KEY, &now.to_string())?;
+        crate::settings::set(conn, SAVE_TROUBLE_ALERTED_KEY, "")?;
+    }
+    let alerted = crate::settings::get(conn, SAVE_TROUBLE_ALERTED_KEY)?
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    if !alerted && now - since >= SAVE_TROUBLE_ALERT_AFTER_SECS {
+        crate::alerts::queue_notice(conn, "payment_not_saved")?;
+        crate::settings::set(conn, SAVE_TROUBLE_ALERTED_KEY, "1")?;
+    }
+    Ok(())
+}
+
+/// Every payment the wallet showed was saved: the trouble is over.
+pub fn clear_save_trouble(conn: &Connection) -> Result<(), AppError> {
+    if save_trouble_at(conn) > 0 {
+        crate::settings::set(conn, SAVE_TROUBLE_KEY, "")?;
+        crate::settings::set(conn, SAVE_TROUBLE_ALERTED_KEY, "")?;
+    }
+    Ok(())
+}
+
+/// Home should show the red "a payment could not be saved yet" line.
+pub fn save_trouble_showing(conn: &Connection, now: i64) -> bool {
+    let at = save_trouble_at(conn);
+    at > 0 && now - at < SAVE_TROUBLE_SHOW_SECS
+}
+
 pub struct PollingWatcher {
     wallet: Arc<dyn WalletAdapter>,
     db: Db,
@@ -348,10 +403,44 @@ impl PollingWatcher {
             {
                 Ok(outcome) => outcome,
                 Err(err @ AppError::BadRequest(_)) | Err(err @ AppError::Conflict(_)) => {
-                    tracing::warn!(error = %err, "payment rejected as permanently unrecordable; skipping it");
+                    // This payment can never be credited to its order. Do not
+                    // lose sight of it: park it under Alerts so the owner sees
+                    // it and can refund or fulfil by hand.
+                    tracing::warn!(error = %err, "payment rejected as permanently unrecordable; parking it under Alerts");
+                    let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+                    let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+                    let (amount, seen) = (payment.amount_sats, payment.detected_at);
+                    self.db
+                        .call(move |conn| {
+                            invoice::record_unmatched(
+                                conn,
+                                &invoice::UnmatchedInput {
+                                    address: &addr,
+                                    rail: &rail,
+                                    amount_sats: amount,
+                                    vtxo_id: vtxo.as_deref(),
+                                    txid: txid.as_deref(),
+                                    detected_at: seen,
+                                    reason_override: Some("could_not_be_recorded"),
+                                },
+                            )
+                        })
+                        .await?;
                     continue;
                 }
-                Err(err) => return Err(err),
+                Err(err) => {
+                    // Not a verdict on the payment: something on our side
+                    // failed (a busy database, a lost race). The cursor stays
+                    // put and the payment is tried again next tick; the owner
+                    // is told plainly if it keeps happening.
+                    let now = now_unix();
+                    if let Err(note_err) =
+                        self.db.call(move |conn| note_save_trouble(conn, now)).await
+                    {
+                        tracing::warn!(error = %note_err, "could not note the payment-save trouble");
+                    }
+                    return Err(err);
+                }
             };
 
             let Some((updated, status)) = outcome else {
@@ -434,6 +523,9 @@ impl PollingWatcher {
             self.emit_invoice_event(&invoice.store_id, &invoice, InvoiceStatus::Expired)
                 .await;
         }
+
+        // Every payment the wallet showed is now saved (or parked).
+        self.db.call(clear_save_trouble).await?;
 
         Ok(applied)
     }
@@ -994,6 +1086,107 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reason, "paid_after_expiry");
+    }
+
+    async fn queued_notices(db: &Db) -> String {
+        db.call(|c| Ok(crate::settings::get(c, "alert_notices")?.unwrap_or_default()))
+            .await
+            .unwrap()
+    }
+
+    async fn trouble_showing(db: &Db) -> bool {
+        db.call(|c| Ok(save_trouble_showing(c, now_unix())))
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_payment_that_cannot_be_saved_shows_trouble_alerts_once_and_clears_when_saved() {
+        let (db, store_id) = setup(vec![]).await;
+        let watcher = late_watcher(&db, vec![ark_payment("vtxo_a", 1000)]);
+        // Make the invoice update change nothing, as a lost race would.
+        db.call(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER no_update BEFORE UPDATE ON invoices BEGIN SELECT RAISE(IGNORE); END;",
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        // First failure: trouble shows on Home, but no phone alert yet.
+        assert!(watcher.tick().await.is_err());
+        assert!(trouble_showing(&db).await);
+        assert_eq!(queued_notices(&db).await, "");
+
+        // Still failing after five minutes: exactly one phone alert.
+        db.call(|c| crate::settings::set(c, SAVE_TROUBLE_KEY, &(now_unix() - 400).to_string()))
+            .await
+            .unwrap();
+        assert!(watcher.tick().await.is_err());
+        assert!(watcher.tick().await.is_err());
+        assert_eq!(queued_notices(&db).await, "payment_not_saved");
+        db.call(|c| crate::settings::set(c, "alert_notices", ""))
+            .await
+            .unwrap();
+        assert!(watcher.tick().await.is_err());
+        assert_eq!(queued_notices(&db).await, "", "no repeat alert");
+
+        // The cause goes away: the payment is saved and the trouble clears.
+        db.call(|conn| {
+            conn.execute_batch("DROP TRIGGER no_update;")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert!(!trouble_showing(&db).await);
+        let invoice = db
+            .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Paid);
+    }
+
+    #[tokio::test]
+    async fn a_short_hiccup_clears_without_any_phone_alert() {
+        let (db, _) = setup(vec![]).await;
+        let watcher = late_watcher(&db, vec![ark_payment("vtxo_a", 1000)]);
+        db.call(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER no_update BEFORE UPDATE ON invoices BEGIN SELECT RAISE(IGNORE); END;",
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(watcher.tick().await.is_err());
+        db.call(|conn| {
+            conn.execute_batch("DROP TRIGGER no_update;")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert!(!trouble_showing(&db).await);
+        assert_eq!(queued_notices(&db).await, "");
+    }
+
+    #[tokio::test]
+    async fn a_payment_that_can_never_be_counted_is_parked_under_alerts_not_skipped() {
+        let (db, _) = setup(vec![]).await;
+        // A zero-sat entry on an open invoice's address is refused for good.
+        let watcher = late_watcher(&db, vec![ark_payment("vtxo_zero", 0)]);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        let reason: String = db
+            .call(|conn| {
+                Ok(conn.query_row("SELECT reason FROM unmatched_payments", [], |r| r.get(0))?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(reason, "could_not_be_recorded");
+        assert!(!trouble_showing(&db).await, "a verdict is not trouble");
     }
 
     /// Expire `inv_1` as if its 20-minute countdown ended `ago` seconds back.

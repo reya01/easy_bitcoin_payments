@@ -524,6 +524,28 @@ pub fn resolve_unsettled(conn: &Connection, arrived: bool) -> Result<bool, AppEr
     Ok(true)
 }
 
+/// Before the owner's "It did not arrive" is accepted: does the wallet's own
+/// history show this transfer? `Ok(None)` = there is no unclear transfer,
+/// `Ok(Some(true))` = the history shows it (so "did not arrive" would be wrong
+/// and the money could be sent twice), `Ok(Some(false))` = it does not show.
+/// An error means the history could not be read, which is NOT the same as
+/// "not shown": the caller must refuse and ask to try again.
+pub async fn unsettled_shows_in_history(
+    client: &BarkdClient,
+    db: &Db,
+) -> Result<Option<bool>, AppError> {
+    let Some(u) = db
+        .call(|c| unsettled_send_older_than(c, SENDING_SHOWN_AFTER_SECS))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let page = client.history().await?;
+    Ok(Some(
+        count_history_matches(&u, &page.entries, now_unix()) > 0,
+    ))
+}
+
 /// Plain words for the sweep note and Home while a transfer is unclear.
 pub const TRANSFER_UNKNOWN_NOTE: &str = "A transfer to your payout address may or may not have gone out: it was interrupted before the server heard back. Your money is safe either way. No more transfers are made until this is cleared, so it is not sent again by mistake. Check your payout wallet, then tell the server below whether it arrived.";
 
@@ -2529,6 +2551,46 @@ mod tests {
             .unwrap()
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
+    }
+
+    #[tokio::test]
+    async fn did_not_arrive_is_checked_against_the_wallet_history() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let mode = Arc::new(AtomicUsize::new(0));
+        let hist = Arc::new(AtomicBool::new(false));
+        let (base, _rec) = journal_mock(mode, hist.clone());
+        let client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&base, "t"),
+        )
+        .unwrap();
+        let db = Db::open(":memory:").unwrap();
+        // Nothing unclear: nothing to check.
+        assert_eq!(
+            unsettled_shows_in_history(&client, &db).await.unwrap(),
+            None
+        );
+        // An unclear transfer, and the history does not show it.
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        engine.tick().await.unwrap();
+        assert_eq!(
+            unsettled_shows_in_history(&client, &db).await.unwrap(),
+            Some(false)
+        );
+        // The history shows it: "did not arrive" would be wrong.
+        hist.store(true, Ordering::SeqCst);
+        assert_eq!(
+            unsettled_shows_in_history(&client, &db).await.unwrap(),
+            Some(true)
+        );
+        // History that cannot be read is an error, never "not shown".
+        let (broken, _r) = mock::spawn(|_| (500, "{}".to_string()));
+        let broken_client = crate::wallet::barkd::BarkdClient::new(
+            crate::wallet::barkd::BarkdConfig::new(&broken, "t"),
+        )
+        .unwrap();
+        assert!(unsettled_shows_in_history(&broken_client, &db)
+            .await
+            .is_err());
     }
 
     #[test]

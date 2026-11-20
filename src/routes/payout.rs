@@ -324,19 +324,42 @@ pub async fn transfer_outcome(
             ))
         }
     };
+    // "It did not arrive" lets the transfer be sent again, so it is checked
+    // against the wallet's own history first: if the history shows it, saying it
+    // did not arrive would send the money twice. If the history cannot be read
+    // the answer is refused too ("try again in a minute"), never guessed.
+    if !arrived {
+        let client = crate::wallet::barkd::BarkdClient::from_app_config(&state.config)
+            .map_err(AppError::from)?;
+        let shows = crate::wallet::settlement::unsettled_shows_in_history(&client, &state.db)
+            .await
+            .map_err(|_| {
+                AppError::BadRequest(
+                    "The server could not read the wallet's history just now, so it cannot check your answer. Nothing was changed and nothing is sent. Try again in a minute.".into(),
+                )
+            })?;
+        if shows == Some(true) {
+            return Err(AppError::BadRequest(
+                "The wallet's history shows this transfer, so it looks like it went out. Saying it did not arrive could send the money twice. Check your payout wallet again; if it is really not there, wait a few minutes and try again.".into(),
+            ));
+        }
+    }
     let found = state
         .db
         .call(move |c| {
+            let unclear = crate::wallet::settlement::unsettled_send_older_than(c, 120)?;
             let found = crate::wallet::settlement::resolve_unsettled(c, arrived)?;
             if found {
+                let what = unclear
+                    .map(|u| format!("{} {} sats ({})", u.kind, u.amount_sats, u.id))
+                    .unwrap_or_default();
                 crate::routes::twofa::audit(
                     c,
                     "transfer.outcome",
-                    if arrived {
-                        "owner: arrived"
-                    } else {
-                        "owner: not arrived"
-                    },
+                    &format!(
+                        "owner: {} - {what}",
+                        if arrived { "arrived" } else { "not arrived" }
+                    ),
                 );
             }
             Ok(found)

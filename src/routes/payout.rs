@@ -298,3 +298,54 @@ pub async fn sweep_now(
             .collect::<Vec<_>>(),
     })))
 }
+
+/// Body of `POST /admin/transfer-outcome`.
+#[derive(Deserialize)]
+pub struct TransferOutcome {
+    /// `arrived` or `not_arrived`.
+    pub outcome: String,
+}
+
+/// `POST /admin/transfer-outcome` — the owner says how an interrupted transfer
+/// ended, after checking their payout wallet. `not_arrived` lets sending resume.
+/// It cannot send anything or change where money goes.
+pub async fn transfer_outcome(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TransferOutcome>,
+) -> Result<Json<Value>, AppError> {
+    require_session(&state, &headers).await?;
+    let arrived = match body.outcome.as_str() {
+        "arrived" => true,
+        "not_arrived" => false,
+        _ => {
+            return Err(AppError::BadRequest(
+                "outcome must be arrived or not_arrived".into(),
+            ))
+        }
+    };
+    let found = state
+        .db
+        .call(move |c| {
+            let found = crate::wallet::settlement::resolve_unsettled(c, arrived)?;
+            if found {
+                crate::routes::twofa::audit(
+                    c,
+                    "transfer.outcome",
+                    if arrived {
+                        "owner: arrived"
+                    } else {
+                        "owner: not arrived"
+                    },
+                );
+            }
+            Ok(found)
+        })
+        .await?;
+    if !found {
+        return Err(AppError::BadRequest(
+            "there is no unclear transfer to settle".into(),
+        ));
+    }
+    Ok(Json(json!({ "ok": true })))
+}

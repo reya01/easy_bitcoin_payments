@@ -90,6 +90,8 @@ pub struct Facts {
     pub wallet_update_needed: bool,
     /// The watcher has been unable to save a payment the wallet shows.
     pub payment_save_trouble: bool,
+    /// A transfer to the payout address was interrupted and its outcome is unclear.
+    pub transfer_unknown: bool,
 }
 
 /// The "large balance" warning fires above this many sats, whatever the
@@ -361,6 +363,15 @@ pub fn build(f: &Facts) -> Vec<Check> {
             Level::Ok,
             "Your shop is receiving payment notices",
             "No failed notifications.",
+        );
+    }
+
+    if f.transfer_unknown {
+        push(
+            "transfer_unknown",
+            Level::Bad,
+            "A transfer may or may not have gone out",
+            crate::wallet::settlement::TRANSFER_UNKNOWN_NOTE,
         );
     }
 
@@ -663,6 +674,16 @@ mod tests {
         let c = build(&f);
         assert!(c.iter().all(|x| x.id != "expiry"));
         assert!(c.iter().all(|x| x.level == Level::Ok));
+    }
+
+    #[test]
+    fn an_unclear_transfer_gets_one_plain_red_line() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|x| x.id != "transfer_unknown"));
+        f.transfer_unknown = true;
+        let c = build(&f);
+        assert_eq!(find(&c, "transfer_unknown").level, Level::Bad);
+        assert!(find(&c, "transfer_unknown").detail.contains("safe"));
     }
 
     #[test]

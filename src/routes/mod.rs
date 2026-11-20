@@ -213,6 +213,7 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/logout", post(admin_session::logout))
         .route("/admin/payout/cancel", post(payout::cancel))
         .route("/admin/sweep", post(payout::sweep_now))
+        .route("/admin/transfer-outcome", post(payout::transfer_outcome))
         .route("/admin/exit/status", post(exit::status))
         .route("/admin/exit/deposit-address", post(exit::deposit_address))
         .route("/admin/exit/prepare", post(exit::prepare))

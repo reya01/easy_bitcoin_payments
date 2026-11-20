@@ -1170,7 +1170,7 @@ impl HistoryEntry {
     /// The watcher's cursor timestamp: `time.completed_at` first (pinned
     /// live, RFC 3339), then updated_at / created_at, then an entry-level
     /// unix `detected_at` (defensive for non-live shapes).
-    fn detected_at_unix(&self) -> Option<i64> {
+    pub fn detected_at_unix(&self) -> Option<i64> {
         let from_time = self.time.as_ref().and_then(|t| {
             ["completed_at", "updated_at", "created_at"]
                 .iter()
@@ -1182,6 +1182,23 @@ impl HistoryEntry {
                 })
         });
         from_time.or(self.detected_at)
+    }
+
+    /// How many sats this movement took out of the wallet, when it is an
+    /// outbound one (pinned live: `intended_balance_sat` is negative on
+    /// outbound). `None` for receives and for entries without that field.
+    pub fn outbound_sats(&self) -> Option<i64> {
+        self.intended_balance_sat.filter(|n| *n < 0).map(|n| -n)
+    }
+
+    /// Does this movement's `sent_to` list name `text` (an address)? Used to
+    /// find our own send again after a timeout or restart.
+    pub fn sent_to_contains(&self, text: &str) -> bool {
+        !text.is_empty()
+            && self
+                .sent_to
+                .as_ref()
+                .is_some_and(|v| v.to_string().contains(text))
     }
 
     /// The dedupe key for a receive entry: the HTLC outpoint(s) (pinned on

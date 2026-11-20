@@ -634,6 +634,23 @@ function loadHome() {
       d.appendChild(el("div", (sym[k.level] || "") + k.title, k.level));
       if (k.level !== "ok") d.appendChild(el("div", k.detail, "muted"));
       if (go[k.id] && k.level !== "ok") { d.style.cursor = "pointer"; d.addEventListener("click", function () { show(go[k.id]); }); }
+      if (k.id === "transfer_unknown") {
+        // The server could not tell whether a transfer went out. The owner checks their own
+        // wallet and says which; nothing is sent until then, so nothing can be sent twice.
+        var tb = el("div", "", "");
+        [["arrived", "It arrived"], ["not_arrived", "It did not arrive"]].forEach(function (o) {
+          var b = el("button", o[1], "small"); b.type = "button"; b.style.marginTop = "8px"; b.style.marginRight = "8px";
+          b.addEventListener("click", function () {
+            askConfirm({ title: o[1] + "?", body: o[0] === "arrived" ? "You checked your payout wallet and the money is there." : "You checked your payout wallet and the money is not there. The server will then send it again with the next transfer.", cancel: "Not yet", ok: "Yes", danger: false }).then(function (yes) {
+              if (!yes) return;
+              b.disabled = true;
+              api("POST", "/admin/transfer-outcome", { outcome: o[0] }).then(loadHome).catch(function (e) { b.textContent = e.message; });
+            });
+          });
+          tb.appendChild(b);
+        });
+        d.appendChild(tb);
+      }
       h.appendChild(d);
     });
     if (w.offchain_sats !== undefined) {
@@ -655,7 +672,7 @@ function loadHome() {
 
 var settleLine = function (x) {
   var r = row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status);
-  if (x.status !== "failed" || !x.detail) return r;
+  if ((x.status !== "failed" && x.status !== "unknown") || !x.detail) return r;
   // Say WHY it failed, in the server's own words, right under the line.
   var w = document.createElement("div");
   w.appendChild(r); w.appendChild(el("div", "Why: " + x.detail, "muted"));

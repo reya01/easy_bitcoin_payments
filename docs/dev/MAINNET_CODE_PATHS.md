@@ -2,7 +2,7 @@
 
 A reading of the code and its tests before the first real-money test, so the test
 day starts with known expectations. **Nothing here has run against a real mainnet
-wallet yet**; the first run is [MAINNET_TEST_SHEET.md](MAINNET_TEST_SHEET.md).
+wallet yet**; the first run is [archive/MAINNET_TEST_SHEET.md](archive/MAINNET_TEST_SHEET.md).
 Each line names where to look in the code.
 
 ## Choosing the network (setup wizard)

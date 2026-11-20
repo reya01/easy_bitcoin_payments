@@ -2,11 +2,11 @@
 
 Play money only. About 45 minutes, plus one 15-minute wait. Do these on a
 **signet** server (the kind with the **TEST MODE** banner), after the normal
-[signet drill](SIGNET_DRILL.md). For each line write PASS, or what you saw
+[signet drill](../SIGNET_DRILL.md). For each line write PASS, or what you saw
 instead and the time. Never paste recovery words, the setup code, API keys or
 signing secrets into a report.
 
-**Use Google Chrome or Brave** (see [CONTRIBUTING.md](../../CONTRIBUTING.md)). Each
+**Use Google Chrome or Brave** (see [CONTRIBUTING.md](../../../CONTRIBUTING.md)). Each
 step says where it happens: **your payment server** (its `/admin` page or its
 Console), **your WooCommerce site**, **the customer's payment page** (what a
 shopper sees), or **your phone wallet**.

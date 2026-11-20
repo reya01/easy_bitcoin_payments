@@ -52,7 +52,7 @@ no ability to fix a problem themselves. So:
   supported and issues about them will be closed; pull requests that break Chrome or Brave
   are the ones that matter.
 - **Doc precedence.** For current status and operations, `README.md`,
-  `docs/dev/HANDOFF.md`, and the close-out block in `docs/dev/PHASE1_PLAN.md` are
+  `docs/dev/HANDOFF.md`, and the close-out block in `docs/dev/archive/PHASE1_PLAN.md` are
   authoritative. `spec.md` is the product intent; when the build supersedes a
   spec claim, update the spec in the same PR rather than treating the stale
   claim as a requirement.

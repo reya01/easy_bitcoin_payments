@@ -18,6 +18,16 @@ What it covers:
 - Failures: barkd down (red checklist, nothing credited, credited after it
   returns) and a server restart (data and the signed-in session survive).
 
+Besides this walk-through, CI runs smaller browser tests that load one page with
+pretend answers from the server (no real server needed): `checkout_states.py`
+(waiting, paid, expired, the Ark box), `setup_wizard_states.py`, `dashboard_states.py`
+(Home, Settings and Alerts states, including the send-minimum and kept-amount boxes,
+the emergency withdrawal on and off, and the send-back button), `mainnet_screens.py`
+(the real-money wording), `update_card.py` (the Home update card), `page_assets.py`
+and `startup_errors.py`. They run at phone size and fail on anything the page's
+Content-Security-Policy blocks. The pretend answers are written by hand, so when a
+route's answer changes, change the matching test page too.
+
 The fake barkd (`tests/e2e/fake_barkd.py`) checks every request EBP sends and
 every response it returns against the pinned OpenAPI spec
 (`docs/barkd-openapi.json`) and fails the run on any mismatch, so it cannot

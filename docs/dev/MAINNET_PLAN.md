@@ -309,7 +309,7 @@ The sweep rule (beyond the 1,000 default and the 1,000 minimum excess), the watc
 | `docs/dev/TECHNICAL.md`, `docs/dev/HANDOFF.md`, `docs/dev/spec.md`, `docs/dev/E2E_TESTING.md` | settings table (`EBP_MODE`, threshold), restore flow, renewal rule |
 | `docs/dev/RC_CHECKLIST.md` | section 6: tick what is closed, keep what is open; also see branch `rc-checklist-live-wording` |
 | `docs/dev/DROPLET_TEST_SHEET.md`, `docs/dev/SIGNET_DRILL.md` | restore drill; 1,000 threshold |
-| new `docs/dev/MAINNET_TEST_SHEET.md` | Stage 4, in the owner's test-sheet style: every step says whether it is on the payment server, the WooCommerce site or the phone wallet |
+| new `docs/dev/archive/MAINNET_TEST_SHEET.md` | Stage 4, in the owner's test-sheet style: every step says whether it is on the payment server, the WooCommerce site or the phone wallet |
 
 Dated records (`REVIEW_*`, `DROPLET_TEST_RESULTS_*`, phase and beta plans) are left as they are.
 

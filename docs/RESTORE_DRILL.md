@@ -31,14 +31,14 @@ same process as a practice run, with checks.
    cd /opt/ebp
    ./scripts/update.sh VERSION
    ```
-   (`VERSION` is the newest one on the Releases page, for example `0.2.1-rc1`; see
+   (`VERSION` is the newest one on the Releases page, for example `0.2.2-rc1`; see
    [UPGRADING.md](UPGRADING.md). On a folder without `update.sh`, run `git pull` once first.)
 2. **In your browser, on the old server's `/admin` page,** open **Home** and
    **Settings**. Write down your answer key:
    - the **balance** ("Held on your server")
    - the **number of orders**
    - the **payout address**
-   - the **keep amount**
+   - the **kept amount**, if you turned on the emergency withdrawal and chose one (otherwise the server keeps nothing)
 3. On **Home**, check that no "Routine wallet upkeep" is in progress and no order is
    waiting to be paid. If something is, wait until it finishes. Leave a few hundred
    sats on the server so there is something to bring back.
@@ -86,7 +86,7 @@ same process as a practice run, with checks.
 ## Part 5: Check that it worked
 
 17. **On Home,** compare with your answer key: balance, number of orders, payout
-    address, keep amount. Coins can take a few minutes (play money) or up to about an
+    address, kept amount (if any). Coins can take a few minutes (play money) or up to about an
     hour (real money) to appear. The old transfers list should be there too.
 18. **On your WooCommerce site,** if the new server's web address is different, change
     the **server address** in the plugin's settings. The API key and the signing

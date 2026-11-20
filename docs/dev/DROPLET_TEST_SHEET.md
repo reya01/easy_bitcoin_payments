@@ -4,7 +4,7 @@ Print it or keep it open beside you. Do the steps in order and **write down
 every place you hesitated, guessed or got stuck**, even if you got past it. Those
 notes are the result of the test. Times are guesses; write the real ones.
 
-Play money only: signet coins. Do not send real bitcoin.
+Play money (signet coins) on a test-mode server. On a real-money test server use only a few thousand sats you can afford to lose.
 
 **Round 2 (after the 8 November test).** Round 1 proved the install, the wizard,
 Lightning and Ark payments, pause and backup. Round 2 repeats that quick path (time
@@ -12,6 +12,9 @@ it again) and then covers what changed since and what round 1 could not reach: t
 WooCommerce shop, the new checkout, dollar amounts, the Home balance, the backup
 check, and a day of running unattended. The new things are in
 **"New since round 1"** below.
+
+**Round 3 (0.2.2-rc1)** is a shorter run on a server that already exists: see
+**"Round 3"** below, then the checks under it that apply.
 
 ## Before you start (about 30 minutes, can be done a day earlier)
 
@@ -55,6 +58,37 @@ check, and a day of running unattended. The new things are in
 | 13 | Place a small test order and pay it | WOOCOMMERCE | | | |
 | 14 | Order moves to Processing by itself | WOOCOMMERCE | | | |
 
+## Round 3: updating an existing server to 0.2.2-rc1 (about 45 minutes)
+
+For a server that already runs an earlier release candidate. Do these in order; the
+emergency-withdrawal money is sent early because it needs time to confirm. Write down every
+hesitation, and the real amounts.
+
+1. **Update from the Home tab** (the update helper's first real use): Home offers the new
+   version; **Start update** shows the old and new version, a good signature and the image
+   fingerprint from the release notes; password and code, **Update now**; Home shows the
+   new **Version** and the same balance. If Home offers nothing, use the Console update
+   in `docs/UPGRADING.md` instead.
+2. **Start the emergency withdrawal** (Settings, Emergency): it says **turned off** and has
+   no Start button; turn it on (password and code); send **8,000** sats of fee money to the
+   address it shows.
+3. **Whole-balance send:** make a **3000**-sat test payment and pay it; do not press anything;
+   within about 10 minutes the whole balance (3,000 plus anything already held) appears under
+   **Recent transfers to your own wallet** and **Held on your server** is about 0. Optional:
+   a **300**-sat payment is not sent; a further **1300** sends the whole 1,600. If you see
+   "The Ark server is renewing your coins right now", that is a normal wait: tell me you saw it.
+4. **Minimums** (Settings, When to send my money): type **1000** and tap Save straight away
+   (without tapping elsewhere first): refused with a plain reason, nothing saved; **3000**
+   saves and shows at once; **Go back to the default** restores it. No other box for how
+   much to keep exists outside the emergency section.
+5. **Passkeys (beta):** add one from Bitwarden (password and code); sign out and sign in
+   with the password and the passkey; sign out and sign in with the app code instead;
+   approve a backup download with the passkey (on the phone and browser you are signed in on).
+6. **Send back what is above 5,000 sats** once the 8,000 has confirmed: about 2,000 to 3,000
+   arrives and the page still shows at least 5,000; then turn the emergency withdrawal off
+   (the chosen amount is forgotten) and **Send leftover to my address** returns the rest.
+7. The next day: Home is green, nothing stuck in "renewing".
+
 ## Money safety (do these first)
 
 These are the most important checks in this round: they prove money reaches **your
@@ -97,13 +131,13 @@ own wallet**. No earlier round has tested this.
       heights. Come back after two weeks and check your wallet renewed them (new
       expiry heights, or the wallet's own refresh message). If not, tell me.
 - [ ] **Which build is running.** On your payment server's Home, the **Version** line
-      says `0.1.0-rc1`. (After any later update, check it changed.)
+      shows the version you just installed (for example `0.2.2-rc1`). After any later
+      update, check it changed.
 
 ## New since round 1 (please check each one)
 
 - [ ] **Lightning is there at all.** Do this one first: create a test payment and check the checkout page opens on Lightning. If it opens on "One code, any wallet" instead, Lightning invoices are failing: write it down and send the last lines of the server log (`cd /opt/ebp && docker compose logs --tail 50 ebp`), with nothing secret in them.
-- [ ] **Lightning first.** The checkout page opens on a Lightning invoice, says "Paying with Lightning" and shows the small network fee in plain view.
-- [ ] **Other ways to pay.** Under it: "One code, any wallet", Ark, and Regular Bitcoin. Pick each one: the shown code changes, the **Copy** button copies exactly what is shown, and Regular Bitcoin shows just an address (starting `tb1`), not a long `bitcoin:` code. Paste any `bitcoin:` code into your terminal inside single quotes.
+- [ ] **Lightning first, Ark in one box.** The checkout page opens on a Lightning invoice, says "Paying with Lightning" and shows the small network fee in plain view. Under the code there is one box, **Ark (fast)**: tick it and the code changes to an Ark address and the **Copy** button copies exactly what is shown. There is no "One code, any wallet", no "Regular Bitcoin" and no "Other ways to pay" (EBP takes no regular Bitcoin payments).
 - [ ] **Dollars next to sats.** On the checkout page, Home, Payments, the test-payment box and the payout/transfer lists you see things like "1,000 sats ($0.40)". The dollar figure is roughly right for today's real Bitcoin price (play coins are worth nothing, but the number should look sensible). Write down anywhere sats show with **no** dollar figure.
 - [ ] **Home's balance.** Pay two or three small test payments. "Held on your server" counts money that is still arriving, with a grey note saying so, instead of showing 0 while coins refresh. Routine upkeep (renewals) is in its own **Routine upkeep** card, not mixed into the money-moved list.
 - [ ] **Bitcoin price line.** Right after the server first starts, Home may say "Bitcoin price not available yet". It should disappear within a minute or two by itself and stay away. If it stays, write down the exact Home text (the server cannot reach the price websites).

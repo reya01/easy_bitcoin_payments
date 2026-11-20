@@ -88,6 +88,8 @@ pub struct Facts {
     /// The Ark server recently refused a send because this wallet software
     /// is too old; transfers to the payout address are paused.
     pub wallet_update_needed: bool,
+    /// The watcher has been unable to save a payment the wallet shows.
+    pub payment_save_trouble: bool,
 }
 
 /// The "large balance" warning fires above this many sats, whatever the
@@ -359,6 +361,15 @@ pub fn build(f: &Facts) -> Vec<Check> {
             Level::Ok,
             "Your shop is receiving payment notices",
             "No failed notifications.",
+        );
+    }
+
+    if f.payment_save_trouble {
+        push(
+            "payment_not_saved",
+            Level::Bad,
+            "A payment could not be saved yet",
+            "The wallet shows a payment that your payment server has not been able to write down. The money is safe in your wallet and the server tries again every few seconds, so this usually clears by itself. The order is not marked paid until it is saved. If this stays for more than a few minutes, restart the server; if it still stays, ask for help.",
         );
     }
 
@@ -652,6 +663,18 @@ mod tests {
         let c = build(&f);
         assert!(c.iter().all(|x| x.id != "expiry"));
         assert!(c.iter().all(|x| x.level == Level::Ok));
+    }
+
+    #[test]
+    fn an_unsaved_payment_gets_one_plain_red_line() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|x| x.id != "payment_not_saved"));
+        f.payment_save_trouble = true;
+        let c = build(&f);
+        assert_eq!(find(&c, "payment_not_saved").level, Level::Bad);
+        assert!(find(&c, "payment_not_saved")
+            .detail
+            .contains("money is safe"));
     }
 
     #[test]

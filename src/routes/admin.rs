@@ -234,6 +234,16 @@ pub async fn status(
     )
     .is_none();
     facts.live = state.config.mode == "live";
+    facts.payment_save_trouble = state
+        .db
+        .call(|c| {
+            Ok(crate::watcher::save_trouble_showing(
+                c,
+                crate::util::now_unix(),
+            ))
+        })
+        .await
+        .unwrap_or(false);
     facts.wallet_update_needed = state
         .db
         .call(|c| {

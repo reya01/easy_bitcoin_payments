@@ -34,7 +34,7 @@ pub struct UnmatchedPaymentView {
     pub order_id: Option<String>,
     pub rail: String,
     pub amount_sats: i64,
-    /// `invoice_expired` | `invoice_closed` | `paid_after_expiry` | `onchain_rail_disabled`
+    /// `invoice_expired` | `invoice_closed` | `paid_after_expiry` | `onchain_rail_disabled` | `could_not_be_recorded`
     pub reason: String,
     pub detected_at: String,
     /// RFC 3339 once the merchant marked it handled; `null` while open.

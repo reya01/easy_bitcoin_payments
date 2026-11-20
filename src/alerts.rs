@@ -103,6 +103,10 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "Your wallet software needs an update",
             "The Ark server will not take payments from this old wallet software, so transfers to your payout address are paused. Your money is safe and you can still receive payments. Open your dashboard, Home, and install the update.",
         )),
+        "payment_not_saved" => Some((
+            "A payment could not be saved yet",
+            "The wallet shows a payment, but your payment server could not write it down for the last few minutes. The money is safe in your wallet and the server keeps trying. Open your dashboard, Home. If this stays, restart the server or ask for help.",
+        )),
         "exit_started" => Some((
             "An emergency withdrawal was started",
             "Someone started taking the money on your payment server out without the Ark server. If this was not you, open Settings, Emergency, now, press Stop, and change your admin password.",

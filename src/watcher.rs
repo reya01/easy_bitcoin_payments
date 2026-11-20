@@ -525,7 +525,7 @@ impl PollingWatcher {
         }
 
         // Every payment the wallet showed is now saved (or parked).
-        self.db.call(clear_save_trouble).await?;
+        self.db.call(|conn| clear_save_trouble(conn)).await?;
 
         Ok(applied)
     }

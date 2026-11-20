@@ -265,207 +265,28 @@ impl PollingWatcher {
         }
         let looked_at = payments.clone();
 
+        // One payment that cannot be saved must not hold up the others (a
+        // persistent error on one row would otherwise stall every customer's
+        // payment and every expiry). Each is handled on its own; the first
+        // error is kept and returned at the end, and the cursor does not
+        // advance while any payment is unsaved, so it is tried again.
+        let mut first_error: Option<AppError> = None;
         for payment in payments {
             newest = newest.max(payment.detected_at);
-
-            // EBP takes no regular (on-chain) Bitcoin payments. Money that still
-            // arrives that way (for example sent to an old invoice address) is
-            // never credited to an order: it is parked for the merchant to see.
-            if matches!(payment.rail, crate::models::Rail::Onchain) {
-                let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
-                let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
-                let (amount, seen) = (payment.amount_sats, payment.detected_at);
-                let is_new = self
-                    .db
-                    .call(move |conn| {
-                        invoice::record_unmatched(
-                            conn,
-                            &invoice::UnmatchedInput {
-                                address: &addr,
-                                rail: &rail,
-                                amount_sats: amount,
-                                vtxo_id: vtxo.as_deref(),
-                                txid: txid.as_deref(),
-                                detected_at: seen,
-                                reason_override: Some("onchain_rail_disabled"),
-                            },
-                        )
-                    })
-                    .await?;
-                if is_new {
-                    tracing::warn!(
-                        amount_sats = payment.amount_sats,
-                        "on-chain payment seen; EBP does not take on-chain payments, so it is parked in unmatched_payments"
-                    );
-                }
-                continue;
-            }
-
-            let address = payment.address.clone();
-            let seen_at = payment.detected_at;
-            let invoice = self
-                .db
-                .call(move |conn| invoice::find_creditable_by_address(conn, &address, seen_at))
-                .await?;
-            // R6: completed after the invoice's deadline (plus skew grace)?
-            // Then it is a late payment even though `expire_due` has not
-            // flipped the invoice yet; deterministic on the wallet's time.
-            let mut late_reason: Option<&'static str> = None;
-            // A payment that covers the whole invoice on an instant rail
-            // (Ark, Lightning) still completes it for a few hours after the
-            // deadline: the ASP honours Lightning invoices for 3 hours.
-            let invoice = invoice.filter(|i| {
-                if payment.detected_at > i.expires_at + invoice::LATE_PAYMENT_GRACE_SECS {
-                    let ok = invoice::late_full_payment_ok(
-                        i,
-                        payment.rail.as_str(),
-                        credited_amount(&payment, i),
-                        payment.detected_at,
-                    );
-                    if ok {
-                        tracing::info!(
-                            invoice_id = %i.id,
-                            "full payment arrived after the deadline; completing the order"
-                        );
-                    } else {
-                        late_reason = Some("paid_after_expiry");
-                    }
-                    ok
-                } else {
-                    true
-                }
-            });
-            // An underpaid invoice accepts a top-up only inside the short
-            // window after its first partial payment.
-            let invoice = match invoice {
-                Some(i) if i.status == crate::models::InvoiceStatus::Underpaid => {
-                    let (id, seen) = (i.id.clone(), payment.detected_at);
-                    let closed = self
-                        .db
-                        .call(move |conn| invoice::topup_window_closed(conn, &id, seen))
-                        .await?;
-                    if closed {
-                        late_reason = Some("topup_window_closed");
-                        None
-                    } else {
-                        Some(i)
-                    }
-                }
-                other => other,
-            };
-
-            let Some(invoice) = invoice else {
-                // BETA-HARDENING: no PENDING invoice owns this address. If it
-                // belongs to an expired/closed invoice, the funds are in the
-                // till and MUST be recorded (late payment) rather than
-                // dropped. Unknown addresses (e.g. reserve funding) are
-                // ignored by `record_unmatched`.
-                let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
-                let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
-                let (amount, seen) = (payment.amount_sats, payment.detected_at);
-                let is_new = self
-                    .db
-                    .call(move |conn| {
-                        invoice::record_unmatched(
-                            conn,
-                            &invoice::UnmatchedInput {
-                                address: &addr,
-                                rail: &rail,
-                                amount_sats: amount,
-                                vtxo_id: vtxo.as_deref(),
-                                txid: txid.as_deref(),
-                                detected_at: seen,
-                                reason_override: late_reason,
-                            },
-                        )
-                    })
-                    .await?;
-                if is_new {
-                    tracing::warn!(
-                        amount_sats = payment.amount_sats,
-                        "late/unmatched payment recorded in unmatched_payments; merchant must reconcile"
-                    );
-                }
-                continue;
-            };
-
-            let store_id = invoice.store_id.clone();
-            let observed = invoice::ObservedPayment {
-                invoice_id: invoice.id.clone(),
-                rail: payment.rail.as_str().to_string(),
-                amount_sats: credited_amount(&payment, &invoice),
-                received_sats: Some(payment.amount_sats),
-                vtxo_id: payment.vtxo_id.clone(),
-                txid: payment.txid.clone(),
-                detected_at: payment.detected_at,
-                confirmed_at: payment.confirmed_at,
-            };
-
-            // A determinically-rejected payment (amount <= 0, or an illegal
-            // transition) can never succeed: log it and move on so the
-            // cursor advances past it. Aborting the tick here would freeze
-            // the cursor on the same batch forever — a silent,
-            // permanent payment-processing outage on one bad entry.
-            let outcome = match self
-                .db
-                .call(move |conn| invoice::record_payment(conn, &observed))
-                .await
-            {
-                Ok(outcome) => outcome,
-                Err(err @ AppError::BadRequest(_)) | Err(err @ AppError::Conflict(_)) => {
-                    // This payment can never be credited to its order. Do not
-                    // lose sight of it: park it under Alerts so the owner sees
-                    // it and can refund or fulfil by hand.
-                    tracing::warn!(error = %err, "payment rejected as permanently unrecordable; parking it under Alerts");
-                    let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
-                    let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
-                    let (amount, seen) = (payment.amount_sats, payment.detected_at);
-                    self.db
-                        .call(move |conn| {
-                            invoice::record_unmatched(
-                                conn,
-                                &invoice::UnmatchedInput {
-                                    address: &addr,
-                                    rail: &rail,
-                                    amount_sats: amount,
-                                    vtxo_id: vtxo.as_deref(),
-                                    txid: txid.as_deref(),
-                                    detected_at: seen,
-                                    reason_override: Some("could_not_be_recorded"),
-                                },
-                            )
-                        })
-                        .await?;
-                    continue;
-                }
+            match self.handle_payment(payment).await {
+                Ok(true) => applied += 1,
+                Ok(false) => {}
                 Err(err) => {
-                    // Not a verdict on the payment: something on our side
-                    // failed (a busy database, a lost race). The cursor stays
-                    // put and the payment is tried again next tick; the owner
-                    // is told plainly if it keeps happening.
+                    tracing::warn!(error = %err, "a payment could not be saved; carrying on with the others");
                     let now = now_unix();
                     if let Err(note_err) =
                         self.db.call(move |conn| note_save_trouble(conn, now)).await
                     {
                         tracing::warn!(error = %note_err, "could not note the payment-save trouble");
                     }
-                    return Err(err);
+                    first_error.get_or_insert(err);
                 }
-            };
-
-            let Some((updated, status)) = outcome else {
-                continue;
-            };
-
-            applied += 1;
-            tracing::info!(
-                invoice_id = %updated.id,
-                status = %status,
-                amount_sats = updated.paid_sats,
-                "payment applied"
-            );
-
-            self.emit_invoice_event(&store_id, &updated, status).await;
+            }
         }
 
         // Remember the entries that the database now provably holds. An entry
@@ -496,7 +317,7 @@ impl PollingWatcher {
         // clocks, and a capped/truncated page must never let the cursor
         // jump past entries it never saw.
         let next_cursor = newest;
-        if next_cursor > since {
+        if first_error.is_none() && next_cursor > since {
             if let Ok(mut cursor) = self.cursor.lock() {
                 *cursor = next_cursor;
             }
@@ -534,10 +355,214 @@ impl PollingWatcher {
                 .await;
         }
 
+        // A payment that could not be saved: the rest of this check is done,
+        // and the error is reported (the cursor did not move, so it is retried).
+        if let Some(err) = first_error {
+            return Err(err);
+        }
+
         // Every payment the wallet showed is now saved (or parked).
         self.db.call(|conn| clear_save_trouble(conn)).await?;
 
         Ok(applied)
+    }
+
+    /// Handle one payment the wallet showed. `Ok(true)` = credited to an
+    /// order, `Ok(false)` = nothing to credit (parked, ignored or already
+    /// held). An error means THIS payment could not be saved right now; the
+    /// caller carries on with the others and tries this one again next tick.
+    async fn handle_payment(&self, payment: WalletPayment) -> Result<bool, AppError> {
+        // EBP takes no regular (on-chain) Bitcoin payments. Money that still
+        // arrives that way (for example sent to an old invoice address) is
+        // never credited to an order: it is parked for the merchant to see.
+        if matches!(payment.rail, crate::models::Rail::Onchain) {
+            let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+            let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+            let (amount, seen) = (payment.amount_sats, payment.detected_at);
+            let is_new = self
+                .db
+                .call(move |conn| {
+                    invoice::record_unmatched(
+                        conn,
+                        &invoice::UnmatchedInput {
+                            address: &addr,
+                            rail: &rail,
+                            amount_sats: amount,
+                            vtxo_id: vtxo.as_deref(),
+                            txid: txid.as_deref(),
+                            detected_at: seen,
+                            reason_override: Some("onchain_rail_disabled"),
+                        },
+                    )
+                })
+                .await?;
+            if is_new {
+                tracing::warn!(
+                    amount_sats = payment.amount_sats,
+                    "on-chain payment seen; EBP does not take on-chain payments, so it is parked in unmatched_payments"
+                );
+            }
+            return Ok(false);
+        }
+
+        let address = payment.address.clone();
+        let seen_at = payment.detected_at;
+        let invoice = self
+            .db
+            .call(move |conn| invoice::find_creditable_by_address(conn, &address, seen_at))
+            .await?;
+        // R6: completed after the invoice's deadline (plus skew grace)?
+        // Then it is a late payment even though `expire_due` has not
+        // flipped the invoice yet; deterministic on the wallet's time.
+        let mut late_reason: Option<&'static str> = None;
+        // A payment that covers the whole invoice on an instant rail
+        // (Ark, Lightning) still completes it for a few hours after the
+        // deadline: the ASP honours Lightning invoices for 3 hours.
+        let invoice = invoice.filter(|i| {
+            if payment.detected_at > i.expires_at + invoice::LATE_PAYMENT_GRACE_SECS {
+                let ok = invoice::late_full_payment_ok(
+                    i,
+                    payment.rail.as_str(),
+                    credited_amount(&payment, i),
+                    payment.detected_at,
+                );
+                if ok {
+                    tracing::info!(
+                        invoice_id = %i.id,
+                        "full payment arrived after the deadline; completing the order"
+                    );
+                } else {
+                    late_reason = Some("paid_after_expiry");
+                }
+                ok
+            } else {
+                true
+            }
+        });
+        // An underpaid invoice accepts a top-up only inside the short
+        // window after its first partial payment.
+        let invoice = match invoice {
+            Some(i) if i.status == crate::models::InvoiceStatus::Underpaid => {
+                let (id, seen) = (i.id.clone(), payment.detected_at);
+                let closed = self
+                    .db
+                    .call(move |conn| invoice::topup_window_closed(conn, &id, seen))
+                    .await?;
+                if closed {
+                    late_reason = Some("topup_window_closed");
+                    None
+                } else {
+                    Some(i)
+                }
+            }
+            other => other,
+        };
+
+        let Some(invoice) = invoice else {
+            // BETA-HARDENING: no PENDING invoice owns this address. If it
+            // belongs to an expired/closed invoice, the funds are in the
+            // till and MUST be recorded (late payment) rather than
+            // dropped. Unknown addresses (e.g. reserve funding) are
+            // ignored by `record_unmatched`.
+            let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+            let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+            let (amount, seen) = (payment.amount_sats, payment.detected_at);
+            let is_new = self
+                .db
+                .call(move |conn| {
+                    invoice::record_unmatched(
+                        conn,
+                        &invoice::UnmatchedInput {
+                            address: &addr,
+                            rail: &rail,
+                            amount_sats: amount,
+                            vtxo_id: vtxo.as_deref(),
+                            txid: txid.as_deref(),
+                            detected_at: seen,
+                            reason_override: late_reason,
+                        },
+                    )
+                })
+                .await?;
+            if is_new {
+                tracing::warn!(
+                    amount_sats = payment.amount_sats,
+                    "late/unmatched payment recorded in unmatched_payments; merchant must reconcile"
+                );
+            }
+            return Ok(false);
+        };
+
+        let store_id = invoice.store_id.clone();
+        let observed = invoice::ObservedPayment {
+            invoice_id: invoice.id.clone(),
+            rail: payment.rail.as_str().to_string(),
+            amount_sats: credited_amount(&payment, &invoice),
+            received_sats: Some(payment.amount_sats),
+            vtxo_id: payment.vtxo_id.clone(),
+            txid: payment.txid.clone(),
+            detected_at: payment.detected_at,
+            confirmed_at: payment.confirmed_at,
+        };
+
+        // A determinically-rejected payment (amount <= 0, or an illegal
+        // transition) can never succeed: log it and move on so the
+        // cursor advances past it. Aborting the tick here would freeze
+        // the cursor on the same batch forever — a silent,
+        // permanent payment-processing outage on one bad entry.
+        let outcome = match self
+            .db
+            .call(move |conn| invoice::record_payment(conn, &observed))
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(err @ AppError::BadRequest(_)) | Err(err @ AppError::Conflict(_)) => {
+                // This payment can never be credited to its order. Do not
+                // lose sight of it: park it under Alerts so the owner sees
+                // it and can refund or fulfil by hand.
+                tracing::warn!(error = %err, "payment rejected as permanently unrecordable; parking it under Alerts");
+                let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+                let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+                let (amount, seen) = (payment.amount_sats, payment.detected_at);
+                self.db
+                    .call(move |conn| {
+                        invoice::record_unmatched(
+                            conn,
+                            &invoice::UnmatchedInput {
+                                address: &addr,
+                                rail: &rail,
+                                amount_sats: amount,
+                                vtxo_id: vtxo.as_deref(),
+                                txid: txid.as_deref(),
+                                detected_at: seen,
+                                reason_override: Some("could_not_be_recorded"),
+                            },
+                        )
+                    })
+                    .await?;
+                return Ok(false);
+            }
+            Err(err) => {
+                // Not a verdict on the payment: something on our side failed (a
+                // busy database, a lost race). The caller notes the trouble; the
+                // cursor stays put and the payment is tried again next tick.
+                return Err(err);
+            }
+        };
+
+        let Some((updated, status)) = outcome else {
+            return Ok(false);
+        };
+
+        tracing::info!(
+            invoice_id = %updated.id,
+            status = %status,
+            amount_sats = updated.paid_sats,
+            "payment applied"
+        );
+
+        self.emit_invoice_event(&store_id, &updated, status).await;
+        Ok(true)
     }
 
     async fn emit_invoice_event(
@@ -1157,6 +1182,110 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(invoice.status, InvoiceStatus::Paid);
+    }
+
+    fn extra_invoice(store_id: &str, id: &str, expires_in: i64) -> NewInvoice {
+        NewInvoice {
+            id: id.to_string(),
+            store_id: store_id.to_string(),
+            order_id: Some(format!("wc-{id}")),
+            amount_sats: 1000,
+            fiat_currency: None,
+            fiat_amount: None,
+            rate: None,
+            rate_source: None,
+            rate_locked_at: None,
+            ark_address: format!("ark1q{id}"),
+            expires_at: now_unix() + expires_in,
+            confs_required: 1,
+            metadata_json: "{}".to_string(),
+        }
+    }
+
+    async fn status_of(db: &Db, store_id: &str, id: &str) -> InvoiceStatus {
+        let (store_id, id) = (store_id.to_string(), id.to_string());
+        db.call(move |conn| invoice::get(conn, &store_id, &id))
+            .await
+            .unwrap()
+            .unwrap()
+            .status
+    }
+
+    #[tokio::test]
+    async fn one_payment_that_cannot_be_saved_does_not_hold_up_the_others() {
+        let (db, store_id) = setup(vec![]).await;
+        let sid = store_id.clone();
+        db.call(move |conn| {
+            invoice::insert(conn, &extra_invoice(&sid, "inv_2", 1200))?;
+            invoice::insert(conn, &extra_invoice(&sid, "inv_3", -10))
+        })
+        .await
+        .unwrap();
+        let mut second = ark_payment("vtxo_b", 1000);
+        second.address = "ark1qinv_2".to_string();
+        let watcher = late_watcher(&db, vec![ark_payment("vtxo_a", 1000), second]);
+        // Only inv_1's update fails (as a lost race would).
+        db.call(|conn| {
+            conn.execute_batch(
+                "CREATE TRIGGER no_update_1 BEFORE UPDATE ON invoices WHEN NEW.id = 'inv_1' BEGIN SELECT RAISE(IGNORE); END;",
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        assert!(
+            watcher.tick().await.is_err(),
+            "the unsaved payment is still reported"
+        );
+        assert_eq!(
+            status_of(&db, &store_id, "inv_2").await,
+            InvoiceStatus::Paid
+        );
+        assert_eq!(
+            status_of(&db, &store_id, "inv_1").await,
+            InvoiceStatus::Pending
+        );
+        // Expiry still ran in the same check.
+        assert_eq!(
+            status_of(&db, &store_id, "inv_3").await,
+            InvoiceStatus::Expired
+        );
+        assert!(trouble_showing(&db).await);
+        // The cursor did not move past the unsaved payment.
+        let cursor = db
+            .call(|c| crate::db::get_setting(c, HISTORY_CURSOR_KEY))
+            .await
+            .unwrap();
+        assert!(
+            cursor.is_none(),
+            "cursor stays put while a payment is unsaved"
+        );
+
+        // The cause goes away: the unsaved one is saved, the saved one is not doubled.
+        db.call(|conn| {
+            conn.execute_batch("DROP TRIGGER no_update_1;")?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert_eq!(
+            status_of(&db, &store_id, "inv_1").await,
+            InvoiceStatus::Paid
+        );
+        let paid: i64 = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT paid_sats FROM invoices WHERE id = 'inv_2'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(paid, 1000, "not credited twice");
+        assert!(!trouble_showing(&db).await);
     }
 
     #[tokio::test]

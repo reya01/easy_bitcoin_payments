@@ -62,7 +62,7 @@ jobs:
       # the musl binaries link statically; if the build fails on TLS,
       # Cargo.toml is the line to fix.
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package
         run: |

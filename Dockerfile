@@ -13,7 +13,7 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src && \
     printf 'fn main() {}\n' > src/main.rs && \
     printf '' > src/lib.rs && \
-    cargo build --release && \
+    cargo build --release --locked && \
     rm -f target/release/ebp && \
     rm -rf src
 # rm -f above: the stub binary is deleted after warming the dep cache, so if
@@ -29,7 +29,7 @@ COPY assets ./assets
 # Docker COPY preserves them, so the stub survived every VPS rebuild for 22h
 # (proven locally 2026-11-03; docs/KNOWN_ISSUES.md). Refreshing mtimes forces
 # the crate recompile; dependency artifacts stay cached.
-RUN find src -type f -exec touch {} + && cargo build --release
+RUN find src -type f -exec touch {} + && cargo build --release --locked
 
 # Smoke test: the dependency-cache step above builds a STUB binary (empty
 # main) into target/release/ebp. If the real build ever silently doesn't

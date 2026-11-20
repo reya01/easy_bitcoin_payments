@@ -2434,7 +2434,10 @@ mod tests {
             }))
         };
         let good = entry("successful", 50_000, "tark1dest", now - 30);
-        assert_eq!(count_history_matches(&u, std::slice::from_ref(&good), now), 1);
+        assert_eq!(
+            count_history_matches(&u, std::slice::from_ref(&good), now),
+            1
+        );
         // A failed or cancelled movement is not our send.
         assert_eq!(
             count_history_matches(&u, &[entry("failed", 50_000, "tark1dest", now - 30)], now),

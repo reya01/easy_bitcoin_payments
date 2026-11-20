@@ -416,6 +416,111 @@ pub(crate) fn select_vtxos_within(
     (ids, total)
 }
 
+/// Settings key: the id of the unsettled transfer the phone alert was already
+/// sent for, so a long wait sends one alert, not one per check.
+const TRANSFER_UNKNOWN_ALERTED_KEY: &str = "transfer_unknown_alerted";
+/// A send must be at least this much older than the history entry it is
+/// matched with, in the other direction: history times can differ a little.
+const HISTORY_MATCH_SLACK_SECS: i64 = 300;
+/// How far above the amount a matching history entry may be (network fee).
+const HISTORY_MATCH_FEE_ROOM_SATS: i64 = 10_000;
+/// An on-chain send whose coins are all still in the wallet this long after
+/// the attempt did not happen (a withdrawal takes a round or two).
+const OFFBOARD_NOT_SENT_AFTER_SECS: i64 = 600;
+
+/// A send whose outcome nobody knows: the server wrote "sending" and then
+/// restarted, or the request timed out before an answer came back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsettledSend {
+    pub id: String,
+    pub kind: String,
+    pub amount_sats: i64,
+    pub destination: String,
+    pub created_at: i64,
+    pub vtxos: Vec<String>,
+}
+
+/// The oldest transfer whose outcome is unknown, if any. Sends run one at a
+/// time under [`CYCLE_LOCK`], so a "sending" line found when a cycle starts
+/// was left behind by a restart.
+pub fn unsettled_send(conn: &Connection) -> Result<Option<UnsettledSend>, AppError> {
+    let row = conn
+        .query_row(
+            "SELECT id, kind, amount_sats, destination, created_at, detail FROM settlements
+             WHERE status IN ('sending', 'unknown') ORDER BY created_at ASC, rowid ASC LIMIT 1",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(
+        row.map(|(id, kind, amount_sats, destination, created_at, detail)| {
+            let vtxos = detail
+                .as_deref()
+                .and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok())
+                .and_then(|v| v.get("vtxos").cloned())
+                .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
+                .unwrap_or_default();
+            UnsettledSend {
+                id,
+                kind,
+                amount_sats,
+                destination,
+                created_at,
+                vtxos,
+            }
+        }),
+    )
+}
+
+/// Home should show the "a transfer may or may not have gone out" line.
+pub fn transfer_unknown_showing(conn: &Connection) -> bool {
+    matches!(unsettled_send(conn), Ok(Some(_)))
+}
+
+/// The owner says how an unknown transfer ended. Returns false if there was
+/// none to settle.
+pub fn resolve_unsettled(conn: &Connection, arrived: bool) -> Result<bool, AppError> {
+    let Some(u) = unsettled_send(conn)? else {
+        return Ok(false);
+    };
+    let (status, detail) = if arrived {
+        ("broadcast", "You confirmed it arrived.")
+    } else {
+        (
+            "failed",
+            "You confirmed it did not arrive; nothing was sent.",
+        )
+    };
+    conn.execute(
+        "UPDATE settlements SET status = ?1, detail = ?2 WHERE id = ?3",
+        params![status, detail, u.id],
+    )?;
+    Ok(true)
+}
+
+/// Plain words for the sweep note and Home while a transfer is unclear.
+pub const TRANSFER_UNKNOWN_NOTE: &str = "A transfer to your payout address may or may not have gone out: it was interrupted before the server heard back. Your money is safe either way. No more transfers are made until this is cleared, so nothing can be sent twice. Check your payout wallet, then tell the server below whether it arrived.";
+
+/// Did this failed send possibly go through anyway? A timeout, a dropped
+/// connection after the request left, or an answer we could not read: yes.
+/// A clear refusal, a connection that never opened or an error answer: no.
+pub(crate) fn send_outcome_unknown(err: &crate::wallet::WalletError) -> bool {
+    use crate::wallet::WalletError;
+    match err {
+        WalletError::Unavailable(m) => m.contains("timed out") || m.contains("request failed"),
+        WalletError::Rejected(m) => m.contains("unparseable response"),
+    }
+}
+
 pub struct SettlementEngine {
     client: BarkdClient,
     db: Db,
@@ -1039,6 +1144,27 @@ impl SettlementEngine {
             }
             return Ok(report);
         }
+        // A transfer whose outcome is unknown (interrupted or timed out): try to
+        // settle it from the wallet's history; if that is not clear, send nothing,
+        // automatic or button, until the owner says how it ended.
+        if let Some(unsettled) = self.db.call(|c| unsettled_send(c)).await? {
+            let free_ids: Vec<String> = free_coins.iter().map(|v| v.id.clone()).collect();
+            if !self.settle_from_history(&unsettled, &free_ids).await? {
+                self.db
+                    .call(|c| {
+                        // Make sure a restart-left "sending" line is shown as unknown.
+                        c.execute(
+                            "UPDATE settlements SET status = 'unknown' WHERE status = 'sending'",
+                            [],
+                        )?;
+                        Ok(())
+                    })
+                    .await?;
+                self.alert_transfer_unknown().await?;
+                report.sweep_refused = Some(TRANSFER_UNKNOWN_NOTE.to_string());
+                return Ok(report);
+            }
+        }
         // The Ark server refused this wallet's software as too old a little while
         // ago: do not keep asking every few minutes (the button still tries).
         if !manual
@@ -1161,7 +1287,7 @@ impl SettlementEngine {
         }
         // (A refusal remembered from an earlier check is forgotten only once a
         // send really goes ahead, below, so a held-back send is written once.)
-        let (amount, result) = if ark {
+        let (amount, send_id, result) = if ark {
             if excess < ARK_MIN_SEND_SATS {
                 let reason = format!(
                     "Only {excess} sats are free, which is too small to send (the smallest payment is {ARK_MIN_SEND_SATS} sats). Nothing was sent: it stays in your till and goes out with the next payments."
@@ -1171,7 +1297,12 @@ impl SettlementEngine {
                     .await;
             }
             self.forget_refusal();
-            (excess, self.client.ark_send(&destination, excess).await)
+            let send_id = self.begin_send(kind, excess, &destination, &[]).await?;
+            (
+                excess,
+                send_id,
+                self.client.ark_send(&destination, excess).await,
+            )
         } else {
             // R8: offboard only enough whole VTXOs to cover the excess
             // (largest first) via /wallet/offboard/vtxos, leaving the rest
@@ -1209,16 +1340,23 @@ impl SettlementEngine {
                     .await;
             }
             self.forget_refusal();
-            (total, self.client.offboard_vtxos(&destination, &ids).await)
+            let send_id = self.begin_send(kind, total, &destination, &ids).await?;
+            (
+                total,
+                send_id,
+                self.client.offboard_vtxos(&destination, &ids).await,
+            )
         };
 
         match result {
             Ok(receipt) => {
                 let detail = serde_json::to_string(&receipt).unwrap_or_else(|_| "{}".to_string());
-                let dest = destination.clone();
                 self.db
                     .call(move |conn| {
-                        record(conn, kind, amount, &dest, "broadcast", Some(&detail))?;
+                        conn.execute(
+                            "UPDATE settlements SET status = 'broadcast', detail = ?1 WHERE id = ?2",
+                            params![detail, send_id],
+                        )?;
                         // A send went through: the software is not too old.
                         crate::settings::set(conn, WALLET_UPDATE_NEEDED_KEY, "0")
                     })
@@ -1230,6 +1368,32 @@ impl SettlementEngine {
                 let mut reason = err.to_string();
                 tracing::warn!(error = %reason, "settlement sweep failed");
                 let too_old = is_update_needed_error(&reason);
+                if !too_old && send_outcome_unknown(&err) {
+                    // The request may have gone through. Do not call it failed
+                    // and do not try again: write it down as unknown and stop
+                    // sending until it is settled (from the wallet's history,
+                    // or by the owner).
+                    let note = reason.clone();
+                    self.db
+                        .call(move |conn| {
+                            conn.execute(
+                                "UPDATE settlements SET status = 'unknown', detail = COALESCE(?1 || ' ' || detail, ?1) WHERE id = ?2",
+                                params![note, send_id],
+                            )?;
+                            Ok(())
+                        })
+                        .await?;
+                    report.sweep_refused = Some(TRANSFER_UNKNOWN_NOTE.to_string());
+                    self.alert_transfer_unknown().await?;
+                    return Ok(report);
+                }
+                // A clear "no": nothing left the till, so the journal line goes.
+                self.db
+                    .call(move |conn| {
+                        conn.execute("DELETE FROM settlements WHERE id = ?1", params![send_id])?;
+                        Ok(())
+                    })
+                    .await?;
                 if too_old {
                     reason = format!(
                         "Your wallet software is too old for the Ark server and needs an update. Your money is safe. ({reason})"
@@ -1253,6 +1417,97 @@ impl SettlementEngine {
 }
 
 impl SettlementEngine {
+    /// Write the "sending" line BEFORE the irreversible call, so a crash or a
+    /// timeout leaves a trace instead of nothing.
+    async fn begin_send(
+        &self,
+        kind: &'static str,
+        amount: i64,
+        destination: &str,
+        vtxo_ids: &[String],
+    ) -> Result<String, AppError> {
+        let detail = serde_json::json!({ "vtxos": vtxo_ids }).to_string();
+        let dest = destination.to_string();
+        self.db
+            .call(move |conn| record_id(conn, kind, amount, &dest, "sending", Some(&detail)))
+            .await
+    }
+
+    /// One phone alert per unknown transfer, not one per check.
+    async fn alert_transfer_unknown(&self) -> Result<(), AppError> {
+        self.db
+            .call(|conn| {
+                let Some(u) = unsettled_send(conn)? else {
+                    return Ok(());
+                };
+                if crate::settings::get(conn, TRANSFER_UNKNOWN_ALERTED_KEY)?.as_deref()
+                    != Some(u.id.as_str())
+                {
+                    crate::alerts::queue_notice(conn, "transfer_unknown")?;
+                    crate::settings::set(conn, TRANSFER_UNKNOWN_ALERTED_KEY, &u.id)?;
+                }
+                Ok(())
+            })
+            .await
+    }
+
+    /// Try to settle an unknown transfer without bothering the owner: if the
+    /// wallet's history shows exactly one matching outbound movement (same
+    /// destination, about the amount, recent enough) it went out; if it was an
+    /// on-chain send and every coin it named is still free in the wallet well
+    /// after the attempt, it did not. Anything less clear stays unknown.
+    async fn settle_from_history(
+        &self,
+        u: &UnsettledSend,
+        free_coin_ids: &[String],
+    ) -> Result<bool, AppError> {
+        let Ok(page) = self.client.history().await else {
+            return Ok(false);
+        };
+        let matches = page
+            .entries
+            .iter()
+            .filter(|e| {
+                e.outbound_sats().is_some_and(|n| {
+                    n >= u.amount_sats && n <= u.amount_sats + HISTORY_MATCH_FEE_ROOM_SATS
+                }) && e.sent_to_contains(&u.destination)
+                    && e.detected_at_unix()
+                        .is_some_and(|t| t >= u.created_at - HISTORY_MATCH_SLACK_SECS)
+            })
+            .count();
+        let id = u.id.clone();
+        if matches == 1 {
+            self.db
+                .call(move |conn| {
+                    conn.execute(
+                        "UPDATE settlements SET status = 'broadcast', detail = 'Confirmed from the wallet history after an interruption.' WHERE id = ?1",
+                        params![id],
+                    )?;
+                    Ok(())
+                })
+                .await?;
+            return Ok(true);
+        }
+        if matches == 0
+            && u.kind == "sweep_onchain"
+            && !u.vtxos.is_empty()
+            && now_unix() - u.created_at >= OFFBOARD_NOT_SENT_AFTER_SECS
+            && u.vtxos.iter().all(|v| free_coin_ids.contains(v))
+        {
+            self.db
+                .call(move |conn| {
+                    conn.execute(
+                        "UPDATE settlements SET status = 'failed', detail = 'The coins are still in the wallet, so nothing was sent.' WHERE id = ?1",
+                        params![id],
+                    )?;
+                    Ok(())
+                })
+                .await?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     /// A send that is held back on purpose (too small to be worth it): shown as
     /// the sweep's plain-words note, and written once as a "waiting" line, not
     /// once per check. Nothing leaves the till.
@@ -1855,6 +2110,276 @@ mod tests {
                 "a sweep must never POST to {banned}"
             );
         }
+    }
+
+    // ---- the journal for sends whose outcome is unknown ----
+
+    const JOURNAL_ARK: &str =
+        "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+
+    /// A wallet holding 50,000 sats in one Ark coin. `send_mode`: 0 = the send
+    /// answer cannot be read (outcome unknown), 1 = refused (a clear no), 2 = ok.
+    /// `in_history` puts a matching send in the wallet's history.
+    fn journal_mock(
+        send_mode: Arc<std::sync::atomic::AtomicUsize>,
+        in_history: Arc<std::sync::atomic::AtomicBool>,
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
+    ) {
+        use std::sync::atomic::Ordering;
+        mock::spawn(move |req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 50000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 50000}"#.to_string()),
+            "/api/v1/wallet/send" => match send_mode.load(Ordering::SeqCst) {
+                0 => (200, "this is not json".to_string()),
+                1 => (400, r#"{"message": "bad destination"}"#.to_string()),
+                _ => (200, r#"{"message": "ok"}"#.to_string()),
+            },
+            r if r.contains("history") => {
+                if in_history.load(Ordering::SeqCst) {
+                    let now = chrono::Utc::now().to_rfc3339();
+                    (
+                        200,
+                        format!(
+                            r#"{{"history": [{{"intended_balance_sat": -50000, "status": "successful", "subsystem": {{"kind": "send"}}, "sent_to": [{{"destination": {{"type": "ark", "value": "{JOURNAL_ARK}"}}, "amount_sat": 50000}}], "time": {{"completed_at": "{now}"}}}}]}}"#
+                        ),
+                    )
+                } else {
+                    (200, r#"{"history": []}"#.to_string())
+                }
+            }
+            _ => (404, "{}".to_string()),
+        }
+        })
+    }
+
+    fn sends(rec: &Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>) -> usize {
+        rec.lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.route() == "/api/v1/wallet/send")
+            .count()
+    }
+
+    async fn journal_status(db: &Db) -> Vec<String> {
+        db.call(|c| {
+            let mut st = c.prepare("SELECT status FROM settlements ORDER BY created_at, rowid")?;
+            let rows = st
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_send_answer_is_unknown_pauses_every_send_and_alerts_once() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let mode = Arc::new(AtomicUsize::new(0));
+        let hist = Arc::new(AtomicBool::new(false));
+        let (base, rec) = journal_mock(mode.clone(), hist);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let report = engine.tick().await.unwrap();
+        assert!(report.swept_sats.is_none());
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap()
+            .contains("may or may not"));
+        assert_eq!(journal_status(&db).await, vec!["unknown"]);
+        assert_eq!(sends(&rec), 1);
+        // The send would work now, but nothing is sent while the outcome is unclear:
+        // not by the timer, not by the button.
+        mode.store(2, Ordering::SeqCst);
+        engine.tick().await.unwrap();
+        let report = engine.sweep_now().await.unwrap();
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap()
+            .contains("may or may not"));
+        assert_eq!(sends(&rec), 1, "an unknown send is never retried");
+        assert!(db.call(|c| Ok(transfer_unknown_showing(c))).await.unwrap());
+        let notices = db
+            .call(|c| Ok(crate::settings::get(c, "alert_notices")?.unwrap_or_default()))
+            .await
+            .unwrap();
+        assert_eq!(notices, "transfer_unknown");
+    }
+
+    #[tokio::test]
+    async fn the_owner_saying_it_did_not_arrive_lets_sending_resume() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let mode = Arc::new(AtomicUsize::new(0));
+        let (base, rec) = journal_mock(mode.clone(), Arc::new(AtomicBool::new(false)));
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        engine.tick().await.unwrap();
+        mode.store(2, Ordering::SeqCst);
+        assert!(db.call(|c| resolve_unsettled(c, false)).await.unwrap());
+        assert!(
+            !db.call(|c| resolve_unsettled(c, false)).await.unwrap(),
+            "nothing left to settle"
+        );
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(50_000));
+        assert_eq!(sends(&rec), 2);
+        assert_eq!(journal_status(&db).await, vec!["failed", "broadcast"]);
+    }
+
+    #[tokio::test]
+    async fn the_owner_saying_it_arrived_settles_it_as_sent() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        let mode = Arc::new(AtomicUsize::new(0));
+        let (base, _rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        engine.tick().await.unwrap();
+        assert!(db.call(|c| resolve_unsettled(c, true)).await.unwrap());
+        assert_eq!(journal_status(&db).await, vec!["broadcast"]);
+        assert!(!db.call(|c| Ok(transfer_unknown_showing(c))).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn one_matching_movement_in_the_wallet_history_settles_it_without_the_owner() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let mode = Arc::new(AtomicUsize::new(0));
+        let hist = Arc::new(AtomicBool::new(false));
+        let (base, _rec) = journal_mock(mode.clone(), hist.clone());
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        engine.tick().await.unwrap();
+        assert_eq!(journal_status(&db).await, vec!["unknown"]);
+        // The wallet's history now shows the send going out.
+        hist.store(true, Ordering::SeqCst);
+        mode.store(1, Ordering::SeqCst); // any new send would be refused: only the settling is under test
+        engine.tick().await.unwrap();
+        let first: (String, String) = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT status, detail FROM settlements ORDER BY created_at, rowid LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.0, "broadcast");
+        assert!(first.1.contains("wallet history"), "{}", first.1);
+        assert!(!db.call(|c| Ok(transfer_unknown_showing(c))).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_clear_refusal_is_a_plain_failure_and_leaves_no_unclear_line() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        let mode = Arc::new(AtomicUsize::new(1));
+        let (base, rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        engine.tick().await.unwrap();
+        engine.tick().await.unwrap();
+        assert_eq!(
+            journal_status(&db).await,
+            vec!["failed"],
+            "one line, no leftovers"
+        );
+        assert_eq!(sends(&rec), 2, "a clear no is retried as before");
+        assert!(!db.call(|c| Ok(transfer_unknown_showing(c))).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_sending_line_left_by_a_restart_pauses_sends_until_settled() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        let mode = Arc::new(AtomicUsize::new(2));
+        let (base, rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| {
+            record_id(c, "sweep_ark", 50_000, JOURNAL_ARK, "sending", Some("{}")).map(|_| ())
+        })
+        .await
+        .unwrap();
+        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let report = engine.tick().await.unwrap();
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap()
+            .contains("may or may not"));
+        assert_eq!(sends(&rec), 0);
+        assert_eq!(journal_status(&db).await, vec!["unknown"]);
+    }
+
+    #[tokio::test]
+    async fn an_onchain_send_whose_coins_are_all_still_free_is_settled_as_not_sent() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        let mode = Arc::new(AtomicUsize::new(2));
+        let (base, _rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
+        let db = Db::open(":memory:").unwrap();
+        // An attempt 20 minutes ago that named coin v1, which is still free.
+        db.call(|c| {
+            let id = record_id(
+                c,
+                "sweep_onchain",
+                50_000,
+                "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+                "unknown",
+                Some(r#"{"vtxos": ["v1"]}"#),
+            )?;
+            c.execute(
+                "UPDATE settlements SET created_at = ?1 WHERE id = ?2",
+                params![now_unix() - 1_200, id],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        engine.tick().await.unwrap();
+        let first: (String, String) = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT status, detail FROM settlements ORDER BY created_at, rowid LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.0, "failed");
+        assert!(first.1.contains("still in the wallet"), "{}", first.1);
+    }
+
+    #[test]
+    fn only_a_possibly_delivered_request_counts_as_unknown() {
+        use crate::wallet::WalletError;
+        assert!(send_outcome_unknown(&WalletError::Unavailable(
+            "barkd request timed out: x".into()
+        )));
+        assert!(send_outcome_unknown(&WalletError::Unavailable(
+            "barkd request failed: reset".into()
+        )));
+        assert!(send_outcome_unknown(&WalletError::Rejected(
+            "unparseable response from barkd: eof".into()
+        )));
+        assert!(!send_outcome_unknown(&WalletError::Unavailable(
+            "barkd connection failed: refused".into()
+        )));
+        assert!(!send_outcome_unknown(&WalletError::Unavailable(
+            "barkd returned HTTP 500".into()
+        )));
+        assert!(!send_outcome_unknown(&WalletError::Rejected(
+            "barkd rejected the request (HTTP 400)".into()
+        )));
     }
 
     #[test]

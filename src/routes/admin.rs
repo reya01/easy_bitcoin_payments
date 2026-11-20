@@ -234,6 +234,11 @@ pub async fn status(
     )
     .is_none();
     facts.live = state.config.mode == "live";
+    facts.transfer_unknown = state
+        .db
+        .call(|c| Ok(crate::wallet::settlement::transfer_unknown_showing(c)))
+        .await
+        .unwrap_or(false);
     facts.payment_save_trouble = state
         .db
         .call(|c| {

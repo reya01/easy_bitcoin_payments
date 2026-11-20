@@ -559,7 +559,7 @@ pub(crate) fn count_history_matches(
         .filter(|e| {
             e.status
                 .as_deref()
-                .map_or(true, |s| s.eq_ignore_ascii_case("successful"))
+                .is_none_or(|s| s.eq_ignore_ascii_case("successful"))
                 && e.outbound_sats().is_some_and(|n| {
                     n >= u.amount_sats && n <= u.amount_sats + HISTORY_MATCH_FEE_ROOM_SATS
                 })
@@ -2434,7 +2434,7 @@ mod tests {
             }))
         };
         let good = entry("successful", 50_000, "tark1dest", now - 30);
-        assert_eq!(count_history_matches(&u, &[good.clone()], now), 1);
+        assert_eq!(count_history_matches(&u, std::slice::from_ref(&good), now), 1);
         // A failed or cancelled movement is not our send.
         assert_eq!(
             count_history_matches(&u, &[entry("failed", 50_000, "tark1dest", now - 30)], now),

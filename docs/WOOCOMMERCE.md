@@ -170,6 +170,22 @@ edited the order), the order is **not** marked paid. It gets a note saying a
 payment arrived for a different amount; check your wallet and complete or
 refund it by hand.
 
+## How the plugin decides an order is paid (and what to copy if you build your own)
+
+The plugin follows the rules every careful payment integration uses. If you write your
+own connection to EBP instead of using this plugin, keep to them too:
+
+1. **Mark an order paid only from your payment server's own answer**, never because the
+   customer reached a "thank you" page. That page can be skipped, replayed or faked by
+   anyone. The plugin does not mark anything paid from the page the customer returns to.
+2. **Treat the notice as a nudge, not as the proof.** The plugin checks the notice's
+   signature, then asks your payment server for the invoice and acts on that answer. A
+   notice may arrive twice or out of order, so repeating it must do nothing the second
+   time (an order that is already paid is left alone).
+3. **Check the amount and the order.** The plugin refuses to mark an order paid if the
+   invoice belongs to another order or the order total changed after checkout.
+4. **Do it once per invoice.** One invoice completes one order, once.
+
 ## Safety notes
 
 - Orders are only marked paid after the plugin asks **your own server**

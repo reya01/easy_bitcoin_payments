@@ -107,6 +107,16 @@ same process as a practice run, with checks.
 match your answer key, a new test order completes, and **Move my money now** sends
 money to your own wallet.
 
+## What the 12 words restore, and what they do not
+
+- **The 12 words bring back the money** (everything the wallet holds), and nothing else.
+- **They do not bring back your list of orders, invoices and settings.** That history is
+  in your `.ebpbackup` file only. Download a fresh one whenever you want a copy of what is
+  on the server now; a backup from last week misses everything since.
+- **Money and history are separate:** with the words but no backup file you can still
+  reach your money, and WooCommerce still has your orders, but the payment server's own
+  list starts empty.
+
 ## What you may notice (and it is fine)
 
 - A **"Routine wallet upkeep"** row can appear right after the restore: the new server

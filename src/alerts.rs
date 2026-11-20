@@ -99,6 +99,10 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "Your payout address was changed",
             "The payout address change has taken effect. If you did not ask for it, pause payments in Settings and follow If something looks wrong.",
         )),
+        "wallet_update_needed" => Some((
+            "Your wallet software needs an update",
+            "The Ark server will not take payments from this old wallet software, so transfers to your payout address are paused. Your money is safe and you can still receive payments. Open your dashboard, Home, and install the update.",
+        )),
         "exit_started" => Some((
             "An emergency withdrawal was started",
             "Someone started taking the money on your payment server out without the Ark server. If this was not you, open Settings, Emergency, now, press Stop, and change your admin password.",

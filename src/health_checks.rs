@@ -85,6 +85,9 @@ pub struct Facts {
     /// The network the wallet's Ark server reports (`"bitcoin"` for
     /// mainnet); `None` = could not find out (no check shown).
     pub wallet_network: Option<String>,
+    /// The Ark server recently refused a send because this wallet software
+    /// is too old; transfers to the payout address are paused.
+    pub wallet_update_needed: bool,
 }
 
 /// The "large balance" warning fires above this many sats, whatever the
@@ -356,6 +359,15 @@ pub fn build(f: &Facts) -> Vec<Check> {
             Level::Ok,
             "Your shop is receiving payment notices",
             "No failed notifications.",
+        );
+    }
+
+    if f.wallet_update_needed {
+        push(
+            "wallet_update",
+            Level::Warn,
+            "Your wallet software needs an update",
+            "The Ark server will not take sends from this old wallet software, so automatic transfers to your payout address are paused. Your money is safe and you can still receive payments. Install the update from the Home tab (Update now). If none is offered yet, it is on its way: nothing needs doing and transfers resume by themselves after the update.",
         );
     }
 
@@ -640,6 +652,16 @@ mod tests {
         let c = build(&f);
         assert!(c.iter().all(|x| x.id != "expiry"));
         assert!(c.iter().all(|x| x.level == Level::Ok));
+    }
+
+    #[test]
+    fn old_wallet_software_gets_one_plain_yellow_line() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|x| x.id != "wallet_update"));
+        f.wallet_update_needed = true;
+        let c = build(&f);
+        assert_eq!(find(&c, "wallet_update").level, Level::Warn);
+        assert!(find(&c, "wallet_update").detail.contains("money is safe"));
     }
 
     #[test]

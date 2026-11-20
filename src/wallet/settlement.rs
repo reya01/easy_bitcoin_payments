@@ -148,6 +148,69 @@ pub(crate) fn onchain_arrival_problem(total: i64, fee_sat_vb: i64) -> Option<Str
     ))
 }
 
+/// Setting: unix time of the last send the Ark server (or barkd) refused
+/// because the wallet software is too old (`"0"` or missing = no such refusal).
+pub const WALLET_UPDATE_NEEDED_KEY: &str = "wallet_update_needed_at";
+/// After such a refusal the automatic transfer stops asking for this long
+/// (then tries once more, so it resumes by itself after an update). "Move my
+/// money now" always tries.
+const UPDATE_NEEDED_PAUSE_SECS: i64 = 6 * 3600;
+/// Home shows the "needs an update" line for this long after the last refusal
+/// (a retry that is refused again renews it), and the phone alert is repeated
+/// no sooner than this.
+pub const UPDATE_NEEDED_SHOW_SECS: i64 = 24 * 3600;
+
+/// Does this error from barkd say the wallet software is too old for the Ark
+/// server? Bark 0.9's changelog says an older wallet "can fail with an upgrade
+/// error" when it spends a small coin (docs/dev/BARK_0_9_REVIEW.md). The exact
+/// text is not yet confirmed by Second, so this looks for the words that any
+/// such message must carry. A wrong guess only pauses the automatic transfer
+/// for a few hours and shows a line on Home; no money is ever moved by it.
+pub(crate) fn is_update_needed_error(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    [
+        "upgrade",
+        "outdated",
+        "too old",
+        "update your wallet",
+        "unsupported client version",
+        "unsupported wallet version",
+    ]
+    .iter()
+    .any(|w| m.contains(w))
+}
+
+fn update_needed_at(conn: &Connection) -> i64 {
+    crate::settings::get(conn, WALLET_UPDATE_NEEDED_KEY)
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0)
+}
+
+/// The automatic transfer should not ask again yet.
+pub(crate) fn update_needed_paused(conn: &Connection, now: i64) -> bool {
+    let at = update_needed_at(conn);
+    at > 0 && now - at < UPDATE_NEEDED_PAUSE_SECS
+}
+
+/// Home should show the "needs an update" line.
+pub fn update_needed_showing(conn: &Connection, now: i64) -> bool {
+    let at = update_needed_at(conn);
+    at > 0 && now - at < UPDATE_NEEDED_SHOW_SECS
+}
+
+/// Remember a refusal for old wallet software; queue ONE phone alert (not one
+/// per retry).
+fn mark_update_needed(conn: &Connection, now: i64) -> Result<(), AppError> {
+    let before = update_needed_at(conn);
+    crate::settings::set(conn, WALLET_UPDATE_NEEDED_KEY, &now.to_string())?;
+    if before <= 0 || now - before >= UPDATE_NEEDED_SHOW_SECS {
+        crate::alerts::queue_notice(conn, "wallet_update_needed")?;
+    }
+    Ok(())
+}
+
 const MIN_TRIGGER_BLOCKS: i64 = 12;
 
 /// How many blocks before expiry a coin is refreshed.
@@ -954,6 +1017,17 @@ impl SettlementEngine {
             }
             return Ok(report);
         }
+        // The Ark server refused this wallet's software as too old a little while
+        // ago: do not keep asking every few minutes (the button still tries).
+        if !manual
+            && self
+                .db
+                .call(|c| Ok(update_needed_paused(c, now_unix())))
+                .await?
+        {
+            tracing::info!("automatic transfer paused: the wallet software needs an update");
+            return Ok(report);
+        }
         // An automatic sweep waits until the excess is worth sending, so the
         // payout wallet receives a few bigger coins instead of many tiny ones.
         // "Move my money now" always sends whatever is there.
@@ -1104,17 +1178,33 @@ impl SettlementEngine {
                 let detail = serde_json::to_string(&receipt).unwrap_or_else(|_| "{}".to_string());
                 let dest = destination.clone();
                 self.db
-                    .call(move |conn| record(conn, kind, amount, &dest, "broadcast", Some(&detail)))
+                    .call(move |conn| {
+                        record(conn, kind, amount, &dest, "broadcast", Some(&detail))?;
+                        // A send went through: the software is not too old.
+                        crate::settings::set(conn, WALLET_UPDATE_NEEDED_KEY, "0")
+                    })
                     .await?;
                 report.swept_sats = Some(amount);
                 tracing::info!(kind, amount_sats = amount, "settlement sweep sent");
             }
             Err(err) => {
-                let reason = err.to_string();
+                let mut reason = err.to_string();
                 tracing::warn!(error = %reason, "settlement sweep failed");
+                let too_old = is_update_needed_error(&reason);
+                if too_old {
+                    reason = format!(
+                        "Your wallet software is too old for the Ark server and needs an update. Your money is safe. ({reason})"
+                    );
+                }
                 let dest = destination.clone();
                 self.db
-                    .call(move |conn| record_failure(conn, kind, amount, &dest, &reason))
+                    .call(move |conn| {
+                        record_failure(conn, kind, amount, &dest, &reason)?;
+                        if too_old {
+                            mark_update_needed(conn, now_unix())?;
+                        }
+                        Ok(())
+                    })
                     .await?;
             }
         }
@@ -2208,6 +2298,94 @@ mod tests {
             .unwrap()
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/send"));
+    }
+
+    #[test]
+    fn upgrade_errors_are_recognised_and_ordinary_ones_are_not() {
+        assert!(is_update_needed_error(
+            "barkd rejected the request (HTTP 400: Please upgrade your wallet to spend this coin)"
+        ));
+        assert!(is_update_needed_error("client version is too old"));
+        assert!(!is_update_needed_error("insufficient funds"));
+        assert!(!is_update_needed_error(
+            "barkd returned HTTP 500: problem A"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_refusal_for_old_wallet_software_pauses_the_automatic_transfer_with_one_alert() {
+        const ARK: &str =
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 5000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 5000}"#.to_string()),
+            "/api/v1/wallet/send" => (
+                400,
+                r#"{"message": "Please upgrade your wallet to spend this coin"}"#.to_string(),
+            ),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, ARK, 0);
+        let sends = || {
+            recorded
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.route() == "/api/v1/wallet/send")
+                .count()
+        };
+        // The first (automatic) try is refused as too old.
+        engine.tick().await.unwrap();
+        assert_eq!(sends(), 1);
+        let (showing, paused, notices) = db
+            .call(|c| {
+                Ok((
+                    update_needed_showing(c, now_unix()),
+                    update_needed_paused(c, now_unix()),
+                    crate::settings::get(c, "alert_notices")?.unwrap_or_default(),
+                ))
+            })
+            .await
+            .unwrap();
+        assert!(showing && paused);
+        assert_eq!(notices, "wallet_update_needed");
+        // The next automatic checks do not ask again.
+        engine.tick().await.unwrap();
+        engine.tick().await.unwrap();
+        assert_eq!(sends(), 1, "the automatic transfer must stop asking");
+        // The button still tries (and is refused again, with no second alert).
+        engine.sweep_now().await.unwrap();
+        assert_eq!(sends(), 2);
+        let notices = db
+            .call(|c| Ok(crate::settings::get(c, "alert_notices")?.unwrap_or_default()))
+            .await
+            .unwrap();
+        assert_eq!(notices, "wallet_update_needed");
+        // The failed line says what is wrong in plain words.
+        let detail: String = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT detail FROM settlements WHERE status = 'failed' LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert!(
+            detail.starts_with("Your wallet software is too old"),
+            "{detail}"
+        );
     }
 
     #[tokio::test]

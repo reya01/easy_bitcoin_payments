@@ -127,10 +127,10 @@ jobs:
           set -eu
           if [ "$CHECKS" = "failure" ]; then
             TITLE="Bark canary: barkd $NEWEST breaks something EBP calls"
-            LEAD="barkd $NEWEST does not match what EBP sends or reads. EBP pins $PINNED. Do not move to it until this is understood; the recipe is docs/dev/BARKD_0_8_1_UPGRADE.md."
+            LEAD="barkd $NEWEST does not match what EBP sends or reads. EBP pins $PINNED. Do not move to it until this is understood; the recipe is docs/dev/BARKD_0_9_0_UPGRADE.md."
           elif [ "$NEWEST" != "$PINNED" ]; then
             TITLE="Bark canary: barkd $NEWEST is out (EBP pins $PINNED)"
-            LEAD="A newer barkd exists and our checks still pass against it. The follow rule: move within four weeks, and always before Second's server raises its protocol floor. The recipe is docs/dev/BARKD_0_8_1_UPGRADE.md."
+            LEAD="A newer barkd exists and our checks still pass against it. The follow rule: move within four weeks, and always before Second's server raises its protocol floor. The recipe is docs/dev/BARKD_0_9_0_UPGRADE.md."
           else
             echo "newest release is the pinned one and the checks pass: nothing to report"
             exit 0

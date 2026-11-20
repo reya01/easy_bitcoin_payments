@@ -11,7 +11,7 @@
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "0.8.0"
+    "version": "0.9.0"
   },
   "paths": {
     "/api/v1/bitcoin/tip": {
@@ -397,6 +397,58 @@
         }
       }
     },
+    "/api/v1/exits/presign": {
+      "post": {
+        "tags": [
+          "exits"
+        ],
+        "summary": "Presign emergency exit chains",
+        "description": "Signs, without broadcasting, the CPFP child of every transaction that still needs to be broadcast to unilaterally (emergency) exit the specified VTXOs, for as long as the wallet's confirmed on-chain funds last. The result is a self-contained broadcast plan meant for later execution by any independent party: broadcast all of a wave's `(exit, child)` packages together, wait for every one to confirm, then move to the next wave—each wave's children spend change confirmed by the previous wave. Exit transactions already in the mempool are listed in the first wave's `in_mempool`. Each exit's `status` reports whether its packages are `fully-signed` (`exited_in_wave` names the wave whose confirmation completes the exit), `partially-signed` (confirmed funds ran out mid-chain; `last_wave` holds the last signed package and the unfunded tail is listed under `unsigned`), or `unsigned`. How much more funding a partial result would need is not reported: adding funds changes which coins the next child selects and therefore what it costs. Use `GET /exits/fee` for the remaining broadcast cost. Presigning reserves no funds, so a later spend from the on-chain wallet can invalidate the remaining children. It does reveal the on-chain addresses the children pay their change to, so one wallet sync recognizes the whole chain once broadcast, and repeat calls against unchanged funds re-derive the same addresses.",
+        "operationId": "exit_presign",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExitPresignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the presigned exit packages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresignedExits"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A VTXO is unknown, non-standard, already exited, or already spent, or a parameter is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/exits/progress": {
       "post": {
         "tags": [
@@ -422,6 +474,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ExitProgressResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/exits/remaining": {
+      "get": {
+        "tags": [
+          "exits"
+        ],
+        "summary": "List remaining exit transactions",
+        "description": "Lists every exit transaction of the given VTXOs not yet confirmed on-chain: per VTXO, the transaction ids it needs confirmed in broadcast order, plus each transaction exactly once with parents before children. Read-only: nothing is signed and the wallet is never touched, so this works whether or not an exit has been started. Transaction statuses reflect the last exit sync; the daemon refreshes them at the cadence of `SLOW_INTERVAL`, and `POST /exits/progress` forces a refresh. Use `POST /exits/presign` to sign CPFP children for the listed transactions.",
+        "operationId": "remaining_exit_transactions",
+        "parameters": [
+          {
+            "name": "vtxo_ids",
+            "in": "query",
+            "description": "Comma-separated VTXO ids to inspect; omit to inspect the entire wallet",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the remaining exit transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemainingExitTransactions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A VTXO is unknown, non-standard, already exited, or already spent, or a parameter is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
                 }
               }
             }
@@ -1879,6 +1984,312 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/nwc/connections": {
+      "get": {
+        "tags": [
+          "nwc"
+        ],
+        "summary": "List NWC connections",
+        "description": "Lists every Nostr Wallet Connect connection with its permitted methods. Connection secrets are never returned.\n\nThe NWC endpoints respond with 404 when barkd was built without NWC support or has no wallet loaded.",
+        "operationId": "list_connections",
+        "responses": {
+          "200": {
+            "description": "Returns all connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NwcConnectionListResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NWC is off on this daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "nwc"
+        ],
+        "summary": "Create a NWC connection",
+        "description": "Creates a Nostr Wallet Connect connection and returns the `nostr+walletconnect://` URI to hand to an app. The URI contains a secret that is not stored and is returned only once; a lost URI has to be revoked and recreated.\n\nEvery method bark supports is allowed unless it is set to `false` in `methods`, so a connection created without `methods` may call all of them, `pay_invoice` included.\n\nThe URI names the relays configured at creation, so at least one relay has to be added first (see `POST /api/v1/nwc/relays`).\n\nThe NWC endpoints respond with 404 when barkd was built without NWC support or has no wallet loaded.",
+        "operationId": "create_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NwcConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the connection URI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NwcConnectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Every method is turned off, or no relays are configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NWC is off on this daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`methods` names a method bark does not know"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/nwc/connections/{client_pubkey}": {
+      "delete": {
+        "tags": [
+          "nwc"
+        ],
+        "summary": "Revoke a NWC connection",
+        "description": "Revokes a Nostr Wallet Connect connection and stops serving it. The app loses access immediately; requests it sends afterwards go unanswered rather than being refused, because the service it was talking to no longer exists.\n\nThe NWC endpoints respond with 404 when barkd was built without NWC support or has no wallet loaded.",
+        "operationId": "revoke_connection",
+        "parameters": [
+          {
+            "name": "client_pubkey",
+            "in": "path",
+            "description": "The connection's client public key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection was revoked"
+          },
+          "404": {
+            "description": "No such connection, or NWC is off on this daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/nwc/relays": {
+      "get": {
+        "tags": [
+          "nwc"
+        ],
+        "summary": "List NWC relays",
+        "description": "Lists the nostr relays that Nostr Wallet Connect is served on.\n\nThe NWC endpoints respond with 404 when barkd was built without NWC support or has no wallet loaded.",
+        "operationId": "list_relays",
+        "responses": {
+          "200": {
+            "description": "Returns the relays NWC is served on",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NwcRelaysResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NWC is off on this daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "nwc"
+        ],
+        "summary": "Add a NWC relay",
+        "description": "Adds a nostr relay and restarts every connection's service on the new set. The change is stored with the connections in nwc.json, so it survives a restart. Adding a relay that is already configured changes nothing.\n\nExisting connection URIs keep the relays they were created with, so an app only learns of the new relay from a new connection.\n\nThe NWC endpoints respond with 404 when barkd was built without NWC support or has no wallet loaded.",
+        "operationId": "add_relay",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NwcRelayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Returns the relays after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NwcRelaysResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The relay is not a ws:// or wss:// url",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NWC is off on this daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/nwc/relays/{relay}": {
+      "delete": {
+        "tags": [
+          "nwc"
+        ],
+        "summary": "Remove a NWC relay",
+        "description": "Removes a nostr relay and restarts every connection's service on the remaining ones. The change is stored with the connections in nwc.json, so it survives a restart.\n\nAn app only reaches the wallet through the relays in its connection URI, so removing all of them cuts it off until it is given a new connection.\n\nThe NWC endpoints respond with 404 when barkd was built without NWC support or has no wallet loaded.",
+        "operationId": "remove_relay",
+        "parameters": [
+          {
+            "name": "relay",
+            "in": "path",
+            "description": "The relay url, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the relays after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NwcRelaysResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such relay, or NWC is off on this daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
                 }
               }
             }
@@ -3496,6 +3907,7 @@
           "fees",
           "max_vtxo_exit_depth",
           "max_offboard_inputs",
+          "max_round_participation_outputs",
           "vtxo_expiry_delta"
         ],
         "properties": {
@@ -3526,6 +3938,11 @@
           "max_offboard_inputs": {
             "type": "integer",
             "description": "The maximum number of inputs for an offboard",
+            "minimum": 0
+          },
+          "max_round_participation_outputs": {
+            "type": "integer",
+            "description": "The maximum number of outputs of a single round participation",
             "minimum": 0
           },
           "max_user_invoice_cltv_delta": {
@@ -5096,6 +5513,30 @@
           }
         ]
       },
+      "ExitPresignRequest": {
+        "type": "object",
+        "description": "Request body for presigning emergency exit chains.",
+        "properties": {
+          "fee_rate_sat_per_vb": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The fee rate to sign the CPFP children at, in sat/vB (fractions allowed). When omitted,\nthe current `fast` rate is used."
+          },
+          "vtxos": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The IDs of the VTXOs to presign exit chains for, in the order they will be broadcast.\nWhen omitted, every spendable VTXO in the wallet is used."
+          }
+        }
+      },
       "ExitProcessingState": {
         "type": "object",
         "required": [
@@ -5680,20 +6121,24 @@
           {
             "type": "object",
             "required": [
-              "child_txid",
               "block",
+              "child_txid",
               "origin",
               "type"
             ],
             "properties": {
               "block": {
-                "$ref": "#/components/schemas/BlockRef"
+                "$ref": "#/components/schemas/BlockRef",
+                "description": "The block that confirmed the exit transaction."
               },
               "child_txid": {
-                "type": "string"
+                "type": "string",
+                "description": "**Deprecated**: confirmed exit transactions no longer track a CPFP\nchild. This field is always an empty string and will be removed in\na future release.",
+                "deprecated": true
               },
               "origin": {
-                "$ref": "#/components/schemas/ExitTxOrigin"
+                "$ref": "#/components/schemas/ExitTxOrigin",
+                "description": "**Deprecated**: use `block`. This field is always a `block` origin\nconfirmed in `block`, kept for backwards compatibility, and will be\nremoved in a future release."
               },
               "type": {
                 "type": "string",
@@ -6460,6 +6905,161 @@
           }
         }
       },
+      "NwcConnectionInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "client_pubkey",
+          "methods",
+          "created_at"
+        ],
+        "properties": {
+          "client_pubkey": {
+            "type": "string",
+            "description": "The connection's client public key, used to revoke it."
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "methods": {
+            "$ref": "#/components/schemas/NwcMethods",
+            "description": "The methods this connection may call, each set to whether it may."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "NwcConnectionListResponse": {
+        "type": "object",
+        "required": [
+          "connections"
+        ],
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NwcConnectionInfo"
+            }
+          }
+        }
+      },
+      "NwcConnectionRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "methods": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NwcMethods",
+                "description": "The methods this connection may call. Every method is allowed unless it\nis set to `false` here, so leaving this out grants all of them,\n`pay_invoice` included."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "A name for this connection, shown when listing and revoking it."
+          }
+        }
+      },
+      "NwcConnectionResponse": {
+        "type": "object",
+        "required": [
+          "uri",
+          "client_pubkey"
+        ],
+        "properties": {
+          "client_pubkey": {
+            "type": "string",
+            "description": "The connection's client public key, used to revoke it later."
+          },
+          "uri": {
+            "type": "string",
+            "description": "The `nostr+walletconnect://` URI to give the app.\n\nThis is the only time the client secret is returned. It is not stored,\nso a connection that is lost has to be revoked and recreated."
+          }
+        }
+      },
+      "NwcMethods": {
+        "type": "object",
+        "description": "The NWC methods a connection may call, one field per method bark supports.\n\nA method that is not set is allowed, so only the methods an app should not\nhave need to be named. Unknown fields are refused rather than ignored: a\nmisspelt method would otherwise leave the method it meant to turn off\nallowed.",
+        "properties": {
+          "get_balance": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Read the wallet's spendable balance."
+          },
+          "get_info": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Read the wallet's network, block height and supported methods."
+          },
+          "list_transactions": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Read the wallet's lightning payment history."
+          },
+          "lookup_invoice": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Look up an invoice or payment of the wallet."
+          },
+          "make_invoice": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Create lightning invoices that pay into the wallet."
+          },
+          "pay_invoice": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Pay lightning invoices from the wallet, which lets the app spend."
+          }
+        },
+        "additionalProperties": false
+      },
+      "NwcRelayRequest": {
+        "type": "object",
+        "required": [
+          "relay"
+        ],
+        "properties": {
+          "relay": {
+            "type": "string",
+            "description": "A nostr relay, as a `ws://` or `wss://` url."
+          }
+        }
+      },
+      "NwcRelaysResponse": {
+        "type": "object",
+        "required": [
+          "relays"
+        ],
+        "properties": {
+          "relays": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The relays NWC is served on."
+          }
+        }
+      },
       "OffboardAllFeeEstimateQuery": {
         "type": "object",
         "description": "Query parameters for offboard-all fee estimates.",
@@ -6862,6 +7462,188 @@
           }
         }
       },
+      "PresignedExit": {
+        "type": "object",
+        "description": "The presigned broadcast work for one VTXO.",
+        "required": [
+          "vtxo_id",
+          "status",
+          "unsigned"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/PresignedExitStatus"
+          },
+          "unsigned": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionInfo"
+            },
+            "description": "The remaining tail of this exit's chain that could not be funded, in broadcast order;\nits first transaction spends this exit's last signed one. Empty when fully signed."
+          },
+          "vtxo_id": {
+            "type": "string"
+          }
+        }
+      },
+      "PresignedExitChildInfo": {
+        "type": "object",
+        "description": "A signed CPFP child transaction and the fee it commits.",
+        "required": [
+          "txid",
+          "tx",
+          "fee_info"
+        ],
+        "properties": {
+          "fee_info": {
+            "$ref": "#/components/schemas/FeeInfo",
+            "description": "The exit transaction is zero-fee, so this is the fee of the whole package."
+          },
+          "tx": {
+            "type": "string"
+          },
+          "txid": {
+            "type": "string"
+          }
+        }
+      },
+      "PresignedExitPackage": {
+        "type": "object",
+        "description": "An `(exit, child)` transaction package, to be broadcast as one unit.",
+        "required": [
+          "vtxo_id",
+          "exit",
+          "child"
+        ],
+        "properties": {
+          "child": {
+            "$ref": "#/components/schemas/PresignedExitChildInfo",
+            "description": "The signed CPFP child paying for `exit`."
+          },
+          "exit": {
+            "$ref": "#/components/schemas/TransactionInfo",
+            "description": "The zero-fee exit transaction."
+          },
+          "vtxo_id": {
+            "type": "string",
+            "description": "The VTXO whose exit this package advances."
+          }
+        }
+      },
+      "PresignedExitStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Every package has a signed child; the exit's broadcast completes once wave\n`exited_in_wave` confirms (absent when the chain is already confirmed and there is\nnothing to broadcast). `fee_info` totals the children's fees over the combined weight\nof this exit's packages.",
+            "required": [
+              "fee_info",
+              "type"
+            ],
+            "properties": {
+              "exited_in_wave": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "fee_info": {
+                "$ref": "#/components/schemas/FeeInfo"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "fully-signed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Confirmed funds ran out mid-chain: wave `last_wave` holds this exit's last signed\npackage and `unsigned` continues right after it.",
+            "required": [
+              "last_wave",
+              "type"
+            ],
+            "properties": {
+              "last_wave": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "partially-signed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "No package could be funded.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "unsigned"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "How much of a [PresignedExit]'s remaining broadcast work could be funded and signed."
+      },
+      "PresignedExits": {
+        "type": "object",
+        "description": "Presigned emergency-exit chains for a set of VTXOs: a wave-by-wave broadcast plan plus a\nper-VTXO summary.\n\nExecute the plan in wave order: broadcast all of a wave's packages together, then wait for\nevery one, and its `in_mempool` transactions, to confirm before the next wave — each\nwave's children spend change confirmed by the previous wave.",
+        "required": [
+          "exits",
+          "waves"
+        ],
+        "properties": {
+          "exits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresignedExit"
+            },
+            "description": "One entry per requested VTXO, in request order."
+          },
+          "waves": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresignedWave"
+            },
+            "description": "The broadcast plan. Confirmed transactions are omitted, relayed ones are listed in\n`in_mempool`, and a package shared by several exits appears once, under the first exit\nthat references it."
+          }
+        }
+      },
+      "PresignedWave": {
+        "type": "object",
+        "description": "One step of the broadcast plan; see [PresignedExits] for the rules.",
+        "required": [
+          "packages",
+          "in_mempool"
+        ],
+        "properties": {
+          "in_mempool": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionInfo"
+            },
+            "description": "Exit transactions already in the mempool; they confirm with this wave. Only the first\nwave has any."
+          },
+          "packages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresignedExitPackage"
+            },
+            "description": "Packages funded independently of each other, broadcast together."
+          }
+        }
+      },
       "RefreshFees": {
         "type": "object",
         "description": "Fees for refresh operations.",
@@ -6897,6 +7679,49 @@
               "type": "string"
             },
             "description": "List of VTXO IDs to refresh. The sum of the VTXOs being refreshed must be\n>= [P2TR_DUST](bitcoin_ext::P2TR_DUST). Keep in mind that fees set out in\n[RefreshFees](crate::cli::fees::RefreshFees) will be deducted from the newly created VTXO, this\nvalue must also be >= [P2TR_DUST](bitcoin_ext::P2TR_DUST)."
+          }
+        }
+      },
+      "RemainingExitTransactions": {
+        "type": "object",
+        "description": "The exit transactions of a set of VTXOs still awaiting confirmation.",
+        "required": [
+          "exits",
+          "transactions"
+        ],
+        "properties": {
+          "exits": {
+            "type": "object",
+            "description": "The transactions each VTXO needs confirmed to be exited, in broadcast order.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionInfo"
+            },
+            "description": "Every transaction referenced by `exits` exactly once, parents before children."
+          }
+        }
+      },
+      "RemainingExitTransactionsQuery": {
+        "type": "object",
+        "description": "Query parameters for listing the remaining exit transactions.",
+        "properties": {
+          "vtxo_ids": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Comma-separated VTXO ids to inspect. When omitted, every spendable VTXO in the wallet is\nused."
           }
         }
       },
@@ -7715,6 +8540,10 @@
     {
       "name": "notifications",
       "description": "Receive real-time notifications from barkd."
+    },
+    {
+      "name": "nwc",
+      "description": "Manage Nostr Wallet Connect connections and the relays they are served on. bark supports the NWC methods `get_info`, `get_balance`, `make_invoice`, `lookup_invoice`, `pay_invoice` and `list_transactions`."
     }
   ]
 }

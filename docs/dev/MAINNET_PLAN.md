@@ -2,6 +2,8 @@
 
 Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main` at `d3197c3` (`v0.1.0-rc1`). This is a plan, agreed with the owner on 11 November 2026. Nothing in it is built yet except the sweep threshold of 1,000 sats. Whoever does the work follows it in order and stops to report when reality differs from it.
 
+**Update, 20 November 2026:** the barkd 0.9.0 move is a draft pull request with CI-computed checksums; the recipe and the owner's drills are in [BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md).
+
 **Update, 19 November 2026:** Bark 0.9 is out. The owner decided that **EBP v0.3 means running Bark 0.9**; the move to 0.8.1 is folded into it. Its dust-output change affects sweeps and emergency exits: see [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md).
 
 **Status, 17 November 2026:** Stages 4 and 5 have been run with small real money (15 and 16 November). The results are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md); the rest of this page is the plan as agreed on 11 November and is kept as history.

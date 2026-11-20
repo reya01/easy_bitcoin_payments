@@ -101,6 +101,53 @@ pub const MAX_REFRESH_COINS: usize = 1_000;
 /// the changelog and is to be confirmed by Second.
 pub const SMALL_COIN_SATS: i64 = 1_300;
 
+/// The smallest Ark payment EBP will make. Bark 0.9 sends any output under
+/// 330 sats to a separate "dust isolation" transaction (see
+/// docs/dev/BARK_0_9_REVIEW.md), so a send this small is held back instead.
+/// Automatic sweeps are always far above it (their floor is 1,500); only
+/// "Move my money now" can get here.
+pub const ARK_MIN_SEND_SATS: i64 = 330;
+
+/// What an on-chain withdrawal is assumed to weigh when the network fee is
+/// estimated (virtual bytes). Deliberately on the high side.
+pub const ONCHAIN_SEND_VBYTES_ESTIMATE: i64 = 400;
+
+/// An on-chain withdrawal is held back unless at least this many sats would be
+/// left for the owner after the estimated network fee: well above Bitcoin's
+/// own dust limit (546) and Bark's isolation size (330), so what arrives is a
+/// normal coin.
+pub const ONCHAIN_MIN_ARRIVAL_SATS: i64 = 1_000;
+
+/// The fee rate (sat/vB) assumed for the check above when the real one cannot
+/// be read. Only a button press gets here (an automatic withdrawal that cannot
+/// read fees waits, as before).
+pub const UNREADABLE_FEE_GUESS_SAT_VB: i64 = 50;
+
+/// `Some(plain words)` when an on-chain withdrawal of `total` sats would leave
+/// too little after the estimated network fee at `fee_sat_vb`. Nothing is sent
+/// then: the money stays in the till.
+pub(crate) fn onchain_arrival_problem(total: i64, fee_sat_vb: i64) -> Option<String> {
+    let fee = fee_sat_vb
+        .max(0)
+        .saturating_mul(ONCHAIN_SEND_VBYTES_ESTIMATE);
+    let arrives = total.saturating_sub(fee);
+    if arrives >= ONCHAIN_MIN_ARRIVAL_SATS {
+        return None;
+    }
+    let what = if arrives <= 0 {
+        format!(
+            "The network fee for an on-chain withdrawal (about {fee} sats at today's fees) is more than the {total} sats that would be sent."
+        )
+    } else {
+        format!(
+            "Only about {arrives} sats would arrive after the network fee (about {fee} sats at today's fees)."
+        )
+    };
+    Some(format!(
+        "{what} That is too little to be worth sending, so nothing was sent and your money stays in the till. It goes out once there is more, or when fees are lower."
+    ))
+}
+
 const MIN_TRIGGER_BLOCKS: i64 = 12;
 
 /// How many blocks before expiry a coin is refreshed.
@@ -1016,9 +1063,18 @@ impl SettlementEngine {
                 return Ok(report);
             }
         }
-        *self.last_refusal.lock().unwrap_or_else(|e| e.into_inner()) = None;
-
+        // (A refusal remembered from an earlier check is forgotten only once a
+        // send really goes ahead, below, so a held-back send is written once.)
         let (amount, result) = if ark {
+            if excess < ARK_MIN_SEND_SATS {
+                let reason = format!(
+                    "Only {excess} sats are free, which is too small to send (the smallest payment is {ARK_MIN_SEND_SATS} sats). Nothing was sent: it stays in your till and goes out with the next payments."
+                );
+                return self
+                    .hold_send(report, kind, excess, &destination, reason)
+                    .await;
+            }
+            self.forget_refusal();
             (excess, self.client.ark_send(&destination, excess).await)
         } else {
             // R8: offboard only enough whole VTXOs to cover the excess
@@ -1028,6 +1084,18 @@ impl SettlementEngine {
             if ids.is_empty() {
                 return Ok(report);
             }
+            // Net-amount check: never send an amount the network fee would eat
+            // (or leave as a dust coin). Held back, nothing leaves the till.
+            let fee_rate = match self.client.onchain_fee_rates().await {
+                Ok(r) => r.regular_sat_per_vb,
+                Err(_) => UNREADABLE_FEE_GUESS_SAT_VB,
+            };
+            if let Some(reason) = onchain_arrival_problem(total, fee_rate) {
+                return self
+                    .hold_send(report, kind, total, &destination, reason)
+                    .await;
+            }
+            self.forget_refusal();
             (total, self.client.offboard_vtxos(&destination, &ids).await)
         };
 
@@ -1051,6 +1119,38 @@ impl SettlementEngine {
             }
         }
 
+        Ok(report)
+    }
+}
+
+impl SettlementEngine {
+    /// A send that is held back on purpose (too small to be worth it): shown as
+    /// the sweep's plain-words note, and written once as a "waiting" line, not
+    /// once per check. Nothing leaves the till.
+    async fn hold_send(
+        &self,
+        mut report: TickReport,
+        kind: &'static str,
+        amount: i64,
+        destination: &str,
+        reason: String,
+    ) -> Result<TickReport, AppError> {
+        tracing::info!(%reason, kind, "sweep held back");
+        report.sweep_refused = Some(reason.clone());
+        let already = {
+            let mut last = self.last_refusal.lock().unwrap_or_else(|e| e.into_inner());
+            let same = last.as_deref() == Some(reason.as_str());
+            if !same {
+                *last = Some(reason.clone());
+            }
+            same
+        };
+        if !already {
+            let dest = destination.to_string();
+            self.db
+                .call(move |conn| record(conn, kind, amount, &dest, "waiting", Some(&reason)))
+                .await?;
+        }
         Ok(report)
     }
 }
@@ -1999,9 +2099,10 @@ mod tests {
 
     #[tokio::test]
     async fn manual_sweep_ignores_the_fee_limit_and_the_cap() {
-        // Fees 200 and the till (5,000) is far under the 100,000 cap: the
-        // automatic path does nothing, the button moves everything.
-        let (base, recorded) = fee_mock(200, 5_000);
+        // Fees 200 and the till (120,000) is only 20,000 over the 100,000 cap
+        // (under the 50,000 minimum): the automatic path does nothing, the
+        // button moves everything (the fee, about 80,000, still leaves plenty).
+        let (base, recorded) = fee_mock(200, 120_000);
         let db = Db::open(":memory:").unwrap();
         let engine = engine_for(
             &base,
@@ -2011,7 +2112,7 @@ mod tests {
         );
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
         let report = engine.sweep_now().await.unwrap();
-        assert_eq!(report.swept_sats, Some(5_000));
+        assert_eq!(report.swept_sats, Some(120_000));
         let body = {
             let requests = recorded.lock().unwrap();
             let offboard = requests
@@ -2024,6 +2125,89 @@ mod tests {
             body["address"],
             "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
         );
+    }
+
+    #[test]
+    fn onchain_arrival_check_holds_back_sends_the_fee_would_eat() {
+        // 10 sat/vB x 400 vB = 4,000 sats of estimated fee.
+        assert!(onchain_arrival_problem(150_000, 10).is_none());
+        assert!(
+            onchain_arrival_problem(5_000, 10).is_none(),
+            "exactly 1,000 arrives"
+        );
+        let low = onchain_arrival_problem(4_999, 10).expect("999 would arrive");
+        assert!(low.contains("Only about 999 sats would arrive"), "{low}");
+        assert!(low.contains("nothing was sent"), "{low}");
+        let eaten = onchain_arrival_problem(5_000, 200).expect("fee is more than the amount");
+        assert!(eaten.contains("is more than the 5000 sats"), "{eaten}");
+        assert!(
+            onchain_arrival_problem(0, 0).is_some(),
+            "nothing is not worth sending"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_button_holds_back_an_onchain_send_the_fee_would_eat() {
+        // 4,000 sats in the till, fees 10 sat/vB (about 4,000 sats estimated):
+        // nothing would arrive, so nothing is sent and the reason is shown.
+        let (base, recorded) = fee_mock(10, 4_000);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        for _ in 0..2 {
+            let report = engine.sweep_now().await.unwrap();
+            assert!(report.swept_sats.is_none());
+            let why = report.sweep_refused.expect("a plain reason");
+            assert!(why.contains("nothing was sent"), "{why}");
+        }
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
+        // Written once, not once per press.
+        let rows: i64 = db
+            .call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE status = 'waiting' AND kind = 'sweep_onchain'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn the_button_holds_back_an_ark_send_under_330_sats() {
+        const ARK: &str =
+            "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
+        let (base, recorded) = mock::spawn(|req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 300, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 300}"#.to_string()),
+            "/api/v1/wallet/send" => (200, r#"{"message": "ok"}"#.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, ARK, 0);
+        let report = engine.sweep_now().await.unwrap();
+        assert!(report.swept_sats.is_none());
+        let why = report.sweep_refused.expect("a plain reason");
+        assert!(why.contains("too small to send"), "{why}");
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/send"));
     }
 
     #[tokio::test]

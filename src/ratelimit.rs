@@ -32,8 +32,9 @@ const PRUNE_ABOVE: usize = 10_000;
 
 /// The password brake: every screen that checks the admin password or a code (sign-in,
 /// backup, payout address, emergency exit, two-step settings, password change, update)
-/// shares these, counted per client. Real use is a handful of tries; a guesser gets
-/// five a minute and thirty an hour.
+/// shares these, counted per client. Only tries that fail count (a try that succeeds is
+/// given back, see [`limit_failed_tries`]), so the owner doing several things in a row is
+/// never held up; a guesser gets five wrong tries a minute and thirty an hour.
 pub const PASSWORD_TRIES_PER_MINUTE: u32 = 5;
 pub const PASSWORD_TRIES_PER_HOUR: u32 = 30;
 /// The same screens, all clients together (covers a misconfigured proxy that hides
@@ -82,8 +83,15 @@ impl RateLimiter {
 
     /// Record one request from `key` at `now`; false means "over the limit".
     pub fn allow(&self, key: &str, now: i64) -> bool {
+        self.take(key, now).0
+    }
+
+    /// Like [`allow`](Self::allow), and also says which window the request was
+    /// counted in, so that a request that turns out fine can be given back with
+    /// [`refund`](Self::refund).
+    fn take(&self, key: &str, now: i64) -> (bool, i64) {
         if self.per_minute == 0 {
-            return true;
+            return (true, now);
         }
         let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
         if hits.len() > PRUNE_ABOVE {
@@ -101,7 +109,21 @@ impl RateLimiter {
             *entry = (now, 0);
         }
         entry.1 += 1;
-        entry.1 <= self.per_minute
+        (entry.1 <= self.per_minute, entry.0)
+    }
+
+    /// Give back one request counted in the window that began at `window_start`.
+    /// Does nothing if that window is over (the new window is not touched).
+    fn refund(&self, key: &str, window_start: i64) {
+        if self.per_minute == 0 {
+            return;
+        }
+        let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = hits.get_mut(key) {
+            if entry.0 == window_start && entry.1 > 0 {
+                entry.1 -= 1;
+            }
+        }
     }
 
     fn client_key(&self, req: &Request) -> String {
@@ -184,9 +206,61 @@ pub async fn limit(State(limiter): State<Arc<RateLimiter>>, req: Request, next: 
     }
 }
 
+/// The password brake's middleware: it counts a try, and gives it back when the request
+/// succeeded. A request only succeeds with the right password (and code or passkey), so a
+/// guesser gets no free tries from it, while the owner doing several things in a row
+/// (every action asks for the password again) is never held up by their own good tries.
+/// Wrong tries, refused tries and anything else that fails stay counted.
+pub async fn limit_failed_tries(
+    State(limiter): State<Arc<RateLimiter>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let key = limiter.client_key(&req);
+    let (allowed, window_start) = limiter.take(&key, now_unix());
+    if !allowed {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, limiter.window_secs.to_string())],
+            "rate limit exceeded",
+        )
+            .into_response();
+    }
+    let response = next.run(req).await;
+    if response.status().is_success() {
+        limiter.refund(&key, window_start);
+    }
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refunded_try_does_not_count_but_a_wrong_one_does() {
+        let l = RateLimiter::new(2, false);
+        // Good tries are given back: any number of them in a row is fine.
+        for i in 0..10 {
+            let (ok, start) = l.take("a", 1000 + i);
+            assert!(ok, "good try {i} must not be held up");
+            l.refund("a", start);
+        }
+        // Wrong tries stay counted: the third in the window is refused.
+        assert!(l.take("a", 1020).0);
+        assert!(l.take("a", 1021).0);
+        assert!(!l.take("a", 1022).0, "third wrong try is refused");
+        // A refused try is never given back by the caller, and a refund cannot
+        // reach into a newer window.
+        let (_, old_start) = l.take("a", 1023);
+        assert!(l.allow("a", 1000 + WINDOW_SECS + 30), "new window");
+        l.refund("a", old_start);
+        assert!(l.allow("a", 1000 + WINDOW_SECS + 31));
+        assert!(
+            !l.allow("a", 1000 + WINDOW_SECS + 32),
+            "the old window's refund did not loosen the new one"
+        );
+    }
 
     #[test]
     fn an_hour_window_holds_a_slow_guesser_that_a_minute_window_lets_through() {

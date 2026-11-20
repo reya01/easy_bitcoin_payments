@@ -17,6 +17,8 @@ h2{font-size:18px;margin:24px 0 8px;font-weight:700}
 .row>*{min-width:0;overflow-wrap:anywhere}
 .card{overflow-wrap:anywhere}
 .row:last-child{border-bottom:0}
+/* A passkey line: the text gets the full width and the Remove button sits under it, never squeezed beside it. */
+.pkrow{flex-direction:column;align-items:flex-start;gap:10px;padding:12px 0}.pkrow button{white-space:nowrap;flex:none}
 .muted{color:var(--muted);font-size:14px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}.check{padding:8px 0;border-bottom:1.5px solid var(--soft)}.check:last-child{border-bottom:0}
 #health .check>.ok{font-weight:600}

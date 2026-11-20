@@ -387,7 +387,9 @@ conversion, database migrations, and the watcher's payment application path.
 - **Sign-in and protected actions.** The admin password (16+ characters, a small
   block list refuses obvious ones), two-step sign-in with an app code and
   recovery codes, and passkeys (beta, `src/passkey.rs`). Every screen that checks
-  the password sits behind one brake: 5 tries a minute and 30 an hour per device,
+  the password sits behind one brake: 5 wrong tries a minute and 30 an hour per
+  device (a try that succeeds is given back, `ratelimit::limit_failed_tries`, so
+  doing several things in a row is never held up),
   20 a minute in total for everyone not signed in, and three wrong codes in a row
   pause code tries for longer each time. A code approves one protected action.
   `tests/password_brake_guard.rs` fails the build if a route that calls

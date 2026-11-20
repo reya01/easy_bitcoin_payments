@@ -133,7 +133,7 @@ function apiCall(method, path, body) {
       return r.text().then(function (t) {
         var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
         if (r.status === 401 && path.indexOf("/admin/login") !== 0) { signedOut(); throw new Error("Please sign in again."); }
-        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many tries. Wait a minute, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
+        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many wrong tries in a short time. Wait a few minutes, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
         return j;
       });
     });
@@ -927,12 +927,22 @@ $("ck-go").addEventListener("click", function () {
     .then(function () { btn.disabled = false; });
 });
 
+// What "Move my money now" tells the owner. Money that could not be part of the send is named
+// with its amount and the reason, so it never looks like part of the till went missing.
+function sweepMessage(r) {
+  var why = { renewing: " are being renewed by the Ark server and are locked for now.", collecting: " from a Lightning payment is still being collected.", confirming: " is waiting for network confirmations." };
+  var rest = (r.held_back || []).filter(function (h) { return why[h.kind] && Number(h.sats) > 0; }).map(function (h) { return fmtSats(h.sats) + why[h.kind]; });
+  var tail = rest.length ? " " + rest.join(" ") + " Try again in a few minutes to move the rest." : "";
+  if (r.swept_sats) return "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." + (rest.length ? " Not included:" + tail : "");
+  if (rest.length) return "Nothing could be moved right now." + tail;
+  return r.note || "Nothing to move right now.";
+}
 $("sweep-go").addEventListener("click", function () {
   askConfirm({ title: "Move your money now?", body: "Everything in the till is sent to your payout address now.", cancel: "Not now", ok: "Move it", danger: false }).then(function (yes) {
     if (!yes) return;
     $("sweep-go").disabled = true;
     api("POST", "/admin/sweep", {}).then(function (r) {
-      say("sweep-msg", r.swept_sats ? "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." : (r.note || "Nothing to move right now."));
+      say("sweep-msg", sweepMessage(r));
     }).catch(function (e) { say("sweep-msg", e.message, true); }).then(function () { $("sweep-go").disabled = false; });
   });
 });
@@ -1309,7 +1319,7 @@ function renderPasskeys(d) {
   box.appendChild(el("p", keys.length ? "These passkeys can be used with your password to sign in. Add a second one on another device or in another place, in case one is lost." : "None yet. A passkey can live in your password manager (for example Bitwarden), on your phone, or on a security key.", "muted"));
   var list = el("div", "", "pklist");
   keys.forEach(function (k) {
-    var r = el("div", "", "row");
+    var r = el("div", "", "row pkrow");
     var what = k.synced ? "kept in a password manager or your account (works on your other devices)" : "only on the device that made it";
     r.appendChild(el("span", k.name + " · " + what + " · " + (k.last_used_at ? "last used " + when(new Date(k.last_used_at * 1000).toISOString()) : "not used yet")));
     r.appendChild(button("Remove", function () { showPasskeyRemove(k); }, "small"));

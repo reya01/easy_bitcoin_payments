@@ -3,7 +3,6 @@
 ## Unreleased
 
 - **Shorter wording under "When to send my money" (Ark).** The long explanation of why 1,500 sats is the lowest is replaced by one line: "1,500 sats is the lowest to ensure reliability."
-
 - **Checkout: two always-visible choices, Lightning (fast) and Ark (also fast).** Under the payment code the single "Ark (fast)" tick box is now two buttons, Lightning on top and Ark below, with a check mark on the one that is selected, so a customer who tried Ark can switch straight back to Lightning. Lightning is still the default. Nothing changes when there is no Lightning invoice or during a top-up of a part payment (Ark only, no choices). Page code and its tests only; no server or database change.
 - **Docs only: brought up to date with 0.2.2-rc1 and tidied.** `docs/dev/TECHNICAL.md` now describes the whole-balance send, the opt-in emergency withdrawal (including the send-back button), passkeys, the admin routes and the retired keep settings; `HANDOFF.md` is rewritten to the current state; `KNOWN_ISSUES.md`, the README, `START_HERE.md`, `RESTORE_DRILL.md`, `UPGRADING.md`, `RC_CHECKLIST.md`, `MAINNET_RELEASE_STATUS.md` and `E2E_TESTING.md` were corrected, and `DROPLET_TEST_SHEET.md` has a short "Round 3" run order. Finished plans, drill reports and test sheets moved to `docs/dev/archive/` (links fixed).
 

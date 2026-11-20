@@ -7,7 +7,7 @@ on:
     branches: [barkd-0-9-0]
     paths: [".github/workflows/zz-fetch-barkd-0-9-0.yml"]
 permissions:
-  contents: read
+  contents: write
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -54,7 +54,12 @@ jobs:
           s = d["components"]["schemas"].get("SendRequest", {})
           print("SendRequest.method:", json.dumps(s.get("properties", {}).get("method"))[:400])
           PY
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: barkd-0.9.0-spec
-          path: ${{ runner.temp }}/spec-0.9.0.json
+      - name: Commit the spec to this branch as docs/barkd-openapi.json
+        run: |
+          set -eu
+          git config user.name "github-actions"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp "$RUNNER_TEMP/spec-0.9.0.json" docs/barkd-openapi.json
+          git add docs/barkd-openapi.json
+          git commit -m "barkd OpenAPI pin: 0.9.0 (as served by the real 0.9.0 daemon, fetched in CI)"
+          git push origin HEAD:barkd-0-9-0

@@ -710,8 +710,8 @@ def main():
             if not p.is_visible("#min-box"): pr.append("the send-minimum box should show")
             for w in ("at least 1,500 sats", "(the default, which is also the lowest we allow)", "sends all of the money"):
                 want(pr, "now line", p.inner_text("#min-now"), w)
-            for w in ("1,300 sats", "all of it at once"):
-                want(pr, "why line", p.inner_text("#min-why"), w)
+            want(pr, "why line", p.inner_text("#min-why"), "1,500 sats is the lowest to ensure reliability.")
+            if "Why 1,500" in p.inner_text("#min-why") or "all of it at once" in p.inner_text("#min-why"): pr.append("the long explanation is gone")
             want(pr, "manual note", p.inner_text("#sweep-box"), "under 1,300 sats")
             if p.is_visible("#min-reset"): pr.append("no reset button on the default")
             # Under the floor: refused on the page with a plain reason, nothing is sent.

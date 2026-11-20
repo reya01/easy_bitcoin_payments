@@ -53,6 +53,9 @@ pub const SAVE_TROUBLE_KEY: &str = "payment_save_trouble_at";
 /// Set once the phone alert for the current trouble has been queued, so a long
 /// outage sends one alert, not one per retry.
 const SAVE_TROUBLE_ALERTED_KEY: &str = "payment_save_trouble_alerted";
+/// The latest failure (unix seconds), refreshed on every failure, so Home keeps
+/// showing the line for as long as the trouble lasts, not 24 hours from its start.
+const SAVE_TROUBLE_SEEN_KEY: &str = "payment_save_trouble_seen";
 /// A short hiccup (a busy moment, a restart) is not worth a phone alert.
 pub const SAVE_TROUBLE_ALERT_AFTER_SECS: i64 = 300;
 /// Home stops showing the line after this long without a fresh failure, in
@@ -77,6 +80,7 @@ pub fn note_save_trouble(conn: &Connection, now: i64) -> Result<(), AppError> {
         crate::settings::set(conn, SAVE_TROUBLE_KEY, &now.to_string())?;
         crate::settings::set(conn, SAVE_TROUBLE_ALERTED_KEY, "")?;
     }
+    crate::settings::set(conn, SAVE_TROUBLE_SEEN_KEY, &now.to_string())?;
     let alerted = crate::settings::get(conn, SAVE_TROUBLE_ALERTED_KEY)?
         .map(|v| !v.is_empty())
         .unwrap_or(false);
@@ -92,6 +96,7 @@ pub fn clear_save_trouble(conn: &Connection) -> Result<(), AppError> {
     if save_trouble_at(conn) > 0 {
         crate::settings::set(conn, SAVE_TROUBLE_KEY, "")?;
         crate::settings::set(conn, SAVE_TROUBLE_ALERTED_KEY, "")?;
+        crate::settings::set(conn, SAVE_TROUBLE_SEEN_KEY, "")?;
     }
     Ok(())
 }
@@ -99,7 +104,12 @@ pub fn clear_save_trouble(conn: &Connection) -> Result<(), AppError> {
 /// Home should show the red "a payment could not be saved yet" line.
 pub fn save_trouble_showing(conn: &Connection, now: i64) -> bool {
     let at = save_trouble_at(conn);
-    at > 0 && now - at < SAVE_TROUBLE_SHOW_SECS
+    let seen = crate::settings::get(conn, SAVE_TROUBLE_SEEN_KEY)
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(at);
+    at > 0 && now - seen < SAVE_TROUBLE_SHOW_SECS
 }
 
 pub struct PollingWatcher {
@@ -1147,6 +1157,30 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(invoice.status, InvoiceStatus::Paid);
+    }
+
+    #[tokio::test]
+    async fn the_unsaved_payment_line_stays_for_as_long_as_the_trouble_does() {
+        let (db, _) = setup(vec![]).await;
+        // The trouble began two days ago and is still happening now.
+        db.call(|c| {
+            crate::settings::set(c, SAVE_TROUBLE_KEY, &(now_unix() - 172_800).to_string())?;
+            note_save_trouble(c, now_unix())
+        })
+        .await
+        .unwrap();
+        assert!(trouble_showing(&db).await);
+        // If it stopped being refreshed (the watcher itself is gone) it expires.
+        db.call(|c| {
+            crate::settings::set(
+                c,
+                SAVE_TROUBLE_SEEN_KEY,
+                &(now_unix() - 172_800).to_string(),
+            )
+        })
+        .await
+        .unwrap();
+        assert!(!trouble_showing(&db).await);
     }
 
     #[tokio::test]

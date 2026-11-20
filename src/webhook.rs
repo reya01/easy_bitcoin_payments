@@ -243,7 +243,11 @@ impl WebhookEmitter {
         // (unless the owner turned on EBP_WEBHOOK_ALLOW_PRIVATE for a shop on
         // their own network).
         if !allow_private_from_env() {
-            builder = builder.dns_resolver(Arc::new(PublicOnlyResolver));
+            // An environment proxy would look the name up itself and skip this
+            // check, so it is not used while the check is on.
+            builder = builder
+                .no_proxy()
+                .dns_resolver(Arc::new(PublicOnlyResolver));
         }
         let client = builder
             // SECURITY (beta hardening): never follow redirects. A merchant

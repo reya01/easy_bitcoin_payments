@@ -641,10 +641,10 @@ function loadHome() {
         [["arrived", "It arrived"], ["not_arrived", "It did not arrive"]].forEach(function (o) {
           var b = el("button", o[1], "small"); b.type = "button"; b.style.marginTop = "8px"; b.style.marginRight = "8px";
           b.addEventListener("click", function () {
-            askConfirm({ title: o[1] + "?", body: o[0] === "arrived" ? "You checked your payout wallet and the money is there." : "You checked your payout wallet and the money is not there. The server will then send it again with the next transfer.", cancel: "Not yet", ok: "Yes", danger: false }).then(function (yes) {
+            askConfirm({ title: o[1] + "?", body: o[0] === "arrived" ? "You checked your payout wallet and the money is there." : "You checked your payout wallet and the money is not there. The server will then send it again with the next transfer, so be sure: if it did arrive, it would be sent twice.", cancel: "Not yet", ok: "Yes", danger: false }).then(function (yes) {
               if (!yes) return;
               b.disabled = true;
-              api("POST", "/admin/transfer-outcome", { outcome: o[0] }).then(loadHome).catch(function (e) { b.textContent = e.message; });
+              api("POST", "/admin/transfer-outcome", { outcome: o[0] }).then(loadHome).catch(function (e) { b.textContent = e.message; b.disabled = false; });
             });
           });
           tb.appendChild(b);

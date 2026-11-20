@@ -33,6 +33,42 @@ pub struct TickReport {
     pub refreshed_vtxos: usize,
     pub swept_sats: Option<i64>,
     pub sweep_refused: Option<String>,
+    /// Money that is the shop's but could not be part of this send, and why.
+    /// "Move my money now" shows it so the owner is never left wondering why
+    /// not everything moved.
+    pub held_back: Vec<HeldBack>,
+}
+
+/// One part of the till that cannot be sent yet. `kind` is one of
+/// `renewing` (locked in a coin renewal round), `collecting` (a Lightning
+/// payment still being collected) or `confirming` (waiting for confirmations).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldBack {
+    pub kind: &'static str,
+    pub sats: i64,
+}
+
+/// What cannot be sent right now, from the coins locked in a renewal round
+/// (`locked_sats`, which the wallet may still count as spendable) and the
+/// wallet's own "on its way" figures. Zero amounts are left out. A renewal
+/// is counted once: the larger of the two figures, because the wallet may or
+/// may not already count the locked coins in its round figure.
+pub(crate) fn held_back_parts(
+    locked_sats: i64,
+    b: &crate::wallet::barkd::Balances,
+) -> Vec<HeldBack> {
+    let mut out = Vec::new();
+    let renewing = locked_sats.max(b.pending_in_round_sats);
+    for (kind, sats) in [
+        ("renewing", renewing),
+        ("collecting", b.claimable_lightning_sats),
+        ("confirming", b.pending_board_sats),
+    ] {
+        if sats > 0 {
+            out.push(HeldBack { kind, sats });
+        }
+    }
+    out
 }
 
 /// Bitcoin's target block time, used to turn blocks into seconds.
@@ -839,6 +875,7 @@ impl SettlementEngine {
             .filter(|v| in_round.contains(&v.id))
             .map(|v| v.amount_sats)
             .sum();
+        report.held_back = held_back_parts(locked_sats, &balances);
         if locked_sats > 0 && !manual {
             self.forget_refusal();
             return Ok(report);
@@ -2453,11 +2490,66 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("renewing your coins"));
+        // ...and the amount that is locked is reported too, for the button's message.
+        assert_eq!(
+            report.held_back,
+            vec![HeldBack {
+                kind: "renewing",
+                sats: report.held_back[0].sats
+            }],
+        );
+        assert!(report.held_back[0].sats > 0);
         assert!(!recorded
             .lock()
             .unwrap()
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/send"));
+    }
+
+    #[test]
+    fn held_back_parts_lists_each_reason_once_and_skips_zeros() {
+        use crate::wallet::barkd::Balances;
+        let none = Balances::default();
+        assert!(held_back_parts(0, &none).is_empty());
+        // Locked coins the wallet still counts as spendable.
+        assert_eq!(
+            held_back_parts(900, &none),
+            vec![HeldBack {
+                kind: "renewing",
+                sats: 900
+            }]
+        );
+        // A renewal is not counted twice when the wallet reports it as well.
+        let b = Balances {
+            pending_in_round_sats: 900,
+            ..Default::default()
+        };
+        assert_eq!(
+            held_back_parts(900, &b),
+            vec![HeldBack {
+                kind: "renewing",
+                sats: 900
+            }]
+        );
+        let all = Balances {
+            pending_in_round_sats: 0,
+            claimable_lightning_sats: 300,
+            pending_board_sats: 50,
+            ..Default::default()
+        };
+        assert_eq!(
+            held_back_parts(0, &all),
+            vec![
+                HeldBack {
+                    kind: "collecting",
+                    sats: 300
+                },
+                HeldBack {
+                    kind: "confirming",
+                    sats: 50
+                },
+            ]
+        );
     }
 
     #[tokio::test]

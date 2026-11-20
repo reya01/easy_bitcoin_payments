@@ -290,5 +290,11 @@ pub async fn sweep_now(
     Ok(Json(json!({
         "swept_sats": report.swept_sats,
         "note": report.sweep_refused,
+        // What could not be part of this send, and why (see HeldBack).
+        "held_back": report
+            .held_back
+            .iter()
+            .map(|h| json!({ "kind": h.kind, "sats": h.sats }))
+            .collect::<Vec<_>>(),
     })))
 }

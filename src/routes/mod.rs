@@ -309,15 +309,16 @@ pub fn router(state: AppState) -> Router {
                         3_600,
                         state.config.trust_proxy_headers,
                     )),
-                    crate::ratelimit::limit,
+                    crate::ratelimit::limit_failed_tries,
                 ))
-                // Password-guessing brake (runs first): a few tries a minute per client.
+                // Password-guessing brake (runs first): a few wrong tries a minute per client. A try
+                // that succeeds is given back (see limit_failed_tries).
                 .layer(middleware::from_fn_with_state(
                     Arc::new(crate::ratelimit::RateLimiter::new(
                         crate::ratelimit::PASSWORD_TRIES_PER_MINUTE,
                         state.config.trust_proxy_headers,
                     )),
-                    crate::ratelimit::limit,
+                    crate::ratelimit::limit_failed_tries,
                 ))
                 .with_state(state.clone()),
         )

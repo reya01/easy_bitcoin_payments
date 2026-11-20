@@ -146,6 +146,33 @@ def main():
             p.evaluate("document.getElementById('sweep-go').click()"); p.click("#dlg-back button:text-is(\"Move it\")"); p.wait_for_timeout(200)
             if count(calls, "POST", "/admin/sweep") != 1: pr.append("confirmed move should send")
 
+        def sweep_handler(body):
+            def h(path, req, calls):
+                if path == "/admin/sweep" and req.method == "POST":
+                    return 200, body
+                return signed_in(path, req, calls)
+            return h
+
+        def c_sweep(expect_all):
+            def c(p, pr, calls):
+                p.evaluate("document.getElementById('sweep-go').click()"); p.click("#dlg-back button:text-is(\"Move it\")"); p.wait_for_timeout(300)
+                txt = p.inner_text("#sweep-msg")
+                for w in expect_all: want(pr, "move message", txt, w)
+            return c
+
+        ok &= run_case(pw, "Move now: money sent, the part locked in a renewal is named with its amount and the reason",
+                       sweep_handler({"swept_sats": 968, "note": None, "held_back": [{"kind": "renewing", "sats": 804}]}),
+                       c_sweep(["Sent 968 sats", "Not included:", "804 sats", "renewed by the Ark server", "locked for now", "Try again in a few minutes to move the rest."]))
+        ok &= run_case(pw, "Move now: nothing free, the whole till is locked, it says how much and why",
+                       sweep_handler({"swept_sats": None, "note": "The Ark server is renewing your coins right now, so they cannot be sent for a little while.", "held_back": [{"kind": "renewing", "sats": 900}]}),
+                       c_sweep(["Nothing could be moved right now.", "900 sats", "locked for now", "Try again in a few minutes"]))
+        ok &= run_case(pw, "Move now: Lightning still being collected and an on-chain deposit waiting for confirmations are named",
+                       sweep_handler({"swept_sats": 500, "note": None, "held_back": [{"kind": "collecting", "sats": 300}, {"kind": "confirming", "sats": 50}]}),
+                       c_sweep(["Sent 500 sats", "300 sats", "still being collected", "50 sats", "waiting for network confirmations"]))
+        ok &= run_case(pw, "Move now: nothing held back keeps the plain messages",
+                       sweep_handler({"swept_sats": 1500, "note": None, "held_back": []}),
+                       c_sweep(["Sent 1,500 sats", "It can take a few minutes to arrive."]))
+
         def resend_handler(path, req, calls):
             if path == "/api/v1/webhook-deliveries":
                 return 200, [
@@ -267,6 +294,12 @@ def main():
                 want(pr, "card shows", txt, w)
             for b in ("Turn off app code", "Add a passkey", "Turn off passkeys", "Remove"):
                 if card.get_by_role("button", name=b, exact=True).count() != 1: pr.append(f"expected one '{b}' button")
+            # Remove has room: one line, under the passkey's text, not squeezed beside it.
+            rm = card.get_by_role("button", name="Remove", exact=True).bounding_box()
+            line = p.locator(".pkrow > span").first.bounding_box()
+            if rm["height"] > 50: pr.append(f"the Remove button text wraps (height {rm['height']:.0f}px)")
+            if rm["y"] < line["y"] + line["height"] - 1: pr.append("the Remove button should sit under the passkey's text")
+            if rm["width"] < 60: pr.append(f"the Remove button is cramped (width {rm['width']:.0f}px)")
             card.get_by_role("button", name="Turn off passkeys", exact=True).click(); p.wait_for_timeout(200)
             if not p.is_visible("#pk-pw") or not p.is_visible("#pk-code"): pr.append("turning passkeys off asks for the password and a code")
             want(pr, "explains what stays", p.inner_text("#pk-box"), "Your app code stays on")
@@ -349,7 +382,17 @@ def main():
             card = p.locator("#twofa-card")
             card.get_by_role("button", name="Turn off passkeys", exact=True).click(); p.wait_for_timeout(200)
             card.get_by_role("button", name="Use a passkey instead").click(); p.wait_for_timeout(400)
+            # A visible way back to an app code: always a hint, and a button once a passkey approved.
+            want(pr, "hint", card.inner_text(), "Passkey not working? Type the 6-digit code from your authenticator app")
+            if not card.get_by_role("button", name="Use an app code instead").is_visible(): pr.append("after approving, a 'Use an app code instead' button must show")
+            card.get_by_role("button", name="Use an app code instead").click(); p.wait_for_timeout(100)
+            if p.input_value("#pk-code") != "": pr.append("'Use an app code instead' must empty the box")
+            if p.get_attribute("#pk-code", "type") == "password": pr.append("'Use an app code instead' gives a normal code box back")
+            if p.is_visible("#twofa-card .pknote"): pr.append("the approved note goes with the approval")
+            if card.get_by_role("button", name="Use an app code instead").is_visible(): pr.append("the switch button hides once it has been used")
+            card.get_by_role("button", name="Use a passkey instead").click(); p.wait_for_timeout(400)
             p.click("#pk-code"); p.keyboard.type("1"); p.wait_for_timeout(100)
+            if card.get_by_role("button", name="Use an app code instead").is_visible(): pr.append("typing a code hides the switch button too")
             if p.get_attribute("#pk-code", "type") == "password": pr.append("typing over an approval should show the box as a normal code box again")
             if p.is_visible("#twofa-card .pknote"): pr.append("the approved note should go when the user types a code instead")
             p.evaluate("window.__pkCancel = true")

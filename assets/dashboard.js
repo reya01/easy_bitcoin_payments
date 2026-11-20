@@ -133,7 +133,7 @@ function apiCall(method, path, body) {
       return r.text().then(function (t) {
         var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) {}
         if (r.status === 401 && path.indexOf("/admin/login") !== 0) { signedOut(); throw new Error("Please sign in again."); }
-        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many tries. Wait a minute, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
+        if (!r.ok) throw new Error((j && ((j.error && j.error.message) || j.message)) || (r.status === 429 ? "Too many wrong tries in a short time. Wait a few minutes, then try again." : r.status >= 500 ? "The server had a problem. Try again in a minute; if it keeps happening, see Known issues in the docs." : "The server did not accept that (error " + r.status + ")."));
         return j;
       });
     });
@@ -927,12 +927,22 @@ $("ck-go").addEventListener("click", function () {
     .then(function () { btn.disabled = false; });
 });
 
+// What "Move my money now" tells the owner. Money that could not be part of the send is named
+// with its amount and the reason, so it never looks like part of the till went missing.
+function sweepMessage(r) {
+  var why = { renewing: " are being renewed by the Ark server and are locked for now.", collecting: " from a Lightning payment is still being collected.", confirming: " is waiting for network confirmations." };
+  var rest = (r.held_back || []).filter(function (h) { return why[h.kind] && Number(h.sats) > 0; }).map(function (h) { return fmtSats(h.sats) + why[h.kind]; });
+  var tail = rest.length ? " " + rest.join(" ") + " Try again in a few minutes to move the rest." : "";
+  if (r.swept_sats) return "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." + (rest.length ? " Not included:" + tail : "");
+  if (rest.length) return "Nothing could be moved right now." + tail;
+  return r.note || "Nothing to move right now.";
+}
 $("sweep-go").addEventListener("click", function () {
   askConfirm({ title: "Move your money now?", body: "Everything in the till is sent to your payout address now.", cancel: "Not now", ok: "Move it", danger: false }).then(function (yes) {
     if (!yes) return;
     $("sweep-go").disabled = true;
     api("POST", "/admin/sweep", {}).then(function (r) {
-      say("sweep-msg", r.swept_sats ? "Sent " + fmtSats(r.swept_sats) + " to your payout address. It can take a few minutes to arrive." : (r.note || "Nothing to move right now."));
+      say("sweep-msg", sweepMessage(r));
     }).catch(function (e) { say("sweep-msg", e.message, true); }).then(function () { $("sweep-go").disabled = false; });
   });
 });
@@ -1196,7 +1206,7 @@ function assertionBody(challenge, cred) {
 }
 function passkeyUseErrorText(e) {
   var n = e && e.name;
-  if (n === "NotAllowedError") return "The passkey was cancelled or timed out. You can try again, or use a code.";
+  if (n === "NotAllowedError") return "The passkey was cancelled or timed out. You can try again, or type your app code instead.";
   return (e && e.message) || "That did not work.";
 }
 // Sign in: the password was right, now the passkey instead of a code.
@@ -1217,11 +1227,24 @@ $("login-pk-btn").addEventListener("click", function () {
 // touch fills the box with a one-use ticket (shown as dots), which the action's own
 // request sends in place of a code. It is wiped after any request that carried a code.
 function pkSpecialInputs() { return document.querySelectorAll('input[id$="-code"]:not(#tf-code), input[id^="resume-code-"]'); }
+// Back to a normal code box: drops a passkey approval, so an app code (or a backup code) can be typed.
+function pkShowCodeBox(inp, clearValue) {
+  if (clearValue) inp.value = "";
+  delete inp.dataset.pk; inp.type = inp.dataset.pkType || "text";
+  var w = inp.nextElementSibling;
+  if (w && w.classList.contains("pkuse")) {
+    var n = w.querySelector(".pknote"), s = w.querySelector(".pkswitch");
+    if (n) { n.textContent = ""; n.classList.add("hidden"); }
+    if (s) s.classList.add("hidden");
+  }
+}
 function resetPkInputs() {
   var all = document.querySelectorAll("input[data-pk]");
-  for (var i = 0; i < all.length; i++) { all[i].value = ""; all[i].type = all[i].dataset.pkType || "text"; delete all[i].dataset.pk; }
+  for (var i = 0; i < all.length; i++) pkShowCodeBox(all[i], true);
   var notes = document.querySelectorAll(".pkuse .pknote");
   for (var j = 0; j < notes.length; j++) { notes[j].textContent = ""; notes[j].classList.add("hidden"); }
+  var sw = document.querySelectorAll(".pkuse .pkswitch");
+  for (var k = 0; k < sw.length; k++) sw[k].classList.add("hidden");
 }
 function decoratePasskeyInputs() {
   var inputs = pkSpecialInputs();
@@ -1234,13 +1257,16 @@ function decoratePasskeyInputs() {
     var inp = inputs[i];
     if (inp.nextElementSibling && inp.nextElementSibling.classList.contains("pkuse")) continue;
     var wrap = el("div", "", "pkuse"), note = el("p", "", "muted pknote hidden");
-    wrap.appendChild(button("Use a passkey instead", pkApprove(inp, note), "small"));
+    var back = button("Use an app code instead", (function (box) { return function () { pkShowCodeBox(box, true); box.focus(); }; })(inp), "small pkswitch hidden");
+    wrap.appendChild(button("Use a passkey instead", pkApprove(inp, note, back), "small"));
+    wrap.appendChild(back);
     wrap.appendChild(note);
+    wrap.appendChild(el("p", "Passkey not working? Type the 6-digit code from your authenticator app (or a backup code) in the box above instead.", "muted pkhint"));
     inp.insertAdjacentElement("afterend", wrap);
-    inp.addEventListener("input", function (e) { var t = e.target; if (t.dataset.pk) { delete t.dataset.pk; t.type = t.dataset.pkType || "text"; var n = t.nextElementSibling && t.nextElementSibling.querySelector(".pknote"); if (n) { n.textContent = ""; n.classList.add("hidden"); } } });
+    inp.addEventListener("input", function (e) { if (e.target.dataset.pk) pkShowCodeBox(e.target, false); });
   }
 }
-function pkApprove(inp, note) {
+function pkApprove(inp, note, back) {
   return function (btn) {
     note.classList.remove("hidden"); note.textContent = "Waiting for your passkey…";
     btn.disabled = true;
@@ -1254,7 +1280,8 @@ function pkApprove(inp, note) {
       inp.dataset.pkType = inp.type === "password" ? "text" : inp.type;
       inp.value = "pk:" + r.ticket; inp.type = "password"; inp.dataset.pk = "1";
       note.textContent = "Passkey approved. It works for one action, for two minutes.";
-    }).catch(function (e) { note.textContent = passkeyUseErrorText(e); })
+      back.classList.remove("hidden");
+    }).catch(function (e) { note.textContent = passkeyUseErrorText(e) + (e && e.name === "NotAllowedError" ? "" : " You can also type your app code in the box above."); })
       .then(function () { btn.disabled = false; });
   };
 }
@@ -1309,7 +1336,7 @@ function renderPasskeys(d) {
   box.appendChild(el("p", keys.length ? "These passkeys can be used with your password to sign in. Add a second one on another device or in another place, in case one is lost." : "None yet. A passkey can live in your password manager (for example Bitwarden), on your phone, or on a security key.", "muted"));
   var list = el("div", "", "pklist");
   keys.forEach(function (k) {
-    var r = el("div", "", "row");
+    var r = el("div", "", "row pkrow");
     var what = k.synced ? "kept in a password manager or your account (works on your other devices)" : "only on the device that made it";
     r.appendChild(el("span", k.name + " · " + what + " · " + (k.last_used_at ? "last used " + when(new Date(k.last_used_at * 1000).toISOString()) : "not used yet")));
     r.appendChild(button("Remove", function () { showPasskeyRemove(k); }, "small"));

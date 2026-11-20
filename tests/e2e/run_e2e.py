@@ -557,10 +557,10 @@ def main():
             # Approve a protected action (a backup download) with the passkey instead of a code.
             open_settings()
             page.wait_for_selector("#bk-go")
-            wait_for(lambda: page.locator("#bk-code ~ .pkuse button").count() == 1, "the backup code box offers a passkey")
+            wait_for(lambda: page.locator("#bk-code ~ .pkuse button:not(.pkswitch)").count() == 1, "the backup code box offers a passkey")
             new_visitor(page)
             page.fill("#bk-admin", ADMIN_PW)
-            page.locator("#bk-code ~ .pkuse button").click()
+            page.locator("#bk-code ~ .pkuse button:not(.pkswitch)").click()
             wait_for(lambda: page.input_value("#bk-code").startswith("pk:"), "the passkey approval fills the code box")
             with page.expect_download(timeout=60000) as dl3:
                 page.click("#bk-go")

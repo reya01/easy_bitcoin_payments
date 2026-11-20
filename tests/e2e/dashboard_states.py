@@ -1178,6 +1178,39 @@ def main():
 
         ok &= run_case(pw, "second step: turning alerts off needs no code without two-step sign-in", second_step_handler(False), phone_check(False))
         ok &= run_case(pw, "second step: turning working alerts off asks for the code with two-step sign-in", second_step_handler(True), phone_check(True))
+
+        # Home: a transfer whose outcome is unclear, and a payment that could not be saved.
+        def unclear_handler(path, req, calls):
+            if path == "/api/v1/admin/status":
+                return 200, {"checks": [
+                    {"id": "transfer_unknown", "level": "bad", "title": "A transfer may or may not have gone out", "detail": "Your money is safe either way. No more transfers are made until this is cleared."},
+                    {"id": "payment_not_saved", "level": "bad", "title": "A payment could not be saved yet", "detail": "The money is safe in your wallet and the server tries again."},
+                ], "counters": {}, "wallet": {}, "mode": "test", "usd_per_btc": 67000}
+            if path == "/admin/transfer-outcome" and req.method == "POST":
+                return 200, {"ok": True}
+            return signed_in(path, req, calls)
+
+        def c_unclear(p, pr, calls):
+            home = p.inner_text("#health")
+            want(pr, "unclear transfer line", home, "may or may not have gone out")
+            want(pr, "unsaved payment line", home, "could not be saved yet")
+            if p.locator("#health button").count() != 2:
+                pr.append("only the unclear transfer gets buttons (It arrived / It did not arrive)")
+            # Not confirming does nothing.
+            p.click('#health button:text-is("It did not arrive")'); p.wait_for_timeout(200)
+            p.click('#dlg-back button:text-is("Not yet")'); p.wait_for_timeout(200)
+            if count(calls, "POST", "/admin/transfer-outcome") != 0:
+                pr.append("nothing may be sent to the server until the answer is confirmed")
+            p.click('#health button:text-is("It arrived")'); p.wait_for_timeout(200)
+            p.click('#dlg-back button:text-is("Yes")'); p.wait_for_timeout(400)
+            if count(calls, "POST", "/admin/transfer-outcome") != 1:
+                pr.append("confirming must send the answer once")
+            else:
+                body = json.loads([c for c in calls if c[1] == "/admin/transfer-outcome"][0][2] or "{}")
+                if body.get("outcome") != "arrived": pr.append(f"wrong answer sent: {body}")
+
+        ok &= run_case(pw, "Home: an unclear transfer and an unsaved payment are plain red lines; the two buttons ask first and send the answer once",
+                       unclear_handler, c_unclear)
     sys.exit(0 if ok else 1)
 
 

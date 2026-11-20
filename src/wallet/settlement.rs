@@ -418,6 +418,8 @@ pub(crate) fn select_vtxos_within(
 
 /// Settings key: the id of the unsettled transfer the phone alert was already
 /// sent for, so a long wait sends one alert, not one per check.
+/// A "sending" line is shown to the owner as unclear only after this long.
+const SENDING_SHOWN_AFTER_SECS: i64 = 120;
 const TRANSFER_UNKNOWN_ALERTED_KEY: &str = "transfer_unknown_alerted";
 /// A send must be at least this much older than the history entry it is
 /// matched with, in the other direction: history times can differ a little.
@@ -425,8 +427,9 @@ const HISTORY_MATCH_SLACK_SECS: i64 = 300;
 /// How far above the amount a matching history entry may be (network fee).
 const HISTORY_MATCH_FEE_ROOM_SATS: i64 = 10_000;
 /// An on-chain send whose coins are all still in the wallet this long after
-/// the attempt did not happen (a withdrawal takes a round or two).
-const OFFBOARD_NOT_SENT_AFTER_SECS: i64 = 600;
+/// the attempt did not happen (a withdrawal waits for an Ark round, and the
+/// wallet can list coins in a round as free for up to about an hour).
+const OFFBOARD_NOT_SENT_AFTER_SECS: i64 = 7_200;
 
 /// A send whose outcome nobody knows: the server wrote "sending" and then
 /// restarted, or the request timed out before an answer came back.
@@ -444,11 +447,22 @@ pub struct UnsettledSend {
 /// time under [`CYCLE_LOCK`], so a "sending" line found when a cycle starts
 /// was left behind by a restart.
 pub fn unsettled_send(conn: &Connection) -> Result<Option<UnsettledSend>, AppError> {
+    unsettled_send_older_than(conn, 0)
+}
+
+/// [`unsettled_send`], but a "sending" line counts only once it is at least
+/// `sending_min_age_secs` old. Home and the owner's two buttons use this, so a
+/// transfer that is merely in flight right now is never shown as unclear.
+pub fn unsettled_send_older_than(
+    conn: &Connection,
+    sending_min_age_secs: i64,
+) -> Result<Option<UnsettledSend>, AppError> {
     let row = conn
         .query_row(
             "SELECT id, kind, amount_sats, destination, created_at, detail FROM settlements
-             WHERE status IN ('sending', 'unknown') ORDER BY created_at ASC, rowid ASC LIMIT 1",
-            [],
+             WHERE (status = 'unknown' OR (status = 'sending' AND created_at <= ?1))
+             ORDER BY created_at ASC, rowid ASC LIMIT 1",
+            params![now_unix() - sending_min_age_secs],
             |r| {
                 Ok((
                     r.get::<_, String>(0)?,
@@ -483,13 +497,16 @@ pub fn unsettled_send(conn: &Connection) -> Result<Option<UnsettledSend>, AppErr
 
 /// Home should show the "a transfer may or may not have gone out" line.
 pub fn transfer_unknown_showing(conn: &Connection) -> bool {
-    matches!(unsettled_send(conn), Ok(Some(_)))
+    matches!(
+        unsettled_send_older_than(conn, SENDING_SHOWN_AFTER_SECS),
+        Ok(Some(_))
+    )
 }
 
 /// The owner says how an unknown transfer ended. Returns false if there was
 /// none to settle.
 pub fn resolve_unsettled(conn: &Connection, arrived: bool) -> Result<bool, AppError> {
-    let Some(u) = unsettled_send(conn)? else {
+    let Some(u) = unsettled_send_older_than(conn, SENDING_SHOWN_AFTER_SECS)? else {
         return Ok(false);
     };
     let (status, detail) = if arrived {
@@ -508,7 +525,7 @@ pub fn resolve_unsettled(conn: &Connection, arrived: bool) -> Result<bool, AppEr
 }
 
 /// Plain words for the sweep note and Home while a transfer is unclear.
-pub const TRANSFER_UNKNOWN_NOTE: &str = "A transfer to your payout address may or may not have gone out: it was interrupted before the server heard back. Your money is safe either way. No more transfers are made until this is cleared, so nothing can be sent twice. Check your payout wallet, then tell the server below whether it arrived.";
+pub const TRANSFER_UNKNOWN_NOTE: &str = "A transfer to your payout address may or may not have gone out: it was interrupted before the server heard back. Your money is safe either way. No more transfers are made until this is cleared, so it is not sent again by mistake. Check your payout wallet, then tell the server below whether it arrived.";
 
 /// Did this failed send possibly go through anyway? A timeout, a dropped
 /// connection after the request left, or an answer we could not read: yes.
@@ -516,9 +533,43 @@ pub const TRANSFER_UNKNOWN_NOTE: &str = "A transfer to your payout address may o
 pub(crate) fn send_outcome_unknown(err: &crate::wallet::WalletError) -> bool {
     use crate::wallet::WalletError;
     match err {
-        WalletError::Unavailable(m) => m.contains("timed out") || m.contains("request failed"),
+        WalletError::Unavailable(m) => {
+            m.contains("timed out")
+                || m.contains("request failed")
+                // A gateway that gave up waiting says nothing about whether
+                // the send went through behind it.
+                || m.contains("HTTP 502")
+                || m.contains("HTTP 504")
+        }
         WalletError::Rejected(m) => m.contains("unparseable response"),
     }
+}
+
+/// How many wallet-history entries look like this unclear send: outbound,
+/// successful (or not yet reported either way), to the same destination, for
+/// about the same amount, and not older than the attempt (minus a little
+/// slack) nor in the future.
+pub(crate) fn count_history_matches(
+    u: &UnsettledSend,
+    entries: &[crate::wallet::barkd::HistoryEntry],
+    now: i64,
+) -> usize {
+    entries
+        .iter()
+        .filter(|e| {
+            e.status
+                .as_deref()
+                .map_or(true, |s| s.eq_ignore_ascii_case("successful"))
+                && e.outbound_sats().is_some_and(|n| {
+                    n >= u.amount_sats && n <= u.amount_sats + HISTORY_MATCH_FEE_ROOM_SATS
+                })
+                && e.sent_to_contains(&u.destination)
+                && e.detected_at_unix().is_some_and(|t| {
+                    t >= u.created_at - HISTORY_MATCH_SLACK_SECS
+                        && t <= now + HISTORY_MATCH_SLACK_SECS
+                })
+        })
+        .count()
 }
 
 pub struct SettlementEngine {
@@ -1123,6 +1174,30 @@ impl SettlementEngine {
             .filter(|v| !in_round.contains(&v.id))
             .cloned()
             .collect();
+        // A transfer whose outcome is unknown (interrupted or timed out). This is
+        // checked BEFORE anything about the amount, so it is settled or alerted
+        // even when the till is now empty (the send may have taken everything).
+        // Try to
+        // settle it from the wallet's history; if that is not clear, send nothing,
+        // automatic or button, until the owner says how it ended.
+        if let Some(unsettled) = self.db.call(|c| unsettled_send(c)).await? {
+            let free_ids: Vec<String> = free_coins.iter().map(|v| v.id.clone()).collect();
+            if !self.settle_from_history(&unsettled, &free_ids).await? {
+                self.db
+                    .call(|c| {
+                        // Make sure a restart-left "sending" line is shown as unknown.
+                        c.execute(
+                            "UPDATE settlements SET status = 'unknown' WHERE status = 'sending'",
+                            [],
+                        )?;
+                        Ok(())
+                    })
+                    .await?;
+                self.alert_transfer_unknown().await?;
+                report.sweep_refused = Some(TRANSFER_UNKNOWN_NOTE.to_string());
+                return Ok(report);
+            }
+        }
         let offchain = balances.offchain_sats.saturating_sub(locked_sats);
         // What stays behind: nothing, unless the owner turned on the emergency
         // withdrawal and chose an amount to keep for it. The button sends it all.
@@ -1143,27 +1218,6 @@ impl SettlementEngine {
                 );
             }
             return Ok(report);
-        }
-        // A transfer whose outcome is unknown (interrupted or timed out): try to
-        // settle it from the wallet's history; if that is not clear, send nothing,
-        // automatic or button, until the owner says how it ended.
-        if let Some(unsettled) = self.db.call(|c| unsettled_send(c)).await? {
-            let free_ids: Vec<String> = free_coins.iter().map(|v| v.id.clone()).collect();
-            if !self.settle_from_history(&unsettled, &free_ids).await? {
-                self.db
-                    .call(|c| {
-                        // Make sure a restart-left "sending" line is shown as unknown.
-                        c.execute(
-                            "UPDATE settlements SET status = 'unknown' WHERE status = 'sending'",
-                            [],
-                        )?;
-                        Ok(())
-                    })
-                    .await?;
-                self.alert_transfer_unknown().await?;
-                report.sweep_refused = Some(TRANSFER_UNKNOWN_NOTE.to_string());
-                return Ok(report);
-            }
         }
         // The Ark server refused this wallet's software as too old a little while
         // ago: do not keep asking every few minutes (the button still tries).
@@ -1328,6 +1382,13 @@ impl SettlementEngine {
                 }
                 return Ok(report);
             }
+            // With a kept amount the chosen coins can add up to much less than the
+            // excess; the automatic payout still waits for its minimum (the button
+            // sends whatever is free).
+            if !manual && total < min_excess {
+                self.forget_refusal();
+                return Ok(report);
+            }
             // Net-amount check: never send an amount the network fee would eat
             // (or leave as a dust coin). Held back, nothing leaves the till.
             let fee_rate = match self.client.onchain_fee_rates().await {
@@ -1464,17 +1525,7 @@ impl SettlementEngine {
         let Ok(page) = self.client.history().await else {
             return Ok(false);
         };
-        let matches = page
-            .entries
-            .iter()
-            .filter(|e| {
-                e.outbound_sats().is_some_and(|n| {
-                    n >= u.amount_sats && n <= u.amount_sats + HISTORY_MATCH_FEE_ROOM_SATS
-                }) && e.sent_to_contains(&u.destination)
-                    && e.detected_at_unix()
-                        .is_some_and(|t| t >= u.created_at - HISTORY_MATCH_SLACK_SECS)
-            })
-            .count();
+        let matches = count_history_matches(u, &page.entries, now_unix());
         let id = u.id.clone();
         if matches == 1 {
             self.db
@@ -2325,7 +2376,7 @@ mod tests {
         let mode = Arc::new(AtomicUsize::new(2));
         let (base, _rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
         let db = Db::open(":memory:").unwrap();
-        // An attempt 20 minutes ago that named coin v1, which is still free.
+        // An attempt over 2 hours ago that named coin v1, which is still free.
         db.call(|c| {
             let id = record_id(
                 c,
@@ -2337,7 +2388,7 @@ mod tests {
             )?;
             c.execute(
                 "UPDATE settlements SET created_at = ?1 WHERE id = ?2",
-                params![now_unix() - 1_200, id],
+                params![now_unix() - 8_000, id],
             )?;
             Ok(())
         })
@@ -2359,6 +2410,124 @@ mod tests {
         assert!(first.1.contains("still in the wallet"), "{}", first.1);
     }
 
+    fn history_entry(json: serde_json::Value) -> crate::wallet::barkd::HistoryEntry {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn history_matching_wants_a_successful_recent_send_to_the_same_address() {
+        let now = now_unix();
+        let u = UnsettledSend {
+            id: "stl_1".into(),
+            kind: "sweep_ark".into(),
+            amount_sats: 50_000,
+            destination: "tark1dest".into(),
+            created_at: now - 60,
+            vtxos: vec![],
+        };
+        let entry = |status: &str, amount: i64, dest: &str, at: i64| {
+            history_entry(serde_json::json!({
+                "intended_balance_sat": -amount,
+                "status": status,
+                "sent_to": [{"destination": {"type": "ark", "value": dest}, "amount_sat": amount}],
+                "time": {"completed_at": chrono::DateTime::from_timestamp(at, 0).unwrap().to_rfc3339()},
+            }))
+        };
+        let good = entry("successful", 50_000, "tark1dest", now - 30);
+        assert_eq!(count_history_matches(&u, &[good.clone()], now), 1);
+        // A failed or cancelled movement is not our send.
+        assert_eq!(
+            count_history_matches(&u, &[entry("failed", 50_000, "tark1dest", now - 30)], now),
+            0
+        );
+        // Another address, another amount, or an older send does not match.
+        assert_eq!(
+            count_history_matches(
+                &u,
+                &[entry("successful", 50_000, "tark1other", now - 30)],
+                now
+            ),
+            0
+        );
+        assert_eq!(
+            count_history_matches(
+                &u,
+                &[entry("successful", 20_000, "tark1dest", now - 30)],
+                now
+            ),
+            0
+        );
+        assert_eq!(
+            count_history_matches(
+                &u,
+                &[entry("successful", 50_000, "tark1dest", now - 4_000)],
+                now
+            ),
+            0
+        );
+        // Two matches cannot be told apart: not settled by itself.
+        assert_eq!(count_history_matches(&u, &[good.clone(), good], now), 2);
+    }
+
+    #[tokio::test]
+    async fn an_unsettled_send_is_noticed_even_when_the_till_is_now_empty() {
+        // The send took everything before the restart: the balance is 0, and the
+        // line must still be shown as unclear and alerted, not forgotten.
+        let (engine, db) = ark_engine_holding(0, 0).await;
+        db.call(|c| {
+            record_id(c, "sweep_ark", 50_000, JOURNAL_ARK, "sending", Some("{}")).map(|_| ())
+        })
+        .await
+        .unwrap();
+        let report = engine.tick().await.unwrap();
+        assert!(report
+            .sweep_refused
+            .as_deref()
+            .unwrap()
+            .contains("may or may not"));
+        assert_eq!(journal_status(&db).await, vec!["unknown"]);
+        let notices = db
+            .call(|c| Ok(crate::settings::get(c, "alert_notices")?.unwrap_or_default()))
+            .await
+            .unwrap();
+        assert_eq!(notices, "transfer_unknown");
+    }
+
+    #[tokio::test]
+    async fn a_send_still_in_flight_is_not_shown_to_the_owner_as_unclear() {
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| {
+            record_id(c, "sweep_ark", 5_000, JOURNAL_ARK, "sending", Some("{}")).map(|_| ())
+        })
+        .await
+        .unwrap();
+        assert!(!db.call(|c| Ok(transfer_unknown_showing(c))).await.unwrap());
+        assert!(!db.call(|c| resolve_unsettled(c, false)).await.unwrap());
+        db.call(|c| {
+            c.execute("UPDATE settlements SET created_at = created_at - 300", [])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert!(db.call(|c| Ok(transfer_unknown_showing(c))).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_kept_amount_does_not_let_a_tiny_coin_go_out_alone() {
+        // 101,200 held in coins 100,000 and 1,200, 50,000 kept: the free amount
+        // is 51,200 (over the 50,000 minimum), but only the 1,200 coin fits in
+        // it. That is far under the minimum, so nothing is sent automatically.
+        let (base, recorded) = coins_mock(&[("big", 100_000), ("small", 1_200)]);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 50_000);
+        assert!(engine.tick().await.unwrap().swept_sats.is_none());
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
+    }
+
     #[test]
     fn only_a_possibly_delivered_request_counts_as_unknown() {
         use crate::wallet::WalletError;
@@ -2376,6 +2545,13 @@ mod tests {
         )));
         assert!(!send_outcome_unknown(&WalletError::Unavailable(
             "barkd returned HTTP 500".into()
+        )));
+        // A gateway that gave up says nothing about the send behind it.
+        assert!(send_outcome_unknown(&WalletError::Unavailable(
+            "barkd returned HTTP 502: bad gateway".into()
+        )));
+        assert!(send_outcome_unknown(&WalletError::Unavailable(
+            "barkd returned HTTP 504".into()
         )));
         assert!(!send_outcome_unknown(&WalletError::Rejected(
             "barkd rejected the request (HTTP 400)".into()

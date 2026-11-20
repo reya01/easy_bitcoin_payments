@@ -458,7 +458,9 @@ pub async fn send(
     // a name that was public when saved cannot later point at the server's own
     // network (the same guard as webhooks; EBP_WEBHOOK_ALLOW_PRIVATE=1 turns it off).
     if !crate::webhook::allow_private_from_env() {
-        builder = builder.dns_resolver(std::sync::Arc::new(crate::webhook::PublicOnlyResolver));
+        builder = builder
+            .no_proxy()
+            .dns_resolver(std::sync::Arc::new(crate::webhook::PublicOnlyResolver));
     }
     let client = builder.build().map_err(|e| e.to_string())?;
     let resp = client

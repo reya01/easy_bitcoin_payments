@@ -446,12 +446,17 @@ pub async fn send(
     body: &str,
     urgent: bool,
 ) -> Result<(), String> {
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         // Never follow a redirect: it could lead somewhere validate_server refused.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| e.to_string())?;
+        .redirect(reqwest::redirect::Policy::none());
+    // Look the name up again when connecting and use public addresses only, so
+    // a name that was public when saved cannot later point at the server's own
+    // network (the same guard as webhooks; EBP_WEBHOOK_ALLOW_PRIVATE=1 turns it off).
+    if !crate::webhook::allow_private_from_env() {
+        builder = builder.dns_resolver(std::sync::Arc::new(crate::webhook::PublicOnlyResolver));
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
     let resp = client
         .post(format!("{}/{}", server.trim_end_matches('/'), topic))
         .header("Title", title)

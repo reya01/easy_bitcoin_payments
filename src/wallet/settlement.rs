@@ -394,6 +394,28 @@ pub(crate) fn select_vtxos_covering(
     (ids, total)
 }
 
+/// Pick whole coins (largest first) whose total is AT MOST `limit` sats, so
+/// an on-chain payout never takes money the owner chose to keep for the
+/// emergency withdrawal. A coin that would push the total past `limit` is
+/// skipped and smaller ones are tried. May return nothing (every coin is
+/// bigger than the limit).
+pub(crate) fn select_vtxos_within(
+    vtxos: &[crate::wallet::barkd::Vtxo],
+    limit: i64,
+) -> (Vec<String>, i64) {
+    let mut sorted: Vec<&crate::wallet::barkd::Vtxo> =
+        vtxos.iter().filter(|v| !v.id.is_empty()).collect();
+    sorted.sort_by_key(|v| std::cmp::Reverse(v.amount_sats));
+    let (mut ids, mut total) = (Vec::new(), 0i64);
+    for v in sorted {
+        if v.amount_sats > 0 && total + v.amount_sats <= limit {
+            ids.push(v.id.clone());
+            total += v.amount_sats;
+        }
+    }
+    (ids, total)
+}
+
 pub struct SettlementEngine {
     client: BarkdClient,
     db: Db,
@@ -1154,8 +1176,25 @@ impl SettlementEngine {
             // R8: offboard only enough whole VTXOs to cover the excess
             // (largest first) via /wallet/offboard/vtxos, leaving the rest
             // as the till. Overshoot is at most one VTXO.
-            let (ids, total) = select_vtxos_covering(&free_coins, excess);
+            //
+            // With an amount kept for the emergency withdrawal, the payout
+            // must never dip into it: only coins that fit inside the excess are
+            // taken, and if none do it waits (more payments make more coins).
+            let (ids, total) = if cap > 0 {
+                select_vtxos_within(&free_coins, excess)
+            } else {
+                select_vtxos_covering(&free_coins, excess)
+            };
             if ids.is_empty() {
+                if cap > 0 && !free_coins.is_empty() {
+                    let reason = format!(
+                        "Waiting for a better-sized coin: sending your coins now would also send the {} sats you chose to keep for the emergency withdrawal. Nothing was sent. It goes out when new payments make smaller coins, or press Move my money now to send everything.",
+                        crate::payout::commas(cap)
+                    );
+                    return self
+                        .hold_send(report, kind, excess, &destination, reason)
+                        .await;
+                }
                 return Ok(report);
             }
             // Net-amount check: never send an amount the network fee would eat
@@ -1735,7 +1774,7 @@ mod tests {
             client,
             db.clone(),
             Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
-            100_000,
+            0,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
@@ -1787,7 +1826,7 @@ mod tests {
             client,
             db.clone(),
             Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
-            100_000,
+            0,
         );
         engine.tick().await.unwrap();
         engine.sweep_now().await.unwrap();
@@ -1816,6 +1855,124 @@ mod tests {
                 "a sweep must never POST to {banned}"
             );
         }
+    }
+
+    #[test]
+    fn selection_within_a_limit_never_goes_over_it() {
+        use crate::wallet::barkd::Vtxo;
+        let v = |id: &str, amt: i64| Vtxo {
+            id: id.into(),
+            amount_sats: amt,
+            expiry_height: None,
+            expires_at: None,
+        };
+        let set = vec![v("a", 10), v("b", 70), v("c", 30)];
+        // 70 fits; 30 would reach 100 > 90, so skipped; 10 fits.
+        assert_eq!(
+            select_vtxos_within(&set, 90),
+            (vec!["b".to_string(), "a".to_string()], 80)
+        );
+        assert_eq!(select_vtxos_within(&set, 5), (vec![], 0));
+        assert_eq!(select_vtxos_within(&set, 110).1, 110);
+        assert!(select_vtxos_within(&[], 5).0.is_empty());
+    }
+
+    /// A mock holding several coins; returns the base URL and the requests.
+    fn coins_mock(
+        coins: &[(&str, i64)],
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
+    ) {
+        let list = coins
+            .iter()
+            .map(|(id, amt)| {
+                format!(
+                    r#"{{"id": "{id}", "amount_sat": {amt}, "expires_at": 9999999999, "state": {{"type": "spendable"}}}}"#
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let total: i64 = coins.iter().map(|(_, a)| a).sum();
+        mock::spawn(move |req| match req.route() {
+            "/api/v1/wallet/vtxos" => (200, format!("[{list}]")),
+            "/api/v1/onchain/balance" => (
+                200,
+                r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#
+                    .to_string(),
+            ),
+            "/api/v1/wallet/balance" => (200, format!(r#"{{"spendable_sat": {total}}}"#)),
+            "/api/v1/fees/onchain" => (
+                200,
+                r#"{"fast_sat_per_vb": 20, "regular_sat_per_vb": 10, "slow_sat_per_vb": 5}"#
+                    .to_string(),
+            ),
+            "/api/v1/wallet/offboard/vtxos" => (200, "{}".to_string()),
+            _ => (404, "{}".to_string()),
+        })
+    }
+
+    const KEEP_ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+
+    #[tokio::test]
+    async fn an_onchain_payout_never_takes_the_money_kept_for_the_emergency_withdrawal() {
+        // Two 80,000 coins, 50,000 kept: 110,000 is free. Taking both (160,000)
+        // would cut into the kept amount, so only one goes.
+        let (base, recorded) = coins_mock(&[("a", 80_000), ("b", 80_000)]);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 50_000);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(80_000));
+        let requests = recorded.lock().unwrap();
+        let offboard = requests
+            .iter()
+            .find(|r| r.route() == "/api/v1/wallet/offboard/vtxos")
+            .expect("offboard recorded");
+        let body: serde_json::Value = serde_json::from_str(&offboard.body).unwrap();
+        assert_eq!(body["vtxos"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn one_big_coin_waits_once_with_a_plain_note_and_the_button_still_sends_it() {
+        // One 150,000 coin, 50,000 kept: the free 100,000 cannot be cut out of
+        // it. Nothing is sent; one "waiting" line, however many checks.
+        let (base, recorded) = coins_mock(&[("big", 150_000)]);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 50_000);
+        for _ in 0..3 {
+            let report = engine.tick().await.unwrap();
+            assert!(report.swept_sats.is_none());
+            assert!(report
+                .sweep_refused
+                .as_deref()
+                .unwrap()
+                .contains("better-sized coin"));
+        }
+        assert!(!recorded
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
+        let rows: i64 = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE status = 'waiting'",
+                    [],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+        // "Move my money now" keeps nothing back and sends the whole coin.
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(150_000));
+    }
+
+    #[tokio::test]
+    async fn with_the_emergency_withdrawal_off_the_whole_coin_goes_as_before() {
+        let (base, _recorded) = coins_mock(&[("big", 150_000)]);
+        let db = Db::open(":memory:").unwrap();
+        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 0);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(150_000));
     }
 
     #[test]
@@ -1915,12 +2072,7 @@ mod tests {
         // one calm "waiting" row is written (not one per tick).
         let (base, recorded) = fee_mock(80, 150_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(
-            &base,
-            &db,
-            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
-            100_000,
-        );
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
         for _ in 0..3 {
             let report = engine.tick().await.unwrap();
             assert!(report.swept_sats.is_none());
@@ -1945,13 +2097,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_automatic_onchain_sweep_waits_for_50_000_above_the_kept_amount() {
+    async fn an_automatic_onchain_sweep_waits_for_50_000_to_send() {
         const ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
-        // Cap 100,000, fees low. Held 149,999: excess 49,999, nothing is sent
-        // (and nothing is recorded as a refusal). Held 150,000: sent.
-        let (base, recorded) = fee_mock(10, 149_999);
+        // Nothing kept, fees low. Held 49,999: nothing is sent (and nothing is
+        // recorded as a refusal). Held 50,000: sent.
+        let (base, recorded) = fee_mock(10, 49_999);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        let engine = engine_for(&base, &db, ONCHAIN, 0);
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
         assert!(report.sweep_refused.is_none());
@@ -1961,34 +2113,33 @@ mod tests {
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
         // The button still moves whatever is there.
-        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(149_999));
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(49_999));
 
-        let (base, _recorded) = fee_mock(10, 150_000);
+        let (base, _recorded) = fee_mock(10, 50_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
-        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(150_000));
+        let engine = engine_for(&base, &db, ONCHAIN, 0);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(50_000));
     }
 
     #[tokio::test]
     async fn the_owners_onchain_minimum_replaces_the_default() {
         const ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
-        // Cap 100,000 and a chosen minimum of 80,000: held 179,999 waits,
-        // held 180,000 goes.
-        let (base, _recorded) = fee_mock(10, 179_999);
+        // A chosen minimum of 80,000: held 79,999 waits, held 80,000 goes.
+        let (base, _recorded) = fee_mock(10, 79_999);
         let db = Db::open(":memory:").unwrap();
         db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
             .await
             .unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
+        let engine = engine_for(&base, &db, ONCHAIN, 0);
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
 
-        let (base, _recorded) = fee_mock(10, 180_000);
+        let (base, _recorded) = fee_mock(10, 80_000);
         let db = Db::open(":memory:").unwrap();
         db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
             .await
             .unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 100_000);
-        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(180_000));
+        let engine = engine_for(&base, &db, ONCHAIN, 0);
+        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(80_000));
     }
 
     /// An engine holding `held` sats in one Ark coin, paying out to an Ark
@@ -2172,12 +2323,7 @@ mod tests {
     async fn automatic_onchain_sweep_goes_when_fees_are_low_even_without_a_reserve() {
         let (base, recorded) = fee_mock(50, 150_000); // exactly at the limit
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(
-            &base,
-            &db,
-            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
-            100_000,
-        );
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
         assert!(recorded
@@ -2401,12 +2547,7 @@ mod tests {
         }
         });
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(
-            &base,
-            &db,
-            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
-            100_000,
-        );
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
         assert!(report.sweep_refused.unwrap().contains("fee rates"));
@@ -2761,7 +2902,7 @@ mod tests {
     ) -> (
         SettlementEngine,
         Db,
-        std::sync::Arc<std::sync::Mutex<Vec<mock::Recorded>>>,
+        std::sync::Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
     ) {
         let soon = crate::util::now_unix() + 86_400;
         let (base, recorded) = mock::spawn(move |req| match req.route() {
@@ -3026,7 +3167,7 @@ mod tests {
     ) -> (
         SettlementEngine,
         Db,
-        Arc<std::sync::Mutex<Vec<mock::Recorded>>>,
+        Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
     ) {
         let (base, recorded) = mock::spawn(move |req| match req.route() {
             "/api/v1/wallet/vtxos" => (200, vtxos.lock().unwrap().clone()),
@@ -3070,7 +3211,9 @@ mod tests {
         .unwrap()
     }
 
-    fn refresh_calls(rec: &Arc<std::sync::Mutex<Vec<mock::Recorded>>>) -> Vec<String> {
+    fn refresh_calls(
+        rec: &Arc<std::sync::Mutex<Vec<crate::wallet::barkd::mock::Recorded>>>,
+    ) -> Vec<String> {
         rec.lock()
             .unwrap()
             .iter()

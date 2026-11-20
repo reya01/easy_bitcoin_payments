@@ -71,7 +71,7 @@ open the emergency-exit page.
 - A transfer never sends coins that are waiting in a renewal round (found in the pre-release review).
 - A locked-down container, tighter password limits and a weak-password block.
 - The checkout offers only Lightning and Ark; the code for regular Bitcoin payments is gone.
-- The update helper's first real use is this update (0.2.1-rc2 to 0.2.2-rc1).
+- The update helper's first real use was this update (0.2.1-rc2 to 0.2.2-rc1) on the owner's test server, 19 November 2026.
 
 ## 3. Still open
 

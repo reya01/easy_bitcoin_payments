@@ -17,8 +17,8 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
   emergency withdrawal is **opt-in** with 5,000 sats of protected fee money and a **send back
   what is above 5,000** button; **passkeys** (beta) for sign-in and protected actions; a transfer
   never sends coins waiting in a renewal round; a locked-down container; checkout is Lightning
-  and Ark only. It is being tested on the owner's test server (the first real use of the Home-tab
-  update); the run order is the "Round 3" section of [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md).
+  and Ark only. It is being tested on the owner's test server (it was updated there with the Home-tab
+  update, the update helper's first real use); the run order is the "Round 3" section of [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md).
 - **barkd stays pinned at 0.8.0.** **v0.3 means running Bark 0.9** (its dust-output change affects
   sweeps and exits): [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md).
 

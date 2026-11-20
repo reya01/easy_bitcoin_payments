@@ -64,7 +64,7 @@ For a server that already runs an earlier release candidate. Do these in order; 
 emergency-withdrawal money is sent early because it needs time to confirm. Write down every
 hesitation, and the real amounts.
 
-1. **Update from the Home tab** (the update helper's first real use): Home offers the new
+1. **Update from the Home tab** (the update helper has been used for real once, on 19 November): Home offers the new
    version; **Start update** shows the old and new version, a good signature and the image
    fingerprint from the release notes; password and code, **Update now**; Home shows the
    new **Version** and the same balance. If Home offers nothing, use the Console update

@@ -957,7 +957,7 @@ function loadPayout() {
       $("min-now").textContent = "The server sends all of the money in the till to your payout address once it holds at least " + fmtSats(sm) + (p.sweep_min_is_custom ? " (your setting)" : " (the default, which is also the lowest we allow)") + (keep > 0 ? ", not counting the " + fmtSats(keep) + " you chose to keep for the emergency withdrawal" : "") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
       $("min-why").textContent = minKind === "onchain"
         ? "We recommend much more than the lowest amount: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. It is your decision. If you expect small amounts, an Ark payout address is almost free to send to."
-        : "Why " + plainSats(minFloor) + " is the lowest: coins smaller than about " + plainSats(smallCoin) + " can fail to send for a while once the Ark server updates its software, so the server waits for more to build up and then sends all of it at once. A higher number means fewer, bigger payments to your wallet.";
+        : plainSats(minFloor) + " is the lowest to ensure reliability.";
       $("min-new").min = String(minFloor);
       $("min-reset").classList.toggle("hidden", !p.sweep_min_is_custom);
       $("sweep-small").textContent = smallCoin.toLocaleString("en-US");

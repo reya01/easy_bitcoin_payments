@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Shorter wording under "When to send my money" (Ark).** The long explanation of why 1,500 sats is the lowest is replaced by one line: "1,500 sats is the lowest to ensure reliability."
+
 - **Docs only: brought up to date with 0.2.2-rc1 and tidied.** `docs/dev/TECHNICAL.md` now describes the whole-balance send, the opt-in emergency withdrawal (including the send-back button), passkeys, the admin routes and the retired keep settings; `HANDOFF.md` is rewritten to the current state; `KNOWN_ISSUES.md`, the README, `START_HERE.md`, `RESTORE_DRILL.md`, `UPGRADING.md`, `RC_CHECKLIST.md`, `MAINNET_RELEASE_STATUS.md` and `E2E_TESTING.md` were corrected, and `DROPLET_TEST_SHEET.md` has a short "Round 3" run order. Finished plans, drill reports and test sheets moved to `docs/dev/archive/` (links fixed).
 
 ## 0.2.2-rc1 — release candidate: send the whole balance, opt-in emergency withdrawal, passkeys (beta), Lightning and Ark only at checkout (19 November 2026)

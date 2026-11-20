@@ -192,16 +192,27 @@ def main():
             has(a, pr, "fee note says what the wallet will show", "wallet will show 1,503 sats", pg.inner_text("#ln-fee"))
             if not pg.is_visible("#open-wallet"): pr.append("Lightning needs the 'Open in my wallet app' button")
             if pg.get_attribute("#open-wallet", "href") != "lightning:" + BOLT: pr.append("the wallet button should open the Lightning invoice")
-            # One box under the code switches to Ark. Nothing else: no tabs, no combined code, no regular Bitcoin.
-            if not pg.is_visible("#ark-choice"): pr.append("the 'Ark (fast)' box must be visible under the code")
-            has(a, pr, "the box is labelled Ark (fast)", "Ark (fast)", pg.inner_text("#ark-choice"))
-            if pg.is_checked("#use-ark"): pr.append("the Ark box starts unticked")
+            # Two choices under the code, Lightning on top, both always there, a check on the selected one.
+            # Nothing else: no tabs, no combined code, no regular Bitcoin.
+            if not pg.is_visible("#ark-choice"): pr.append("the two choices must be visible under the code")
+            has(a, pr, "first choice is labelled Lightning (fast)", "Lightning (fast)", pg.inner_text("#pick-ln"))
+            has(a, pr, "second choice is labelled Ark (also fast)", "Ark (also fast)", pg.inner_text("#pick-ark"))
+            if pg.evaluate("document.getElementById('pick-ln').getBoundingClientRect().top") >= pg.evaluate("document.getElementById('pick-ark').getBoundingClientRect().top"): pr.append("Lightning must be on top of Ark")
+            if pg.evaluate("document.getElementById('ark-choice').getBoundingClientRect().top") <= pg.evaluate("document.getElementById('qr').getBoundingClientRect().bottom") - 1: pr.append("the choices belong below the QR code")
+            if pg.get_attribute("#pick-ln", "aria-checked") != "true" or "on" not in (pg.get_attribute("#pick-ln", "class") or "").split(): pr.append("Lightning starts selected, with its check")
+            if pg.get_attribute("#pick-ark", "aria-checked") != "false": pr.append("Ark starts unselected")
+            if pg.evaluate("getComputedStyle(document.querySelector('#pick-ln .tick'), '::after').content") in ("none", "normal", ""): pr.append("the selected choice shows a check mark")
+            if pg.evaluate("getComputedStyle(document.querySelector('#pick-ark .tick'), '::after').content") not in ("none", "normal", ""): pr.append("the unselected choice shows no check mark")
             if pg.query_selector("#other") or pg.query_selector(".tabs"): pr.append("there is no 'Other ways to pay' menu or tabs any more")
             body = pg.inner_text("body").lower()
             for gone in ("regular bitcoin (slower)", "one code, any wallet", "one code for any wallet"):
                 if gone in body: pr.append(f"'{gone}' must not be offered")
-            pg.check("#use-ark")
-            if not shown(a).startswith("tark1"): pr.append("Ark address should show after ticking the box")
+            pg.click("#pick-ark")
+            if not shown(a).startswith("tark1"): pr.append("Ark address should show after choosing Ark")
+            if not pg.is_visible("#pick-ln"): pr.append("Lightning stays on screen while Ark is selected, so the customer can switch back")
+            if pg.get_attribute("#pick-ark", "aria-checked") != "true" or pg.get_attribute("#pick-ln", "aria-checked") != "false": pr.append("the check moves to Ark")
+            pg.click("#pick-ark"); pg.wait_for_timeout(50)
+            if not shown(a).startswith("tark1"): pr.append("tapping the selected choice again changes nothing")
             if copied(a) != shown(a): pr.append("Copy should follow Ark")
             if pg.is_visible("#ln-fee"): pr.append("the Lightning fee note should hide on Ark")
             if pg.is_visible("#open-wallet"): pr.append("Ark has no wallet link, so the button hides")
@@ -211,14 +222,15 @@ def main():
             if pg.evaluate("parseFloat(getComputedStyle(document.getElementById('ark-sats')).fontSize)") < 30: pr.append("the Ark amount must be big")
             pg.evaluate("window.__copied = null"); pg.click("#copy-ark-amount"); pg.wait_for_timeout(100)
             if pg.evaluate("window.__copied") != "1500": pr.append(f"'Copy the number' should copy 1500, saw {pg.evaluate('window.__copied')}")
-            pg.uncheck("#use-ark")
+            pg.click("#pick-ln")
             if pg.is_visible("#ark-amount"): pr.append("the Ark amount box belongs to Ark only")
-            if shown(a) != BOLT: pr.append("unticking the box returns to the Lightning invoice")
+            if shown(a) != BOLT: pr.append("choosing Lightning returns to the Lightning invoice")
+            if pg.get_attribute("#pick-ln", "aria-checked") != "true" or pg.get_attribute("#pick-ark", "aria-checked") != "false": pr.append("the check moves back to Lightning")
             if copied(a) != BOLT: pr.append("Copy should follow back to Lightning")
 
         def c_no_ln(a, pr):
             if not shown(a).startswith("tark1"): pr.append(f"without Lightning the Ark address shows, saw {shown(a)[:40]}")
-            if a["page"].is_visible("#ark-choice"): pr.append("no Ark box when Ark is the only way to pay")
+            if a["page"].is_visible("#ark-choice"): pr.append("no choices when Ark is the only way to pay")
             if a["page"].is_visible("#ln-fee"): pr.append("no fee note without Lightning")
             if not a["page"].is_visible("#ark-amount"): pr.append("Ark must show the 'type this amount' box")
 
@@ -253,7 +265,7 @@ def main():
             has(a, pr, "headline shows only what is missing", "900 sats to go", pg.inner_text("#amount"))
             has(a, pr, "received line", "600 sats of 1,500 sats received", pg.inner_text("#sats"))
             has(a, pr, "countdown is the top-up window", "Time left to send the rest", pg.inner_text("#countdown"))
-            if pg.is_visible("#ark-choice"): pr.append("a Lightning invoice carries the full amount, so the box to switch is hidden during a top-up")
+            if pg.is_visible("#ark-choice"): pr.append("a Lightning invoice carries the full amount, so the choices are hidden during a top-up")
             if pg.is_visible("#open-wallet"): pr.append("no Lightning link during a top-up")
             if not shown(a).startswith("tark1"): pr.append(f"the Ark address should be shown, saw {shown(a)[:30]}")
             has(a, pr, "top-up Ark box shows only what is still missing", "900 sats", pg.inner_text("#ark-amount"))
@@ -300,10 +312,10 @@ def main():
             ("hostile text and a javascript: link are inert", invoice(store_name=X, return_url="javascript:window.__xss=1", fiat_amount=X, amount_sats=10**18), [{"status": "pending"}], c_evil),
         ]
         cases += [
-            ("Lightning is shown first; one 'Ark (fast)' box switches to Ark; nothing else is offered",
+            ("Lightning is shown first; two choices (Lightning on top, Ark below) switch both ways with a check on the selected one; nothing else is offered",
              invoice(lightning={"bolt11": BOLT, "fee_estimate_sat": 3}),
              [{"status": "pending"}], c_ln_first),
-            ("no Lightning invoice: Ark is the only way to pay and there is no box", invoice(), [{"status": "pending"}], c_no_ln),
+            ("no Lightning invoice: Ark is the only way to pay and there are no choices", invoice(), [{"status": "pending"}], c_no_ln),
         ]
         cases += [
             ("sats-only payment shows dollars next to sats (and in the fee note)",

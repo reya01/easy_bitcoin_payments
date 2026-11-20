@@ -8,7 +8,13 @@ main{max-width:480px;margin:0 auto;padding:20px 18px 40px}header{display:flex;al
 .amount{margin:16px 0 4px;font-size:56px;line-height:1.05;letter-spacing:-.03em;font-weight:800;overflow-wrap:anywhere}.sats,.store,.status{overflow-wrap:anywhere}.sats{color:var(--muted);font-size:16px}
 .countdown{display:inline-block;margin-top:12px;padding:3px 12px;border:2px solid var(--line);border-radius:999px;background:var(--sun);color:#1d1530;font-size:13px;font-weight:600}.countdown:empty{display:none}
 .card{margin-top:22px;border:2px solid var(--line);border-radius:24px;background:var(--card);box-shadow:0 5px 0 var(--shadow);padding:18px}
-.choice{display:flex;align-items:center;gap:12px;min-height:48px;margin:14px 0 0;padding:10px 14px;border:2px solid var(--line);border-radius:12px;background:var(--soft);color:var(--fg);font-size:16px;font-weight:700;cursor:pointer}.choice input{width:22px;height:22px;margin:0;accent-color:var(--pick);flex:none}
+.choices{display:grid;gap:10px;margin:14px 0 0}
+.choice{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:10px 14px;border:2px solid var(--line);border-radius:12px;background:var(--soft);color:var(--fg);font:inherit;font-size:16px;font-weight:700;text-align:left;cursor:pointer}
+.choice.on{background:var(--card);border-color:var(--pick);box-shadow:0 3px 0 var(--pick)}
+.choice .tick{position:relative;flex:none;width:24px;height:24px;border:2px solid var(--line);border-radius:50%;background:var(--card)}
+.choice.on .tick{background:var(--pick);border-color:var(--pick)}
+.choice.on .tick::after{content:"";position:absolute;left:7px;top:2px;width:6px;height:12px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg)}
+.choice:focus-visible{outline:3px solid var(--pick);outline-offset:2px}
 .qr.on{border:2px solid var(--line);padding:12px;background:#fff}.qr img{width:100%;height:auto;display:block;border-radius:8px}
 .qr{display:grid;place-items:center;aspect-ratio:1/1;max-width:260px;margin:0 auto 14px;border:2px dashed var(--line);border-radius:18px;color:var(--muted);font-size:13px;text-align:center;padding:16px}
 .address{display:block;width:100%;padding:12px;border-radius:12px;border:2px solid var(--line);background:transparent;color:var(--fg);font:13px/1.4 ui-monospace,Menlo,monospace;word-break:break-all;text-align:left;cursor:pointer}

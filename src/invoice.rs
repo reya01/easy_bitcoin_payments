@@ -103,6 +103,38 @@ pub fn topup_closes_at(conn: &Connection, invoice: &Invoice) -> Result<Option<i6
 
 pub const MAX_INVOICE_SATS: i64 = 2_100_000_000_000_000;
 
+/// Most payment requests that may be open at once on one server (pending or
+/// underpaid, not yet past their expiry). Each open one holds a Lightning
+/// invoice and an address in the wallet, so a flood (a stolen shop key, a
+/// buggy plugin) must hit a wall. Far above what a small shop has open.
+pub const MAX_OPEN_INVOICES: i64 = 1_000;
+
+/// How many payment requests are open right now (see [`MAX_OPEN_INVOICES`]).
+pub fn count_open(conn: &Connection, now: i64) -> Result<i64, AppError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM invoices
+         WHERE status IN ('pending', 'underpaid') AND expires_at > ?1",
+        params![now],
+        |r| r.get(0),
+    )?)
+}
+
+/// [`insert`], refused when `max_open` payment requests are already open. The
+/// count and the insert run in one database call, so two requests can never
+/// both slip under the limit.
+pub fn insert_with_cap(
+    conn: &Connection,
+    new: &NewInvoice,
+    max_open: i64,
+) -> Result<Invoice, AppError> {
+    if count_open(conn, now_unix())? >= max_open {
+        return Err(AppError::TooManyRequests(
+            "Too many unpaid payment requests are open right now. Please try again in a few minutes.".into(),
+        ));
+    }
+    insert(conn, new)
+}
+
 pub fn insert(conn: &Connection, new: &NewInvoice) -> Result<Invoice, AppError> {
     if new.amount_sats <= 0 {
         return Err(AppError::BadRequest(
@@ -422,7 +454,10 @@ pub fn ark_address_in_use(conn: &Connection, ark_address: &str) -> Result<bool, 
 }
 
 /// Newest still-open (`pending`, not past `expires_at`) invoice a store
-/// already created for `order_id`, if any.
+/// already created for `order_id`, if any. "Open" means still payable:
+/// `pending`, or `underpaid` (a part payment is in and the rest may still be
+/// topped up). Before, only `pending` counted, so a shop retry after a part
+/// payment made a second, full-price invoice for the same order.
 ///
 /// BETA-HARDENING: backs create-invoice idempotency. Shop plugins retry on
 /// timeouts and double-click "Pay"; without this every retry minted a fresh
@@ -436,7 +471,7 @@ pub fn find_open_by_order_id(
     conn.query_row(
         "SELECT * FROM invoices
          WHERE store_id = ?1 AND order_id = ?2
-           AND status = 'pending' AND expires_at > ?3
+           AND status IN ('pending', 'underpaid') AND expires_at > ?3
          ORDER BY created_at DESC LIMIT 1",
         params![store_id, order_id, now_unix()],
         row_to_invoice,
@@ -1037,6 +1072,7 @@ mod tests {
     }
 
     #[tokio::test]
+<<<<<<< HEAD
     async fn a_lost_race_is_an_error_and_the_payment_is_recorded_on_the_retry() {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();
@@ -1077,6 +1113,64 @@ mod tests {
             .expect("payment applied on the retry");
         assert_eq!(status, InvoiceStatus::Paid);
         assert_eq!(invoice.paid_sats, 1000);
+=======
+    async fn an_underpaid_invoice_is_still_the_open_one_for_its_order() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        let mut one = new_invoice(&sid, "inv_1", 1000);
+        one.order_id = Some("wc-5".to_string());
+        db.call(move |conn| insert(conn, &one)).await.unwrap();
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 400, Some("vtxo_1"))))
+            .await
+            .unwrap();
+        let sid = store_id.clone();
+        let found = db
+            .call(move |conn| find_open_by_order_id(conn, &sid, "wc-5"))
+            .await
+            .unwrap()
+            .expect("the part-paid invoice is found");
+        assert_eq!(found.id, "inv_1");
+        assert_eq!(found.status, InvoiceStatus::Underpaid);
+        // Once it is paid in full it is no longer "open".
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 600, Some("vtxo_2"))))
+            .await
+            .unwrap();
+        let none = db
+            .call(move |conn| find_open_by_order_id(conn, &store_id, "wc-5"))
+            .await
+            .unwrap();
+        assert!(none.is_none());
+    }
+
+    #[tokio::test]
+    async fn the_open_invoice_cap_counts_pending_and_underpaid_and_refuses_the_next() {
+        let (db, store_id) = setup().await;
+        let sid = store_id.clone();
+        db.call(move |conn| {
+            insert_with_cap(conn, &new_invoice(&sid, "inv_1", 1000), 2)?;
+            insert_with_cap(conn, &new_invoice(&sid, "inv_2", 1000), 2)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        // One of the two becomes underpaid: still open, still counted.
+        db.call(|conn| record_payment(conn, &obs("inv_1", "ark", 400, Some("vtxo_1"))))
+            .await
+            .unwrap();
+        let sid = store_id.clone();
+        let err = db
+            .call(move |conn| insert_with_cap(conn, &new_invoice(&sid, "inv_3", 1000), 2))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::TooManyRequests(_)), "{err:?}");
+        // Paying one in full frees a place.
+        db.call(|conn| record_payment(conn, &obs("inv_2", "ark", 1000, Some("vtxo_2"))))
+            .await
+            .unwrap();
+        db.call(move |conn| insert_with_cap(conn, &new_invoice(&store_id, "inv_3", 1000), 2))
+            .await
+            .unwrap();
+>>>>>>> a48f956 (Invoice creation: one invoice per order even when retried at once, reuse part-paid invoices, cap open invoices)
     }
 
     #[tokio::test]

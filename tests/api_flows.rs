@@ -139,6 +139,78 @@ async fn invoice_creation_is_idempotent_per_order_and_amount() {
 }
 
 #[tokio::test]
+async fn a_retry_after_a_part_payment_gets_the_underpaid_invoice_back() {
+    let (base, state, _store, key) = serve().await;
+    let client = reqwest::Client::new();
+
+    let (s1, first) = create(&client, &base, &key, "wc-part", 5_000).await;
+    assert_eq!(s1, 201);
+    let id = first["id"].as_str().unwrap().to_string();
+    let part = id.clone();
+    state
+        .db
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE invoices SET status = 'underpaid', paid_sats = 2000 WHERE id = ?1",
+                [&part],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    // The shop asks again for the same order: the same invoice, still taking
+    // the rest, not a second full-price one.
+    let (s2, again) = create(&client, &base, &key, "wc-part", 5_000).await;
+    assert_eq!(s2, 200);
+    assert_eq!(again["id"].as_str(), Some(id.as_str()));
+    assert_eq!(again["status"], "underpaid");
+    let count: i64 = state
+        .db
+        .call(|c| Ok(c.query_row("SELECT COUNT(*) FROM invoices", [], |r| r.get(0))?))
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+
+    // A changed amount is still a new invoice, as before.
+    let (s3, changed) = create(&client, &base, &key, "wc-part", 6_000).await;
+    assert_eq!(s3, 201);
+    assert_ne!(changed["id"].as_str(), Some(id.as_str()));
+}
+
+#[tokio::test]
+async fn the_same_order_asked_for_at_the_same_moment_makes_one_invoice() {
+    let (base, state, _store, key) = serve().await;
+    let client = reqwest::Client::new();
+
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let (client, base, key) = (client.clone(), base.clone(), key.clone());
+        tasks.push(tokio::spawn(async move {
+            create(&client, &base, &key, "wc-double-click", 5_000).await
+        }));
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut created = 0;
+    for task in tasks {
+        let (status, body) = task.await.unwrap();
+        assert!(status == 200 || status == 201, "status {status}: {body}");
+        if status == 201 {
+            created += 1;
+        }
+        ids.insert(body["id"].as_str().unwrap().to_string());
+    }
+    assert_eq!(created, 1, "exactly one request creates the invoice");
+    assert_eq!(ids.len(), 1, "everyone is handed the same invoice");
+    let count: i64 = state
+        .db
+        .call(|c| Ok(c.query_row("SELECT COUNT(*) FROM invoices", [], |r| r.get(0))?))
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
 async fn unmatched_payments_can_be_listed_and_resolved_by_their_store_only() {
     let (base, state, store_id, key) = serve().await;
     let client = reqwest::Client::new();

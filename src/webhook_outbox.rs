@@ -149,23 +149,26 @@ pub async fn dispatch_due(
         let store = db
             .call(move |conn| crate::store::get(conn, &store_id))
             .await?;
-        let target = match store {
+        // `Err` = the secret could not be read right now: tried again later
+        // (with backoff), never dropped as if no webhook were set up.
+        let target: Result<Option<(String, String)>, String> = match store {
             Some(s) => match crate::store::webhook_secret_plain(&s) {
-                Ok(secret) => match (s.webhook_url.clone(), secret) {
+                Ok(secret) => Ok(match (s.webhook_url.clone(), secret) {
                     (Some(url), Some(secret)) => Some((url, secret)),
                     _ => None,
-                },
+                }),
                 Err(err) => {
                     tracing::error!(error = %err, "webhook secret could not be decrypted; delivery will retry");
-                    None
+                    Err(format!("webhook secret could not be read: {err}"))
                 }
             },
-            None => None,
+            None => Ok(None),
         };
 
         let outcome: Result<(), (String, bool)> = match target {
-            None => Err(("store has no webhook configured".to_string(), true)),
-            Some((url, secret)) => match validate_webhook_url(&url, allow_private_targets) {
+            Err(why) => Err((why, false)),
+            Ok(None) => Err(("store has no webhook configured".to_string(), true)),
+            Ok(Some((url, secret))) => match validate_webhook_url(&url, allow_private_targets) {
                 Err(reason) => Err((format!("webhook url rejected: {reason}"), true)),
                 Ok(()) => {
                     let payload: serde_json::Value =

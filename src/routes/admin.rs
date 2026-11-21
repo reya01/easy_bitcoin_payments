@@ -14,7 +14,7 @@ use axum::extract::State;
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
 use axum::Json;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
 use crate::error::AppError;
@@ -130,7 +130,7 @@ pub async fn status(
 ) -> Result<Json<Value>, AppError> {
     authorize(&state, &headers).await?;
 
-    let (counters, recent_settlements, webhook_configured) = state
+    let (counters, recent_settlements, webhook_configured, newest_withdrawal) = state
         .db
         .call(|conn| {
             let count = |sql: &str| -> Result<i64, AppError> {
@@ -164,7 +164,25 @@ pub async fn status(
             let configured = count(
                 "SELECT COUNT(*) FROM stores WHERE webhook_url IS NOT NULL AND webhook_url <> ''",
             )? > 0;
-            Ok((counters, rows, configured))
+            // The newest withdrawal, looked up on its own: many renewals since
+            // must not push a failed withdrawal out of sight.
+            let newest_withdrawal: Vec<Value> = conn
+                .query_row(
+                    "SELECT kind, status FROM settlements
+                     WHERE kind NOT IN ('renew', 'consolidate')
+                     ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                    [],
+                    |r| {
+                        Ok(json!({
+                            "kind": r.get::<_, String>(0)?,
+                            "status": r.get::<_, String>(1)?,
+                        }))
+                    },
+                )
+                .optional()?
+                .into_iter()
+                .collect();
+            Ok((counters, rows, configured, newest_withdrawal))
         })
         .await?;
 
@@ -232,7 +250,7 @@ pub async fn status(
         unmatched_open: counters["unmatched_payments_open"].as_i64().unwrap_or(0),
         webhooks_failed: counters["webhooks_failed"].as_i64().unwrap_or(0),
         webhook_configured,
-        last_settlement_failed: last_withdrawal_failed(&recent_settlements),
+        last_settlement_failed: last_withdrawal_failed(&newest_withdrawal),
         // Consecutive failed renewals, newest first (other kinds are skipped).
         renewals_failing: recent_settlements
             .iter()

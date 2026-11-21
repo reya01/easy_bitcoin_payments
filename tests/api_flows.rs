@@ -4626,3 +4626,27 @@ async fn a_restore_whose_answer_was_lost_carries_on_and_shows_the_words_again() 
         "the words are shown again to check against the paper copy"
     );
 }
+
+#[tokio::test]
+async fn owner_and_api_answers_are_never_cached() {
+    let (base, state, _store, key) = serve().await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let client = reqwest::Client::new();
+    let r = client
+        .get(format!("{base}/api/v1/invoices"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.headers()["cache-control"], "no-store");
+    let r = client
+        .get(format!("{base}/admin/session"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.headers()["cache-control"], "no-store");
+}

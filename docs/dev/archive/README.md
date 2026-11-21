@@ -6,9 +6,9 @@ why things were done, but they are **not current**: for what is true and open no
 [RC_CHECKLIST.md](../RC_CHECKLIST.md) and [HANDOFF.md](../HANDOFF.md).
 
 Rule of thumb: when a plan is done, a test round is over, or a report has been acted on, move it
-here (with `git mv`, so history follows), add a row below, and fix the links to it. Two history
-files stay in `docs/dev/` because code or CI comments point at them: `MAINNET_PLAN.md` and
-`EMERGENCY_EXIT_2026-11-15.md` (and `SIGNET_DRILL.md`, which the signet smoke workflow names).
+here (with `git mv`, so history follows), add a row below, and fix the links to it. Code and CI comments
+that point at a history file should name its `archive/` path. `SIGNET_DRILL.md` stays in `docs/dev/` because
+the signet smoke workflow names it, and `BARKD_0_9_0_UPGRADE.md` because it is the recipe for the next barkd move.
 
 | File | What it was |
 | --- | --- |
@@ -28,3 +28,9 @@ files stay in `docs/dev/` because code or CI comments point at them: `MAINNET_PL
 | [SERIES2_TESTS_2026-11-15.md](SERIES2_TESTS_2026-11-15.md) | The third drill session: empty-till claims, invoice windows, refresh and sweep costs. |
 | [LIGHTNING_RECEIVE_FEES_2026-11-15.md](LIGHTNING_RECEIVE_FEES_2026-11-15.md) | What a Lightning receive really costs on barkd 0.8.0. |
 | [MAINNET_DRILL_RESPONSE.md](MAINNET_DRILL_RESPONSE.md) | Item-by-item response to the mainnet drills. |
+| [MAINNET_PLAN.md](MAINNET_PLAN.md) | The agreed plan for getting to mainnet (11 November 2026): restore, mainnet changes, test with small real money. Done. |
+| [EMERGENCY_EXIT_2026-11-15.md](EMERGENCY_EXIT_2026-11-15.md) | The real-money emergency-exit drill: what worked, what got stuck, what it cost. |
+| [MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md) | A reading of the real-money code paths before the first real-money test (a snapshot; [TECHNICAL.md](../TECHNICAL.md) is the current description). |
+| [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md) | The Bark 0.9 review of 19 November 2026 and the decision that v0.3 runs Bark 0.9 (done in 0.3.0-rc1). |
+| [BARK_AUDIT.md](BARK_AUDIT.md), [bark-reference-0.8/](bark-reference-0.8/), [barkd-endpoints-0.8.txt](barkd-endpoints-0.8.txt) | The audit of 5 November 2026 against barkd 0.8.0, with the copy of Bark's docs and the endpoint list it used. The current API snapshot is `docs/barkd-openapi.json`. |
+| [RC_CHECKLIST_HISTORY.md](RC_CHECKLIST_HISTORY.md) | The signet-era to-do lists and the draft notes for 0.2.2-rc1, moved out of the release checklist. |

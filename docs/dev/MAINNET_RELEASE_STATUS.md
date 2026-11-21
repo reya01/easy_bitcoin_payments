@@ -1,4 +1,4 @@
-# First real-money release: where things stand (updated 19 November 2026)
+# First real-money release: where things stand (updated 21 November 2026)
 
 This is the one page to read before deciding to cut the first release that is
 meant to be tried with real money. It replaces the signet-only wording in
@@ -73,6 +73,20 @@ open the emergency-exit page.
 - The checkout offers only Lightning and Ark; the code for regular Bitcoin payments is gone.
 - The update helper's first real use was this update (0.2.1-rc2 to 0.2.2-rc1) on the owner's test server, 19 November 2026.
 
+**Added in 0.3.0-rc1 to rc3 (20 to 21 November 2026), CI and browser tests; the owner's live checks of them are the next step:**
+
+- barkd 0.9.0 (every Ark send says `"method":"ark"`), and the send journal: each transfer is written down first, an
+  unclear one stops all transfers until the wallet's history or the owner ("It arrived" / "It did not arrive")
+  settles it. Settling from history has not yet been confirmed on a real 0.9 send.
+- The keep-an-amount setting is gone: every transfer sends everything that is free, and an emergency withdrawal
+  takes everything on the server. Only the 5,000-sat fee money stays.
+- The emergency section opens with one "next step"; the update card keeps the Console steps as a folded
+  backup. A false "fee money is below what is kept" warning (found on the owner's test server; the check read an
+  on-chain balance that is always 0 on this barkd); fixed in rc2.
+- rc3 (fixes from a full-repo review): setup only uses a wallet it made itself; stricter transfer, sign-in and
+  Lightning checks; no lost shop events; the weekly wallet check covers a skipped week. Details and what was
+  declined: the project doc `full-review-validation-2026-11-21`.
+
 ## 3. Still open
 
 Needs a real-money test or an answer from someone else:
@@ -103,11 +117,11 @@ Decisions for the owner:
 
 - Public name, security reports setting, protected tags, stale branches
   (`RC_CHECKLIST.md` section 3).
-- Held pull requests: Dependabot #163, #165, #166 and docs PR #150.
+- Held pull requests: Dependabot #165, #166, #236, #238 and #265 (not merged with a risky change; each needs a release dry run).
 
-## 4. Suggested wording for the notes of the first real-money release
+## 4. Suggested wording about real money, for release notes
 
-Replace the signet-only line in `RC_CHECKLIST.md` section 5 with:
+Use this in place of any signet-only line in the notes of a release:
 
 > Play money (signet) is the default. Real bitcoin can be switched on
 > (`EBP_MODE=live`, see `docs/START_HERE.md`) and has been used end to end on a

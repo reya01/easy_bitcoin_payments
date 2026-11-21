@@ -1,6 +1,6 @@
 # Test-day sheet: the first test with real bitcoin (mainnet)
 
-Stage 4 of [MAINNET_PLAN.md](../MAINNET_PLAN.md). Keep it open beside you, do the
+Stage 4 of [MAINNET_PLAN.md](MAINNET_PLAN.md). Keep it open beside you, do the
 steps in order and **write down every place you hesitated, guessed or got
 stuck**, plus the real times. Each step says where it happens: **your payment
 server** (its Console or its `/admin` page), **your WooCommerce site**, or **your
@@ -34,7 +34,7 @@ what you see to a line below, write it down, then go to
 | You cannot open the server's pages | The server may be off or restarting (it restarts once after setup). | Wait a few minutes, then use **your hosting company's Console** to check the server is running. Do not delete the server: the money can be restored from the 12 words onto a new one. |
 
 What the server is expected to do when something fails, read from the code, is in
-[MAINNET_CODE_PATHS.md](../MAINNET_CODE_PATHS.md).
+[MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md).
 
 ## Before you start
 

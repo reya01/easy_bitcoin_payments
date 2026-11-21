@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Docs tidy-up.** Finished plans and reviews (the mainnet plan, the Bark audit and 0.9 review, the emergency-exit drill, the pre-test code-path reading, the old Bark 0.8 docs copy and the signet-era release to-do lists) moved to `docs/dev/archive/`, with every link fixed. The release checklist is now only the live steps; HANDOFF, release status, TECHNICAL and the update guides say 0.3.0-rc3 and barkd 0.9.0.
+
 ## 0.3.0-rc3 — release candidate: safer setup and transfers, review fixes (21 November 2026)
 
 - **The weekly wallet check no longer skips a week you missed.** The card compared only the last 7 days, so after a skipped check and then a quiet week the earlier week was never shown. It now covers everything since your last check (or since setup, if you have never checked): at least 7 days, at most 30, and the card says how many days.

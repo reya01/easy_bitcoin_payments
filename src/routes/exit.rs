@@ -1,5 +1,5 @@
-//! Settings → "Emergency: withdraw without the Ark server" (MAINNET_PLAN
-//! PR G). Every action needs a signed-in session, the admin password AND a
+//! Settings → "Emergency: withdraw without the Ark server" (archived mainnet
+//! plan, PR G). Every action needs a signed-in session, the admin password AND a
 //! two-step code (two-step sign-in must be on), and is audit-logged. Nothing
 //! here runs on a timer: an exit only ever starts from the owner's button.
 

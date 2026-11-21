@@ -95,14 +95,14 @@ pub const MAX_REFRESH_COINS: usize = 1_000;
 
 /// Bark 0.9's changelog: a payment that spends a coin under "about 1,300 sats"
 /// can fail with an upgrade error when the wallet is Bark 0.8.1 or older and
-/// the Ark server is 0.9 (see docs/dev/BARK_0_9_REVIEW.md). Shown on Settings
+/// the Ark server is 0.9 (see docs/dev/archive/BARK_0_9_REVIEW.md). Shown on Settings
 /// as guidance next to the send minimum; nothing is forced. The figure is from
 /// the changelog and is to be confirmed by Second.
 pub const SMALL_COIN_SATS: i64 = 1_300;
 
 /// The smallest Ark payment EBP will make. Bark 0.9 sends any output under
 /// 330 sats to a separate "dust isolation" transaction (see
-/// docs/dev/BARK_0_9_REVIEW.md), so a send this small is held back instead.
+/// docs/dev/archive/BARK_0_9_REVIEW.md), so a send this small is held back instead.
 /// Automatic sweeps are always far above it (their floor is 1,500); only
 /// "Move my money now" can get here.
 pub const ARK_MIN_SEND_SATS: i64 = 330;
@@ -161,7 +161,7 @@ pub const UPDATE_NEEDED_SHOW_SECS: i64 = 24 * 3600;
 
 /// Does this error from barkd say the wallet software is too old for the Ark
 /// server? Bark 0.9's changelog says an older wallet "can fail with an upgrade
-/// error" when it spends a small coin (docs/dev/BARK_0_9_REVIEW.md). The exact
+/// error" when it spends a small coin (docs/dev/archive/BARK_0_9_REVIEW.md). The exact
 /// text is not yet confirmed by Second, so this looks for the words that any
 /// such message must carry. A wrong guess only pauses the automatic transfer
 /// for a few hours and shows a line on Home; no money is ever moved by it.
@@ -3801,7 +3801,7 @@ mod tests {
             .any(|r| r.route() == "/api/v1/wallet/refresh/vtxos"));
     }
 
-    // -- Renewal on mainnet (MAINNET_PLAN PR D) ------------------------------
+    // -- Renewal on mainnet (archived mainnet plan, PR D) ------------------------------
 
     #[test]
     fn a_requested_renewal_is_judged_from_the_coin_and_round_lists() {

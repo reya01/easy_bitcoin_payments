@@ -6,7 +6,7 @@ Easy Bitcoin Payments (EBP) is a single Rust binary plus SQLite that sits betwee
 your store and Bitcoin. No custodian, no middleman, no software fees. Your keys,
 your coins, your server.
 
-This repository is at **v0.2.2-rc1** (a release candidate, 19 November 2026) and remains
+This repository is at **v0.3.0-rc3** (a release candidate, 21 November 2026) and remains
 **EXPERIMENTAL**: signet (play money) by default; mainnet is opt-in (`EBP_MODE=live`) for
 small test amounts only. It has been tried end to end with small real-money amounts (see
 [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md)) but is not for production. CI is the
@@ -15,8 +15,8 @@ browser tests in `tests/e2e/`, see [E2E_TESTING.md](E2E_TESTING.md)); test count
 written down here because they go stale at once.
 
 The wallet layer talks to a [barkd](https://second.tech/docs/barkd_index.md) sidecar
-(Second's reference Bark wallet daemon, **pinned to barkd 0.8.0**; the move to Bark 0.9 is
-planned for v0.3, see [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)) over its local REST API:
+(Second's reference Bark wallet daemon, **pinned to barkd 0.9.0**; what the move from 0.8 involved is in
+[BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md) and [archive/BARK_0_9_REVIEW.md](archive/BARK_0_9_REVIEW.md)) over its local REST API:
 Ark and Lightning receive, a polling payment watcher with a persisted cursor, a per-coin
 expiry queue, and a settlement engine that sends the whole balance to your own wallet once
 it reaches a minimum. **EBP takes no regular (on-chain) payments**; the only on-chain things
@@ -37,16 +37,12 @@ For developers (this folder):
 
 - [HANDOFF.md](HANDOFF.md): one-stop context for a new developer or agent. Start here.
 - Where things stand: [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md) (what is proven on real money and what is not),
-  [MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md) (how the real-money code paths behave),
-  [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md) (what Bark 0.9 changes, and the v0.3 plan).
+  [BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md) (the recipe for moving to a new barkd).
 - Release and testing: [RC_CHECKLIST.md](RC_CHECKLIST.md), [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md) (the test-day sheet for a live server),
   [SIGNET_DRILL.md](SIGNET_DRILL.md), [E2E_TESTING.md](E2E_TESTING.md), [REPRODUCIBLE_BUILDS.md](REPRODUCIBLE_BUILDS.md).
-- Security and wallet: [SHOP_COMPROMISE.md](SHOP_COMPROMISE.md) (what a hacked shop can and cannot do),
-  [BARK_AUDIT.md](BARK_AUDIT.md) (audit of the Bark wallet we build on),
-  [EMERGENCY_EXIT_2026-11-15.md](EMERGENCY_EXIT_2026-11-15.md) (the real-money exit drill).
-- Plans and design notes: [MAINNET_PLAN.md](MAINNET_PLAN.md) (the agreed plan, kept as history),
-  [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md) (the original spec).
-- [archive/](archive/README.md): finished plans, reviews, drills and test notes, kept for history.
+- Security and wallet: [SHOP_COMPROMISE.md](SHOP_COMPROMISE.md) (what a hacked shop can and cannot do).
+- Plans and design notes: [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md) (the original spec).
+- [archive/](archive/README.md): finished plans, reviews, drills and test notes, kept for history (the mainnet plan, the Bark audit and 0.9 review, the emergency-exit drill, the old checklists).
 - [CONTRIBUTING.md](../../CONTRIBUTING.md), [ebp.example.toml](../../ebp.example.toml) (every config key), [LICENSE](../../LICENSE).
 
 ---

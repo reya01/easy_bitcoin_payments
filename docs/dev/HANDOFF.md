@@ -2,25 +2,30 @@
 
 For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md).
 
-## Where things stand (19 November 2026)
+## Where things stand (21 November 2026)
 
-- **Latest release:** `v0.2.2-rc1` (pre-release). Earlier candidates: `v0.1.0-rc1`, `-rc2`,
-  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`. The release process is in
+- **Latest release:** `v0.3.0-rc3` (pre-release). Earlier candidates: `v0.1.0-rc1`, `-rc2`,
+  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1`, `-rc2`. The release process is in
   [RC_CHECKLIST.md](RC_CHECKLIST.md); [CHANGELOG.md](../../CHANGELOG.md) says what is in each.
 - **Experimental.** Signet (play money) is the default; mainnet is opt-in and has been tried end
   to end with small real money (Lightning and Ark payments, a real WooCommerce shop, payouts,
   renewals, restore, a full emergency exit). What is proven on real money and what is not:
-  [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). How the real-money code paths behave:
-  [MAINNET_CODE_PATHS.md](MAINNET_CODE_PATHS.md).
-- **0.2.2-rc1 in one paragraph:** the server sends the **whole balance** to the owner's wallet
-  once it reaches a minimum (floors 1,500 sats Ark, 50,000 on-chain) and keeps nothing; the
-  emergency withdrawal is **opt-in** with 5,000 sats of protected fee money and a **send back
-  what is above 5,000** button; **passkeys** (beta) for sign-in and protected actions; a transfer
-  never sends coins waiting in a renewal round; a locked-down container; checkout is Lightning
-  and Ark only. It is being tested on the owner's test server (it was updated there with the Home-tab
-  update, the update helper's first real use); the run order is the "Round 3" section of [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md).
-- **barkd stays pinned at 0.8.0.** **v0.3 means running Bark 0.9** (its dust-output change affects
-  sweeps and exits): [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md).
+  [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). How the code behaves in detail:
+  [TECHNICAL.md](TECHNICAL.md).
+- **What 0.3.0 is, in one paragraph:** EBP runs on **barkd 0.9.0** (every Ark send says `"method":"ark"`);
+  every transfer to the owner's wallet is written to a **send journal** first and an unclear one stops all
+  transfers until it is settled from the wallet's history or by the owner ("It arrived" / "It did not
+  arrive"); the server sends the **whole balance** once it reaches a minimum and keeps nothing (the
+  keep-an-amount setting is gone); the emergency withdrawal is **opt-in**, always takes everything, and only
+  the 5,000-sat fee money stays; the emergency section on Settings is one plain "next step"; Home's Update card
+  has the Console steps as a folded backup; rc3 adds the fixes from the full-repo review (setup only uses a
+  wallet it made itself, stricter transfer, sign-in and Lightning checks, no lost shop events, the weekly wallet
+  check covering a skipped week). The review and what was fixed or declined is in the project docs
+  (`full-review-validation-2026-11-21`).
+- **barkd is pinned at 0.9.0** (checksums in both Dockerfiles, `mainnet-compat-check.yml`, the OpenAPI
+  snapshot in `docs/barkd-openapi.json`). To move to a newer barkd, follow
+  [BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md) (the recipe from the last move). The `bark-canary` workflow
+  warns when a newer barkd appears.
 
 ## Working rules
 
@@ -34,7 +39,7 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
   branch and read the checks. Browser page tests (`tests/e2e/`) and `rustfmt` can run locally.
 - **Never commit real Bitcoin addresses** (treat them like personal data); use dummy ones.
 - **Docs move with the code.** A change to behavior updates `CHANGELOG.md`, the user guide it
-  touches, `TECHNICAL.md`, `MAINNET_CODE_PATHS.md` and, if it needs a live check,
+  touches, `TECHNICAL.md` and, if it needs a live check,
   `DROPLET_TEST_SHEET.md`. Finished plans and dated reports go to [archive/](archive/README.md).
 
 ## Read first
@@ -46,7 +51,7 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 5. [RC_CHECKLIST.md](RC_CHECKLIST.md): what CI proves, what a person must do, how to cut a release candidate.
 6. [CONTRIBUTING.md](../../CONTRIBUTING.md) and [ebp.example.toml](../../ebp.example.toml) (every config key).
 7. [SECURITY.md](../../SECURITY.md) and [SILENT_PAYMENTS.md](../SILENT_PAYMENTS.md): reporting, and why payout cannot use silent payment addresses.
-8. History, only if you need the why: [MAINNET_PLAN.md](MAINNET_PLAN.md) and [archive/](archive/README.md).
+8. History, only if you need the why: [archive/](archive/README.md) (the mainnet plan, the Bark 0.9 review, drills and old checklists).
 
 ## Architecture decisions and WHY
 
@@ -77,9 +82,10 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 ## Verified live shapes
 
 - Pointer: [`src/wallet/barkd/live_shapes.rs`](../../src/wallet/barkd/live_shapes.rs).
-- Pinned against: **barkd 0.8.0** (signet responses 2026-11-01 and 2026-11-03; the
-  mainnet drills of 15 to 16 November confirmed the Lightning, Ark, renewal, exit and
-  restore shapes on real money).
+- Pinned against: **barkd 0.9.0** (the OpenAPI spec was taken from a running 0.9.0 daemon; the
+  response shapes were first measured on 0.8.0 on signet, 1 to 3 November, and the mainnet
+  drills of 15 to 16 November confirmed the Lightning, Ark, renewal, exit and restore shapes on
+  real money). A real 0.9 send has still to confirm settling an unclear transfer from history.
 - Covered: wallet mnemonic (`{"mnemonic": "…"}` under `--expose-mnemonic`),
   wallet connected (`{"connected": true}`), Lightning receive fee body, VTXO
   list empty shape (`[]`), and the other client-facing response bodies used by
@@ -140,17 +146,17 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 ## What is open
 
 The authoritative lists are [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and section 3 of
-[MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). In short, on 19 November 2026:
+[MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). In short, on 21 November 2026:
 
-1. **Owner's test of 0.2.2-rc1:** the Home-tab update, a whole-balance Ark send with nothing
-   kept (does the wallet take a fee on an exact whole balance?), the minimums, the emergency
-   withdrawal opt-in and its send-back, passkeys. Problems become 0.2.2-rc2.
-2. **Move to Bark 0.9 before v0.3-rc1**, with an explicit `"method":"ark"` on sends, a guardrail
-   that checks the net amount before an on-chain sweep, and a re-drill of the emergency exit on
-   0.9 with small coins. Waiting on answers from Second (when the Ark server moves to 0.9, the
-   exact figures and error text in the review).
-3. **Owner actions:** GitHub secret scanning and push protection, a `main` ruleset, the README
-   comparison-table wording, and the decisions in `RC_CHECKLIST.md` section 3.
+1. **Owner's test of 0.3.0-rc3** on the test server (the quick drills are in that release's cut checklist):
+   Home shows the version, the weekly wallet check card, one small Ark payout, a restore on a new server.
+   Settling an unclear transfer from the wallet's history is still unconfirmed on a real 0.9 send.
+2. **Decisions and answers outstanding:** whether a plain "server error" (HTTP 500) answer to a send should
+   count as unclear (today only 502 and 504 do); Second's answers (when the Ark server moves to 0.9, the exact
+   upgrade-error text, the size thresholds); a second independent reviewer of the send path; the coin-list note
+   that is added on a timeout can corrupt that one line (it fails safe, so the owner is asked).
+3. **Owner actions:** GitHub secret scanning and push protection, a `main` ruleset, signing, the README
+   comparison-table wording, held Dependabot PRs, and the decisions in `RC_CHECKLIST.md` section 3.
 4. **Later:** `update.sh --first-install`, Shopify ([SHOPIFY.md](SHOPIFY.md) is a plan), Lightning and silent-payment
    payouts, refunds, automatic updates.
 

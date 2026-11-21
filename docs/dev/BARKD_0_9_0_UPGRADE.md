@@ -1,6 +1,6 @@
-# Moving barkd from 0.8.0 to 0.9.0 (v0.3): checklist (code done, owner's drills pending)
+# Moving barkd to a new version: the recipe (written for 0.8.0 to 0.9.0)
 
-**Status 20 November 2026:** the code move is done in this draft pull request; the owner's drills (step 7) are what hold the merge. **EBP v0.3 means running barkd 0.9** (owner decision, 19 November 2026). This replaces the old 0.8.1 draft (#245) and the canary issue #276. Read [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md) first for the dust change.
+**Status 21 November 2026:** done. EBP runs barkd 0.9.0 since `v0.3.0-rc1`. This page stays as the recipe for the next move (the `bark-canary` workflow points here); the steps below are written in the past tense of that move. Still unconfirmed on a real 0.9 send: settling an unclear transfer from the wallet's history; the emergency-exit re-drill with small coins; Second's answers (step 8).
 
 ## Why a version move is not a one-line change
 

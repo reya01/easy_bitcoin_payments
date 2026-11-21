@@ -2,11 +2,11 @@
 
 Revised 11 November 2026 (fifth revision: mainnet terms measured) against `main` at `d3197c3` (`v0.1.0-rc1`). This is a plan, agreed with the owner on 11 November 2026. Nothing in it is built yet except the sweep threshold of 1,000 sats. Whoever does the work follows it in order and stops to report when reality differs from it.
 
-**Update, 20 November 2026:** the barkd 0.9.0 move is a draft pull request with CI-computed checksums; the recipe and the owner's drills are in [BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md).
+**Update, 20 November 2026:** the barkd 0.9.0 move is a draft pull request with CI-computed checksums; the recipe and the owner's drills are in [BARKD_0_9_0_UPGRADE.md](../BARKD_0_9_0_UPGRADE.md).
 
 **Update, 19 November 2026:** Bark 0.9 is out. The owner decided that **EBP v0.3 means running Bark 0.9**; the move to 0.8.1 is folded into it. Its dust-output change affects sweeps and emergency exits: see [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md).
 
-**Status, 17 November 2026:** Stages 4 and 5 have been run with small real money (15 and 16 November). The results are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md); the rest of this page is the plan as agreed on 11 November and is kept as history.
+**Status, 17 November 2026:** Stages 4 and 5 have been run with small real money (15 and 16 November). The results are in [MAINNET_RELEASE_STATUS.md](../MAINNET_RELEASE_STATUS.md); the rest of this page is the plan as agreed on 11 November and is kept as history.
 
 **Goal:** the same features that work on signet today, working on Bitcoin mainnet with very small amounts of real money, plus a documented and tested way to get everything back after losing the server. No other new features and no new dependencies.
 
@@ -167,7 +167,7 @@ Built as described below, with the backup file restored by the wizard itself: th
 
 ### Signet restore drill (owner runs, before mainnet)
 
-**Passed 12 November 2026** on a second droplet ([RESTORE_DRILL.md](../RESTORE_DRILL.md)): balance (1,000 sats), orders, transfers list, security log, payout address and shop connection all came back; a new 1,279-sat test order completed and "Move my money now" delivered it to the owner's Bark wallet; two-step sign-in turned back on; a fresh backup from the new server passed **Check a backup**. Restore took 30 to 40 minutes, 17 of them the new server's first start. One extra "Routine wallet upkeep" row appeared right after the restore (1,000 sats, broadcast; balance unchanged): the new server renewed its coin on its first cycle. Not explained yet; watch for it in the mainnet restore drill (Stage 4 step 13).
+**Passed 12 November 2026** on a second droplet ([RESTORE_DRILL.md](../../RESTORE_DRILL.md)): balance (1,000 sats), orders, transfers list, security log, payout address and shop connection all came back; a new 1,279-sat test order completed and "Move my money now" delivered it to the owner's Bark wallet; two-step sign-in turned back on; a fresh backup from the new server passed **Check a backup**. Restore took 30 to 40 minutes, 17 of them the new server's first start. One extra "Routine wallet upkeep" row appeared right after the restore (1,000 sats, broadcast; balance unchanged): the new server renewed its coin on its first cycle. Not explained yet; watch for it in the mainnet restore drill (Stage 4 step 13).
 
 1. On the signet droplet note the balance, order count and payout address. Leave a few hundred sats on the server. Download a backup.
 2. Power off the droplet (or make a second one and keep the first powered off). Never run both at once: same wallet words, same shop connection.

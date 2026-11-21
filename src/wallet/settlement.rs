@@ -571,6 +571,40 @@ pub(crate) fn count_history_matches(
         .count()
 }
 
+/// Could any wallet-history entry be this send, whatever its status or
+/// amount? Used before concluding a send did NOT happen, so it counts
+/// generously: any movement naming the destination (or with a `sent_to` we
+/// cannot read) that is not clearly older than the attempt.
+pub(crate) fn any_history_trace(
+    u: &UnsettledSend,
+    entries: &[crate::wallet::barkd::HistoryEntry],
+) -> bool {
+    entries.iter().any(|e| {
+        let names_it = match e.sent_to_destinations() {
+            Some(_) => e.sent_to_contains(&u.destination),
+            // An outbound movement whose destinations we cannot read could be it.
+            None => e.outbound_sats().is_some(),
+        };
+        names_it
+            && e.detected_at_unix()
+                .is_none_or(|t| t >= u.created_at - HISTORY_MATCH_SLACK_SECS)
+    })
+}
+
+/// Do the wallet's round participations prove none of these coins is still
+/// waiting in a round? `None` (the list could not be read) proves nothing,
+/// and neither does an active participation whose coins we cannot read.
+pub(crate) fn rounds_clear_of(
+    coins: &[String],
+    participations: Option<&[crate::wallet::barkd::RoundParticipation]>,
+) -> bool {
+    participations.is_some_and(|ps| {
+        !ps.iter().any(|p| {
+            p.is_active() && (p.inputs.is_empty() || p.inputs.iter().any(|i| coins.contains(i)))
+        })
+    })
+}
+
 pub struct SettlementEngine {
     client: BarkdClient,
     db: Db,
@@ -1508,11 +1542,20 @@ impl SettlementEngine {
                 .await?;
             return Ok(true);
         }
+        // "Not sent" is concluded only on positive evidence from the wallet,
+        // never from time alone: every coin is still free, the wallet lists
+        // none of them in a round, and its history shows no movement at all
+        // that could be this send.
         if matches == 0
             && u.kind == "sweep_onchain"
             && !u.vtxos.is_empty()
             && now_unix() - u.created_at >= OFFBOARD_NOT_SENT_AFTER_SECS
             && u.vtxos.iter().all(|v| free_coin_ids.contains(v))
+            && !any_history_trace(u, &page.entries)
+            && rounds_clear_of(
+                &u.vtxos,
+                self.client.round_participations().await.ok().as_deref(),
+            )
         {
             self.db
                 .call(move |conn| {
@@ -2144,6 +2187,7 @@ mod tests {
                 r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string(),
             ),
             "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 50000}"#.to_string()),
+            "/api/v1/wallet/rounds" => (200, "[]".to_string()),
             "/api/v1/wallet/send" => match send_mode.load(Ordering::SeqCst) {
                 0 => (200, "this is not json".to_string()),
                 1 => (400, r#"{"message": "bad destination"}"#.to_string()),
@@ -2362,6 +2406,109 @@ mod tests {
             .unwrap();
         assert_eq!(first.0, "failed");
         assert!(first.1.contains("still in the wallet"), "{}", first.1);
+    }
+
+    /// An old on-chain attempt that named coin v1, which is still free, against a
+    /// wallet whose rounds list and history answer as given.
+    async fn old_onchain_attempt_settles_to(
+        rounds: (u16, &'static str),
+        history: &'static str,
+    ) -> String {
+        let (base, _rec) = mock::spawn(move |req| {
+            match req.route() {
+            "/api/v1/wallet/vtxos" => (
+                200,
+                r#"[{"id": "v1", "amount_sat": 50000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#.to_string(),
+            ),
+            "/api/v1/onchain/balance" => (200, r#"{"total_sat": 0, "trusted_spendable_sat": 0}"#.to_string()),
+            "/api/v1/wallet/balance" => (200, r#"{"spendable_sat": 50000}"#.to_string()),
+            "/api/v1/wallet/rounds" => (rounds.0, rounds.1.to_string()),
+            r if r.contains("history") => (200, history.to_string()),
+            _ => (404, "{}".to_string()),
+        }
+        });
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| {
+            let id = record_id(
+                c,
+                "sweep_onchain",
+                50_000,
+                "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+                "unknown",
+                Some(r#"{"vtxos": ["v1"]}"#),
+            )?;
+            c.execute(
+                "UPDATE settlements SET created_at = ?1 WHERE id = ?2",
+                params![now_unix() - 8_000, id],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
+        engine.tick().await.unwrap();
+        db.call(|c| {
+            Ok(c.query_row(
+                "SELECT status FROM settlements ORDER BY created_at, rowid LIMIT 1",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn not_sent_is_never_concluded_without_proof_from_the_wallet() {
+        let empty = r#"{"history": []}"#;
+        // Proof: rounds readable and empty, no trace in the history.
+        assert_eq!(
+            old_onchain_attempt_settles_to((200, "[]"), empty).await,
+            "failed"
+        );
+        // The rounds list cannot be read: stays unclear for the owner.
+        assert_eq!(
+            old_onchain_attempt_settles_to((500, "{}"), empty).await,
+            "unknown"
+        );
+        // The coin is still waiting in a round: stays unclear.
+        assert_eq!(
+            old_onchain_attempt_settles_to(
+                (
+                    200,
+                    r#"[{"state": "pending", "participation": {"inputs": ["v1"]}}]"#
+                ),
+                empty
+            )
+            .await,
+            "unknown"
+        );
+        // An active participation whose coins cannot be read: stays unclear.
+        assert_eq!(
+            old_onchain_attempt_settles_to((200, r#"[{"state": "ongoing"}]"#), empty).await,
+            "unknown"
+        );
+        // A pending movement to the address in the history: stays unclear.
+        assert_eq!(
+            old_onchain_attempt_settles_to(
+                (200, "[]"),
+                r#"{"history": [{"intended_balance_sat": -50000, "status": "pending", "sent_to": [{"destination": {"type": "bitcoin", "value": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"}, "amount_sat": 50000}]}]}"#
+            )
+            .await,
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn a_destination_matches_only_as_a_whole_address() {
+        let e = history_entry(serde_json::json!({
+            "sent_to": [{"destination": {"type": "bitcoin", "value": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"}, "amount_sat": 1}]
+        }));
+        assert!(e.sent_to_contains("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"));
+        assert!(e.sent_to_contains("TB1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KXPJZSX"));
+        assert!(!e.sent_to_contains("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzs"));
+        assert!(!e.sent_to_contains("bitcoin"));
+        assert!(!e.sent_to_contains(""));
     }
 
     fn history_entry(json: serde_json::Value) -> crate::wallet::barkd::HistoryEntry {

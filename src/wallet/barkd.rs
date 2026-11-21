@@ -1198,14 +1198,32 @@ impl HistoryEntry {
         self.intended_balance_sat.filter(|n| *n < 0).map(|n| -n)
     }
 
-    /// Does this movement's `sent_to` list name `text` (an address)? Used to
-    /// find our own send again after a timeout or restart.
-    pub fn sent_to_contains(&self, text: &str) -> bool {
-        !text.is_empty()
+    /// The addresses in this movement's `sent_to` list, lower-cased. `None`
+    /// when the list is missing or has a shape we do not know.
+    pub fn sent_to_destinations(&self) -> Option<Vec<String>> {
+        self.sent_to
+            .as_ref()?
+            .as_array()?
+            .iter()
+            .map(|item| {
+                let d = item.get("destination").unwrap_or(item);
+                d.get("value")
+                    .and_then(Json::as_str)
+                    .or_else(|| d.as_str())
+                    .map(|a| a.trim().to_lowercase())
+            })
+            .collect()
+    }
+
+    /// Does this movement's `sent_to` list name exactly `address`? Used to
+    /// find our own send again after a timeout or restart. A whole-address
+    /// match only (never part of another value).
+    pub fn sent_to_contains(&self, address: &str) -> bool {
+        let want = address.trim().to_lowercase();
+        !want.is_empty()
             && self
-                .sent_to
-                .as_ref()
-                .is_some_and(|v| v.to_string().contains(text))
+                .sent_to_destinations()
+                .is_some_and(|all| all.contains(&want))
     }
 
     /// The dedupe key for a receive entry: the HTLC outpoint(s) (pinned on
@@ -1219,13 +1237,14 @@ impl HistoryEntry {
             .and_then(Json::as_array)
             .and_then(|a| a.first())
             .and_then(Json::as_str)
+            .filter(|k| !k.trim().is_empty())
             .map(str::to_string)
             // NO fallback to the destination value (a bolt11): that is
             // unique per INVOICE, not per payment — an MPP split (two HTLCs
             // paying one invoice) would dedupe-swallow the second payment.
             // No htlc/output key means we cannot dedupe safely: fail closed.
-            .or_else(|| self.vtxo_id.clone())
-            .or_else(|| self.txid.clone())
+            .or_else(|| self.vtxo_id.clone().filter(|k| !k.trim().is_empty()))
+            .or_else(|| self.txid.clone().filter(|k| !k.trim().is_empty()))
             // A plain Ark-address receive carries no HTLC metadata and (per
             // the pinned OpenAPI) no entry-level vtxo_id/txid; the VTXO it
             // created is unique per payment and survives a wallet restore.
@@ -1233,7 +1252,7 @@ impl HistoryEntry {
                 self.output_vtxos
                     .as_ref()
                     .and_then(|o| o.first())
-                    .filter(|o| !o.is_empty())
+                    .filter(|o| !o.trim().is_empty())
                     .cloned()
             })
     }

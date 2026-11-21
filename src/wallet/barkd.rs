@@ -1223,7 +1223,7 @@ impl HistoryEntry {
         !want.is_empty()
             && self
                 .sent_to_destinations()
-                .is_some_and(|all| all.iter().any(|d| *d == want))
+                .is_some_and(|all| all.contains(&want))
     }
 
     /// The dedupe key for a receive entry: the HTLC outpoint(s) (pinned on

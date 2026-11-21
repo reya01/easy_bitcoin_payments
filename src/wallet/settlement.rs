@@ -253,6 +253,71 @@ pub fn refresh_trigger_blocks(
     blocks
 }
 
+/// Plain words for how long a coin has left.
+fn time_left_words(secs: i64) -> String {
+    if secs < 3_600 {
+        "less than an hour".to_string()
+    } else if secs < 2 * 86_400 {
+        let h = secs / 3_600;
+        format!("about {h} {}", if h == 1 { "hour" } else { "hours" })
+    } else {
+        format!("about {} days", secs / 86_400)
+    }
+}
+
+/// Why a renewal was asked for, in plain words, for the note on the upkeep
+/// line. Coins paid over Ark keep the payer's expiry, so a coin can arrive
+/// already close to expiring; the wallet can also say coins must be
+/// refreshed before they can be sent; and small coins can be added so the
+/// request reaches the wallet's minimum.
+pub(crate) fn renew_reason(
+    timed: usize,
+    soonest_secs: Option<i64>,
+    flagged: usize,
+    merged: usize,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if timed > 0 {
+        parts.push(match soonest_secs {
+            Some(s) => format!(
+                "{timed} {} close to expiring (the soonest has {} left)",
+                if timed == 1 { "coin is" } else { "coins are" },
+                time_left_words(s.max(0))
+            ),
+            None => format!(
+                "{timed} {} due and the expiry could not be read",
+                if timed == 1 { "coin is" } else { "coins are" }
+            ),
+        });
+    }
+    if flagged > 0 {
+        parts.push(format!(
+            "your wallet said {flagged} more {} be refreshed before {} can be sent",
+            if flagged == 1 {
+                "coin must"
+            } else {
+                "coins must"
+            },
+            if flagged == 1 { "it" } else { "they" }
+        ));
+    }
+    if merged > 0 {
+        parts.push(format!(
+            "{merged} small {} added so the total reaches the {MIN_RENEW_SATS}-sat minimum",
+            if merged == 1 {
+                "coin was"
+            } else {
+                "coins were"
+            }
+        ));
+    }
+    if parts.is_empty() {
+        "the wallet asked for them".to_string()
+    } else {
+        parts.join("; ")
+    }
+}
+
 /// At least this many rounds must fit between the renewal point and expiry
 /// (room for a failed round to be retried).
 const MIN_ROUNDS_BEFORE_EXPIRY: i64 = 4;
@@ -964,6 +1029,13 @@ impl SettlementEngine {
                 *last = Some(now);
             }
         }
+        // What made these coins due (kept for the note on the upkeep line).
+        let timed_n = due.len();
+        let timed_soonest_secs = due
+            .iter()
+            .filter_map(|v| vtxo_expiry_unix(v, tip.as_ref()))
+            .min()
+            .map(|t| t - now);
         // The wallet's own flag wins: coins it says "have to be refreshed
         // before they can be sent again" (needs_refresh_sat) are refreshed
         // now, soonest-to-expire first, even if our timing has not reached
@@ -988,6 +1060,7 @@ impl SettlementEngine {
                 due.push(v);
             }
         }
+        let flagged_n = due.len().saturating_sub(timed_n);
         // Less than the wallet can renew: add the server's other coins (they
         // are merged into one fresh coin) if that reaches the minimum;
         // otherwise skip quietly. Nothing is recorded as failed and no alert
@@ -1032,6 +1105,8 @@ impl SettlementEngine {
                 due.clear();
             }
         }
+        let merged_n = due.len().saturating_sub(timed_n + flagged_n);
+        let renew_why = renew_reason(timed_n, timed_soonest_secs, flagged_n, merged_n);
         // Best effort: a note for Home must never stop a renewal.
         if let Err(err) = self
             .db
@@ -1089,7 +1164,7 @@ impl SettlementEngine {
                                 "", // renewal does not send anywhere; no destination to record
                                 "requested",
                                 Some(&format!(
-                                    "asked to renew {count} coins in the Ark server's next round"
+                                    "asked to renew {count} coins in the Ark server's next round. Why: {renew_why}"
                                 )),
                             )?;
                             let mut list = load_requested(conn)?;
@@ -3591,6 +3666,71 @@ mod tests {
         // Coins paid over Ark keep the sender's expiry: 16 blocks left.
         let engine = signet_engine(800 + 16, true, 0);
         assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+    }
+
+    async fn renew_note(engine: &SettlementEngine) -> String {
+        engine
+            .db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT detail FROM settlements WHERE kind = 'renew' ORDER BY rowid DESC LIMIT 1",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )?)
+            })
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_upkeep_note_says_a_coin_was_renewed_because_it_arrived_near_expiry() {
+        // 16 blocks left on signet (about 2.7 hours): the note says why.
+        let engine = signet_engine(800 + 16, true, 0);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        let note = renew_note(&engine).await;
+        assert!(
+            note.contains("Ark server's next round. Why: 1 coin is close to expiring"),
+            "{note}"
+        );
+        assert!(
+            note.contains("the soonest has about 2 hours left"),
+            "{note}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_upkeep_note_says_when_the_wallet_flagged_the_coins() {
+        // 143 blocks left: not due by timing, but inside the free window and
+        // the wallet flags it, so it is renewed because the wallet said so.
+        let engine = signet_engine(800 + 143, true, 1_000);
+        assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
+        let note = renew_note(&engine).await;
+        assert!(
+            note.contains("your wallet said 1 more coin must be refreshed before it can be sent"),
+            "{note}"
+        );
+        assert!(!note.contains("close to expiring"), "{note}");
+    }
+
+    #[test]
+    fn renewal_reasons_are_plain_and_joined() {
+        assert_eq!(
+            renew_reason(2, Some(3 * 86_400 + 5), 0, 0),
+            "2 coins are close to expiring (the soonest has about 3 days left)"
+        );
+        assert_eq!(
+            renew_reason(1, Some(1_200), 3, 2),
+            "1 coin is close to expiring (the soonest has less than an hour left); your wallet said 3 more coins must be refreshed before they can be sent; 2 small coins were added so the total reaches the 330-sat minimum"
+        );
+        assert_eq!(
+            renew_reason(1, None, 0, 0),
+            "1 coin is due and the expiry could not be read"
+        );
+        assert_eq!(renew_reason(0, None, 0, 0), "the wallet asked for them");
+        assert_eq!(time_left_words(-5), "less than an hour");
+        assert_eq!(time_left_words(3_600), "about 1 hour");
+        assert_eq!(time_left_words(47 * 3_600), "about 47 hours");
+        assert_eq!(time_left_words(2 * 86_400), "about 2 days");
     }
 
     #[tokio::test]

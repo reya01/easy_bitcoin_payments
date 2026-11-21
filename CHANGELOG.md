@@ -10,6 +10,8 @@
 
 - **Home says when the next Ark round starts.** A routine upkeep line that is waiting for the Ark server ("requested" or "waiting") now shows **Next round in: N minutes** under it. On real money the server runs a round about once an hour, so a renewal sitting for 15 or 30 minutes is normal. The time comes from the wallet's own question to the Ark server (`/wallet/next-round`), is asked only while something is waiting, and is left out if it cannot be read.
 
+- **Upkeep lines say why a renewal was asked for.** The note on a routine upkeep line now ends with the reason, for example "Why: 1 coin is close to expiring (the soonest has about 2 hours left)", "your wallet said 1 more coin must be refreshed before it can be sent", or "2 small coins were added so the total reaches the 330-sat minimum". Coins paid over Ark keep the payer's expiry, so a coin can arrive already close to expiring and is renewed straight away; that wait is for the Ark server's next round, about an hour on real money.
+
 - **Docs tidy-up.** Finished plans and reviews (the mainnet plan, the Bark audit and 0.9 review, the emergency-exit drill, the pre-test code-path reading, the old Bark 0.8 docs copy and the signet-era release to-do lists) moved to `docs/dev/archive/`, with every link fixed. The release checklist is now only the live steps; HANDOFF, release status, TECHNICAL and the update guides say 0.3.0-rc3 and barkd 0.9.0.
 
 ## 0.3.0-rc3 — release candidate: safer setup and transfers, review fixes (21 November 2026)

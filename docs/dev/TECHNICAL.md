@@ -154,14 +154,10 @@ export EBP_BARKD_TOKEN="$(barkd --datadir ~/.bark-ebp secret show)"
 export EBP_BARKD_URL="http://127.0.0.1:3000/api/v1"
 cargo run -- serve
 
-# 3. Create the wallet (signet + Second's public ASP). The first-run wizard
-#    at /setup does this; the manual curl below is the fallback. If the
-#    response contains a mnemonic, write it down and store it offline — EBP
-#    never reads it back.
-curl -fsS -X POST "$EBP_BARKD_URL/wallet/create" \
-  -H "Authorization: Bearer $EBP_BARKD_TOKEN" \
-  -H "content-type: application/json" \
-  -d '{"network": "signet", "ark": "https://ark.signet.2nd.dev"}'
+# 3. Open http://localhost:8080/setup and let the wizard create the wallet.
+#    The wizard only uses a wallet it made itself: a wallet that was already
+#    in barkd's folder (made by hand, or by anyone else) is refused, because
+#    someone else may hold its recovery words. Start barkd on an empty folder.
 ```
 
 With the sidecar running, invoices get a real Ark address and a Lightning invoice

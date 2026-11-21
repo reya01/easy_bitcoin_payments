@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Setup only uses a wallet it made itself.** A wallet that was already in the wallet folder before setup tried to make one is refused with plain words, instead of becoming the till (someone else may hold its recovery words). Setup still resumes with its own wallet if an earlier answer was lost. The barkd token step no longer marks the wallet as made, and running the shop step again no longer changes the payout address or admin password (change those in Settings).
+
 ## 0.3.0-rc2 — release candidate: calmer emergency section, fee-money warning fixed (21 November 2026)
 
 - **A false fee-money warning is fixed.** The "Emergency fee money is below what this server keeps for it" warning showed even when enough was there. The check read an on-chain balance that is always 0 on this barkd version; it now reads the confirmed on-chain balance, and says nothing if it cannot be read.

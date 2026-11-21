@@ -4333,3 +4333,172 @@ async fn passkeys_sign_in_approve_actions_and_backup_codes_still_work() {
         .unwrap();
     assert_eq!(json(r).await["passkey"], serde_json::Value::Null);
 }
+
+/// A tiny barkd stand-in for the wallet step: the create is refused (a wallet
+/// is already there), the balance probe answers, and ark-info says signet.
+async fn wallet_already_there_barkd() -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/api/v1", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 8192];
+                let n = s.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let (status, body) = if req.starts_with("POST /api/v1/wallet/create") {
+                    ("409 Conflict", "{}")
+                } else if req.starts_with("GET /api/v1/wallet/ark-info") {
+                    ("200 OK", r#"{"network": "signet"}"#)
+                } else if req.starts_with("GET /api/v1/wallet/balance") {
+                    ("200 OK", r#"{"spendable_sat": 0}"#)
+                } else {
+                    ("404 Not Found", "{}")
+                };
+                let resp = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = s.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+    base
+}
+
+/// A server whose setup has not been done yet, pointed at `barkd_url`.
+async fn serve_fresh_setup(barkd_url: String, tried_before: bool) -> (String, AppState) {
+    let config = Arc::new(Config {
+        barkd_url,
+        barkd_token: Some("t".into()),
+        public_base_url: "http://localhost:8080".into(),
+        ..Config::default()
+    });
+    let db = Db::open(":memory:").unwrap();
+    if tried_before {
+        db.call(|c| easy_bitcoin_payments::settings::set(c, "setup_wallet_create_tried", "true"))
+            .await
+            .unwrap();
+    }
+    let state = AppState {
+        db,
+        config,
+        rates: Arc::new(RateService::new()),
+        wallet: Arc::new(StubWallet::new()),
+        webhooks: Arc::new(WebhookEmitter::new(5)),
+    };
+    let app = router(state.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (base, state)
+}
+
+#[tokio::test]
+async fn setup_never_adopts_a_wallet_it_did_not_make() {
+    let barkd = wallet_already_there_barkd().await;
+    let (base, state) = serve_fresh_setup(barkd, false).await;
+    let client = reqwest::Client::new();
+    // Asking twice must not adopt it the second time either.
+    for _ in 0..2 {
+        let resp = client
+            .post(format!("{base}/setup/wallet"))
+            .header("host", "localhost")
+            .json(&serde_json::json!({ "network": "signet" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 409);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert!(
+            body.to_string().contains("did not make"),
+            "plain refusal expected: {body}"
+        );
+    }
+    let created = state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::get_bool(c, "setup_wallet_created"))
+        .await
+        .unwrap();
+    assert!(!created, "a wallet made by someone else is never the till");
+    let status: serde_json::Value = client
+        .get(format!("{base}/setup/status"))
+        .header("host", "localhost")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["wallet_created"], false, "{status}");
+}
+
+#[tokio::test]
+async fn setup_resumes_with_a_wallet_its_own_earlier_attempt_made() {
+    // The first create went through at barkd but the answer was lost.
+    let barkd = wallet_already_there_barkd().await;
+    let (base, state) = serve_fresh_setup(barkd, true).await;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/setup/wallet"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({ "network": "signet" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let created = state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::get_bool(c, "setup_wallet_created"))
+        .await
+        .unwrap();
+    assert!(created);
+}
+
+#[tokio::test]
+async fn running_the_shop_step_again_never_changes_payout_or_password() {
+    const FIRST: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    const OTHER: &str = "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7";
+    let (base, state) = serve_fresh_setup("http://127.0.0.1:9/api/v1".into(), false).await;
+    state
+        .db
+        .call(|c| {
+            store::create(c, "Shop", None)?;
+            easy_bitcoin_payments::payout::set_initial(c, FIRST, "test")?;
+            easy_bitcoin_payments::admin_auth::set_password(c, "the first long password 1", 1_000)
+        })
+        .await
+        .unwrap();
+    let read = || async {
+        state
+            .db
+            .call(|c| {
+                Ok((
+                    easy_bitcoin_payments::payout::effective(c, None)?,
+                    easy_bitcoin_payments::admin_auth::stored_hash(c)?,
+                ))
+            })
+            .await
+            .unwrap()
+    };
+    let before = read().await;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/setup/store"))
+        .header("host", "localhost")
+        .json(&serde_json::json!({
+            "name": "Shop",
+            "payout_address": OTHER,
+            "admin_password": "a long new password 4821"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let after = read().await;
+    assert_eq!(after.0.as_deref(), Some(FIRST), "payout address unchanged");
+    assert_eq!(after.1, before.1, "admin password unchanged");
+}

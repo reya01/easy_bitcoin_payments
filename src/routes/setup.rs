@@ -62,6 +62,11 @@
 
 use std::sync::{OnceLock, RwLock};
 
+/// Settings key: this wizard has asked barkd to make the wallet at least once.
+const WALLET_CREATE_TRIED_KEY: &str = "setup_wallet_create_tried";
+/// Shown when barkd already holds a wallet this wizard never made.
+pub const WALLET_NOT_OURS: &str = "The wallet service already holds a wallet that this setup did not make, so it was not used: someone else may have its recovery words. Set up a fresh server (an empty wallet folder) and run setup there.";
+
 const SETUP_HTML: &str = include_str!("../../assets/setup.html");
 use std::time::Duration;
 
@@ -268,8 +273,13 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatus>, 
 
     // Best-effort live probe (read-only): with a token we can ask barkd
     // directly whether a wallet exists. The flag itself is only persisted
-    // by the wallet/token steps.
-    if !snapshot.wallet_created && token.is_some() {
+    // by the wallet step. Only a wallet this wizard may have made counts: one
+    // that was there before it ever tried is refused at the wallet step.
+    let tried = state
+        .db
+        .call(|conn| settings::get_bool(conn, WALLET_CREATE_TRIED_KEY))
+        .await?;
+    if !snapshot.wallet_created && tried && token.is_some() {
         if let Some(base_url) = barkd_base_url(&state.config) {
             if let Some(status) = barkd_get(&base_url, PATH_WALLET_BALANCE, token.as_deref()).await
             {
@@ -831,6 +841,20 @@ pub async fn create_wallet(
     };
 
     let token = effective_barkd_token(&state.config);
+    // Remember, BEFORE barkd is asked, that this wizard is making the wallet.
+    // A wallet that is already there is adopted only when an earlier attempt
+    // by this wizard may have made it (the answer was lost). One that was
+    // there before the wizard ever tried is treated as someone else's.
+    let tried_before = state
+        .db
+        .call(|conn| {
+            let before = settings::get_bool(conn, WALLET_CREATE_TRIED_KEY)?;
+            if !before {
+                settings::set(conn, WALLET_CREATE_TRIED_KEY, "true")?;
+            }
+            Ok(before)
+        })
+        .await?;
     let outcome = create_till_wallet(
         &base_url,
         &network,
@@ -845,6 +869,22 @@ pub async fn create_wallet(
     // saved below follows the wallet for good, and a real-money wallet under
     // a play-money label would mislabel every amount and unlock the
     // emergency withdrawal on real coins.
+    if outcome.already_exists && !tried_before {
+        // Not made by this wizard: forget the attempt, so trying again does
+        // not adopt it either.
+        state
+            .db
+            .call(|conn| {
+                conn.execute(
+                    "DELETE FROM settings WHERE key = ?1",
+                    rusqlite::params![WALLET_CREATE_TRIED_KEY],
+                )?;
+                Ok(())
+            })
+            .await?;
+        tracing::warn!("setup: a wallet already existed before the wizard made one; not adopted");
+        return Err(AppError::Conflict(WALLET_NOT_OURS.into()));
+    }
     if outcome.already_exists {
         // The same token the existence probe just used (none for a barkd
         // that runs without one).
@@ -1266,15 +1306,12 @@ pub async fn set_token(
     let restart_required = state.config.barkd_token.as_deref() != Some(token.as_str());
     set_runtime_barkd_token(&token);
 
-    let wallet_probe = barkd_get(&base_url, PATH_WALLET_BALANCE, Some(&token)).await;
-
     let setup_complete = state
         .db
         .call(move |conn| {
             settings::set(conn, "setup_token_verified", "true")?;
-            if matches!(wallet_probe, Some(status) if status.is_success()) {
-                settings::set(conn, "setup_wallet_created", "true")?;
-            }
+            // A wallet that answers is NOT recorded as made here: only the
+            // wallet step (which checks the network and who made it) may.
             recompute_setup_complete(conn)
         })
         .await?;
@@ -1471,13 +1508,23 @@ pub async fn create_store(
         .db
         .call(move |conn| {
             let created = insert_first_store(conn, &name)?;
-            if risky {
-                crate::payout::set_initial_unchecked(conn, &payout_address)?;
-            } else {
-                crate::payout::set_initial(conn, &payout_address, &mode)?;
+            // When the shop already exists (an earlier run of this step, a
+            // restored backup), a payout address or admin password that is
+            // already set stays as it is: change those in Settings, where the
+            // safety delay and sign-in apply. Only what is missing is set.
+            let fresh = created.is_some();
+            let has_payout = crate::payout::effective(conn, None)?.is_some();
+            if fresh || !has_payout {
+                if risky {
+                    crate::payout::set_initial_unchecked(conn, &payout_address)?;
+                } else {
+                    crate::payout::set_initial(conn, &payout_address, &mode)?;
+                }
             }
             if let Some(pw) = admin_password.as_deref() {
-                crate::admin_auth::set_password(conn, pw, iterations)?;
+                if fresh || !crate::admin_auth::password_is_set(conn)? {
+                    crate::admin_auth::set_password(conn, pw, iterations)?;
+                }
             }
             let complete = recompute_setup_complete(conn)?;
             Ok((created, complete))

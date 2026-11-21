@@ -35,7 +35,7 @@ open box.
 ## B. Draft release notes (edit after the drills)
 
 Draft for the first release candidate that has been tried with real money. The
-facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md).
+facts behind each line are in [MAINNET_RELEASE_STATUS.md](../MAINNET_RELEASE_STATUS.md).
 
 > **v0.2.2-rc1 — release candidate: send the whole balance, opt-in emergency withdrawal, passkeys (beta)**
 >
@@ -77,7 +77,7 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 > (from rc2 with the update helper installed); the Console update still works.
 > The wallet program stays at barkd 0.8.0; the move to Bark 0.9 is planned for
 > v0.3 (v0.3 is not released until EBP runs Bark 0.9; see
-> [BARK_0_9_REVIEW.md](archive/BARK_0_9_REVIEW.md)).
+> [BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)).
 >
 > Runs on ordinary x86-64 servers (the DigitalOcean path); ARM builds are paused until v1.0.
 >
@@ -89,9 +89,9 @@ facts behind each line are in [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS
 ## C. When live mode exists
 
 **Status, 19 November 2026:** live mode exists and has been tried with small real money
-(see [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md)). This section is the original plan,
+(see [MAINNET_RELEASE_STATUS.md](../MAINNET_RELEASE_STATUS.md)). This section is the original plan,
 kept for history: an unticked box here is a to-do only if `MAINNET_RELEASE_STATUS.md` or
-[KNOWN_ISSUES.md](../KNOWN_ISSUES.md) still lists it.
+[KNOWN_ISSUES.md](../../KNOWN_ISSUES.md) still lists it.
 
 Decision (8 Nov 2026): the public walkthrough `docs/START_HERE.md` stays in its
 play-money wording until live mode is supported. The version written for real use
@@ -100,7 +100,7 @@ play-money wording until live mode is supported. The version written for real us
 rebase it first, and drop its note in `DROPLET_TEST_SHEET.md` if testing is then
 done differently.
 
-**The agreed plan for getting to mainnet is [MAINNET_PLAN.md](archive/MAINNET_PLAN.md)** (11 November
+**The agreed plan for getting to mainnet is [MAINNET_PLAN.md](MAINNET_PLAN.md)** (11 November
 2026): restore from the 12 words first, then the mainnet changes, then a test with small
 real money. Its items, in order:
 
@@ -123,7 +123,7 @@ real money. Its items, in order:
       renewal point and expiry), even though it costs the fee.
 - [ ] **Docs sweep for both modes**, then the mainnet test sheet with small real money.
 
-barkd stays on 0.8.0 until v0.3, which means running Bark 0.9 ([BARK_0_9_REVIEW.md](archive/BARK_0_9_REVIEW.md)).
+barkd stays on 0.8.0 until v0.3, which means running Bark 0.9 ([BARK_0_9_REVIEW.md](BARK_0_9_REVIEW.md)).
 
 ### Follow-ups from the 9 November review (need mainnet or a later test)
 

@@ -20,19 +20,14 @@ const KEY_PENDING: &str = "payout_destination_pending";
 const KEY_EFFECTIVE_AT: &str = "payout_destination_effective_at";
 pub const DEFAULT_DELAY_SECS: i64 = 86_400;
 
-/// The amount the till keeps for the emergency withdrawal, when the owner has
-/// turned that on and chosen one in Settings. Ignored while it is off.
-const KEY_CAP: &str = "sweep_cap_sats";
-/// Bounds for that amount (kept only for the emergency withdrawal). The top is the largest single coin the Ark server
-/// accepts (10,000,000 sats): holding more than that on the server defeats the
-/// point of sweeping.
-pub const MIN_CAP_SATS: i64 = 1;
-pub const MAX_CAP_SATS: i64 = 10_000_000;
+/// The largest smallest-withdrawal the owner may set: the largest single coin the
+/// Ark server accepts (10,000,000 sats). Holding more than that on the server
+/// defeats the point of sweeping.
+pub const MAX_MIN_SATS: i64 = 10_000_000;
 
 /// The smallest amount an automatic withdrawal sends, when the owner chose one
 /// in Settings (one for an Ark payout address, one for an on-chain one). When it
-/// is reached the WHOLE balance is sent (minus the amount kept for the emergency
-/// withdrawal, when that is turned on).
+/// is reached the WHOLE balance is sent.
 const KEY_ARK_MIN: &str = "ark_sweep_min_sats";
 const KEY_ONCHAIN_MIN: &str = "onchain_sweep_min_sats";
 /// The lowest value allowed for an Ark payout address (and the default). Coins
@@ -506,10 +501,7 @@ pub struct Status {
     pub effective_at: Option<i64>,
     /// Set by the server's own configuration; cannot be changed here.
     pub from_server_config: bool,
-    /// The amount the till keeps, if the owner set one in Settings.
-    pub cap_override: Option<i64>,
-    /// The owner turned the emergency withdrawal on (the amount above only
-    /// counts while it is on).
+    /// The owner turned the emergency withdrawal on.
     pub exit_opted_in: bool,
     /// The smallest automatic withdrawal, if the owner set one in Settings
     /// (one for an Ark payout address, one for an on-chain one).
@@ -577,7 +569,6 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
             pending: None,
             effective_at: None,
             from_server_config: true,
-            cap_override: cap_override(conn)?,
             exit_opted_in: crate::emergency_exit::opted_in(conn)?,
             ark_min_override: min_override(conn, Rail::Ark)?,
             onchain_min_override: min_override(conn, Rail::Onchain)?,
@@ -589,7 +580,6 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
         effective_at: crate::settings::get(conn, KEY_EFFECTIVE_AT)?
             .and_then(|v| v.parse::<i64>().ok()),
         from_server_config: false,
-        cap_override: cap_override(conn)?,
         exit_opted_in: crate::emergency_exit::opted_in(conn)?,
         ark_min_override: min_override(conn, Rail::Ark)?,
         onchain_min_override: min_override(conn, Rail::Onchain)?,
@@ -602,7 +592,7 @@ pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, 
 pub fn min_override(conn: &Connection, rail: Rail) -> Result<Option<i64>, AppError> {
     Ok(crate::settings::get(conn, rail.key())?
         .and_then(|v| v.trim().parse::<i64>().ok())
-        .filter(|v| (rail.floor()..=MAX_CAP_SATS).contains(v)))
+        .filter(|v| (rail.floor()..=MAX_MIN_SATS).contains(v)))
 }
 
 /// The smallest automatic withdrawal in force: the owner's number or the floor.
@@ -616,11 +606,11 @@ pub fn check_min(rail: Rail, sats: i64) -> Result<(), AppError> {
     if sats < rail.floor() {
         return Err(AppError::BadRequest(floor_message(rail, sats)));
     }
-    if sats > MAX_CAP_SATS {
+    if sats > MAX_MIN_SATS {
         return Err(AppError::BadRequest(format!(
             "{} sats is more than the largest amount we allow here, {} sats.",
             commas(sats),
-            commas(MAX_CAP_SATS)
+            commas(MAX_MIN_SATS)
         )));
     }
     Ok(())
@@ -654,63 +644,6 @@ pub fn clear_min(conn: &Connection, rail: Rail) -> Result<(), AppError> {
             conn,
             "payout.min_changed",
             &format!("smallest {} withdrawal reset to the default", rail.words()),
-        );
-    }
-    Ok(())
-}
-
-/// The amount the owner chose in Settings, if any. A stored value that is out
-/// of range (it cannot be, but a hand-edited database might) is ignored, so
-/// the server's default applies instead of something odd.
-pub fn cap_override(conn: &Connection) -> Result<Option<i64>, AppError> {
-    Ok(crate::settings::get(conn, KEY_CAP)?
-        .and_then(|v| v.trim().parse::<i64>().ok())
-        .filter(|v| (MIN_CAP_SATS..=MAX_CAP_SATS).contains(v)))
-}
-
-/// How much the till keeps before the rest is sent on. Nothing, unless the
-/// owner turned the emergency withdrawal on and chose an amount to keep for it
-/// (a saved amount is ignored while it is off). Same for both kinds of payout
-/// address.
-pub fn cap_for(conn: &Connection) -> Result<i64, AppError> {
-    if crate::emergency_exit::opted_in(conn)? {
-        Ok(cap_override(conn)?.unwrap_or(0))
-    } else {
-        Ok(0)
-    }
-}
-
-/// Settings: change the amount the till keeps (the caller has already
-/// verified the admin password and, when on, the second step). Takes effect
-/// at once: unlike the address it cannot send money anywhere new. Recorded in
-/// the security log.
-pub fn set_cap(conn: &Connection, cap_sats: i64) -> Result<(), AppError> {
-    if !(MIN_CAP_SATS..=MAX_CAP_SATS).contains(&cap_sats) {
-        return Err(AppError::BadRequest(format!(
-            "the amount must be a whole number of sats between {MIN_CAP_SATS} and {MAX_CAP_SATS}"
-        )));
-    }
-    let before = cap_override(conn)?;
-    crate::settings::set(conn, KEY_CAP, &cap_sats.to_string())?;
-    audit(
-        conn,
-        "payout.cap_changed",
-        &match before {
-            Some(b) => format!("amount kept on the server changed from {b} to {cap_sats} sats"),
-            None => format!("amount kept on the server set to {cap_sats} sats"),
-        },
-    );
-    Ok(())
-}
-
-/// Settings: go back to keeping nothing.
-pub fn clear_cap(conn: &Connection) -> Result<(), AppError> {
-    if cap_override(conn)?.is_some() {
-        conn.execute("DELETE FROM settings WHERE key = ?1", [KEY_CAP])?;
-        audit(
-            conn,
-            "payout.cap_changed",
-            "amount kept on the server reset to the default",
         );
     }
     Ok(())
@@ -824,55 +757,16 @@ pub(crate) mod tests {
     use super::*;
 
     #[test]
-    fn nothing_is_kept_unless_the_emergency_withdrawal_is_on() {
-        let c = conn();
-        // Nothing saved: the whole balance goes, for both kinds of address.
-        assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(cap_for(&c).unwrap(), 0);
-        assert_eq!(cap_for(&c).unwrap(), 0);
-        // A saved amount is ignored while the emergency withdrawal is off.
-        set_cap(&c, 5_000).unwrap();
-        assert_eq!(cap_override(&c).unwrap(), Some(5_000));
-        assert_eq!(cap_for(&c).unwrap(), 0);
-        // Turned on: the owner's number applies to both kinds.
-        crate::emergency_exit::set_opted_in(&c, true).unwrap();
-        assert_eq!(cap_for(&c).unwrap(), 5_000);
-        assert_eq!(cap_for(&c).unwrap(), 5_000);
-        set_cap(&c, 60_000).unwrap();
-        assert_eq!(cap_for(&c).unwrap(), 60_000);
-        // Reset goes back to keeping nothing.
-        clear_cap(&c).unwrap();
-        assert_eq!(cap_override(&c).unwrap(), None);
-        assert_eq!(cap_for(&c).unwrap(), 0);
-    }
-
-    #[test]
-    fn the_amount_kept_must_be_in_range_and_bad_stored_values_are_ignored() {
-        let c = conn();
-        for bad in [-5, 0, MAX_CAP_SATS + 1, i64::MAX] {
-            assert!(set_cap(&c, bad).is_err(), "{bad} must be refused");
-        }
-        assert_eq!(cap_override(&c).unwrap(), None);
-        set_cap(&c, MIN_CAP_SATS).unwrap();
-        set_cap(&c, MAX_CAP_SATS).unwrap();
-        // A hand-edited database cannot make the cap zero, negative or text.
-        for junk in ["0", "-1", "abc", "", "99999999999"] {
-            crate::settings::set(&c, KEY_CAP, junk).unwrap();
-            assert_eq!(cap_override(&c).unwrap(), None, "{junk:?} must be ignored");
-        }
-    }
-
-    #[test]
     fn each_kind_of_address_has_a_hard_floor_with_a_plain_explanation() {
         let c = conn();
         assert_eq!(ARK_MIN_FLOOR_SATS, 1_500);
         assert_eq!(ONCHAIN_MIN_FLOOR_SATS, 50_000);
         assert_eq!(sweep_min(&c, Rail::Ark).unwrap(), 1_500);
         assert_eq!(sweep_min(&c, Rail::Onchain).unwrap(), 50_000);
-        for bad in [-1, 0, 1_499, MAX_CAP_SATS + 1, i64::MAX] {
+        for bad in [-1, 0, 1_499, MAX_MIN_SATS + 1, i64::MAX] {
             assert!(set_min(&c, Rail::Ark, bad).is_err(), "ark {bad}");
         }
-        for bad in [-1, 0, 1_500, 49_999, MAX_CAP_SATS + 1, i64::MAX] {
+        for bad in [-1, 0, 1_500, 49_999, MAX_MIN_SATS + 1, i64::MAX] {
             assert!(set_min(&c, Rail::Onchain, bad).is_err(), "onchain {bad}");
         }
         assert_eq!(min_override(&c, Rail::Ark).unwrap(), None);

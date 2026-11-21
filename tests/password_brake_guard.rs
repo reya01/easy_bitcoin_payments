@@ -175,7 +175,6 @@ fn every_route_that_checks_the_admin_password_sits_behind_the_brake() {
         ("admin_session", "change_password"),
         ("backup", "download"),
         ("payout", "change"),
-        ("payout", "change_cap"),
         ("exit", "start"),
         ("exit", "claim"),
         ("twofa", "start"),

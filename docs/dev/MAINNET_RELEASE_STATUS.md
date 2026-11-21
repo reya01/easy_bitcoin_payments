@@ -66,7 +66,7 @@ open the emergency-exit page.
 **Added in 0.2.2-rc1 (19 November 2026), CI and browser tests only; the owner's test of it is the next step:**
 
 - The whole balance is sent once it reaches a minimum, and nothing is kept by default (hard floors 1,500 sats for an Ark payout address, 50,000 for an on-chain one; the owner can raise them in Settings). Open question for the live test: an Ark send of an exact whole balance, with no change coin left, and whether the wallet takes any fee on it.
-- The emergency withdrawal is opt-in. While on, 5,000 sats of regular Bitcoin stay as fee money and an owner-chosen amount of Ark money can be kept; **Send back what is above 5,000 sats** returns the extra (barkd `/onchain/send`). Not yet run on real money.
+- The emergency withdrawal is opt-in. While on, 5,000 sats of regular Bitcoin stay as fee money (nothing else is kept back); **Send back what is above 5,000 sats** returns the extra (barkd `/onchain/send`). Not yet run on real money.
 - Passkeys (beta): add, sign in with one, approve protected actions; the approval is tied to the signed-in session.
 - A transfer never sends coins that are waiting in a renewal round (found in the pre-release review).
 - A locked-down container, tighter password limits and a weak-password block.

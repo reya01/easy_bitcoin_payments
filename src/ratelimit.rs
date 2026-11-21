@@ -242,7 +242,6 @@ pub async fn limit_failed_tries(
 const GOOD_TRY_GIVEN_BACK: &[&str] = &[
     "/admin/backup",
     "/admin/payout",
-    "/admin/payout/cap",
     "/admin/payout/min",
     "/admin/exit/optin",
     "/admin/exit/start",

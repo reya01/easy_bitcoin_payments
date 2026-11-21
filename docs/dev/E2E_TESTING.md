@@ -21,7 +21,7 @@ What it covers:
 Besides this walk-through, CI runs smaller browser tests that load one page with
 pretend answers from the server (no real server needed): `checkout_states.py`
 (waiting, paid, expired, the Ark box), `setup_wizard_states.py`, `dashboard_states.py`
-(Home, Settings and Alerts states, including the send-minimum and kept-amount boxes,
+(Home, Settings and Alerts states, including the send-minimum box,
 the emergency withdrawal on and off, and the send-back button), `mainnet_screens.py`
 (the real-money wording), `update_card.py` (the Home update card), `page_assets.py`
 and `startup_errors.py`. They run at phone size and fail on anything the page's

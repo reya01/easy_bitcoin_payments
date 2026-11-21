@@ -1750,13 +1750,12 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     let pw = "a good long password";
     let tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
 
-    // What stays on the server: nothing by default (the whole balance is sent once
-    // the minimum is reached). An amount to keep exists only for the emergency
-    // withdrawal, which is opt-in.
+    // Nothing stays on the server (the whole balance is sent once the minimum
+    // is reached), and there is no setting to keep an amount back. The emergency
+    // withdrawal is opt-in.
     let g = get().await;
     assert_eq!(g["kind"], "ark");
-    assert_eq!(g["keep_sats"], 0);
-    assert_eq!(g["keep_is_custom"], false);
+    assert!(g.get("keep_sats").is_none(), "there is no amount to keep");
     assert_eq!(g["exit_opted_in"], false);
     let r = post(
         "/admin/payout/cap",
@@ -1764,10 +1763,10 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     )
     .await
     .unwrap();
-    assert_eq!(r.status().as_u16(), 400);
-    assert!(text(r)
-        .await
-        .contains("Turn on the emergency withdrawal first"));
+    assert!(
+        matches!(r.status().as_u16(), 404 | 405),
+        "the amount-to-keep route is gone"
+    );
     // Turning it on needs two-step sign-in, the password and a code: refused here.
     let r = post(
         "/admin/exit/optin",
@@ -1888,16 +1887,12 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     }
     assert_eq!(get().await["sweep_min_is_custom"], false);
     // Not signed in: refused.
-    for path in [
-        "/admin/payout/cap",
-        "/admin/payout/min",
-        "/admin/exit/optin",
-    ] {
+    for path in ["/admin/payout/min", "/admin/exit/optin"] {
         let r = client
             .post(format!("{base}{path}"))
             .header("host", "localhost")
             .header("x-forwarded-for", "10.2.1.3")
-            .json(&serde_json::json!({"cap_sats": 5000, "kind": "ark", "min_sats": 5000, "on": false, "admin_password": pw}))
+            .json(&serde_json::json!({"kind": "ark", "min_sats": 5000, "on": false, "admin_password": pw}))
             .send()
             .await
             .unwrap();
@@ -1905,35 +1900,13 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     }
 
     // The emergency withdrawal turned on (set directly here: the route needs
-    // two-step sign-in, which other tests cover). Now an amount can be kept for it.
+    // two-step sign-in, which other tests cover).
     state
         .db
         .call(|c| easy_bitcoin_payments::emergency_exit::set_opted_in(c, true))
         .await
         .unwrap();
     assert_eq!(get().await["exit_opted_in"], true);
-    for bad in [0i64, -1, 10_000_001] {
-        let r = post(
-            "/admin/payout/cap",
-            serde_json::json!({"cap_sats": bad, "admin_password": pw}),
-        )
-        .await
-        .unwrap();
-        assert_eq!(r.status().as_u16(), 400, "{bad}");
-    }
-    let r: serde_json::Value = post(
-        "/admin/payout/cap",
-        serde_json::json!({"cap_sats": 60_000, "admin_password": pw}),
-    )
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
-    assert_eq!(r["keep_sats"], 60_000);
-    let g = get().await;
-    assert_eq!(g["keep_is_custom"], true);
-    assert_eq!(g["keep_sats"], 60_000);
     // While it is on, the part of the fee money above 5,000 can still be sent back
     // (worked out in `emergency_exit::leftover_plan`); like every money action it
     // needs two-step sign-in, which is off here.
@@ -1945,7 +1918,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
         .unwrap();
     assert_eq!(r.status().as_u16(), 400);
     assert!(text(r).await.contains("two-step"));
-    // Turning it off needs the password; then nothing is kept, and all of the fee
+    // Turning it off needs the password; then all of the fee
     // money can go back (again, as far as the two-step check here).
     let r = post(
         "/admin/exit/optin",
@@ -1967,8 +1940,6 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     assert_eq!(r["opted_in"], false);
     let g = get().await;
     assert_eq!(g["exit_opted_in"], false);
-    assert_eq!(g["keep_is_custom"], false);
-    assert_eq!(g["keep_sats"], 0);
     let r = post("/admin/exit/leftover", leftover).await.unwrap();
     assert_eq!(r.status().as_u16(), 400);
     assert!(text(r).await.contains("two-step"));

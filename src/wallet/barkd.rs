@@ -116,6 +116,8 @@ const PATH_REFRESH_VTXOS: &str = "/wallet/refresh/vtxos";
 /// Active round participations (coins registered for a refresh and the
 /// round they wait for), kept until the round confirms. Read-only. GET.
 const PATH_ROUNDS: &str = "/wallet/rounds";
+/// When the Ark server's next round starts (read-only, shown on Home). GET.
+const PATH_NEXT_ROUND: &str = "/wallet/next-round";
 /// Emergency-exit fee estimate (broadcast and claim legs). Read-only. GET.
 const PATH_EXITS_FEE: &str = "/exits/fee";
 /// Register every coin for an emergency (unilateral) exit. POST.
@@ -812,6 +814,14 @@ impl BarkdClient {
     pub async fn round_participations(&self) -> Result<Vec<RoundParticipation>, WalletError> {
         let v: Json = self.get(PATH_ROUNDS).await?;
         Ok(parse_round_participations(&v))
+    }
+
+    /// When the Ark server's next round starts, as Unix seconds (`start_time`
+    /// on the pinned `NextRoundStart`). A renewal waits for this. Only shown
+    /// to the owner, so an odd answer is `None`, never an error.
+    pub async fn next_round_unix(&self) -> Result<Option<i64>, WalletError> {
+        let v: Json = self.get(PATH_NEXT_ROUND).await?;
+        Ok(parse_next_round(&v))
     }
 
     // -- Emergency exit (never automatic; see crate::emergency_exit) -------
@@ -1575,6 +1585,14 @@ pub struct ArkTerms {
 /// Read the terms out of the ark-info answer. Missing or odd fields give
 /// `None` for that part, never an error: the caller then keeps the safe,
 /// older rule for it.
+/// `{"start_time": "<RFC 3339>"}` as Unix seconds.
+pub fn parse_next_round(v: &Json) -> Option<i64> {
+    let t = v.get("start_time")?.as_str()?;
+    chrono::DateTime::parse_from_rfc3339(t)
+        .ok()
+        .map(|d| d.timestamp())
+}
+
 pub fn parse_ark_terms(v: &Json) -> ArkTerms {
     let lifetime = flex::i64_field(v, &["vtxo_lifetime", "vtxo_expiry_delta"]).filter(|n| *n > 0);
     let refresh = v.get("fees").and_then(|f| f.get("refresh"));
@@ -2885,6 +2903,19 @@ mod ark_terms_tests {
             &flex::str_field(&signet, &["network"]).unwrap()
         ));
         assert!(!is_mainnet_network("regtest"));
+    }
+
+    #[test]
+    fn the_next_round_time_is_read_and_odd_answers_are_ignored() {
+        let v: Json = serde_json::from_str(r#"{"start_time":"2026-11-21T22:00:00Z"}"#).unwrap();
+        assert_eq!(parse_next_round(&v), Some(1_795_298_400));
+        let off: Json =
+            serde_json::from_str(r#"{"start_time":"2026-11-21T23:00:00+01:00"}"#).unwrap();
+        assert_eq!(parse_next_round(&off), Some(1_795_298_400));
+        for bad in [r#"{}"#, r#"{"start_time":5}"#, r#"{"start_time":"soon"}"#] {
+            let b: Json = serde_json::from_str(bad).unwrap();
+            assert_eq!(parse_next_round(&b), None);
+        }
     }
 
     #[test]

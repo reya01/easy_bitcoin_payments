@@ -143,7 +143,13 @@ function apiCall(method, path, body) {
 function openFold(id) {
   try { var e = $(id); var d = e && e.closest("details.fold"); if (d) d.open = true; } catch (x) {}
 }
+// Leaving Settings folds every section again, so coming back always starts tidy.
+function foldSettings() {
+  document.querySelectorAll("#v-set details").forEach(function (d) { d.open = false; });
+  exFoldOpened = false;
+}
 function show(name) {
+  if (name !== "set") foldSettings();
   views.forEach(function (v) { $("v-" + v).classList.toggle("hidden", v !== name); });
   var tabs = document.querySelectorAll("#tabs button");
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("on", tabs[i].getAttribute("data-v") === name);
@@ -645,6 +651,7 @@ function loadHome() {
     tpPreview();
     loadTestPrompt();
     var w = s.wallet || {};
+    NEXT_ROUND_AT = w.next_round_at || null;
     var go = { late: "alerts", webhooks: "hooks", reserve: "set" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };
     (s.checks || []).forEach(function (k) {
@@ -688,8 +695,25 @@ function loadHome() {
   }).catch(function (e) { var h = $("health"); clear(h); h.appendChild(el("span", e.message, "bad")); });
 }
 
+// When the Ark server's next round starts (set by loadHome while a renewal is waiting for one).
+var NEXT_ROUND_AT = null;
+function nextRoundText() {
+  var t = NEXT_ROUND_AT ? Date.parse(NEXT_ROUND_AT) : NaN;
+  if (isNaN(t)) return "";
+  var mins = Math.ceil((t - Date.now()) / 60000);
+  if (mins <= 0) return "Next round: starting any moment now";
+  if (mins === 1) return "Next round in: 1 minute";
+  if (mins < 60) return "Next round in: " + mins + " minutes";
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return "Next round in: " + h + (h === 1 ? " hour" : " hours") + (m ? " " + m + (m === 1 ? " minute" : " minutes") : "");
+}
 var settleLine = function (x) {
   var r = row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status);
+  if (x.kind === "renew" && (x.status === "requested" || x.status === "waiting") && nextRoundText()) {
+    var wr = document.createElement("div");
+    wr.appendChild(r); wr.appendChild(el("div", nextRoundText() + ". The Ark server renews coins in rounds, and on real money they are about an hour apart. Nothing is wrong while this waits.", "muted"));
+    return wr;
+  }
   if ((x.status !== "failed" && x.status !== "unknown") || !x.detail) return r;
   // Say WHY it failed, in the server's own words, right under the line.
   var w = document.createElement("div");
@@ -765,9 +789,10 @@ function loadOrders() {
   }).catch(function (e) { $("orders").textContent = e.message; });
 }
 
-$("csv-go").addEventListener("click", function () {
-  var b = $("csv-go"); b.disabled = true; $("csv-msg").className = "msg hidden";
-  fetch("/api/v1/invoices.csv", { credentials: "same-origin" })
+// Both CSV buttons: fetch the file with the session, then save it under a dated name.
+function downloadCsv(btnId, msgId, url, prefix) {
+  var b = $(btnId); b.disabled = true; $(msgId).className = "msg hidden";
+  fetch(url, { credentials: "same-origin" })
     .catch(function () { throw new Error("Can't reach your server right now. Try again in a minute."); })
     .then(function (r) {
       if (r.status === 401) { signedOut(); throw new Error("Please sign in again."); }
@@ -777,14 +802,16 @@ $("csv-go").addEventListener("click", function () {
     .then(function (blob) {
       var a = document.createElement("a"), url = URL.createObjectURL(blob), d = new Date();
       var pad = function (n) { return (n < 10 ? "0" : "") + n; };
-      a.href = url; a.download = "ebp-payments-" + d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + ".csv";
+      a.href = url; a.download = prefix + d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + ".csv";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
-      say("csv-msg", "Your file is downloading.");
+      say(msgId, "Your file is downloading.");
     })
-    .catch(function (e) { say("csv-msg", e.message, true); })
+    .catch(function (e) { say(msgId, e.message, true); })
     .then(function () { b.disabled = false; });
-});
+}
+$("csv-go").addEventListener("click", function () { downloadCsv("csv-go", "csv-msg", "/api/v1/invoices.csv", "ebp-payments-"); });
+$("tcsv-go").addEventListener("click", function () { downloadCsv("tcsv-go", "tcsv-msg", "/api/v1/admin/settlements.csv", "ebp-transfers-"); });
 
 var ALERT_WHY = {
   invoice_closed: "money arrived for an order that was already paid or closed (the customer may have paid twice) \u2014 refund the extra or handle it by hand",

@@ -400,6 +400,70 @@ async fn setup_token_guards_wizard_writes_but_not_reads() {
 }
 
 #[tokio::test]
+async fn the_transfers_file_lists_transfers_and_upkeep_oldest_first_and_needs_the_admin() {
+    let client = reqwest::Client::new();
+    let (base, state, _store, _key) = serve_with(Config {
+        admin_token: Some("adm1n".to_string()),
+        ..Config::default()
+    })
+    .await;
+    state
+        .db
+        .call(|c| {
+            for (id, kind, sats, dest, status, detail, at) in [
+                ("t2", "sweep_ark", 150_000_i64, "ark1testdestination", "broadcast", None, 2_000_i64),
+                ("t1", "renew", 4_000, "ark1testdestination", "broadcast", None, 1_000),
+                ("t3", "sweep_onchain", 60_000, "bc1qtestdestination", "failed", Some("=HYPERLINK(\"x\")"), 3_000),
+            ] {
+                c.execute(
+                    "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    rusqlite::params![id, kind, sats, dest, status, detail, at],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let no = client
+        .get(format!("{base}/api/v1/admin/settlements.csv"))
+        .header("host", "localhost")
+        .bearer_auth("wrong")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no.status(), 401);
+
+    let res = client
+        .get(format!("{base}/api/v1/admin/settlements.csv"))
+        .header("host", "localhost")
+        .bearer_auth("adm1n")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("text/csv"));
+    assert_eq!(res.headers()["cache-control"], "no-store");
+    let csv = res.text().await.unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert!(lines[0].ends_with("date,type,group,amount_sats,status,destination,confirmed_at,note"));
+    assert_eq!(lines.len(), 4, "a header and three rows: {csv}");
+    assert!(lines[1].contains("Routine wallet upkeep,routine upkeep,4000,broadcast"));
+    assert!(
+        lines[2].contains("Transfer to your wallet (Ark),transfer to your wallet,150000,broadcast")
+    );
+    assert!(lines[3].contains("Transfer to your wallet (on-chain)"));
+    assert!(
+        !csv.contains(",=HYPERLINK") && !csv.contains("\"=HYPERLINK"),
+        "a formula in a note is defused: {csv}"
+    );
+}
+
+#[tokio::test]
 async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
     let client = reqwest::Client::new();
 
@@ -4649,4 +4713,80 @@ async fn owner_and_api_answers_are_never_cached() {
         .await
         .unwrap();
     assert_eq!(r.headers()["cache-control"], "no-store");
+}
+
+/// A barkd stand-in that answers only the next-round question.
+async fn next_round_barkd(start_time: &'static str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/api/v1", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 8192];
+                let n = s.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let (status, body) = if req.starts_with("GET /api/v1/wallet/next-round") {
+                    ("200 OK", format!(r#"{{"start_time": "{start_time}"}}"#))
+                } else {
+                    ("404 Not Found", "{}".to_string())
+                };
+                let resp = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = s.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+    base
+}
+
+#[tokio::test]
+async fn home_gets_the_next_round_time_only_while_a_renewal_is_waiting_for_one() {
+    let client = reqwest::Client::new();
+    let (base, state, _store, _key) = serve_with(Config {
+        admin_token: Some("adm1n".to_string()),
+        barkd_url: next_round_barkd("2026-11-21T22:00:00Z").await,
+        barkd_token: Some("t".into()),
+        ..Config::default()
+    })
+    .await;
+    let status = || async {
+        client
+            .get(format!("{base}/api/v1/admin/status"))
+            .header("host", "localhost")
+            .bearer_auth("adm1n")
+            .send()
+            .await
+            .unwrap()
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+    };
+
+    // Nothing waiting: no time is asked for or shown.
+    let st = status().await;
+    assert_eq!(st["counters"]["renewals_waiting"], 0);
+    assert!(st["wallet"]["next_round_at"].is_null());
+
+    // A renewal asked for and not finished: the next round time comes with the status.
+    state
+        .db
+        .call(|c| {
+            c.execute(
+                "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
+                 VALUES ('r1','renew',4000,'','requested','asked to renew 1 coins in the Ark server''s next round',1000)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let st = status().await;
+    assert_eq!(st["counters"]["renewals_waiting"], 1);
+    assert_eq!(st["wallet"]["next_round_at"], "2026-11-21T22:00:00Z");
 }

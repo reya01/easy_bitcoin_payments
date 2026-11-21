@@ -49,6 +49,8 @@ cd /opt/ebp
 ./scripts/install-update-helper.sh
 ```
 
+When it says the helper is installed, refresh the admin page: the Update card then shows **Start update**.
+
 It is a short script (`scripts/update-helper.sh`) that runs as root, outside EBP, only when the
 Home tab drops a request, and it runs the same `update.sh` checks described below. EBP itself
 never gets control of the server. To remove it: `./scripts/install-update-helper.sh --uninstall`.

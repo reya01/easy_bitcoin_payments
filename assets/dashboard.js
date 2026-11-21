@@ -277,6 +277,7 @@ function renderUpdate(v) {
     u.appendChild(el("p", "To update from this page, install the update helper once. Open your server's Console (at your hosting company), log in as root, and run these two lines, one at a time (/opt/ebp is where the server was set up; if you chose another folder, go there instead):", "muted"));
     u.appendChild(el("div", "cd /opt/ebp", "secret"));
     u.appendChild(el("div", "./scripts/install-update-helper.sh", "secret"));
+    u.appendChild(el("p", "When it says the helper is installed, refresh this admin page to see the change: the Update card will then show a Start update button.", "muted"));
     u.appendChild(el("p", "Or update from the Console now. Run these three lines, one at a time. The second only checks the new version's signature; the third asks you to type yes before anything changes:", "muted"));
     u.appendChild(el("div", "cd /opt/ebp", "secret"));
     u.appendChild(el("div", "./scripts/update.sh --check " + L.version, "secret"));

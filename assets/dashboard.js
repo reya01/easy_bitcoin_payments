@@ -274,14 +274,8 @@ function renderUpdate(v) {
     return;
   }
   if (!v.helper_version) {
-    u.appendChild(el("p", "To update from this page, install the update helper once. Open your server's Console (at your hosting company), log in as root, and run these two lines, one at a time (/opt/ebp is where the server was set up; if you chose another folder, go there instead):", "muted"));
-    u.appendChild(el("div", "cd /opt/ebp", "secret"));
-    u.appendChild(el("div", "./scripts/install-update-helper.sh", "secret"));
-    u.appendChild(el("p", "When it says the helper is installed, refresh this admin page to see the change: the Update card will then show a Start update button.", "muted"));
-    u.appendChild(el("p", "Or update from the Console now. Run these three lines, one at a time. The second only checks the new version's signature; the third asks you to type yes before anything changes:", "muted"));
-    u.appendChild(el("div", "cd /opt/ebp", "secret"));
-    u.appendChild(el("div", "./scripts/update.sh --check " + L.version, "secret"));
-    u.appendChild(el("div", "./scripts/update.sh " + L.version, "secret"));
+    u.appendChild(el("p", "The one-tap update is not set up on this server. Open the option below to set it up or to update from the Console.", "muted"));
+    u.appendChild(updFallback(L, true));
     return;
   }
   // A finished check for this exact version: show the comparison and the second decision.
@@ -296,6 +290,27 @@ function renderUpdate(v) {
   btns.appendChild(button("Start update", function (b) { startCheck(v, b); }, "primary"));
   u.appendChild(btns);
   u.appendChild(el("p", "Start update only checks the new version first (about a minute). Nothing changes until you confirm on the next screen.", "muted"));
+  u.appendChild(updFallback(L, false));
+}
+
+// The Console commands, folded away: only for when the update from this page did not work.
+function updFallback(L, needHelper) {
+  var d = document.createElement("details");
+  d.className = "updfold";
+  d.appendChild(el("summary", "Did the automatic update fail? Tap here"));
+  d.appendChild(el("p", "This is the backup way, for when the update button did not work or is not there.", "muted"));
+  if (needHelper) {
+    d.appendChild(el("p", "Install the update helper once, so this page can update the server from now on. Open your server's Console (at your hosting company), log in as root, and run these two lines, one at a time (/opt/ebp is where the server was set up; if you chose another folder, go there instead):", "muted"));
+    d.appendChild(el("div", "cd /opt/ebp", "secret"));
+    d.appendChild(el("div", "./scripts/install-update-helper.sh", "secret"));
+    d.appendChild(el("p", "When it says the helper is installed, refresh this admin page to see the change: the Update card will then show a Start update button.", "muted"));
+  }
+  d.appendChild(el("p", "To update from the Console instead, run these three lines, one at a time. The second only checks the new version's signature; the third asks you to type yes before anything changes (/opt/ebp is where the server was set up; if you chose another folder, go there instead):", "muted"));
+  d.appendChild(el("div", "cd /opt/ebp", "secret"));
+  d.appendChild(el("div", "./scripts/update.sh --check " + L.version, "secret"));
+  d.appendChild(el("div", "./scripts/update.sh " + L.version, "secret"));
+  d.appendChild(el("p", "Afterwards, refresh this admin page to see the new version.", "muted"));
+  return d;
 }
 
 // First decision: ask the helper to check, then wait for its answer.

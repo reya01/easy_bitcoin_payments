@@ -95,6 +95,11 @@ def main():
             return (200, version(helper=None)) if path == "/api/v1/admin/version" else None
 
         def c_missing(p, pr, calls):
+            if p.locator("#update details.updfold").count() != 1: pr.append("the Console steps should be one folded option")
+            elif p.evaluate("document.querySelector('#update details.updfold').open"): pr.append("the Console steps must start folded")
+            if "update.sh" in p.inner_text("#update"): pr.append("folded commands should not show until opened")
+            want(pr, "fallback label", p.inner_text("#update details.updfold > summary"), "Did the automatic update fail?")
+            p.click("#update details.updfold > summary"); p.wait_for_timeout(200)
             t = p.inner_text("#update")
             want(pr, "move to the folder first", t, "cd /opt/ebp")
             want(pr, "install line", t, "./scripts/install-update-helper.sh")

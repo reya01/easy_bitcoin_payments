@@ -259,9 +259,10 @@ pub fn build(f: &Facts) -> Vec<Check> {
     // Fee money for an emergency withdrawal. The withdrawal is opt-in, so this
     // is only said once the owner turned it on: the server then keeps at least
     // the floor of regular Bitcoin for the fees and never sends it out.
-    if f.exit_available && f.exit_opted_in {
+    // The balance being unknown (not readable just now) is not "too low".
+    if let (true, true, Some(onchain)) = (f.exit_available, f.exit_opted_in, f.onchain_sats) {
         let floor = crate::emergency_exit::RESERVE_FLOOR_SATS;
-        if f.onchain_sats.unwrap_or(0) >= floor {
+        if onchain >= floor {
             push(
                 "reserve",
                 Level::Ok,
@@ -530,6 +531,9 @@ mod tests {
         f.exit_available = false;
         assert!(build(&f).iter().all(|c| c.id != "reserve"));
         f.exit_available = true;
+        // Not known (the balance could not be read): no false warning.
+        assert!(build(&f).iter().all(|c| c.id != "reserve"));
+        f.onchain_sats = Some(0);
         let c = build(&f);
         assert_eq!(find(&c, "reserve").level, Level::Warn);
         assert!(find(&c, "reserve").detail.contains("Settings, Emergency"));
@@ -545,8 +549,11 @@ mod tests {
         assert_eq!(find(&build(&f), "reserve").level, Level::Ok);
         // Opted in, the reserve matters even before much money is held.
         f.offchain_sats = Some(1_000);
-        f.onchain_sats = None;
+        f.onchain_sats = Some(0);
         assert_eq!(find(&build(&f), "reserve").level, Level::Warn);
+        // 10,000 sent in is plenty.
+        f.onchain_sats = Some(10_000);
+        assert_eq!(find(&build(&f), "reserve").level, Level::Ok);
     }
 
     #[test]

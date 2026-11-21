@@ -81,3 +81,5 @@ nav button.on{background:var(--tab-on);color:var(--fg);font-weight:700}
 .passkeys{margin-top:18px;padding-top:14px;border-top:1.5px solid var(--soft)}
 .pklist{margin:6px 0 10px}
 .pkuse,.pklogin{margin:6px 0 4px}.pkuse .pknote{margin:6px 0 0}.pkuse .pkswitch{margin-left:8px}.pkuse .pkhint{margin:6px 0 0;font-size:13px}
+details.updfold{margin-top:12px}
+details.updfold>summary{cursor:pointer;color:var(--muted);font-size:.95em;padding:8px 0}

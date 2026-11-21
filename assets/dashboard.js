@@ -1522,15 +1522,11 @@ function exFetchAddr() {
 var exPrepared = false;
 var exFoldOpened = false;
 // The start section stays folded until it is needed. It holds the address, password and code
-// fields too, so it opens by itself while a withdrawal is running (Stop and Send need them).
+// fields too, so it opens by itself while a withdrawal is running (Send needs them).
 function syncStartFold(opted, running) {
   var fold = $("ex-start-fold");
   var canStart = !$("ex-start-box").classList.contains("hidden");
-  var any = canStart || !$("ex-auth").classList.contains("hidden") || !$("ex-left-box").classList.contains("hidden");
-  fold.classList.toggle("hidden", !any);
-  $("ex-start-title").textContent = opted || running ? "Start an emergency withdrawal" : "Take your fee money back";
-  $("ex-start-sub").textContent = opted || running ? "Last resort. Takes everything out and needs a day or more." : "Sends the fee money on the server to your own address.";
-  $("ex-start-note").classList.toggle("hidden", !(opted || running));
+  fold.classList.toggle("hidden", !(canStart || running));
   if (running && !exFoldOpened) { fold.open = true; exFoldOpened = true; }
 }
 function loadExit() {
@@ -1556,11 +1552,12 @@ function loadExit() {
       $("ex-deposit").classList.add("hidden");
       $("ex-start-box").classList.add("hidden");
       $("ex-running").classList.add("hidden");
-      $("ex-auth").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
+      $("ex-auth").classList.add("hidden");
       $("ex-left-box").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
       $("ex-left-note").textContent = "This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.";
       $("ex-left").textContent = "Send leftover to my address";
       if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+      if (!$("exl-dest").value && s.destination) $("exl-dest").value = s.destination;
       syncStartFold(false, false);
       exReady();
       return;
@@ -1631,9 +1628,10 @@ function loadExit() {
       if (needed > 0 && !exAddrShown) exFetchAddr();
     }
     $("ex-start-box").classList.toggle("hidden", !canGo);
-    $("ex-auth").classList.toggle("hidden", !(canGo || running || s.onchain_confirmed_sats > 0));
+    $("ex-auth").classList.toggle("hidden", !(canGo || running));
     $("ex-dest").placeholder = EBP_MODE === "live" ? "bc1\u2026" : EBP_MODE === "test" ? "tb1\u2026" : "";
     if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+    if (!$("exl-dest").value && s.destination) $("exl-dest").value = s.destination;
     $("ex-running").classList.toggle("hidden", !running);
     var list = $("ex-list"); clear(list);
     if (s.in_progress_since) list.appendChild(row("Started", when(s.in_progress_since * 1000)));
@@ -1662,15 +1660,16 @@ $("ex-box").addEventListener("toggle", function () {
 });
 ["ex-ok", "ex-pw", "ex-code", "ex-dest"].forEach(function (id) { $(id).addEventListener("input", exReady); $(id).addEventListener("change", exReady); });
 $("ex-get-addr").addEventListener("click", exFetchAddr);
-function exAction(path, extra, button) {
-  var body = { admin_password: $("ex-pw").value, code: $("ex-code").value.trim(), destination: $("ex-dest").value.trim() };
+function exAction(path, extra, button, pre) {
+  pre = pre || "ex";
+  var body = { admin_password: $(pre + "-pw").value, code: $(pre + "-code").value.trim(), destination: $(pre + "-dest").value.trim() };
   for (var k in extra) body[k] = extra[k];
   button.disabled = true;
   return api("POST", path, body).then(function (r) {
-    $("ex-pw").value = ""; $("ex-code").value = "";
-    say("ex-msg", r.message || "Done.");
+    $(pre + "-pw").value = ""; $(pre + "-code").value = "";
+    say(pre === "ex" ? "ex-msg" : "exl-msg", r.message || "Done.");
     loadExit();
-  }).catch(function (e) { say("ex-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
+  }).catch(function (e) { say(pre === "ex" ? "ex-msg" : "exl-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
 }
 $("ex-start").addEventListener("click", function () { exAction("/admin/exit/start", { understood: $("ex-ok").checked }, $("ex-start")); });
 $("ex-stop").addEventListener("click", function () {
@@ -1678,7 +1677,7 @@ $("ex-stop").addEventListener("click", function () {
     .then(function (yes) { if (yes) exAction("/admin/exit/cancel", {}, $("ex-stop")); });
 });
 $("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
-$("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
+$("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left"), "exl"); });
 // Turning the emergency withdrawal on or off (it is off until the owner turns it on).
 function exOptIn(on, pwId, codeId, btn) {
   btn.disabled = true;

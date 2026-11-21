@@ -829,7 +829,7 @@ def main():
         def c_off_leftover(p, pr, calls):
             open_exit(p)
             if not p.is_visible("#ex-left-box"): pr.append("while it is off the fee money can be taken back")
-            if not p.is_visible("#ex-auth"): pr.append("the address, password and code boxes should show for it")
+            if not p.is_visible("#exl-dest") or not p.is_visible("#exl-pw"): pr.append("the address, password and code boxes should show for it")
             want(pr, "explained", p.inner_text("#ex-left-box"), "takes back all of the fee money")
             want(pr, "button", p.inner_text("#ex-left"), "Send leftover to my address")
 

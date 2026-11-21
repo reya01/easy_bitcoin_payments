@@ -235,6 +235,14 @@
         <p class="muted">Leave the server on. Download a fresh backup now (above): the backup carries this withdrawal, the 12 words do not.</p>
         <div class="btns"><button id="ex-claim" type="button" class="hidden">Send to my address</button><button id="ex-stop" type="button">Stop</button></div>
       </div>
+      <details class="fold hidden" id="ex-left-box"><summary><span class="fx"><span class="ft">Take back extra fee money</span><span class="fs" id="ex-left-sub">Sends fee money above the 5,000-sat floor to your own address.</span></span></summary>
+        <p class="muted" id="ex-left-note">This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you type here.</p>
+        <label for="exl-dest">A Bitcoin address (on-chain) in a wallet outside this server, where the money goes</label><input type="text" id="exl-dest" autocomplete="off" spellcheck="false">
+        <label for="exl-pw">Admin password</label><input type="password" id="exl-pw" autocomplete="current-password">
+        <label for="exl-code">Code from your authenticator app</label><input type="text" id="exl-code" inputmode="numeric" autocomplete="off" placeholder="6 digits">
+        <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
+        <p class="msg hidden" id="exl-msg"></p>
+      </details>
       <details class="fold hidden" id="ex-start-fold"><summary><span class="fx"><span class="ft bad" id="ex-start-title">Start an emergency withdrawal</span><span class="fs" id="ex-start-sub">Last resort. Takes everything out and needs a day or more.</span></span></summary>
         <p class="muted" id="ex-start-note">An emergency withdrawal always takes out everything on the server, to the address you type here.</p>
       <div id="ex-auth" class="hidden">
@@ -248,10 +256,6 @@
         <div id="ex-checks" aria-live="polite"></div>
         <label><input type="checkbox" id="ex-ok"> I understand this is for emergencies, costs network fees and takes at least a day</label>
         <div class="btns"><button id="ex-start" type="button" disabled>Start the emergency withdrawal</button></div>
-      </div>
-      <div id="ex-left-box" class="hidden">
-        <p class="muted" id="ex-left-note">This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.</p>
-        <div class="btns"><button id="ex-left" type="button">Send leftover to my address</button></div>
       </div>
         <p class="msg hidden" id="ex-msg"></p>
       </details>

@@ -12,11 +12,15 @@ use crate::error::AppError;
 use crate::settings;
 
 pub const WINDOW_SECS: i64 = 7 * 24 * 3600;
+/// The most a single check ever looks back, however long it has been.
+pub const MAX_WINDOW_SECS: i64 = 30 * 24 * 3600;
 const KEY: &str = "reconcile_checked_at";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub since: i64,
+    /// Whole days from `since` to now (rounded up): what the card says.
+    pub days: i64,
     /// Orders this server marked paid in the window (test-mode ones included).
     pub paid_orders: i64,
     pub paid_sats: i64,
@@ -57,8 +61,20 @@ pub fn is_due(
     }
 }
 
+/// Where the comparison starts: a week back, or the last check if that is
+/// further back (so a skipped week is still shown), never more than 30 days.
+pub fn window_start(last_checked: Option<i64>, started_at: Option<i64>, now: i64) -> i64 {
+    let week = now - WINDOW_SECS;
+    let from = baseline(last_checked, started_at).map_or(week, |t| t.min(week));
+    from.max(now - MAX_WINDOW_SECS)
+}
+
 pub fn summary(conn: &Connection, now: i64) -> Result<Summary, AppError> {
-    let since = now - WINDOW_SECS;
+    let last_checked_at = settings::get(conn, KEY)?.and_then(|v| v.parse::<i64>().ok());
+    let started_at: Option<i64> =
+        conn.query_row("SELECT MIN(created_at) FROM stores", [], |r| r.get(0))?;
+    let since = window_start(last_checked_at, started_at, now);
+    let days = (now - since + 86_399) / 86_400;
     // Every paid invoice counts, including ones made in test mode: a test-mode
     // server marks ALL its invoices as test, and its sweeps are counted too, so
     // leaving them out showed "0 orders paid" next to real sweeps.
@@ -74,11 +90,9 @@ pub fn summary(conn: &Connection, now: i64) -> Result<Summary, AppError> {
         params![since],
         |r| r.get(0),
     )?;
-    let last_checked_at = settings::get(conn, KEY)?.and_then(|v| v.parse::<i64>().ok());
-    let started_at: Option<i64> =
-        conn.query_row("SELECT MIN(created_at) FROM stores", [], |r| r.get(0))?;
     Ok(Summary {
         since,
+        days,
         paid_orders,
         paid_sats,
         swept_sats,
@@ -142,6 +156,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_window_reaches_back_to_the_last_check_but_never_past_30_days() {
+        let now = 100_000_000;
+        let day = 86_400;
+        let w = |last, start| window_start(last, start, now);
+        assert_eq!(w(Some(now - day), None), now - 7 * day, "at least a week");
+        assert_eq!(w(None, None), now - 7 * day, "no record: a week");
+        assert_eq!(
+            w(Some(now - 12 * day), None),
+            now - 12 * day,
+            "a skipped week is shown"
+        );
+        assert_eq!(
+            w(None, Some(now - 10 * day)),
+            now - 10 * day,
+            "never checked: since setup"
+        );
+        assert_eq!(
+            w(Some(now - 90 * day), None),
+            now - 30 * day,
+            "capped at 30 days"
+        );
+        assert_eq!(
+            w(Some(now + day), None),
+            now - 7 * day,
+            "a clock ahead does not shrink it"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unchecked_earlier_week_is_still_shown_after_a_quiet_week() {
+        let db = Db::open(":memory:").unwrap();
+        db.call(|c| {
+            let now = crate::util::now_unix();
+            let day = 86_400;
+            c.execute("INSERT INTO stores (id, name, created_at) VALUES ('s','S',1)", [])?;
+            // Last check 20 days ago; the only payment was 14 days ago.
+            settings::set(c, KEY, &(now - 20 * day).to_string())?;
+            c.execute(
+                "INSERT INTO invoices (id, store_id, status, amount_sats, ark_address, onchain_address,
+                   expires_at, paid_at, paid_sats, metadata_json, created_at)
+                 VALUES ('p','s','paid',4000,'p','p',?1,?2,4000,'{}',1)",
+                params![now + 100, now - 14 * day],
+            )?;
+            let s = summary(c, now)?;
+            assert_eq!((s.paid_orders, s.paid_sats), (1, 4000));
+            assert_eq!(s.days, 20);
+            assert!(s.due, "the skipped week is asked about");
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn summary_counts_paid_orders_including_test_mode_and_sweeps_in_the_window_only() {
         let db = Db::open(":memory:").unwrap();
@@ -158,7 +226,10 @@ mod tests {
             };
             add("a", "paid", Some(now - 60), 2000, "{}")?;
             add("b", "overpaid", Some(now - 120), 3000, "{}")?;
+            // Older than a week but inside 30 days: counted, because the server
+            // was never checked (the window reaches back to setup, up to 30 days).
             add("old", "paid", Some(now - WINDOW_SECS - 10), 9999, "{}")?;
+            add("ancient", "paid", Some(now - MAX_WINDOW_SECS - 10), 1111, "{}")?;
             add("test", "paid", Some(now - 30), 7777, r#"{"test":true}"#)?;
             add("open", "pending", None, 500, "{}")?;
             for (id, kind, st, sats, at) in [
@@ -166,6 +237,7 @@ mod tests {
                 ("w2", "sweep_onchain", "failed", 8888, now - 40),
                 ("w3", "renew", "broadcast", 1234, now - 40),
                 ("w4", "sweep_ark", "broadcast", 5555, now - WINDOW_SECS - 5),
+                ("w5", "sweep_ark", "broadcast", 2222, now - MAX_WINDOW_SECS - 5),
             ] {
                 c.execute(
                     "INSERT INTO settlements (id, kind, amount_sats, destination, status, created_at)
@@ -174,7 +246,11 @@ mod tests {
                 )?;
             }
             let s = summary(c, now)?;
-            assert_eq!((s.paid_orders, s.paid_sats, s.swept_sats), (3, 12777, 4000));
+            assert_eq!(
+                (s.paid_orders, s.paid_sats, s.swept_sats),
+                (4, 22776, 9555)
+            );
+            assert_eq!(s.days, 30);
             assert!(s.due && s.last_checked_at.is_none());
             assert_eq!(s.started_at, Some(1));
             assert_eq!(s.next_due_at, Some(1 + WINDOW_SECS));

@@ -1,7 +1,7 @@
 //! Weekly own-wallet check endpoints (see `crate::reconcile`). Signed-in admin
 //! only; both are POST so the CSRF check applies.
 //!
-//! * `POST /admin/reconcile/status` — what the server claims for the last week
+//! * `POST /admin/reconcile/status` — what the server claims since the last check (at least a week, at most 30 days)
 //! * `POST /admin/reconcile/done`   — "I checked my wallet, it matches"
 
 use axum::extract::State;
@@ -16,7 +16,7 @@ use crate::routes::AppState;
 
 fn view(s: &rc::Summary) -> Value {
     json!({
-        "days": rc::WINDOW_SECS / 86400,
+        "days": s.days,
         "since": s.since,
         "paid_orders": s.paid_orders,
         "paid_sats": s.paid_sats,

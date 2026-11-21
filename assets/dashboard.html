@@ -161,8 +161,12 @@
       <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
       <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
     </div>
-    <div id="min-box" class="hidden">
-      <h3>When to send my money</h3>
+    <p class="msg hidden" id="po-msg"></p>
+  </div>
+  </details>
+  <details class="fold hidden" id="fold-when"><summary><span class="fx"><span class="ft">When to send my money</span><span class="fs" id="min-sub">The amount the server waits for before it sends your money on.</span></span></summary>
+  <div class="card">
+    <div id="min-box">
       <p class="muted" id="min-now"></p>
       <p class="muted" id="min-why"></p>
       <label for="min-new">Send once the till holds at least (sats)</label><input type="number" id="min-new" inputmode="numeric" min="1500" step="1" autocomplete="off">
@@ -177,7 +181,6 @@
       <div class="btns"><button id="sweep-go" type="button">Move my money to my payout address now</button></div>
       <p class="msg hidden" id="sweep-msg"></p>
     </div>
-    <p class="msg hidden" id="po-msg"></p>
   </div>
   </details>
   <details class="fold" id="fold-backup"><summary><span class="fx"><span class="ft">Download a backup</span><span class="fs">Saves an encrypted copy of your orders, settings and wallet files.</span></span></summary>
@@ -245,6 +248,7 @@
       </details>
       <details class="fold hidden" id="ex-start-fold"><summary><span class="fx"><span class="ft bad" id="ex-start-title">Start an emergency withdrawal</span><span class="fs" id="ex-start-sub">Last resort. Takes everything out and needs a day or more.</span></span></summary>
         <p class="muted" id="ex-start-note">An emergency withdrawal always takes out everything on the server, to the address you type here.</p>
+        <p class="msg warn hidden" id="ex-start-why"></p>
       <div id="ex-auth" class="hidden">
         <label for="ex-dest">A Bitcoin address (on-chain) in a wallet outside this server, where the money goes</label><input type="text" id="ex-dest" autocomplete="off" spellcheck="false">
         <p class="msg muted" id="ex-dest-note">A regular Bitcoin (on-chain) address, not an Ark address, from a wallet you hold outside this server (a hardware wallet or your own wallet app). The money is sent straight there at the end, so it never needs to come back through this server.</p>

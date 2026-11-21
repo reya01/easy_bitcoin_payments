@@ -714,25 +714,8 @@ function tpPreview() {
 }
 $("tp-sats").addEventListener("input", tpPreview);
 
-// The amount kept for the emergency withdrawal (only while that is on): a plain
-// warning while typing, from the last saved rate (no new lookup). Shown once
-// typing pauses, or when the box is left.
-var capTimer = null;
 var smallCoin = 1300, minFloor = 1500, minKind = "ark", minTimer = null, exitMin = 50000, reserveFloor = 5000;
 function plainSats(n) { return Number(n).toLocaleString("en-US") + " sats"; }
-function capWarn(n) {
-  return n > 0 && n < exitMin ? "That is under " + plainSats(exitMin) + ", the least an emergency withdrawal can work with, so a withdrawal would be refused until more is on the server." : "";
-}
-function capPreview() {
-  var n = parseInt($("cap-new").value, 10);
-  var usd = n > 0 && USD > 0 ? "That is " + fmtSats(n) + "." : "";
-  var warn = capWarn(n);
-  $("cap-usd").textContent = usd + (usd && warn ? " " : "") + warn;
-}
-$("cap-new").addEventListener("input", function () { clearTimeout(capTimer); $("cap-usd").textContent = ""; capTimer = setTimeout(capPreview, 700); });
-// No preview on "change": that fires when the box loses focus, which is the moment
-// the owner clicks Save, and new text above the button would move it from under the
-// click. The preview shows a moment after typing stops instead.
 
 // The smallest amount that is sent on. Each kind of payout address has a hard
 // floor; under it the page explains why (the server refuses it too).
@@ -984,20 +967,14 @@ function loadPayout() {
       minFloor = p.sweep_min_floor_sats || 1500;
       smallCoin = p.small_coin_sats || 1300;
       exitMin = p.exit_min_sats || 50000;
-      var sm = p.sweep_min_sats || minFloor, keep = p.keep_sats || 0;
-      $("min-now").textContent = "The server sends all of the money in the till to your payout address once it holds at least " + fmtSats(sm) + (p.sweep_min_is_custom ? " (your setting)" : " (the default, which is also the lowest we allow)") + (keep > 0 ? ", not counting the " + fmtSats(keep) + " you chose to keep for the emergency withdrawal" : "") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
+      var sm = p.sweep_min_sats || minFloor;
+      $("min-now").textContent = "The server sends all of the money in the till to your payout address once it holds at least " + fmtSats(sm) + (p.sweep_min_is_custom ? " (your setting)" : " (the default, which is also the lowest we allow)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
       $("min-why").textContent = minKind === "onchain"
         ? "We recommend much more than the lowest amount: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. It is your decision. If you expect small amounts, an Ark payout address is almost free to send to."
         : plainSats(minFloor) + " is the lowest to ensure reliability.";
       $("min-new").min = String(minFloor);
       $("min-reset").classList.toggle("hidden", !p.sweep_min_is_custom);
       $("sweep-small").textContent = smallCoin.toLocaleString("en-US");
-      $("cap-now").textContent = keep > 0
-        ? "The server keeps " + fmtSats(keep) + " for the emergency withdrawal" + (p.keep_is_custom ? " (your setting)" : "") + " and sends what is above that on once at least " + fmtSats(sm) + " has built up above it."
-        : "The server keeps nothing: it sends everything on once at least " + fmtSats(sm) + " has built up. Choose an amount below if you want money to stay here for the emergency withdrawal.";
-      $("cap-nuance").textContent = "A withdrawal only works when at least " + plainSats(exitMin) + " are on the server (below that the fees cost more than they save), so we suggest keeping at least that. Money kept here is exposed if the Ark server fails. Changing this needs your admin password and takes effect right away.";
-      $("cap-new").placeholder = "number of sats";
-      $("cap-reset").classList.toggle("hidden", !p.keep_is_custom);
     }
     var pend = p.pending_address;
     $("po-pending").classList.toggle("hidden", !pend);
@@ -1015,22 +992,6 @@ $("po-go").addEventListener("click", function () {
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
 });
-function saveCap(value, btn) {
-  btn.disabled = true;
-  api("POST", "/admin/payout/cap", { cap_sats: value, admin_password: $("cap-pw").value, code: $("cap-code").value }).then(function (r) {
-    $("cap-new").value = ""; $("cap-usd").textContent = ""; $("cap-pw").value = ""; $("cap-code").value = "";
-    say("cap-msg", value === null ? "Saved. The server now keeps nothing: it sends everything on." : "Saved. The server now keeps " + fmtSats(r.keep_sats) + " for the emergency withdrawal." + (capWarn(value) ? " " + capWarn(value) : ""));
-    loadPayout();
-  }).catch(function (e) { say("cap-msg", e.message, true); }).then(function () { btn.disabled = false; });
-}
-$("cap-go").addEventListener("click", function () {
-  clearTimeout(capTimer);
-  var raw = $("cap-new").value.trim();
-  var n = Number(raw);
-  if (!raw || !Number.isInteger(n) || n < 1) { say("cap-msg", "Type a whole number of sats, for example 50000.", true); return; }
-  saveCap(n, $("cap-go"));
-});
-$("cap-reset").addEventListener("click", function () { saveCap(null, $("cap-reset")); });
 function saveMin(value, btn) {
   btn.disabled = true;
   api("POST", "/admin/payout/min", { kind: minKind, min_sats: value, admin_password: $("min-pw").value, code: $("min-code").value }).then(function (r) {
@@ -1559,6 +1520,15 @@ function exFetchAddr() {
   }).then(function () { exAddrBusy = false; });
 }
 var exPrepared = false;
+var exFoldOpened = false;
+// The start section stays folded until it is needed. It holds the address, password and code
+// fields too, so it opens by itself while a withdrawal is running (Send needs them).
+function syncStartFold(opted, running) {
+  var fold = $("ex-start-fold");
+  var canStart = !$("ex-start-box").classList.contains("hidden");
+  fold.classList.toggle("hidden", !(canStart || running));
+  if (running && !exFoldOpened) { fold.open = true; exFoldOpened = true; }
+}
 function loadExit() {
   api("POST", "/admin/exit/status", {}).then(function (s) {
     exState = s;
@@ -1571,8 +1541,9 @@ function loadExit() {
     reserveFloor = s.reserve_floor_sats || 5000;
     $("ex-off-box").classList.toggle("hidden", showExit);
     $("ex-on-box").classList.toggle("hidden", !opted);
+    $("ex-off-fold").classList.toggle("hidden", !opted);
+    $("ex-facts-box").classList.toggle("hidden", !showExit);
     $("exo-floor").textContent = reserveFloor.toLocaleString("en-US");
-    $("exo-min").textContent = (s.min_exit_sats || 50000).toLocaleString("en-US");
     $("exo-twostep").classList.toggle("hidden", !!s.two_step_on);
     $("exo-state").textContent = "Turned on. The server keeps at least " + plainSats(reserveFloor) + " of regular Bitcoin for the network fees and never sends that part out" + (s.onchain_confirmed_sats == null ? "." : (s.onchain_confirmed_sats >= reserveFloor ? ". It has " + plainSats(s.onchain_confirmed_sats) + " now: enough." : ". It has " + plainSats(s.onchain_confirmed_sats) + " now: please add " + plainSats(s.reserve_short_sats == null ? reserveFloor - s.onchain_confirmed_sats : s.reserve_short_sats) + " more (see below).")) ;
     $("exo-state").className = "msg " + (s.onchain_confirmed_sats != null && s.onchain_confirmed_sats < reserveFloor ? "warn" : "ok");
@@ -1581,11 +1552,13 @@ function loadExit() {
       $("ex-deposit").classList.add("hidden");
       $("ex-start-box").classList.add("hidden");
       $("ex-running").classList.add("hidden");
-      $("ex-auth").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
+      $("ex-auth").classList.add("hidden");
       $("ex-left-box").classList.toggle("hidden", !(s.onchain_confirmed_sats > 0));
       $("ex-left-note").textContent = "This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.";
       $("ex-left").textContent = "Send leftover to my address";
       if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+      if (!$("exl-dest").value && s.destination) $("exl-dest").value = s.destination;
+      syncStartFold(false, false);
       exReady();
       return;
     }
@@ -1655,9 +1628,10 @@ function loadExit() {
       if (needed > 0 && !exAddrShown) exFetchAddr();
     }
     $("ex-start-box").classList.toggle("hidden", !canGo);
-    $("ex-auth").classList.toggle("hidden", !(canGo || running || s.onchain_confirmed_sats > 0));
+    $("ex-auth").classList.toggle("hidden", !(canGo || running));
     $("ex-dest").placeholder = EBP_MODE === "live" ? "bc1\u2026" : EBP_MODE === "test" ? "tb1\u2026" : "";
     if (!$("ex-dest").value && s.destination) $("ex-dest").value = s.destination;
+    if (!$("exl-dest").value && s.destination) $("exl-dest").value = s.destination;
     $("ex-running").classList.toggle("hidden", !running);
     var list = $("ex-list"); clear(list);
     if (s.in_progress_since) list.appendChild(row("Started", when(s.in_progress_since * 1000)));
@@ -1670,6 +1644,13 @@ function loadExit() {
       ? "This sends back the fee money above " + plainSats(reserveFloor) + " to the address you typed (the network fee comes out of it). At least " + plainSats(reserveFloor) + " stays here while the emergency withdrawal is turned on; turn it off to take all of it back."
       : "This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.";
     $("ex-left").textContent = opted ? "Send back what is above " + plainSats(reserveFloor) : "Send leftover to my address";
+    var nx = $("ex-next"), cfm = s.onchain_confirmed_sats, pnd = s.onchain_pending_sats || 0;
+    if (running) { nx.textContent = "Next step: a withdrawal is running. Leave the server on and download a fresh backup (above). Open \u201CStart an emergency withdrawal\u201D below to follow it."; nx.className = "msg warn"; }
+    else if (!s.two_step_on) { nx.textContent = "Next step: turn on two-step sign-in (above). An emergency withdrawal needs your password and a code."; nx.className = "msg warn"; }
+    else if (cfm != null && cfm < reserveFloor && cfm + pnd >= reserveFloor) { nx.textContent = "Next step: wait. Your fee money was sent and is waiting for 1 confirmation. Nothing else to do."; nx.className = "msg warn"; }
+    else if (cfm != null && cfm < reserveFloor) { nx.textContent = "Next step: send at least " + plainSats(reserveFloor - cfm) + " of fee money to the address below."; nx.className = "msg warn"; }
+    else { nx.textContent = "You are set. Nothing more to do now. If you ever need it, open \u201CStart an emergency withdrawal\u201D at the bottom."; nx.className = "msg ok"; }
+    syncStartFold(opted, running);
     exReady();
   }).catch(function (e) { say("ex-msg", e.message, true); });
 }
@@ -1679,15 +1660,16 @@ $("ex-box").addEventListener("toggle", function () {
 });
 ["ex-ok", "ex-pw", "ex-code", "ex-dest"].forEach(function (id) { $(id).addEventListener("input", exReady); $(id).addEventListener("change", exReady); });
 $("ex-get-addr").addEventListener("click", exFetchAddr);
-function exAction(path, extra, button) {
-  var body = { admin_password: $("ex-pw").value, code: $("ex-code").value.trim(), destination: $("ex-dest").value.trim() };
+function exAction(path, extra, button, pre) {
+  pre = pre || "ex";
+  var body = { admin_password: $(pre + "-pw").value, code: $(pre + "-code").value.trim(), destination: $(pre + "-dest").value.trim() };
   for (var k in extra) body[k] = extra[k];
   button.disabled = true;
   return api("POST", path, body).then(function (r) {
-    $("ex-pw").value = ""; $("ex-code").value = "";
-    say("ex-msg", r.message || "Done.");
+    $(pre + "-pw").value = ""; $(pre + "-code").value = "";
+    say(pre === "ex" ? "ex-msg" : "exl-msg", r.message || "Done.");
     loadExit();
-  }).catch(function (e) { say("ex-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
+  }).catch(function (e) { say(pre === "ex" ? "ex-msg" : "exl-msg", e.message, true); }).then(function () { button.disabled = false; exReady(); });
 }
 $("ex-start").addEventListener("click", function () { exAction("/admin/exit/start", { understood: $("ex-ok").checked }, $("ex-start")); });
 $("ex-stop").addEventListener("click", function () {
@@ -1695,7 +1677,7 @@ $("ex-stop").addEventListener("click", function () {
     .then(function (yes) { if (yes) exAction("/admin/exit/cancel", {}, $("ex-stop")); });
 });
 $("ex-claim").addEventListener("click", function () { exAction("/admin/exit/claim", {}, $("ex-claim")); });
-$("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left")); });
+$("ex-left").addEventListener("click", function () { exAction("/admin/exit/leftover", {}, $("ex-left"), "exl"); });
 // Turning the emergency withdrawal on or off (it is off until the owner turns it on).
 function exOptIn(on, pwId, codeId, btn) {
   btn.disabled = true;
@@ -1707,7 +1689,7 @@ function exOptIn(on, pwId, codeId, btn) {
 }
 $("exo-on").addEventListener("click", function () { exOptIn(true, "exo-pw", "exo-code", $("exo-on")); });
 $("exo-off-go").addEventListener("click", function () {
-  askConfirm({ title: "Turn off the emergency withdrawal?", body: "Everything will be sent on to your payout address as usual, the amount kept here is forgotten, and the fee money can be taken back. You can turn it on again any time.", cancel: "Keep it on", ok: "Turn off" })
+  askConfirm({ title: "Turn off the emergency withdrawal?", body: "Everything will be sent on to your payout address as usual, and the fee money can be taken back. You can turn it on again any time.", cancel: "Keep it on", ok: "Turn off" })
     .then(function (yes) { if (yes) exOptIn(false, "exoff-pw", "exoff-code", $("exo-off-go")); });
 });
 

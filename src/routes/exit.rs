@@ -563,7 +563,7 @@ pub async fn set_opt_in(
         })
         .await?;
     let message = if on {
-        "Turned on. The server now keeps at least 5,000 sats of regular Bitcoin for the fees and never sends that part out. Add it below, and choose how much money to keep here if you want a withdrawal to be possible."
+        "Turned on. The server now keeps at least 5,000 sats of regular Bitcoin for the fees and never sends that part out. Add it below."
     } else {
         "Turned off. Everything is sent on to your payout address as usual, and you can take the fee money back with the button below."
     };

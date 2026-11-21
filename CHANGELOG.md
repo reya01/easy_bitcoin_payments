@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The emergency section is easier to follow, and an emergency withdrawal always takes everything.** When it is on, the section now opens with one plain **next step** (send the fee money, wait for the confirmation, or "you are set"), shows where things stand and the fee money as separate blocks, and keeps the two rarely used parts folded away at the bottom: **Start an emergency withdrawal** and **Turn the emergency withdrawal off** (each opens with a tap; the start part opens by itself while a withdrawal is running). The "Money to keep on this server" box is gone: there is no way to leave Ark money on the server for the emergency withdrawal. Only the fee money stays, and only you can take it back.
 - **The update card now tells you to go to the right folder first.** The Console commands on Home's "Update available" card started with `./scripts/...`, which fails with "No such file or directory" when the Console opens in the wrong folder (the usual case). Every command block now begins with `cd /opt/ebp`, and the guide says the same.
 ## 0.3.0-rc1 — release candidate: Bark 0.9, safer transfers and payouts (20 November 2026)
 

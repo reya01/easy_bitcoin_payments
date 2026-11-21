@@ -861,6 +861,7 @@ pub async fn create_wallet(
         &asp_url,
         restore_words.as_deref(),
         token.as_deref(),
+        tried_before,
     )
     .await?;
 
@@ -921,6 +922,10 @@ pub async fn create_wallet(
     // words (so they hold them) and said the paper copies exist; that stands
     // in for the "write the words down" step, which has nothing to show.
     let restored = restore_words.is_some();
+    // A restore carried on from an earlier attempt: the words this wallet
+    // holds were not typed in this request, so the backup step still shows
+    // them for checking.
+    let restored_now = restored && !outcome.already_exists;
     drop(restore_words);
     // The wallet is now on this network: the server's mode follows it for
     // good. A running server applies a changed mode after one restart, at the
@@ -935,6 +940,8 @@ pub async fn create_wallet(
             settings::set(conn, "setup_wallet_created", "true")?;
             if restored {
                 settings::set(conn, "setup_wallet_restored", "true")?;
+            }
+            if restored_now {
                 settings::set(conn, "setup_backup_verified", "true")?;
                 settings::set(conn, "setup_backup_confirmed", "true")?;
             }
@@ -1006,6 +1013,9 @@ async fn create_till_wallet(
     asp_url: &str,
     restore_words: Option<&str>,
     token: Option<&str>,
+    // This wizard asked barkd before: a wallet now there may be the result
+    // of that earlier restore, whose answer was lost.
+    tried_before: bool,
 ) -> Result<CreateWalletOutcome, AppError> {
     // A restore may have to scan the chain for the wallet's coins, so it is
     // allowed far longer than making a new, empty wallet.
@@ -1077,6 +1087,17 @@ async fn create_till_wallet(
             Some(probe) if probe.is_success()
         );
         tracing::warn!(%status, wallet_exists = exists, "setup: restore from recovery words was refused");
+        if exists && tried_before {
+            // Most likely this wizard's own earlier restore, whose answer was
+            // lost. It is carried on with, but the words are shown again
+            // next (the backup step), so the owner checks them against the
+            // paper copy before taking payments.
+            return Ok(CreateWalletOutcome {
+                created: false,
+                already_exists: true,
+                mnemonic: None,
+            });
+        }
         return Err(if exists {
             AppError::Conflict(
                 "This server already has a wallet, so it cannot restore a different one. Restore onto a fresh server with an empty data folder.".into(),
@@ -2105,6 +2126,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             None,
             None,
+            false,
         ))
         .unwrap();
         assert!(outcome.created);
@@ -2124,6 +2146,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             None,
             None,
+            false,
         ))
         .unwrap();
         assert!(outcome.created);
@@ -2172,6 +2195,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             None,
             Some("token"),
+            false,
         ))
         .unwrap();
         assert!(outcome.already_exists);
@@ -2276,6 +2300,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             Some(WORDS12),
             Some("tok"),
+            false,
         ))
         .unwrap();
         assert!(outcome.created);
@@ -2301,6 +2326,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             None,
             None,
+            false,
         ))
         .unwrap();
         let request = rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -2323,6 +2349,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             Some(WORDS12),
             Some("tok"),
+            false,
         ))
         .err()
         .expect("must fail");
@@ -2375,6 +2402,7 @@ mod tests {
             DEFAULT_SIGNET_ASP,
             Some(WORDS12),
             Some("tok"),
+            false,
         ))
         .err()
         .expect("must fail");

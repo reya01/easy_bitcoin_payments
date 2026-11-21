@@ -160,6 +160,7 @@ pub async fn login(
     let password = req.password;
     // 1. Read the stored hash (fast, inside the database lock).
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
+    let checked_against = stored.clone();
     // 2. The slow PBKDF2 check runs on a blocking thread OUTSIDE the lock, so
     //    a flood of login attempts cannot stall invoices and checkout.
     let ok = aa::verify_login_slow(stored, password).await?;
@@ -172,6 +173,12 @@ pub async fn login(
         .call(move |c| {
             if !ok {
                 audit(c, "admin.login_failed", "wrong password");
+                return Ok(LoginOutcome::Denied);
+            }
+            // The password was changed while this check ran: the old one no
+            // longer signs in (it may be the very reason for the change).
+            if aa::stored_hash(c)? != checked_against {
+                audit(c, "admin.login_failed", "password changed during sign-in");
                 return Ok(LoginOutcome::Denied);
             }
             // Password right. If two-step sign-in is on, a code is needed too.

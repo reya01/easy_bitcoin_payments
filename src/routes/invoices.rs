@@ -630,7 +630,15 @@ pub async fn create(
     // Lightning receive (Phase 1): ask the wallet for an LN invoice through
     // the ASP's gateway. Best effort — when the gateway is unavailable the
     // checkout still works over Ark.
-    let lightning_invoice = if state.config.lightning_receive_enabled {
+    // Lightning is offered only when the Ark server's receive fee is known:
+    // the invoice must ask for the order amount plus that fee, or a customer
+    // who pays it in full would show as paying too little.
+    if state.config.lightning_receive_enabled && lightning_fee_estimate_sat.is_none() {
+        tracing::warn!("lightning receive fee unknown; this checkout offers Ark only");
+    }
+    let lightning_invoice = if state.config.lightning_receive_enabled
+        && lightning_fee_estimate_sat.is_some()
+    {
         let ln_result = {
             let wallet = state.wallet.clone();
             let description = format!("invoice {}", invoice.id);

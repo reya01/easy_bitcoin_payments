@@ -125,13 +125,17 @@ pub fn password_is_set(conn: &Connection) -> Result<bool, AppError> {
 pub fn set_password(conn: &Connection, password: &str, iterations: u32) -> Result<(), AppError> {
     validate_password(password)?;
     let hash = hash_password(password, iterations);
-    conn.execute(
+    // One transaction: a crash can never leave the new password in place
+    // with the old sessions still signed in.
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT INTO admin_account (id, password_hash, updated_at) VALUES (1, ?1, ?2)
          ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash,
                                        updated_at = excluded.updated_at",
         params![hash, now_unix()],
     )?;
-    conn.execute("DELETE FROM admin_sessions", [])?;
+    tx.execute("DELETE FROM admin_sessions", [])?;
+    tx.commit()?;
     Ok(())
 }
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0-rc2 — release candidate: calmer emergency section, fee-money warning fixed (21 November 2026)
+
 - **A false fee-money warning is fixed.** The "Emergency fee money is below what this server keeps for it" warning showed even when enough was there. The check read an on-chain balance that is always 0 on this barkd version; it now reads the confirmed on-chain balance, and says nothing if it cannot be read.
 - **The Console update steps are always one folded backup option.** The Update card always shows "Did the automatic update fail? Tap here" folded away, in every case, with the Console steps inside. The one-tap Start update button stays the main way.
 - **The "keep an amount on the server" setting is gone, from the server as well as the page.** The setting, its route (`/admin/payout/cap`), its checks and the coin-choice code that went with it are removed. Every automatic or manual transfer sends everything that is free, and an emergency withdrawal takes out everything on the server. The 5,000-sat on-chain fee money is unchanged: it stays unless you take it back or an emergency withdrawal uses it.

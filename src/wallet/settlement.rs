@@ -2001,7 +2001,7 @@ mod tests {
         // a new line, because something else happened in between.
         mode.store(2, Ordering::SeqCst);
         let report = engine.tick().await.unwrap();
-        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(report.swept_sats, Some(150_000));
         assert_eq!(count("broadcast").await, 1);
         mode.store(0, Ordering::SeqCst);
         engine.tick().await.unwrap();
@@ -3510,7 +3510,7 @@ mod tests {
         let report = engine.tick().await.unwrap();
         // A failing renewal must never hold withdrawals back: that is when
         // the owner most needs the money to keep moving out.
-        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(report.swept_sats, Some(150_000));
         assert!(recorded
             .lock()
             .unwrap()

@@ -177,11 +177,19 @@ pub async fn status(
             match client.balances().await {
                 Ok(b) => {
                     out.insert("offchain_sats".into(), json!(b.offchain_sats));
-                    out.insert("onchain_sats".into(), json!(b.onchain_sats));
                     out.insert("needs_refresh_sats".into(), json!(b.needs_refresh_sats));
                     out.insert("in_transit_sats".into(), json!(b.in_transit_sats()));
                 }
                 Err(e) => errors.push(format!("balances: {e}")),
+            }
+            // The on-chain side lives on its own endpoint (the balances call
+            // reports 0 for it). Only confirmed coins can pay exit fees, so
+            // that is the figure. If it cannot be read it is left out, and
+            // nothing is said about fee money rather than a false warning.
+            if let Ok(v) = client.onchain_balance_raw().await {
+                if let Some(n) = crate::emergency_exit::confirmed_onchain_sats(&v) {
+                    out.insert("onchain_sats".into(), json!(n));
+                }
             }
             if let Ok(c) = client.connected().await {
                 if let Some(v) = c.connected {

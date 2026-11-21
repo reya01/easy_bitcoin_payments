@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0-rc3 — release candidate: safer setup and transfers, review fixes (21 November 2026)
+
 - **The weekly wallet check no longer skips a week you missed.** The card compared only the last 7 days, so after a skipped check and then a quiet week the earlier week was never shown. It now covers everything since your last check (or since setup, if you have never checked): at least 7 days, at most 30, and the card says how many days.
 - **A restore whose answer was lost carries on.** If restoring from the recovery words went through but the page never heard back, trying again now carries on with that wallet instead of stopping, and the backup step then shows the words so you can check them against your paper copy. The backup guide also says to copy the whole data folder (not the wallet folder alone) when moving a hand-made copy to a new server.
 - **Fewer false or missing warnings.** "Coin renewal is working again" is no longer sent when the wallet simply could not be asked. A failed withdrawal stays on Home even after many renewals since. One coin the wallet lists in an unreadable shape no longer stops every other coin from being renewed. A shop webhook whose secret cannot be read right now is retried instead of dropped. Owner pages and the APIs are never cached. Closing the recovery-words window is retried and logged if it fails.

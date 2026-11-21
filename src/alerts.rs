@@ -157,7 +157,8 @@ pub struct Observation {
     /// Seconds the wallet has been unreachable (`None` = reachable).
     pub wallet_down_for_secs: Option<i64>,
     /// Coins that are close to expiring and still not refreshed.
-    pub coins_near_expiry: usize,
+    /// `None` when the wallet could not be asked: nothing is said either way.
+    pub coins_near_expiry: Option<usize>,
     /// The latest automatic withdrawal attempt failed.
     pub last_sweep_failed: bool,
     /// Payments that arrived but could not be matched to an order.
@@ -184,6 +185,9 @@ pub struct Decision {
 
 struct Rule {
     key: &'static str,
+    /// False when this could not be checked just now: no alert and no
+    /// "all good again" either.
+    known: bool,
     active: bool,
     title: &'static str,
     body: &'static str,
@@ -193,6 +197,7 @@ struct Rule {
 fn rules(o: &Observation) -> Vec<Rule> {
     vec![
         Rule {
+            known: true,
             key: "wallet_down",
             active: o
                 .wallet_down_for_secs
@@ -202,13 +207,15 @@ fn rules(o: &Observation) -> Vec<Rule> {
             good: "The wallet connection is back.",
         },
         Rule {
+            known: o.coins_near_expiry.is_some(),
             key: "coins_expiring",
-            active: o.coins_near_expiry > 0,
+            active: o.coins_near_expiry.is_some_and(|n| n > 0),
             title: "Some coins are close to expiring",
             body: "They should have been renewed automatically but were not. Open your dashboard to check.",
             good: "Coin renewal is working again.",
         },
         Rule {
+            known: true,
             key: "sweep_failed",
             active: o.last_sweep_failed,
             title: "An automatic withdrawal failed",
@@ -216,6 +223,7 @@ fn rules(o: &Observation) -> Vec<Rule> {
             good: "Withdrawals to your payout address are working again.",
         },
         Rule {
+            known: true,
             key: "exit_claimable",
             active: o.exit_claimable,
             title: "Your emergency withdrawal is ready to claim",
@@ -223,6 +231,7 @@ fn rules(o: &Observation) -> Vec<Rule> {
             good: "The emergency withdrawal has been claimed.",
         },
         Rule {
+            known: true,
             key: "unmatched",
             active: o.unresolved_payments > 0,
             title: "A payment needs your attention",
@@ -236,7 +245,7 @@ fn rules(o: &Observation) -> Vec<Rule> {
 /// (missing or `<= 0` means not currently announced).
 pub fn evaluate(o: &Observation, announced: &HashMap<String, i64>, now: i64) -> Vec<Decision> {
     let mut out = Vec::new();
-    for r in rules(o) {
+    for r in rules(o).into_iter().filter(|r| r.known) {
         let last = announced.get(r.key).copied().unwrap_or(0);
         if r.active {
             let kind = if last <= 0 {
@@ -576,9 +585,9 @@ async fn tick(
                     .filter(|x| x.expires_at > 0 && x.expires_at - now < warn_secs)
                     .count()
             })
-            .unwrap_or(0)
+            .ok()
     } else {
-        0
+        None
     };
 
     let ds = *down_since;
@@ -749,7 +758,7 @@ mod tests {
     #[test]
     fn a_problem_is_announced_once_then_repeats_daily() {
         let o = Observation {
-            coins_near_expiry: 2,
+            coins_near_expiry: Some(2),
             ..Default::default()
         };
         let mut a = none();
@@ -770,6 +779,22 @@ mod tests {
         assert!(!d[0].urgent);
         a.insert("sweep_failed".into(), 0);
         assert!(evaluate(&Observation::default(), &a, 7_000).is_empty());
+    }
+
+    #[test]
+    fn coins_that_could_not_be_checked_are_neither_a_problem_nor_recovered() {
+        let mut a = none();
+        a.insert("coins_expiring".into(), 5_000);
+        // The wallet could not be asked: no "renewal is working again".
+        let unknown = Observation::default();
+        assert!(unknown.coins_near_expiry.is_none());
+        assert!(evaluate(&unknown, &a, 6_000).is_empty());
+        // Checked and fine: now it is announced as recovered.
+        let fine = Observation {
+            coins_near_expiry: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(evaluate(&fine, &a, 6_000)[0].kind, Kind::Recovered);
     }
 
     #[test]
@@ -810,7 +835,7 @@ mod tests {
     fn messages_never_carry_amounts_or_addresses() {
         let o = Observation {
             wallet_down_for_secs: Some(10_000),
-            coins_near_expiry: 3,
+            coins_near_expiry: Some(3),
             last_sweep_failed: true,
             unresolved_payments: 4,
             exit_claimable: true,

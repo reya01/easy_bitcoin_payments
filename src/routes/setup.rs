@@ -571,8 +571,8 @@ pub async fn wallet_mnemonic(State(state): State<AppState>) -> Response {
             set_runtime_barkd_token(&t);
         }
         if m.restart(true).await.is_err() {
-            // Best effort: never leave a half-opened window behind.
-            let _ = m.restart(false).await;
+            // Never leave a half-opened window behind.
+            close_mnemonic_window(&managed).await;
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(MnemonicResponse::not_exposed(
@@ -667,7 +667,19 @@ async fn close_mnemonic_window(
     managed: &Option<std::sync::Arc<crate::managed_barkd::ManagedBarkd>>,
 ) {
     if let Some(m) = managed {
-        let _ = m.restart(false).await;
+        // Tried twice; if it still fails the words stay readable over
+        // barkd's own (token-protected, not public) API until barkd restarts,
+        // so it is logged loudly rather than passed over.
+        for attempt in 1..=2 {
+            match m.restart(false).await {
+                Ok(_) => return,
+                Err(err) => tracing::error!(
+                    attempt,
+                    error = %err,
+                    "could not close the recovery-words window (barkd restart without --expose-mnemonic failed)"
+                ),
+            }
+        }
     }
 }
 

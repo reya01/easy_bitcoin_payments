@@ -354,8 +354,20 @@ async fn security_headers(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     use axum::http::HeaderValue;
+    // Owner pages and the APIs can carry secrets (API keys, recovery codes,
+    // the setup answers): no browser or proxy may keep a copy. A handler
+    // that sets its own Cache-Control keeps it.
+    let private = {
+        let p = request.uri().path();
+        p.starts_with("/admin") || p.starts_with("/api/") || p.starts_with("/setup")
+    };
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
+    if private {
+        headers
+            .entry(axum::http::header::CACHE_CONTROL)
+            .or_insert(HeaderValue::from_static("no-store"));
+    }
     for (name, value) in [
         ("x-content-type-options", "nosniff"),
         ("x-frame-options", "DENY"),

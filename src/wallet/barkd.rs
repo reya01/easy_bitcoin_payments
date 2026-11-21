@@ -655,9 +655,16 @@ impl BarkdClient {
                 .map(str::to_string);
             // barkd 0.8.0 names the amount `amount_sat`; the serde alias on
             // Vtxo.amount_sats covers it — no manual injection needed.
-            let vtxo = serde_json::from_value(item).map_err(|e| {
-                WalletError::Rejected(format!("unparseable vtxo entry: {e} (VERIFIED shape)"))
-            })?;
+            // One coin we cannot read must not stop the others from being
+            // renewed (that would let every coin run towards expiry). It is
+            // skipped loudly; it stays in the wallet, untouched.
+            let vtxo: Vtxo = match serde_json::from_value(item) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!(error = %e, "a coin in the wallet's list could not be read; skipped (the others carry on)");
+                    continue;
+                }
+            };
             match state.as_deref() {
                 Some("spendable") => spendable.push(vtxo),
                 Some("spent") => {}      // history, not a live VTXO
@@ -2460,6 +2467,21 @@ mod tests {
         assert_eq!(body["amount_sat"], 50_000);
         // The rail is named, so a refused Ark send can never become a different kind of payment.
         assert_eq!(body["method"], "ark");
+    }
+
+    #[tokio::test]
+    async fn one_unreadable_coin_does_not_hide_the_others() {
+        let (base, _r) = mock::spawn(|_| {
+            (
+                200,
+                r#"[{"id": "bad", "amount_sat": "lots", "state": {"type": "spendable"}},
+                    {"id": "good", "amount_sat": 5000, "expires_at": 9999999999, "state": {"type": "spendable"}}]"#
+                    .to_string(),
+            )
+        });
+        let set = client(&base).vtxos().await.unwrap();
+        assert_eq!(set.spendable.len(), 1);
+        assert_eq!(set.spendable[0].id, "good");
     }
 
     #[tokio::test]

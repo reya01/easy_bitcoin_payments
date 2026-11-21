@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Setup only uses a wallet it made itself.** A wallet that was already in the wallet folder before setup tried to make one is refused with plain words, instead of becoming the till (someone else may hold its recovery words). Setup still resumes with its own wallet if an earlier answer was lost. The barkd token step no longer marks the wallet as made, and running the shop step again no longer changes the payout address or admin password (change those in Settings).
+- **Payout and emergency safety checks.** A first payout address set from Settings (not in setup) now waits out the same safety delay as a change. An Ark payout address made for a different Ark server is refused when it is saved, not only when money is sent. The emergency section's "take the fee money back" now always uses the address you type, never an address saved by an earlier, stopped withdrawal.
 
 ## 0.3.0-rc2 — release candidate: calmer emergency section, fee-money warning fixed (21 November 2026)
 

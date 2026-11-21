@@ -764,6 +764,7 @@ impl SettlementEngine {
                 }
                 if over {
                     delete_setting(c, ee::EXIT_STARTED_AT_KEY)?;
+                    delete_setting(c, ee::EXIT_DESTINATION_KEY)?;
                 }
                 if adopt {
                     crate::settings::set(c, ee::EXIT_STARTED_AT_KEY, &now.to_string())?;

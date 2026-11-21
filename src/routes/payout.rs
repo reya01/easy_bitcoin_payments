@@ -78,6 +78,21 @@ pub async fn change(
     require_session(&state, &headers).await?;
     // Validate first so a typo never costs a slow password check.
     let address = crate::payout::validate(&req.address, &state.config.mode)?;
+    // An Ark address made for a different Ark server is refused here as well
+    // as at send time. Only a definite mismatch refuses; if the wallet cannot
+    // be asked right now, the send-time check still guards it.
+    if crate::config::is_ark_destination(&address) {
+        if let Ok(client) = crate::wallet::barkd::BarkdClient::from_app_config(&state.config) {
+            if let Ok(Some(key)) = client.ark_server_pubkey().await {
+                if crate::payout::ark_address_on_server(&address, &key) == Some(false) {
+                    return Err(AppError::BadRequest(format!(
+                        "That Ark address belongs to a different Ark server than this wallet uses, so money sent there might never arrive. {}",
+                        crate::payout::ark_server_advice(&state.config.mode)
+                    )));
+                }
+            }
+        }
+    }
 
     let stored = state.db.call(|c| aa::stored_hash(c)).await?;
     let pw = req.admin_password;

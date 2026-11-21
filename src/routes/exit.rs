@@ -17,7 +17,7 @@ use crate::routes::AppState;
 use crate::wallet::barkd::{vtxo_expiry_unix, BarkdClient};
 
 /// Settings key: the claim address chosen when the exit was started.
-const EXIT_DESTINATION_KEY: &str = "exit_destination";
+use crate::emergency_exit::EXIT_DESTINATION_KEY;
 
 fn client(state: &AppState) -> Result<BarkdClient, AppError> {
     BarkdClient::from_app_config(&state.config).map_err(AppError::from)
@@ -290,6 +290,17 @@ fn settled_destination(
     }
 }
 
+/// Where the left-over fee money goes: the address saved at the start of a
+/// withdrawal that is still on record, otherwise the address typed now.
+fn leftover_destination(
+    req: &ExitRequest,
+    saved: Option<String>,
+    started: bool,
+    mode: &str,
+) -> Result<String, AppError> {
+    settled_destination(req, saved.filter(|_| started), mode).map(|(d, _)| d)
+}
+
 fn destination_from(
     req: &ExitRequest,
     fallback: Option<String>,
@@ -427,8 +438,12 @@ pub async fn cancel(
         .call(move |conn| {
             if over {
                 conn.execute(
-                    "DELETE FROM settings WHERE key IN (?1, ?2)",
-                    rusqlite::params![ee::EXIT_STARTED_AT_KEY, ee::EXIT_CLAIMABLE_KEY],
+                    "DELETE FROM settings WHERE key IN (?1, ?2, ?3)",
+                    rusqlite::params![
+                        ee::EXIT_STARTED_AT_KEY,
+                        ee::EXIT_CLAIMABLE_KEY,
+                        EXIT_DESTINATION_KEY
+                    ],
                 )?;
             }
             audit(
@@ -592,11 +607,14 @@ pub async fn leftover(
             ))
         })
         .await?;
+    // The address saved when a withdrawal was started binds only while that
+    // withdrawal is still on record. Otherwise the address typed now is used,
+    // never a stale one from an earlier, stopped withdrawal.
     let saved = state
         .db
         .call(|c| crate::settings::get(c, EXIT_DESTINATION_KEY))
         .await?;
-    let (destination, _typed_now) = settled_destination(&req, saved, &state.config.mode)?;
+    let destination = leftover_destination(&req, saved, started, &state.config.mode)?;
     authorize(&state, &headers, req.admin_password, req.code).await?;
     let c = client(&state)?;
     if let Some(off) = switched_off(&state, &c, true).await {
@@ -667,4 +685,32 @@ pub async fn leftover(
         "txid": txid,
         "message": message,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OLD: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    const TYPED: &str = "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7";
+
+    fn typed() -> ExitRequest {
+        ExitRequest {
+            admin_password: String::new(),
+            code: None,
+            destination: Some(TYPED.into()),
+            understood: false,
+        }
+    }
+
+    #[test]
+    fn leftover_money_never_goes_to_a_stale_address() {
+        // A withdrawal was stopped earlier: its address is still saved, but
+        // the address typed now is the one used.
+        let d = leftover_destination(&typed(), Some(OLD.into()), false, "test").unwrap();
+        assert_eq!(d, TYPED);
+        // While a withdrawal is on record, its own address binds.
+        let d = leftover_destination(&typed(), Some(OLD.into()), true, "test").unwrap();
+        assert_eq!(d, OLD);
+    }
 }

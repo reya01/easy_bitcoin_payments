@@ -1615,7 +1615,7 @@ async fn encrypted_backup_download_needs_session_admin_password_and_decrypts() {
 }
 
 #[tokio::test]
-async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() {
+async fn payout_address_changes_wait_and_need_the_password() {
     let config = Config {
         password_hash_iterations: 1_000,
         // Each request below pretends to come from its own address so the
@@ -1699,7 +1699,7 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     .unwrap();
     assert_eq!(r.status().as_u16(), 400);
 
-    // First address: immediate.
+    // A first address set here (not in the setup wizard) waits too.
     let r: serde_json::Value = post(
         "/admin/payout",
         serde_json::json!({"address": a, "admin_password": "a good long password"}),
@@ -1709,7 +1709,14 @@ async fn payout_address_first_is_immediate_changes_wait_and_need_the_password() 
     .json()
     .await
     .unwrap();
-    assert_eq!(r["applied_now"], true);
+    assert_eq!(r["applied_now"], false);
+    assert!(get().await["address"].is_null());
+    // The wizard sets the first one at once.
+    state
+        .db
+        .call(move |c| easy_bitcoin_payments::payout::set_initial(c, a, "test"))
+        .await
+        .unwrap();
     assert_eq!(get().await["address"], a);
 
     // Changing it: waits, old address stays in use, can be cancelled.
@@ -4501,4 +4508,74 @@ async fn running_the_shop_step_again_never_changes_payout_or_password() {
     let after = read().await;
     assert_eq!(after.0.as_deref(), Some(FIRST), "payout address unchanged");
     assert_eq!(after.1, before.1, "admin password unchanged");
+}
+
+/// A barkd stand-in that only answers ark-info, with this server key.
+async fn ark_info_barkd(server_pubkey: &'static str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/api/v1", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 8192];
+                let n = s.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let body = if req.starts_with("GET /api/v1/wallet/ark-info") {
+                    format!(r#"{{"network": "signet", "server_pubkey": "{server_pubkey}"}}"#)
+                } else {
+                    "{}".to_string()
+                };
+                let status = if body == "{}" {
+                    "404 Not Found"
+                } else {
+                    "200 OK"
+                };
+                let resp = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = s.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+    base
+}
+
+#[tokio::test]
+async fn an_ark_address_for_another_ark_server_is_refused_when_saved() {
+    // Second's server key: the address below was made for a different server.
+    let barkd =
+        ark_info_barkd("0375b2e4f6abe5b00736359de211c35d9e72b615e5fd424d8ad1e68a8b300b97b5").await;
+    let config = Config {
+        password_hash_iterations: 1_000,
+        barkd_url: barkd,
+        barkd_token: Some("t".into()),
+        ..Config::default()
+    };
+    let (base, state, _store_id, _key) = serve_with(config).await;
+    state
+        .db
+        .call(|c| easy_bitcoin_payments::admin_auth::set_password(c, "a good long password", 1_000))
+        .await
+        .unwrap();
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/admin/payout"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .header("x-ebp-csrf", &csrf)
+        .json(&serde_json::json!({
+            "address": "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh",
+            "admin_password": "a good long password"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400);
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("different Ark server"), "{body}");
 }

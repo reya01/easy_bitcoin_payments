@@ -710,7 +710,10 @@ pub fn request_change(
         clear_pending(conn)?;
         return Ok(Change::Now);
     }
-    if current.is_none() || delay_secs <= 0 {
+    // Even a first address set here waits out the delay: only the setup
+    // wizard (set_initial, with an empty till behind the setup code) may set
+    // one at once. Money that arrives meanwhile waits safely in the till.
+    if delay_secs <= 0 {
         crate::settings::set(conn, KEY_ACTIVE, &a)?;
         clear_pending(conn)?;
         if current.is_some() {
@@ -1092,14 +1095,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn first_address_is_immediate_later_changes_wait_and_can_be_cancelled() {
+    fn later_changes_wait_and_can_be_cancelled() {
         let c = conn();
         let a = TARK_A;
         let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
-        assert_eq!(
-            request_change(&c, a, 3600, None, "test").unwrap(),
-            Change::Now
-        );
+        set_initial(&c, a, "test").unwrap();
         assert_eq!(effective(&c, None).unwrap().as_deref(), Some(a));
 
         let Change::Pending(at) = request_change(&c, b, 3600, None, "test").unwrap() else {
@@ -1121,7 +1121,7 @@ pub(crate) mod tests {
         let c = conn();
         let a = TARK_A;
         let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
-        request_change(&c, a, 3600, None, "test").unwrap();
+        set_initial(&c, a, "test").unwrap();
         request_change(&c, b, 3600, None, "test").unwrap();
         // Pretend the delay has passed.
         let queued = || {
@@ -1141,6 +1141,21 @@ pub(crate) mod tests {
             queued(),
             "payout_requested,payout_changed",
             "and about it taking effect"
+        );
+    }
+
+    #[test]
+    fn a_first_address_set_outside_setup_also_waits() {
+        let c = conn();
+        let Change::Pending(at) = request_change(&c, TARK_A, 3600, None, "test").unwrap() else {
+            panic!("a first address set from Settings must wait out the delay")
+        };
+        assert!(at > now_unix());
+        assert_eq!(effective(&c, None).unwrap(), None);
+        // No delay configured (tests, or an owner who chose none): at once.
+        assert_eq!(
+            request_change(&c, TARK_A, 0, None, "test").unwrap(),
+            Change::Now
         );
     }
 

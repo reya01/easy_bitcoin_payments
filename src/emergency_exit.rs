@@ -158,6 +158,9 @@ pub const MIN_FEE_MULTIPLE: i64 = 2;
 /// Settings key: unix time the owner started an exit. Renewals and sweeps
 /// pause while it is set (they would fight over the same coins).
 pub const EXIT_STARTED_AT_KEY: &str = "exit_started_at";
+/// Settings key: the address typed when the withdrawal was started. Cleared
+/// together with [`EXIT_STARTED_AT_KEY`] once the withdrawal is over.
+pub const EXIT_DESTINATION_KEY: &str = "exit_destination";
 /// Settings key: "true" while barkd reports outputs ready to claim.
 pub const EXIT_CLAIMABLE_KEY: &str = "exit_claimable";
 

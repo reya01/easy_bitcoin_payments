@@ -355,6 +355,19 @@ impl PollingWatcher {
                 .await;
         }
 
+        // Fill any gap in the shop's events (idempotent: an event already
+        // queued is not queued again). Two days is far inside how long
+        // delivered events are kept, so nothing is ever sent twice.
+        let recent = self
+            .db
+            .call(|conn| invoice::recently_finished(conn, 2 * 86_400, 200))
+            .await?;
+        for invoice in recent {
+            let store_id = invoice.store_id.clone();
+            self.emit_invoice_event(&store_id, &invoice, invoice.status)
+                .await;
+        }
+
         // A payment that could not be saved: the rest of this check is done,
         // and the error is reported (the cursor did not move, so it is retried).
         if let Some(err) = first_error {
@@ -1394,6 +1407,24 @@ mod tests {
         db.call(move |c| Ok(c.query_row(sql, [], |r| r.get(0))?))
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_event_missed_earlier_is_queued_once_by_the_next_check() {
+        let (db, store_id) = setup(vec![]).await;
+        db.call(move |c| {
+            store::set_webhook(c, &store_id, Some("https://shop.example.com/hook"), true)
+                .map(|_| ())
+        })
+        .await
+        .unwrap();
+        // Expired by a page view (no event queued), as `expire_if_due` does.
+        expire_inv_1(&db, 600).await;
+        let watcher = late_watcher(&db, vec![]);
+        watcher.tick().await.unwrap();
+        watcher.tick().await.unwrap();
+        let sql = "SELECT COUNT(*) FROM webhook_deliveries WHERE event = 'invoice.expired'";
+        assert_eq!(count(&db, sql).await, 1, "queued once, never twice");
     }
 
     #[tokio::test]

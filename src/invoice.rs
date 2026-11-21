@@ -390,6 +390,26 @@ pub fn expire_due(conn: &mut Connection) -> Result<Vec<Invoice>, AppError> {
     Ok(expired)
 }
 
+/// Invoices made in the last `window_secs` whose state a shop hears about
+/// (paid, overpaid, underpaid, expired), newest first, at most `limit`. The
+/// watcher queues each one's current event again every cycle; the queue
+/// ignores an event it already holds, so this only fills gaps: an event lost
+/// to a crash between saving a payment and queueing it, or an expiry noticed
+/// first by a page view.
+pub fn recently_finished(
+    conn: &Connection,
+    window_secs: i64,
+    limit: i64,
+) -> Result<Vec<Invoice>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM invoices
+             WHERE status IN ('paid', 'overpaid', 'underpaid', 'expired') AND created_at >= ?1
+             ORDER BY created_at DESC LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![now_unix() - window_secs, limit], row_to_invoice)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
 /// Find the open invoice (pending, or underpaid — the caller enforces the
 /// top-up window) that a received payment belongs to, by address.
 ///

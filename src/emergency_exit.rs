@@ -190,12 +190,15 @@ pub fn parse_fee(v: &Json) -> Option<ExitFee> {
     let int = |k: &str| v.get(k).and_then(Json::as_i64).filter(|n| *n >= 0);
     let broadcast_sat = int("exit_broadcast_fee_sat")?;
     let claim_sat = int("claim_fee_sat")?;
-    let total_sat = int("total_fee_sat").unwrap_or(broadcast_sat + claim_sat);
+    // Saturating: an absurd figure from the wallet must read as "huge"
+    // (refused as not worth it), never wrap around to a small one.
+    let both = broadcast_sat.saturating_add(claim_sat);
+    let total_sat = int("total_fee_sat").unwrap_or(both);
     Some(ExitFee {
         fundable: v.get("fundable").and_then(Json::as_bool),
         broadcast_sat,
         claim_sat,
-        total_sat: total_sat.max(broadcast_sat + claim_sat),
+        total_sat: total_sat.max(both),
         txs_to_broadcast: int("txs_to_broadcast").unwrap_or(0),
     })
 }
@@ -590,6 +593,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(confirmed_onchain_sats(&bal), Some(4000));
+        let huge = serde_json::json!({"exit_broadcast_fee_sat": i64::MAX, "claim_fee_sat": 5});
+        assert_eq!(parse_fee(&huge).unwrap().total_sat, i64::MAX);
         assert_eq!(pending_onchain_sats(&bal), 2500);
     }
 

@@ -222,5 +222,50 @@ jobs:
           gh release upload "$TAG" IMAGE_DIGEST --repo "$REPO" --clobber
           body="$(gh release view "$TAG" --repo "$REPO" --json body -q .body)"
           ver="${TAG#v}"
-          notes="$(printf '%s\n\n## Update (recommended)\n\nOn your server, in the EBP folder:\n\n```\n./scripts/update.sh --check %s\n./scripts/update.sh %s\n```\n\nThe first line only checks. The second shows the version, the image digest and the signature result, refuses to go backwards, and asks you to type yes. Nothing updates by itself.\n\n## Container image\n\n`%s@%s`\n\nVerify the signature by hand (advanced):\n\n```\ncosign verify %s@%s \\\n  --certificate-identity https://github.com/%s/.github/workflows/release.yml@refs/tags/%s \\\n  --certificate-oidc-issuer https://token.actions.githubusercontent.com\n```\n' "$body" "$ver" "$ver" "$IMAGE" "$DIGEST" "$IMAGE" "$DIGEST" "$REPO" "$TAG")"
+          tmpl="$(cat <<'NOTES'
+          ## Update (recommended)
+
+          On your server (DigitalOcean website, your server, Console, log in as root):
+
+          ```
+          cd /opt/ebp
+          ./scripts/update.sh --check @VER@
+          ./scripts/update.sh @VER@
+          ```
+
+          The first command only checks. The second shows the version, the image digest and the signature result, refuses to go backwards, and asks you to type yes. Nothing updates by itself. (If the folder is not /opt/ebp, `ls` shows its name.)
+
+          ## Container image
+
+          `@IMAGEREF@`
+
+          ## Check the signature yourself (advanced, optional)
+
+          The update script already does this check for you. To do it by hand you need the signature checker, cosign, which you probably do not have. The easy way is to let EBP fetch it, on your server:
+
+          ```
+          cd /opt/ebp
+          git pull
+          ./scripts/get-cosign.sh
+          ./bin/cosign verify @IMAGEREF@ \
+            --certificate-identity https://github.com/@REPO@/.github/workflows/release.yml@refs/tags/@TAG@ \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          ```
+
+          What each line does:
+          1. `cd /opt/ebp` goes to the EBP folder.
+          2. `git pull` makes sure the folder has the newest scripts (skip it if `./scripts/get-cosign.sh` already exists).
+          3. `./scripts/get-cosign.sh` downloads cosign into `./bin/cosign` and checks its fingerprint against the one this project pinned. It installs nothing else.
+          4. `./bin/cosign verify ...` checks that this image was built by this project's release workflow for this exact tag.
+
+          It worked if cosign prints "The following checks were performed on each of these signatures" followed by some text. If it prints an error instead, do **not** install this version, and tell us.
+
+          On your own computer instead? Install cosign from https://docs.sigstore.dev/cosign/system_config/installation/ and run the same `cosign verify` command with `cosign` in place of `./bin/cosign`.
+          NOTES
+          )"
+          tmpl="${tmpl//@IMAGEREF@/${IMAGE}@${DIGEST}}"
+          tmpl="${tmpl//@VER@/$ver}"
+          tmpl="${tmpl//@REPO@/$REPO}"
+          tmpl="${tmpl//@TAG@/$TAG}"
+          notes="$body"$'\n\n'"$tmpl"
           gh release edit "$TAG" --repo "$REPO" --notes "$notes"

@@ -112,6 +112,101 @@ pub async fn settlements(
     Ok(Json(rows))
 }
 
+/// Plain words for a `settlements.kind`, the same ones Home shows.
+fn kind_label(kind: &str) -> &str {
+    match kind {
+        "sweep" => "Transfer to your wallet",
+        "sweep_ark" => "Transfer to your wallet (Ark)",
+        "sweep_onchain" => "Transfer to your wallet (on-chain)",
+        "sweep_refused" => "Transfer blocked: payout address problem",
+        "renew" => "Routine wallet upkeep",
+        "consolidate" => "Tidy-up",
+        "offboard" => "Withdrawal",
+        other => other,
+    }
+}
+
+/// The most rows one transfers file holds.
+const TRANSFERS_CSV_MAX_ROWS: i64 = 100_000;
+
+/// `GET /api/v1/admin/settlements.csv` — every transfer to the owner's own
+/// wallet and every piece of routine upkeep, oldest first, as a file the owner
+/// can open in a spreadsheet. Signed-in session (or the admin token), read only.
+pub async fn settlements_csv(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, AppError> {
+    use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+    use axum::response::IntoResponse;
+
+    authorize(&state, &headers).await?;
+    let rows = state
+        .db
+        .call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT created_at, kind, amount_sats, status, destination, detail, confirmed_at
+                 FROM settlements ORDER BY created_at ASC, id LIMIT ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![TRANSFERS_CSV_MAX_ROWS], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, Option<String>>(5)?,
+                        r.get::<_, Option<i64>>(6)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    let cut = rows.len() as i64 >= TRANSFERS_CSV_MAX_ROWS;
+    let cell = crate::routes::invoices::csv_cell;
+    // A byte-order mark so Excel reads the file as UTF-8.
+    let mut out = String::from(
+        "\u{feff}date,type,group,amount_sats,status,destination,confirmed_at,note\r\n",
+    );
+    for (at, kind, sats, status, dest, detail, confirmed) in &rows {
+        let group = if kind.as_str() == "renew" || kind.as_str() == "consolidate" {
+            "routine upkeep"
+        } else {
+            "transfer to your wallet"
+        };
+        let cells = [
+            cell(&to_rfc3339(*at)),
+            cell(kind_label(kind)),
+            cell(group),
+            sats.to_string(),
+            cell(status),
+            cell(dest.as_deref().unwrap_or("")),
+            cell(&confirmed.map(to_rfc3339).unwrap_or_default()),
+            cell(detail.as_deref().unwrap_or("")),
+        ];
+        out.push_str(&cells.join(","));
+        out.push_str("\r\n");
+    }
+    if cut {
+        out.push_str(&format!(
+            "# Only the oldest {TRANSFERS_CSV_MAX_ROWS} rows are included.\r\n"
+        ));
+    }
+    Ok((
+        [
+            (CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                CONTENT_DISPOSITION,
+                "attachment; filename=\"ebp-transfers.csv\"",
+            ),
+            (CACHE_CONTROL, "no-store"),
+        ],
+        out,
+    )
+        .into_response())
+}
+
 /// Did the newest *withdrawal* (a send to the owner's wallet) fail? Routine
 /// upkeep (renewals, tidy-ups) is not a withdrawal: it has its own warning
 /// after repeated failures, and one failed round is ordinary and heals itself.

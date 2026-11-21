@@ -779,7 +779,7 @@ pub async fn list(
 /// One CSV cell. Quoted when needed, and a leading `=`, `+`, `-`, `@`, tab or
 /// carriage return is defused with a leading `'` so a spreadsheet never runs
 /// text that came from a shop as a formula.
-fn csv_cell(raw: &str) -> String {
+pub(crate) fn csv_cell(raw: &str) -> String {
     let mut s = raw.to_string();
     if s.starts_with(['=', '+', '-', '@', '\t', '\r']) {
         s.insert(0, '\'');

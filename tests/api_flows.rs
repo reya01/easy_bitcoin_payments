@@ -400,6 +400,70 @@ async fn setup_token_guards_wizard_writes_but_not_reads() {
 }
 
 #[tokio::test]
+async fn the_transfers_file_lists_transfers_and_upkeep_oldest_first_and_needs_the_admin() {
+    let client = reqwest::Client::new();
+    let (base, state, _store, _key) = serve_with(Config {
+        admin_token: Some("adm1n".to_string()),
+        ..Config::default()
+    })
+    .await;
+    state
+        .db
+        .call(|c| {
+            for (id, kind, sats, dest, status, detail, at) in [
+                ("t2", "sweep_ark", 150_000_i64, "ark1testdestination", "broadcast", None, 2_000_i64),
+                ("t1", "renew", 4_000, "ark1testdestination", "broadcast", None, 1_000),
+                ("t3", "sweep_onchain", 60_000, "bc1qtestdestination", "failed", Some("=HYPERLINK(\"x\")"), 3_000),
+            ] {
+                c.execute(
+                    "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    rusqlite::params![id, kind, sats, dest, status, detail, at],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let no = client
+        .get(format!("{base}/api/v1/admin/settlements.csv"))
+        .header("host", "localhost")
+        .bearer_auth("wrong")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no.status(), 401);
+
+    let res = client
+        .get(format!("{base}/api/v1/admin/settlements.csv"))
+        .header("host", "localhost")
+        .bearer_auth("adm1n")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(res.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("text/csv"));
+    assert_eq!(res.headers()["cache-control"], "no-store");
+    let csv = res.text().await.unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert!(lines[0].ends_with("date,type,group,amount_sats,status,destination,confirmed_at,note"));
+    assert_eq!(lines.len(), 4, "a header and three rows: {csv}");
+    assert!(lines[1].contains("Routine wallet upkeep,routine upkeep,4000,broadcast"));
+    assert!(
+        lines[2].contains("Transfer to your wallet (Ark),transfer to your wallet,150000,broadcast")
+    );
+    assert!(lines[3].contains("Transfer to your wallet (on-chain)"));
+    assert!(
+        !csv.contains(",=HYPERLINK") && !csv.contains("\"=HYPERLINK"),
+        "a formula in a note is defused: {csv}"
+    );
+}
+
+#[tokio::test]
 async fn admin_status_needs_the_admin_token_and_is_hidden_without_one() {
     let client = reqwest::Client::new();
 

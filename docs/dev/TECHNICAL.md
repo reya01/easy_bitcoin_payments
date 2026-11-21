@@ -173,6 +173,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `GET` | `/api/v1/invoices.csv` | Payments export (CSV; includes what the wallet actually received next to what was credited) |
+| `GET` | `/api/v1/admin/settlements.csv` | Transfers and upkeep export (CSV, oldest first; **admin session or admin token**): transfers to your own wallet and routine upkeep, with status, destination and note |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
 | `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Payments that could not complete an order: part payments after expiry, extra payments on a paid order, or anything more than 3 hours late (needs merchant action) (**admin session only**) |
 | `POST` | `/api/v1/unmatched-payments/{id}/resolve` | Mark a late payment as handled (**admin session only**; the shop's API key is refused) |

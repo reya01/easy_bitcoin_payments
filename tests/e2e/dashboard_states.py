@@ -1037,6 +1037,31 @@ def main():
 
         ok &= run_case(pw, "settings: nine compact folded rows with one sentence each, phone alerts open on the Alerts tab", signed_in, c_settings_folded)
 
+        # Leaving Settings folds every section again.
+        def c_settings_refold(p, pr, calls):
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(400)
+            p.click("#fold-pause > summary"); p.wait_for_timeout(200)
+            p.evaluate("document.getElementById('ex-box').open = true"); p.wait_for_timeout(200)
+            if not p.evaluate("document.getElementById('fold-pause').open"): pr.append("the test needs a section open first")
+            p.click('#tabs button[data-v="home"]'); p.wait_for_timeout(300)
+            p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(400)
+            still = p.evaluate("Array.from(document.querySelectorAll('#v-set details')).filter(d => d.open).map(d => d.id)")
+            if still: pr.append("after leaving and coming back every section should be folded, open: " + ", ".join(still))
+
+        ok &= run_case(pw, "settings: leaving the tab and coming back folds everything", signed_in, c_settings_refold)
+
+        # Home has a button for the transfers and upkeep file.
+        def c_home_csv(p, pr, calls):
+            p.click('#tabs button[data-v="home"]'); p.wait_for_timeout(400)
+            want(pr, "button on Home", p.inner_text("#v-home"), "Download transfers and upkeep (CSV)")
+            if not p.is_visible("#tcsv-go"): pr.append("the transfers button should show on Home")
+            p.click("#tcsv-go"); p.wait_for_timeout(500)
+            if count(calls, "GET", "/api/v1/admin/settlements.csv") != 1: pr.append("one request for the transfers file")
+            want(pr, "says it is downloading", p.inner_text("#tcsv-msg"), "downloading")
+            if not p.is_enabled("#tcsv-go"): pr.append("the button works again afterwards")
+
+        ok &= run_case(pw, "Home: a button downloads the transfers and upkeep file", signed_in, c_home_csv)
+
         # --- late and unmatched payments: money that arrived for an order that
         # could no longer take it must be visible, explained and markable.
         def unmatched_handler(path, req, calls, state={}):

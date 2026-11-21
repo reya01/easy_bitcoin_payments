@@ -99,8 +99,8 @@ own wallet**. No earlier round has tested this.
       address you gave as the payout address, and that it shows under **Recent
       transfers to your own wallet**. Write down how long it took and the amount
       that arrived compared to what Home showed (any fee).
-- [ ] **Change when the server sends your money (Settings).** In Settings, under **Where
-      your money goes**, find **When to send my money**. It should show the current
+- [ ] **Change when the server sends your money (Settings).** In Settings, open **When to send
+      my money** (its own row, after **Where your money goes**). It should show the current
       minimum (1,500 sats for an Ark payout address, 50,000 for an on-chain one) and say
       it is the default. Type a number **under** that minimum and press save: the page
       must refuse with a plain reason (for Ark: very small coins can get stuck; for

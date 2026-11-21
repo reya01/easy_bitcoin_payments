@@ -664,14 +664,15 @@ def main():
         def c_preset(p, pr, calls):
             open_exit(p)
             want(pr, "heading", p.inner_text("#ex-deposit"), "Keep fee money on the server")
-            want(pr, "the floor", p.inner_text("#ex-fee-rows"), "The server keeps at least")
-            want(pr, "the floor amount", p.inner_text("#ex-fee-rows"), "5,000")
-            want(pr, "the recommendation range", p.inner_text("#ex-fee-rows"), "10,000")
-            want(pr, "still to send", p.inner_text("#ex-fee-rows"), "Still to send")
-            want(pr, "asks for the floor, not optional", p.inner_text("#ex-fee-verdict"), "Please send at least 5,000")
-            want(pr, "says why", p.inner_text("#ex-fee-verdict"), "turned on")
+            rows = p.inner_text("#ex-fee-rows")
+            want(pr, "on the server", rows, "On the server now")
+            want(pr, "still to send, the recommended amount", rows, "5,000")
+            want(pr, "still to send", rows, "Still to send")
+            for gone in ("The server keeps at least", "Recommended", "10,000"):
+                if gone in rows: pr.append("only what matters is shown, not: " + gone)
+            want(pr, "asks for the amount, plainly", p.inner_text("#ex-fee-verdict"), "Please send 5,000")
             want(pr, "address shows", p.inner_text("#ex-addr"), TB)
-            want(pr, "hover explains the sweep promise", p.get_attribute("#ex-deposit-need", "title") or "", "never touch this money")
+            if p.inner_text("#ex-deposit-need").strip(): pr.append("no extra explanation paragraph")
             if not p.is_disabled("#ex-start") if p.is_visible("#ex-start") else False: pr.append("Start must stay grey")
 
         ok &= run_case(pw, "emergency withdrawal: while on, the server asks for 5,000 sats of fee money", preset_handler(), c_preset)
@@ -681,21 +682,28 @@ def main():
             want(pr, "done", p.inner_text("#ex-fee-verdict"), "Set aside")
             if p.is_visible("#ex-addr-box"): pr.append("no address needed once it is set aside")
             if count(calls, "POST", "/admin/exit/deposit-address") != 0: pr.append("no address should be fetched when none is needed")
-            if p.is_visible("#ex-left-box"): pr.append("at the 5,000 floor there is nothing above it to send back")
-            want(pr, "send-back explained (hidden at the floor)", p.inner_text("#ex-left-box"), "stays here while the emergency withdrawal is turned on")
+            # The fee-money block shows only what matters: on the server, still to send, the verdict.
+            fee = p.inner_text("#ex-deposit")
+            for gone in ("The server keeps at least", "Recommended", "Why?"):
+                if gone in fee: pr.append("the fee-money block should not show: " + gone)
+            want(pr, "on the server row", fee, "On the server now")
+            want(pr, "still to send row", fee, "Still to send")
+            # The row is listed from the start; at the floor there is nothing to take back.
+            if not p.is_visible("#ex-left-box"): pr.append("the take-back row should be listed while it is on")
+            want(pr, "nothing to take back, said plainly", p.inner_text("#ex-left-box"), "nothing above that to take back")
+            if not p.is_disabled("#ex-left"): pr.append("the take-back button should be off with nothing above the floor")
 
         ok &= run_case(pw, "emergency withdrawal: fee money already set aside", preset_handler(confirmed=5000), c_preset_done)
 
         def c_preset_min(p, pr, calls):
             open_exit(p)
-            want(pr, "keeping enough", p.inner_text("#ex-fee-verdict"), "The server is keeping enough")
-            want(pr, "still suggests more", p.inner_text("#ex-fee-verdict"), "safer")
+            want(pr, "asks only for the difference", p.inner_text("#ex-fee-verdict"), "Please send 2,000")
 
         ok &= run_case(pw, "emergency withdrawal: above the 5,000 floor but below the recommendation", preset_handler(confirmed=6000, target=8000), c_preset_min)
 
         def c_preset_below(p, pr, calls):
             open_exit(p)
-            want(pr, "asks for the rest", p.inner_text("#ex-fee-verdict"), "Please send at least 3,000")
+            want(pr, "asks for the rest", p.inner_text("#ex-fee-verdict"), "Please send 3,000")
             want(pr, "state line warns", p.inner_text("#exo-state"), "please add")
 
         ok &= run_case(pw, "emergency withdrawal: below the 5,000 floor asks for the rest", preset_handler(confirmed=2000), c_preset_below)
@@ -739,7 +747,7 @@ def main():
 
         def open_payout(p):
             p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(300)
-            p.evaluate("document.getElementById('fold-payout').open = true"); p.wait_for_timeout(500)
+            p.evaluate("document.getElementById('fold-payout').open = true; document.getElementById('fold-when').open = true"); p.wait_for_timeout(500)
 
         def posted(calls, path):
             return json.loads([c for c in calls if c[1] == path][-1][2])
@@ -1004,7 +1012,7 @@ def main():
         def c_settings_folded(p, pr, calls):
             p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(500)
             folds = p.query_selector_all("#v-set details.fold:not(#ex-box details.fold)")
-            if len(folds) != 8: pr.append(f"expected 8 folded sections, saw {len(folds)}")
+            if len(folds) != 9: pr.append(f"expected 9 folded sections, saw {len(folds)}")
             for d in folds:
                 name = d.get_attribute("id") or "?"
                 if d.evaluate("e => e.open"): pr.append("every section must start folded: " + name)
@@ -1027,7 +1035,7 @@ def main():
             if not p.is_visible("#phone-set"): pr.append("the Alerts tab should show Phone alerts open, with no folding")
             if p.locator("#phone-set").evaluate("e => !!e.closest('details')"): pr.append("Phone alerts on the Alerts tab must not be inside a fold")
 
-        ok &= run_case(pw, "settings: eight compact folded rows with one sentence each, phone alerts open on the Alerts tab", signed_in, c_settings_folded)
+        ok &= run_case(pw, "settings: nine compact folded rows with one sentence each, phone alerts open on the Alerts tab", signed_in, c_settings_folded)
 
         # --- late and unmatched payments: money that arrived for an order that
         # could no longer take it must be visible, explained and markable.

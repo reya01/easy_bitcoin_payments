@@ -977,12 +977,14 @@ function loadPayout() {
     });
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("min-box").classList.toggle("hidden", !p.address);
+    $("fold-when").classList.toggle("hidden", !p.address);
     if (p.address) {
       minKind = p.kind === "onchain" ? "onchain" : "ark";
       minFloor = p.sweep_min_floor_sats || 1500;
       smallCoin = p.small_coin_sats || 1300;
       exitMin = p.exit_min_sats || 50000;
       var sm = p.sweep_min_sats || minFloor;
+      $("min-sub").textContent = "The server sends your money on once the till holds " + fmtSats(sm) + (p.sweep_min_is_custom ? " (your setting)." : ".");
       $("min-now").textContent = "The server sends all of the money in the till to your payout address once it holds at least " + fmtSats(sm) + (p.sweep_min_is_custom ? " (your setting)" : " (the default, which is also the lowest we allow)") + ". Changing it needs your admin password and takes effect right away; it cannot send money anywhere new.";
       $("min-why").textContent = minKind === "onchain"
         ? "We recommend much more than the lowest amount: every on-chain withdrawal pays a network fee that can be high and changes a lot from day to day, so fewer, bigger withdrawals cost far less. It is your decision. If you expect small amounts, an Ark payout address is almost free to send to."
@@ -1538,10 +1540,11 @@ var exPrepared = false;
 var exFoldOpened = false;
 // The start section stays folded until it is needed. It holds the address, password and code
 // fields too, so it opens by itself while a withdrawal is running (Send needs them).
+// While the emergency withdrawal is on, the row is always listed (title and one line, like the
+// rest of Settings); inside it says why it cannot be started yet, if that is so.
 function syncStartFold(opted, running) {
   var fold = $("ex-start-fold");
-  var canStart = !$("ex-start-box").classList.contains("hidden");
-  fold.classList.toggle("hidden", !(canStart || running));
+  fold.classList.toggle("hidden", !(opted || running));
   if (running && !exFoldOpened) { fold.open = true; exFoldOpened = true; }
 }
 function loadExit() {
@@ -1600,24 +1603,20 @@ function loadExit() {
     var fund = !running && !s.switched_off && !canGo;
     $("ex-deposit").classList.toggle("hidden", !(canGo || fund));
     if (fund) {
-      var mn = reserveFloor, tgt = s.reserve_target_sats || 5000, hi = s.reserve_high_sats || 10000;
+      var tgt = s.reserve_target_sats || 5000;
       var cf = s.onchain_confirmed_sats || 0, pd = s.onchain_pending_sats || 0;
       var short = Math.max(0, tgt - cf);
       $("ex-fund-title").textContent = "Keep fee money on the server";
       var frows = $("ex-fee-rows"); clear(frows);
-      frows.appendChild(row("The server keeps at least", fmtSats(mn)));
-      frows.appendChild(row("Recommended (fees can rise)", fmtSats(tgt) + " to " + fmtSats(hi)));
       frows.appendChild(row("On the server now (confirmed)", fmtSats(cf)));
       if (pd > 0) frows.appendChild(row("Sent, waiting for 1 confirmation", fmtSats(pd)));
       frows.appendChild(row("Still to send", short > 0 ? fmtSats(short) : "nothing"));
       var fv = $("ex-fee-verdict");
       if (short === 0) { fv.textContent = "\u2713 Set aside: the fee money is on the server and confirmed."; fv.className = "msg ok"; }
       else if (cf + pd >= tgt) { fv.textContent = "Sent, waiting for 1 confirmation. This page checks again every minute."; fv.className = "msg warn"; }
-      else if (cf >= mn) { fv.textContent = "\u2713 The server is keeping enough. Fees can rise, so " + fmtSats(tgt) + " to " + fmtSats(hi) + " is safer: send about " + fmtSats(short) + " more if you like."; fv.className = "msg ok"; }
-      else { fv.textContent = "Please send at least " + fmtSats(mn - cf) + " (" + fmtSats(tgt) + " to " + fmtSats(hi) + " is recommended) to the address below. The emergency withdrawal is turned on, so the server keeps at least " + fmtSats(mn) + " of regular Bitcoin for its fees."; fv.className = "msg warn"; }
+      else { fv.textContent = "Please send " + fmtSats(short) + " to the address below, so an emergency withdrawal can be paid for."; fv.className = "msg warn"; }
       var fn = $("ex-deposit-need");
-      fn.textContent = "Why? The network fees of an emergency withdrawal are paid from regular Bitcoin held on the server. While the emergency withdrawal is turned on, the server keeps at least " + plainSats(mn) + " of it and never sends it out. Hover for details.";
-      fn.title = "Automatic withdrawals only move Ark coins and never touch this money. You can send back what is above " + plainSats(reserveFloor) + " with the button below, or turn the emergency withdrawal off (above) to take back all of it (needs your password and code). Without fee money, you cannot start an emergency withdrawal on your own.";
+      fn.textContent = "";
       $("ex-addr-box").classList.toggle("hidden", !(short > 0));
       if (short > 0 && !exAddrShown) exFetchAddr();
     } else if (canGo) {
@@ -1654,11 +1653,19 @@ function loadExit() {
     $("ex-claim").classList.toggle("hidden", !s.claimable);
     // The fee money can be taken back. While the withdrawal is turned on, only what
     // is above the floor goes (the server works out the fee); off, all of it.
-    $("ex-left-box").classList.toggle("hidden", running || !(s.onchain_confirmed_sats > (opted ? reserveFloor : 0)));
+    var canBack = s.onchain_confirmed_sats > (opted ? reserveFloor : 0);
+    $("ex-left-box").classList.toggle("hidden", running || !(opted || canBack));
+    $("ex-left").disabled = !canBack;
     $("ex-left-note").textContent = opted
       ? "This sends back the fee money above " + plainSats(reserveFloor) + " to the address you typed (the network fee comes out of it). At least " + plainSats(reserveFloor) + " stays here while the emergency withdrawal is turned on; turn it off to take all of it back."
       : "This takes back all of the fee money on the server (the regular Bitcoin set aside for fees), sending it to the address you typed.";
+    if (opted && !canBack) $("ex-left-note").textContent = "The server keeps " + plainSats(reserveFloor) + " of fee money for an emergency withdrawal, and there is nothing above that to take back right now.";
     $("ex-left").textContent = opted ? "Send back what is above " + plainSats(reserveFloor) : "Send leftover to my address";
+    var why = $("ex-start-why");
+    if (!running && !canGo) {
+      why.textContent = (r.className.indexOf("hidden") < 0 && r.textContent) ? r.textContent : "Not available right now: it needs the fee money set aside and Ark money on the server to take out.";
+      why.className = "msg warn";
+    } else { why.className = "msg warn hidden"; }
     var nx = $("ex-next"), cfm = s.onchain_confirmed_sats, pnd = s.onchain_pending_sats || 0;
     if (running) { nx.textContent = "Next step: a withdrawal is running. Leave the server on and download a fresh backup (above). Open \u201CStart an emergency withdrawal\u201D below to follow it."; nx.className = "msg warn"; }
     else if (!s.two_step_on) { nx.textContent = "Next step: turn on two-step sign-in (above). An emergency withdrawal needs your password and a code."; nx.className = "msg warn"; }
@@ -1667,7 +1674,7 @@ function loadExit() {
     else { nx.textContent = "You are set. Nothing more to do now. If you ever need it, open \u201CStart an emergency withdrawal\u201D at the bottom."; nx.className = "msg ok"; }
     syncStartFold(opted, running);
     exReady();
-  }).catch(function (e) { say("ex-msg", e.message, true); });
+  }).catch(function (e) { say("exo-msg", e.message, true); });
 }
 $("ex-box").addEventListener("toggle", function () {
   if (exTimer) { clearInterval(exTimer); exTimer = null; }

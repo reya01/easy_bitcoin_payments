@@ -8,6 +8,8 @@
 
 - **Download your transfers and upkeep.** A button at the bottom of Home saves a spreadsheet (CSV) with every transfer to your own wallet and every routine upkeep step (coin renewal and tidying), oldest first: date, type, amount, status, the address it went to, when it was confirmed, and a note. It opens in Excel, Numbers and Google Sheets.
 
+- **Home says when the next Ark round starts.** A routine upkeep line that is waiting for the Ark server ("requested" or "waiting") now shows **Next round in: N minutes** under it. On real money the server runs a round about once an hour, so a renewal sitting for 15 or 30 minutes is normal. The time comes from the wallet's own question to the Ark server (`/wallet/next-round`), is asked only while something is waiting, and is left out if it cannot be read.
+
 - **Docs tidy-up.** Finished plans and reviews (the mainnet plan, the Bark audit and 0.9 review, the emergency-exit drill, the pre-test code-path reading, the old Bark 0.8 docs copy and the signet-era release to-do lists) moved to `docs/dev/archive/`, with every link fixed. The release checklist is now only the live steps; HANDOFF, release status, TECHNICAL and the update guides say 0.3.0-rc3 and barkd 0.9.0.
 
 ## 0.3.0-rc3 — release candidate: safer setup and transfers, review fixes (21 November 2026)

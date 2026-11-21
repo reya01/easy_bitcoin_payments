@@ -239,6 +239,9 @@ pub async fn status(
                     count("SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'pending'")?,
                 "webhooks_failed":
                     count("SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'failed'")?,
+                // Renewals still waiting for an Ark round: Home then says when it starts.
+                "renewals_waiting":
+                    count("SELECT COUNT(*) FROM settlements WHERE kind = 'renew' AND status IN ('requested', 'waiting')")?,
             });
             let mut stmt = conn.prepare(
                 "SELECT kind, amount_sats, destination, status, detail, created_at
@@ -281,6 +284,8 @@ pub async fn status(
         })
         .await?;
 
+    let renewals_waiting = counters["renewals_waiting"].as_i64().unwrap_or(0) > 0;
+
     // Wallet figures straight from barkd (best effort).
     let wallet = match BarkdClient::from_app_config(&state.config) {
         Err(err) => json!({ "error": err.to_string() }),
@@ -302,6 +307,12 @@ pub async fn status(
             if let Ok(v) = client.onchain_balance_raw().await {
                 if let Some(n) = crate::emergency_exit::confirmed_onchain_sats(&v) {
                     out.insert("onchain_sats".into(), json!(n));
+                }
+            }
+            // Only asked while a renewal is waiting for a round; best effort.
+            if renewals_waiting {
+                if let Ok(Some(at)) = client.next_round_unix().await {
+                    out.insert("next_round_at".into(), json!(to_rfc3339(at)));
                 }
             }
             if let Ok(c) = client.connected().await {

@@ -21,6 +21,7 @@
     {"method": "GET",  "path": "/fees/lightning/receive", "query": ["amount_sat"], "reads": ["fee_sat"]},
     {"method": "GET",  "path": "/wallet/ark-info", "reads": ["vtxo_lifetime", "fees.refresh.base_fee_sat", "fees.refresh.ppm_expiry_table", "round_interval", "network", "vtxo_exit_delta"]},
     {"method": "GET",  "path": "/wallet/rounds", "reads": ["state", "participation.inputs"]},
+    {"method": "GET",  "path": "/wallet/next-round", "reads": ["start_time"]},
     {"method": "GET",  "path": "/exits/fee", "query": ["destination"], "reads": ["exit_broadcast_fee_sat", "claim_fee_sat", "total_fee_sat", "txs_to_broadcast"]},
     {"method": "POST", "path": "/exits/start/all", "sends": [], "reads": []},
     {"method": "GET",  "path": "/exits/status/live", "reads": ["vtxo_id", "state.type"]},

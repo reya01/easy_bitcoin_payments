@@ -651,6 +651,7 @@ function loadHome() {
     tpPreview();
     loadTestPrompt();
     var w = s.wallet || {};
+    NEXT_ROUND_AT = w.next_round_at || null;
     var go = { late: "alerts", webhooks: "hooks", reserve: "set" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };
     (s.checks || []).forEach(function (k) {
@@ -694,8 +695,25 @@ function loadHome() {
   }).catch(function (e) { var h = $("health"); clear(h); h.appendChild(el("span", e.message, "bad")); });
 }
 
+// When the Ark server's next round starts (set by loadHome while a renewal is waiting for one).
+var NEXT_ROUND_AT = null;
+function nextRoundText() {
+  var t = NEXT_ROUND_AT ? Date.parse(NEXT_ROUND_AT) : NaN;
+  if (isNaN(t)) return "";
+  var mins = Math.ceil((t - Date.now()) / 60000);
+  if (mins <= 0) return "Next round: starting any moment now";
+  if (mins === 1) return "Next round in: 1 minute";
+  if (mins < 60) return "Next round in: " + mins + " minutes";
+  var h = Math.floor(mins / 60), m = mins % 60;
+  return "Next round in: " + h + (h === 1 ? " hour" : " hours") + (m ? " " + m + (m === 1 ? " minute" : " minutes") : "");
+}
 var settleLine = function (x) {
   var r = row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status);
+  if (x.kind === "renew" && (x.status === "requested" || x.status === "waiting") && nextRoundText()) {
+    var wr = document.createElement("div");
+    wr.appendChild(r); wr.appendChild(el("div", nextRoundText() + ". The Ark server renews coins in rounds, and on real money they are about an hour apart. Nothing is wrong while this waits.", "muted"));
+    return wr;
+  }
   if ((x.status !== "failed" && x.status !== "unknown") || !x.detail) return r;
   // Say WHY it failed, in the server's own words, right under the line.
   var w = document.createElement("div");

@@ -227,6 +227,41 @@ def main():
             if txt.lower().count("why:") != 1: pr.append(f"only the failed line should say why, saw: {txt}")
 
         ok &= run_case(pw, "failed upkeep lines say why", upkeep_handler, c_upkeep)
+
+        # A renewal that waits for an Ark round says when the next round starts.
+        import datetime, re as _re
+        def round_handler_for(at):
+            def h(path, req, calls):
+                if path == "/api/v1/admin/status":
+                    w = {"next_round_at": at} if at else {}
+                    return 200, {"checks": [], "counters": {"renewals_waiting": 1}, "wallet": w, "mode": "live", "usd_per_btc": 67000}
+                if path == "/api/v1/admin/settlements":
+                    if "group=upkeep" in (req.url or ""):
+                        return 200, [
+                            {"kind": "renew", "amount_sats": 995, "status": "requested", "detail": "asked to renew 1 coins in the Ark server's next round", "destination": None, "created_at": "2026-11-21T09:27:48Z"},
+                            {"kind": "renew", "amount_sats": 754, "status": "renewed", "detail": None, "destination": None, "created_at": "2026-11-15T20:06:47Z"},
+                        ]
+                    return 200, []
+                return signed_in(path, req, calls)
+            return h
+        soon = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=37, seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        def c_round_soon(p, pr, calls):
+            p.wait_for_timeout(400)
+            txt = p.inner_text("#upkeep")
+            if not _re.search(r"Next round in: (37|38) minutes", txt): pr.append("the waiting renewal should say how many minutes to the next round, saw: " + txt)
+            if txt.count("Next round") != 1: pr.append("only the waiting renewal should show it, saw: " + txt)
+        ok &= run_case(pw, "a renewal waiting for a round says how long until the next round", round_handler_for(soon), c_round_soon)
+
+        late = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        def c_round_late(p, pr, calls):
+            p.wait_for_timeout(400)
+            want(pr, "a round time in the past", p.inner_text("#upkeep"), "starting any moment now")
+        ok &= run_case(pw, "a round time that has just passed says any moment now", round_handler_for(late), c_round_late)
+
+        def c_round_unknown(p, pr, calls):
+            p.wait_for_timeout(400)
+            if "Next round" in p.inner_text("#upkeep"): pr.append("no round time known, so nothing should be claimed")
+        ok &= run_case(pw, "no round time known: the line is left out", round_handler_for(None), c_round_unknown)
         def off_handler(path, req, calls):
             if path == "/admin/session":
                 return 200, {"authenticated": True, "csrf": "tok", "password_set": True, "twofa": True, "paused": False}

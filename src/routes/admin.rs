@@ -214,8 +214,18 @@ pub async fn status(
         https: state.config.public_base_url.starts_with("https://"),
         local_only: {
             let u = state.config.public_base_url.to_lowercase();
-            let host = u.split("://").nth(1).unwrap_or("");
-            host.starts_with("localhost") || host.starts_with("127.") || host.starts_with("[::1]")
+            let authority = u
+                .split("://")
+                .nth(1)
+                .unwrap_or("")
+                .split(['/', '?', '#'])
+                .next()
+                .unwrap_or("");
+            let host = match authority.strip_prefix('[') {
+                Some(v6) => v6.split(']').next().unwrap_or(""),
+                None => authority.split(':').next().unwrap_or(""),
+            };
+            crate::config::is_loopback_host(host)
         },
         // Filled in below from the payout settings (the most the server normally holds).
         hot_wallet_cap_sats: 0,

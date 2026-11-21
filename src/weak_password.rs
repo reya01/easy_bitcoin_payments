@@ -113,10 +113,13 @@ fn is_common(s: &str) -> bool {
     if COMMON.contains(&s) || (!without_digits.is_empty() && COMMON.contains(&without_digits)) {
         return true;
     }
-    // One common word, repeated (`passwordpassword`, `adminadminadmin`).
-    COMMON
-        .iter()
-        .any(|w| w.len() >= 3 && s.len() >= 2 * w.len() && s == w.repeat(s.len() / w.len()))
+    // One common word, repeated (`passwordpassword`, `adminadminadmin`),
+    // also with digits added at the end (`passwordpassword1`).
+    [s, without_digits].iter().any(|t| {
+        COMMON
+            .iter()
+            .any(|w| w.len() >= 3 && t.len() >= 2 * w.len() && *t == w.repeat(t.len() / w.len()))
+    })
 }
 
 fn is_run(s: &str) -> bool {
@@ -183,6 +186,8 @@ mod tests {
             "Password-Password",
             "p@ssw0rdp@ssw0rd",
             "adminadminadminadmin",
+            "passwordpassword1",
+            "bitcoinbitcoin2026",
             "bitcoinbitcoinbitcoin",
             "correct horse battery staple",
             "Easy Bitcoin Payments",

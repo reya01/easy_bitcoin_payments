@@ -255,7 +255,7 @@ impl Config {
         } else {
             authority.split(':').next().unwrap_or("")
         };
-        host == "localhost" || host == "::1" || host.starts_with("127.")
+        is_loopback_host(host)
     }
 }
 
@@ -661,6 +661,8 @@ mod tests {
             ("http://pay.example.com", false),
             ("http://203.0.113.5:8080", false),
             ("http://localhost.evil.com", false),
+            ("http://127.0.0.1.evil.com", false),
+            ("http://127.5.6.7", true),
             ("ftp://x", false),
         ] {
             c.public_base_url = url.to_string();
@@ -793,6 +795,15 @@ mod tests {
 }
 
 /// Ark addresses are network-prefixed: `ark1…` (mainnet), `tark1…` (signet).
+/// `localhost`, or an IP address on this machine only (127.x.x.x, ::1). A
+/// name that merely starts with `127.` (like `127.0.0.1.example.com`) is not.
+pub fn is_loopback_host(host: &str) -> bool {
+    let h = host.trim().trim_start_matches('[').trim_end_matches(']');
+    h.eq_ignore_ascii_case("localhost")
+        || h.parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
 pub fn is_ark_destination(destination: &str) -> bool {
     let d = destination.trim().to_ascii_lowercase();
     d.starts_with("ark1") || d.starts_with("tark1")

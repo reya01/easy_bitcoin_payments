@@ -6,7 +6,7 @@ waiting for blocks. Print or keep this open next to the setup guide
 (`docs/START_HERE.md` covers creating the server).
 
 CI already proves the logic against a *mock* barkd. This drill proves the parts
-a mock cannot: that the real barkd 0.8.0 answers with the shapes we parse, and
+a mock cannot: that the real barkd 0.9.0 answers with the shapes we parse, and
 that the first-run experience works end to end.
 
 **Record the result of every step** (PASS / FAIL / notes) in the table at the

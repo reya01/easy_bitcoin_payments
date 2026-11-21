@@ -21,7 +21,7 @@ use crate::error::AppError;
 
 /// On for real money since 15 November 2026, at the owner's request, after
 /// small live mainnet drills (exit started, broadcast, confirmed, claim
-/// scheduled; see docs/dev/EMERGENCY_EXIT_2026-11-15.md). Set to `false` to
+/// scheduled; see docs/dev/archive/EMERGENCY_EXIT_2026-11-15.md). Set to `false` to
 /// switch it off again on real money; the page then says so.
 pub const ENABLED_ON_MAINNET: bool = true;
 

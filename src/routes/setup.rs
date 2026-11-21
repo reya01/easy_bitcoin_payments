@@ -1508,20 +1508,23 @@ pub async fn create_store(
         .db
         .call(move |conn| {
             let created = insert_first_store(conn, &name)?;
-            if created.is_none() {
-                // The shop was made by an earlier run of this step. Its payout
-                // address and admin password stay as they are: change them in
-                // Settings (where the safety delay and sign-in apply).
-                let complete = recompute_setup_complete(conn)?;
-                return Ok((created, complete));
-            }
-            if risky {
-                crate::payout::set_initial_unchecked(conn, &payout_address)?;
-            } else {
-                crate::payout::set_initial(conn, &payout_address, &mode)?;
+            // When the shop already exists (an earlier run of this step, a
+            // restored backup), a payout address or admin password that is
+            // already set stays as it is: change those in Settings, where the
+            // safety delay and sign-in apply. Only what is missing is set.
+            let fresh = created.is_some();
+            let has_payout = crate::payout::effective(conn, None)?.is_some();
+            if fresh || !has_payout {
+                if risky {
+                    crate::payout::set_initial_unchecked(conn, &payout_address)?;
+                } else {
+                    crate::payout::set_initial(conn, &payout_address, &mode)?;
+                }
             }
             if let Some(pw) = admin_password.as_deref() {
-                crate::admin_auth::set_password(conn, pw, iterations)?;
+                if fresh || !crate::admin_auth::password_is_set(conn)? {
+                    crate::admin_auth::set_password(conn, pw, iterations)?;
+                }
             }
             let complete = recompute_setup_complete(conn)?;
             Ok((created, complete))

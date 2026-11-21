@@ -4468,10 +4468,24 @@ async fn running_the_shop_step_again_never_changes_payout_or_password() {
         .db
         .call(|c| {
             store::create(c, "Shop", None)?;
-            easy_bitcoin_payments::payout::set_initial(c, FIRST, "test")
+            easy_bitcoin_payments::payout::set_initial(c, FIRST, "test")?;
+            easy_bitcoin_payments::admin_auth::set_password(c, "the first long password 1", 1_000)
         })
         .await
         .unwrap();
+    let read = || async {
+        state
+            .db
+            .call(|c| {
+                Ok((
+                    easy_bitcoin_payments::payout::effective(c, None)?,
+                    easy_bitcoin_payments::admin_auth::stored_hash(c)?,
+                ))
+            })
+            .await
+            .unwrap()
+    };
+    let before = read().await;
     let resp = reqwest::Client::new()
         .post(format!("{base}/setup/store"))
         .header("host", "localhost")
@@ -4484,19 +4498,7 @@ async fn running_the_shop_step_again_never_changes_payout_or_password() {
         .await
         .unwrap();
     assert!(resp.status().is_success(), "{}", resp.status());
-    let (payout, hash) = state
-        .db
-        .call(|c| {
-            Ok((
-                easy_bitcoin_payments::payout::effective(c, None)?,
-                easy_bitcoin_payments::admin_auth::stored_hash(c)?,
-            ))
-        })
-        .await
-        .unwrap();
-    assert_eq!(payout.as_deref(), Some(FIRST));
-    assert!(
-        hash.is_none(),
-        "the password is not set by a repeat of this step"
-    );
+    let after = read().await;
+    assert_eq!(after.0.as_deref(), Some(FIRST), "payout address unchanged");
+    assert_eq!(after.1, before.1, "admin password unchanged");
 }

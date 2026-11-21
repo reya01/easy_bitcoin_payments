@@ -102,20 +102,6 @@ impl Db {
         })
     }
 
-    /// Tests only: run a closure on the connection right here (no thread pool),
-    /// for setting things up from code that is not async.
-    #[cfg(test)]
-    pub(crate) fn call_now<T, F>(&self, f: F) -> Result<T, AppError>
-    where
-        F: FnOnce(&mut Connection) -> Result<T, AppError>,
-    {
-        let mut guard = self
-            .conn
-            .lock()
-            .map_err(|_| AppError::Internal("database lock poisoned".into()))?;
-        f(&mut guard)
-    }
-
     /// Run a blocking database closure on the blocking thread pool.
     pub async fn call<T, F>(&self, f: F) -> Result<T, AppError>
     where

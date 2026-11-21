@@ -711,7 +711,6 @@ def main():
             d = {"address": ARK if kind == "ark" else TB, "kind": kind,
                  "sweep_min_sats": 1500 if kind == "ark" else 50000, "sweep_min_floor_sats": 1500 if kind == "ark" else 50000,
                  "sweep_min_is_custom": False, "ark_min_floor_sats": 1500, "onchain_min_floor_sats": 50000,
-                 "keep_sats": 0, "keep_is_custom": False, "keep_min_sats": 1, "keep_max_sats": 10000000,
                  "exit_opted_in": False, "exit_min_sats": 50000, "small_coin_sats": 1300, "live": False, "set_by_server_config": False}
             d.update(over)
             return d
@@ -724,9 +723,6 @@ def main():
                 if path == "/admin/payout/min":
                     b = json.loads(req.post_data)
                     return 200, pay_view(kind, sweep_min_sats=b["min_sats"] or (1500 if kind == "ark" else 50000), sweep_min_is_custom=b["min_sats"] is not None)
-                if path == "/admin/payout/cap":
-                    b = json.loads(req.post_data)
-                    return 200, pay_view(kind, exit_opted_in=True, keep_sats=b["cap_sats"] or 0, keep_is_custom=b["cap_sats"] is not None)
                 if path == "/admin/exit/optin":
                     b = json.loads(req.post_data)
                     return 200, {"opted_in": b["on"], "message": "Turned on." if b["on"] else "Turned off."}
@@ -813,7 +809,7 @@ def main():
             for sel in ("#ex-deposit", "#ex-start-box", "#ex-running", "#ex-left-box"):
                 if p.is_visible(sel): pr.append(f"{sel} must stay hidden while it is off")
             if p.inner_text("#ex-facts"): pr.append("no exit figures while it is off")
-            for w in ("turned off", "5,000 sats of regular Bitcoin", "50,000 sats are there", "everything is sent to your payout address"):
+            for w in ("turned off", "5,000 sats of regular Bitcoin", "always takes out everything"):
                 want(pr, "off text", p.inner_text("#ex-off-box"), w)
             if p.is_visible("#exo-twostep"): pr.append("the two-step note is only for when it is off")
             p.fill("#exo-pw", "pw"); p.fill("#exo-code", "123456"); p.click("#exo-on"); p.wait_for_timeout(500)
@@ -853,24 +849,15 @@ def main():
             if not p.is_visible("#ex-on-box"): pr.append("the turned-on panel should show")
             if p.is_visible("#ex-off-box"): pr.append("the turn-on panel must be hidden")
             want(pr, "state", p.inner_text("#exo-state"), "keeps at least 5,000 sats of regular Bitcoin")
-            want(pr, "keep line", p.inner_text("#cap-now"), "keeps nothing")
             # 7,000 confirmed while on: what is above the 5,000 floor can be sent back.
             if not p.is_visible("#ex-left-box"): pr.append("the part above 5,000 can be sent back while on")
             want(pr, "send-back button", p.inner_text("#ex-left"), "Send back what is above 5,000 sats")
             want(pr, "send-back note", p.inner_text("#ex-left-note"), "At least 5,000 sats stays here")
-            # An amount under what an exit needs is allowed, with a plain warning.
-            p.fill("#cap-new", "10000"); p.wait_for_timeout(1000)
-            want(pr, "warns", p.inner_text("#cap-usd"), "under 50,000 sats")
-            p.fill("#cap-pw", "pw"); p.click("#cap-go"); p.wait_for_timeout(500)
-            b = posted(calls, "/admin/payout/cap")
-            if b.get("cap_sats") != 10000: pr.append(f"wrong body {b}")
-            want(pr, "saved", p.inner_text("#cap-msg"), "keeps")
-            p.fill("#cap-new", "80000"); p.wait_for_timeout(1000)
-            if "under 50,000" in p.inner_text("#cap-usd"): pr.append("80,000 must not warn")
-            # Typed and Save clicked straight away: the click must still land.
-            n_caps = count(calls, "POST", "/admin/payout/cap")
-            p.fill("#cap-pw", "pw"); p.fill("#cap-new", "20000"); p.click("#cap-go"); p.wait_for_timeout(500)
-            if count(calls, "POST", "/admin/payout/cap") != n_caps + 1: pr.append("Save clicked right after typing must still save")
+            # There is no way to leave Ark money on the server for it.
+            if p.query_selector("#cap-box") or p.query_selector("#cap-new"): pr.append("no amount-to-keep box any more")
+            # One plain next step, and the start and turn-off sections are folded rows.
+            if not p.inner_text("#ex-next").strip(): pr.append("a next-step line should show")
+            if not p.is_visible("#ex-start-fold") or not p.is_visible("#ex-off-fold"): pr.append("the start and turn-off folds should show while on")
             # Turning it off asks first; confirming sends it.
             p.fill("#exoff-pw", "pw"); p.click("#exo-off-go")
             want(pr, "confirm title", p.inner_text("#dlg-title"), "Turn off the emergency withdrawal?")
@@ -880,20 +867,7 @@ def main():
             b = posted(calls, "/admin/exit/optin")
             if b.get("on") is not False or b.get("admin_password") != "pw": pr.append(f"wrong body {b}")
 
-        ok &= run_case(pw, "emergency withdrawal: turned on, it keeps fee money, can keep some Ark money, and can be turned off", pay_handler("ark", opted=True, confirmed=7000), c_optin_on)
-
-        def c_keep_custom(p, pr, calls):
-            open_exit(p)
-            want(pr, "keep line", p.inner_text("#cap-now"), "keeps")
-            want(pr, "keep line", p.inner_text("#cap-now"), "60,000 sats")
-            want(pr, "keep line", p.inner_text("#cap-now"), "(your setting)")
-            want(pr, "min line mentions it", p.inner_text("#min-now"), "not counting the")
-            if not p.is_visible("#cap-reset"): pr.append("a button to keep nothing should show")
-            p.fill("#cap-pw", "pw"); p.click("#cap-reset"); p.wait_for_timeout(500)
-            b = posted(calls, "/admin/payout/cap")
-            if b.get("cap_sats") is not None: pr.append(f"keeping nothing must send null: {b}")
-
-        ok &= run_case(pw, "emergency withdrawal: a kept amount is shown and can be set back to nothing", pay_handler("ark", opted=True, confirmed=7000, keep_sats=60000, keep_is_custom=True), c_keep_custom)
+        ok &= run_case(pw, "emergency withdrawal: turned on, it keeps fee money, shows a next step, and can be turned off", pay_handler("ark", opted=True, confirmed=7000), c_optin_on)
 
         # --- optional first test payment on Home
         def tp_handler(paid=False, mode="live"):
@@ -1029,7 +1003,7 @@ def main():
         # --- Settings: every section is one folded row: a title and one sentence
         def c_settings_folded(p, pr, calls):
             p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(500)
-            folds = p.query_selector_all("#v-set details.fold")
+            folds = p.query_selector_all("#v-set details.fold:not(#ex-box details.fold)")
             if len(folds) != 8: pr.append(f"expected 8 folded sections, saw {len(folds)}")
             for d in folds:
                 name = d.get_attribute("id") or "?"

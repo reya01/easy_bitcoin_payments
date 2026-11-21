@@ -4579,3 +4579,50 @@ async fn an_ark_address_for_another_ark_server_is_refused_when_saved() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("different Ark server"), "{body}");
 }
+
+#[tokio::test]
+async fn a_restore_whose_answer_was_lost_carries_on_and_shows_the_words_again() {
+    const WORDS: &str =
+        "abandon ability able about above absent absorb abstract absurd abuse access accident";
+    let restore = serde_json::json!({
+        "network": "signet", "mnemonic": WORDS, "paper_copies_exist": true
+    });
+    // Never tried here before: a wallet that is already there is not restored over.
+    let (base, _state) = serve_fresh_setup(wallet_already_there_barkd().await, false).await;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/setup/wallet"))
+        .header("host", "localhost")
+        .json(&restore)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 409);
+
+    // This wizard's own earlier restore went through, but its answer was lost.
+    let (base, state) = serve_fresh_setup(wallet_already_there_barkd().await, true).await;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/setup/wallet"))
+        .header("host", "localhost")
+        .json(&restore)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let (created, restored, confirmed) = state
+        .db
+        .call(|c| {
+            use easy_bitcoin_payments::settings::get_bool;
+            Ok((
+                get_bool(c, "setup_wallet_created")?,
+                get_bool(c, "setup_wallet_restored")?,
+                get_bool(c, "setup_backup_confirmed")?,
+            ))
+        })
+        .await
+        .unwrap();
+    assert!(created && restored);
+    assert!(
+        !confirmed,
+        "the words are shown again to check against the paper copy"
+    );
+}

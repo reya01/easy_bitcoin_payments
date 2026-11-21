@@ -198,5 +198,10 @@ If the practice fails, the backup is a story, not a backup. Fix it before going 
   (`docker compose stop barkd`), copy the data volume, then start it again; a copy
   of a running wallet can catch the database mid-write. Keep such copies encrypted
   and off-site: they hold everything needed to spend the money in the server wallet.
+  To use such a copy on a new server, copy the **whole** data folder (EBP's files and
+  the wallet folder together), so setup is already marked done. Setup on a fresh
+  server never takes over a wallet folder copied in on its own: it cannot tell your
+  copy from a wallet someone else planted. In that case restore from the recovery
+  words instead.
 - **If you lose the encryption key** with no backup, the stored shop secrets cannot
   be read and must be re-issued from your payment server's **Connect** tab.

@@ -2,7 +2,7 @@
 Tags: bitcoin, payments, woocommerce, ark, lightning
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 0.3.0-rc2
+Stable tag: 0.3.0-rc3
 License: MIT
 License URI: https://opensource.org/license/mit
 

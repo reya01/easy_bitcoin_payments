@@ -6,8 +6,7 @@
 //!    before their per-VTXO expiry (learn_lifetime.md). Renewal never moves
 //!    funds.
 //! 2. **Sweep** — once the till holds the send minimum (`payout::sweep_min`), move
-//!    all of it (less any amount the owner keeps for the emergency withdrawal,
-//!    `payout::cap_for`) to the merchant's own wallet: an Ark send when the destination is on the
+//!    all of it to the merchant's own wallet: an Ark send when the destination is on the
 //!    same ASP (e.g. their Arké wallet), or a cooperative offboard of the
 //!    whole till when it is an on-chain address (learn_offboard.md).
 //!    Emergency exits are never automated: the owner starts one from
@@ -76,8 +75,8 @@ const SECS_PER_BLOCK: i64 = 600;
 
 /// Never wait until fewer blocks than this are left (about two hours): room
 /// for a refresh to be retried.
-/// An automatic sweep only goes ahead when at least this many sats are above
-/// the amount the server keeps. Below it, the money stays and the next payment
+/// An automatic sweep only goes ahead when at least this many sats are free.
+/// Below it, the money stays and the next payment
 /// adds to it. 1,500 (it was 1,000) so the coin that arrives at the payout
 /// wallet is not a small one, see [`SMALL_COIN_SATS`].
 pub const MIN_SWEEP_EXCESS_SATS: i64 = 1_500;
@@ -97,7 +96,7 @@ pub const MAX_REFRESH_COINS: usize = 1_000;
 /// Bark 0.9's changelog: a payment that spends a coin under "about 1,300 sats"
 /// can fail with an upgrade error when the wallet is Bark 0.8.1 or older and
 /// the Ark server is 0.9 (see docs/dev/BARK_0_9_REVIEW.md). Shown on Settings
-/// as guidance next to the kept amount; nothing is forced. The figure is from
+/// as guidance next to the send minimum; nothing is forced. The figure is from
 /// the changelog and is to be confirmed by Second.
 pub const SMALL_COIN_SATS: i64 = 1_300;
 
@@ -394,28 +393,6 @@ pub(crate) fn select_vtxos_covering(
     (ids, total)
 }
 
-/// Pick whole coins (largest first) whose total is AT MOST `limit` sats, so
-/// an on-chain payout never takes money the owner chose to keep for the
-/// emergency withdrawal. A coin that would push the total past `limit` is
-/// skipped and smaller ones are tried. May return nothing (every coin is
-/// bigger than the limit).
-pub(crate) fn select_vtxos_within(
-    vtxos: &[crate::wallet::barkd::Vtxo],
-    limit: i64,
-) -> (Vec<String>, i64) {
-    let mut sorted: Vec<&crate::wallet::barkd::Vtxo> =
-        vtxos.iter().filter(|v| !v.id.is_empty()).collect();
-    sorted.sort_by_key(|v| std::cmp::Reverse(v.amount_sats));
-    let (mut ids, mut total) = (Vec::new(), 0i64);
-    for v in sorted {
-        if v.amount_sats > 0 && total + v.amount_sats <= limit {
-            ids.push(v.id.clone());
-            total += v.amount_sats;
-        }
-    }
-    (ids, total)
-}
-
 /// Settings key: the id of the unsettled transfer the phone alert was already
 /// sent for, so a long wait sends one alert, not one per check.
 /// A "sending" line is shown to the owner as unclear only after this long.
@@ -661,7 +638,7 @@ impl SettlementEngine {
     }
 
     /// The merchant pressed "move my money now": one cycle that sweeps the
-    /// WHOLE till to the payout address, ignoring the till cap and the
+    /// WHOLE till to the payout address, ignoring the send minimum and the
     /// on-chain fee limit (they asked for it).
     pub async fn sweep_now(&self) -> Result<TickReport, AppError> {
         self.cycle(true).await
@@ -1160,7 +1137,7 @@ impl SettlementEngine {
         }
         let balances = balances?;
 
-        // 2. Cap-driven sweep: move the excess above the hot cap to the
+        // 2. Sweep: move the free balance to the
         //    merchant's own wallet. Requires a configured destination; an
         //    unset/blank one means sweeping stays off (renewal above is
         //    unaffected).
@@ -1221,14 +1198,8 @@ impl SettlementEngine {
             }
         }
         let offchain = balances.offchain_sats.saturating_sub(locked_sats);
-        // What stays behind: nothing, unless the owner turned on the emergency
-        // withdrawal and chose an amount to keep for it. The button sends it all.
-        let cap = if manual {
-            0
-        } else {
-            self.db.call(|c| crate::payout::cap_for(c)).await?
-        };
-        let excess = offchain.saturating_sub(cap);
+        // Nothing stays behind: everything that is free is sent.
+        let excess = offchain;
         // Nothing to send (or not yet worth sending) ends any refusal being
         // remembered, so the same refusal later is recorded again instead of
         // being taken for the old one.
@@ -1256,9 +1227,8 @@ impl SettlementEngine {
         // payout wallet receives a few bigger coins instead of many tiny ones.
         // "Move my money now" always sends whatever is there.
         // The owner's number from Settings for this kind of address (never
-        // under its floor), else the floor. When it is reached, everything above
-        // the amount kept goes in one send (the whole balance, unless the owner
-        // turned on the emergency withdrawal and chose an amount to keep).
+        // under its floor), else the floor. When it is reached, the whole free
+        // balance goes in one send.
         let rail = crate::payout::Rail::of(&destination);
         let min_excess = self
             .db
@@ -1383,32 +1353,8 @@ impl SettlementEngine {
             // R8: offboard only enough whole VTXOs to cover the excess
             // (largest first) via /wallet/offboard/vtxos, leaving the rest
             // as the till. Overshoot is at most one VTXO.
-            //
-            // With an amount kept for the emergency withdrawal, the payout
-            // must never dip into it: only coins that fit inside the excess are
-            // taken, and if none do it waits (more payments make more coins).
-            let (ids, total) = if cap > 0 {
-                select_vtxos_within(&free_coins, excess)
-            } else {
-                select_vtxos_covering(&free_coins, excess)
-            };
+            let (ids, total) = select_vtxos_covering(&free_coins, excess);
             if ids.is_empty() {
-                if cap > 0 && !free_coins.is_empty() {
-                    let reason = format!(
-                        "Waiting for a better-sized coin: sending your coins now would also send the {} sats you chose to keep for the emergency withdrawal. Nothing was sent. It goes out when new payments make smaller coins, or press Move my money now to send everything.",
-                        crate::payout::commas(cap)
-                    );
-                    return self
-                        .hold_send(report, kind, excess, &destination, reason)
-                        .await;
-                }
-                return Ok(report);
-            }
-            // With a kept amount the chosen coins can add up to much less than the
-            // excess; the automatic payout still waits for its minimum (the button
-            // sends whatever is free).
-            if !manual && total < min_excess {
-                self.forget_refusal();
                 return Ok(report);
             }
             // Net-amount check: never send an amount the network fee would eat
@@ -1718,21 +1664,12 @@ mod tests {
         })
     }
 
-    /// An engine whose till keeps `cap` sats: the emergency withdrawal is turned on
-    /// with that amount chosen (0 = keep nothing, the default).
+    /// An engine that sends to `destination` (none: sweeping stays off).
     fn test_engine(
         client: crate::wallet::barkd::BarkdClient,
         db: Db,
         destination: Option<&str>,
-        cap: i64,
     ) -> SettlementEngine {
-        if cap > 0 {
-            db.call_now(move |c| {
-                crate::emergency_exit::set_opted_in(c, true)?;
-                crate::payout::set_cap(c, cap)
-            })
-            .unwrap();
-        }
         SettlementEngine::new(client, db, test_config(destination))
     }
 
@@ -1765,9 +1702,9 @@ mod tests {
         })
         .await
         .unwrap();
-        let engine = test_engine(client, db.clone(), None, 100_000);
+        let engine = test_engine(client, db.clone(), None);
         let report = engine.tick().await.unwrap();
-        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(report.swept_sats, Some(150_000));
         let destination = {
             let requests = recorded.lock().unwrap();
             let send = requests
@@ -1784,7 +1721,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sweeps_excess_over_the_cap_via_ark_send() {
+    async fn sweeps_the_whole_till_via_ark_send() {
         let (base, recorded) = mock::spawn(|req| {
             match req.route() {
             "/api/v1/wallet/vtxos" => (
@@ -1809,10 +1746,9 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            100_000,
         );
         let report = engine.tick().await.unwrap();
-        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(report.swept_sats, Some(150_000));
 
         // Scope the guard so it is dropped before the awaited DB call below
         // (clippy::await_holding_lock; also just correct hygiene).
@@ -1834,12 +1770,12 @@ mod tests {
             destination,
             "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"
         );
-        assert_eq!(amount_sats, 50_000);
+        assert_eq!(amount_sats, 150_000);
 
         let rows: i64 = db
             .call(|conn| {
                 Ok(conn.query_row(
-                    "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_ark' AND status = 'broadcast' AND amount_sats = 50000",
+                    "SELECT COUNT(*) FROM settlements WHERE kind = 'sweep_ark' AND status = 'broadcast' AND amount_sats = 150000",
                     [],
                     |r| r.get(0),
                 )?)
@@ -1877,7 +1813,6 @@ mod tests {
             client,
             db.clone(),
             Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
-            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, None);
@@ -1936,7 +1871,7 @@ mod tests {
             ),
             "/api/v1/onchain/balance" => (200, r#"{"total_sat": 20000, "trusted_spendable_sat": 20000, "confirmed_sat": 20000}"#.to_string()),
             "/api/v1/wallet/balance" => {
-                let sats = if high_in_mock.load(Ordering::SeqCst) { 150_000 } else { 50_000 };
+                let sats = if high_in_mock.load(Ordering::SeqCst) { 150_000 } else { 1_000 };
                 (200, format!(r#"{{"spendable_sat": {sats}}}"#))
             }
             _ => (404, "{}".to_string()),
@@ -1952,7 +1887,6 @@ mod tests {
             client,
             db.clone(),
             Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
-            100_000,
         );
         let count = |db: Db| async move {
             db.call(|conn| {
@@ -1968,7 +1902,7 @@ mod tests {
         engine.tick().await.unwrap();
         engine.tick().await.unwrap();
         assert_eq!(count(db.clone()).await, 1, "the same refusal is one line");
-        // The balance falls to the amount kept: nothing to send for a while.
+        // The balance falls under the minimum: nothing to send for a while.
         high.store(false, Ordering::SeqCst);
         engine.tick().await.unwrap();
         // Money arrives again and the same address is refused again.
@@ -2014,7 +1948,6 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            100_000,
         );
         let count = |status: &'static str| {
             let db = db.clone();
@@ -2068,7 +2001,7 @@ mod tests {
         // a new line, because something else happened in between.
         mode.store(2, Ordering::SeqCst);
         let report = engine.tick().await.unwrap();
-        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(report.swept_sats, Some(150_000));
         assert_eq!(count("broadcast").await, 1);
         mode.store(0, Ordering::SeqCst);
         engine.tick().await.unwrap();
@@ -2102,7 +2035,6 @@ mod tests {
             client,
             db.clone(),
             Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
-            0,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
@@ -2154,7 +2086,6 @@ mod tests {
             client,
             db.clone(),
             Some("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
-            0,
         );
         engine.tick().await.unwrap();
         engine.sweep_now().await.unwrap();
@@ -2262,7 +2193,7 @@ mod tests {
         let hist = Arc::new(AtomicBool::new(false));
         let (base, rec) = journal_mock(mode.clone(), hist);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
         assert!(report
@@ -2297,7 +2228,7 @@ mod tests {
         let mode = Arc::new(AtomicUsize::new(0));
         let (base, rec) = journal_mock(mode.clone(), Arc::new(AtomicBool::new(false)));
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         engine.tick().await.unwrap();
         mode.store(2, Ordering::SeqCst);
         assert!(db.call(|c| resolve_unsettled(c, false)).await.unwrap());
@@ -2316,7 +2247,7 @@ mod tests {
         let mode = Arc::new(AtomicUsize::new(0));
         let (base, _rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         engine.tick().await.unwrap();
         assert!(db.call(|c| resolve_unsettled(c, true)).await.unwrap());
         assert_eq!(journal_status(&db).await, vec!["broadcast"]);
@@ -2330,7 +2261,7 @@ mod tests {
         let hist = Arc::new(AtomicBool::new(false));
         let (base, _rec) = journal_mock(mode.clone(), hist.clone());
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         engine.tick().await.unwrap();
         assert_eq!(journal_status(&db).await, vec!["unknown"]);
         // The wallet's history now shows the send going out.
@@ -2358,7 +2289,7 @@ mod tests {
         let mode = Arc::new(AtomicUsize::new(1));
         let (base, rec) = journal_mock(mode, Arc::new(AtomicBool::new(false)));
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         engine.tick().await.unwrap();
         engine.tick().await.unwrap();
         assert_eq!(
@@ -2381,7 +2312,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         let report = engine.tick().await.unwrap();
         assert!(report
             .sweep_refused
@@ -2416,7 +2347,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
         engine.tick().await.unwrap();
         let first: (String, String) = db
             .call(|c| {
@@ -2498,7 +2429,7 @@ mod tests {
     async fn an_unsettled_send_is_noticed_even_when_the_till_is_now_empty() {
         // The send took everything before the restart: the balance is 0, and the
         // line must still be shown as unclear and alerted, not forgotten.
-        let (engine, db) = ark_engine_holding(0, 0).await;
+        let (engine, db) = ark_engine_holding(0).await;
         db.call(|c| {
             record_id(c, "sweep_ark", 50_000, JOURNAL_ARK, "sending", Some("{}")).map(|_| ())
         })
@@ -2538,22 +2469,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_kept_amount_does_not_let_a_tiny_coin_go_out_alone() {
-        // 101,200 held in coins 100,000 and 1,200, 50,000 kept: the free amount
-        // is 51,200 (over the 50,000 minimum), but only the 1,200 coin fits in
-        // it. That is far under the minimum, so nothing is sent automatically.
-        let (base, recorded) = coins_mock(&[("big", 100_000), ("small", 1_200)]);
-        let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 50_000);
-        assert!(engine.tick().await.unwrap().swept_sats.is_none());
-        assert!(!recorded
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
-    }
-
-    #[tokio::test]
     async fn did_not_arrive_is_checked_against_the_wallet_history() {
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let mode = Arc::new(AtomicUsize::new(0));
@@ -2570,7 +2485,7 @@ mod tests {
             None
         );
         // An unclear transfer, and the history does not show it.
-        let engine = engine_for(&base, &db, JOURNAL_ARK, 0);
+        let engine = engine_for(&base, &db, JOURNAL_ARK);
         engine.tick().await.unwrap();
         assert_eq!(
             unsettled_shows_in_history(&client, &db).await.unwrap(),
@@ -2623,26 +2538,6 @@ mod tests {
         )));
     }
 
-    #[test]
-    fn selection_within_a_limit_never_goes_over_it() {
-        use crate::wallet::barkd::Vtxo;
-        let v = |id: &str, amt: i64| Vtxo {
-            id: id.into(),
-            amount_sats: amt,
-            expiry_height: None,
-            expires_at: None,
-        };
-        let set = vec![v("a", 10), v("b", 70), v("c", 30)];
-        // 70 fits; 30 would reach 100 > 90, so skipped; 10 fits.
-        assert_eq!(
-            select_vtxos_within(&set, 90),
-            (vec!["b".to_string(), "a".to_string()], 80)
-        );
-        assert_eq!(select_vtxos_within(&set, 5), (vec![], 0));
-        assert_eq!(select_vtxos_within(&set, 110).1, 110);
-        assert!(select_vtxos_within(&[], 5).0.is_empty());
-    }
-
     /// A mock holding several coins; returns the base URL and the requests.
     fn coins_mock(
         coins: &[(&str, i64)],
@@ -2681,63 +2576,10 @@ mod tests {
     const KEEP_ONCHAIN: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
 
     #[tokio::test]
-    async fn an_onchain_payout_never_takes_the_money_kept_for_the_emergency_withdrawal() {
-        // Two 80,000 coins, 50,000 kept: 110,000 is free. Taking both (160,000)
-        // would cut into the kept amount, so only one goes.
-        let (base, recorded) = coins_mock(&[("a", 80_000), ("b", 80_000)]);
-        let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 50_000);
-        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(80_000));
-        let requests = recorded.lock().unwrap();
-        let offboard = requests
-            .iter()
-            .find(|r| r.route() == "/api/v1/wallet/offboard/vtxos")
-            .expect("offboard recorded");
-        let body: serde_json::Value = serde_json::from_str(&offboard.body).unwrap();
-        assert_eq!(body["vtxos"].as_array().unwrap().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn one_big_coin_waits_once_with_a_plain_note_and_the_button_still_sends_it() {
-        // One 150,000 coin, 50,000 kept: the free 100,000 cannot be cut out of
-        // it. Nothing is sent; one "waiting" line, however many checks.
-        let (base, recorded) = coins_mock(&[("big", 150_000)]);
-        let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 50_000);
-        for _ in 0..3 {
-            let report = engine.tick().await.unwrap();
-            assert!(report.swept_sats.is_none());
-            assert!(report
-                .sweep_refused
-                .as_deref()
-                .unwrap()
-                .contains("better-sized coin"));
-        }
-        assert!(!recorded
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|r| r.route() == "/api/v1/wallet/offboard/vtxos"));
-        let rows: i64 = db
-            .call(|c| {
-                Ok(c.query_row(
-                    "SELECT COUNT(*) FROM settlements WHERE status = 'waiting'",
-                    [],
-                    |r| r.get(0),
-                )?)
-            })
-            .await
-            .unwrap();
-        assert_eq!(rows, 1);
-        // "Move my money now" keeps nothing back and sends the whole coin.
-        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(150_000));
-    }
-
-    #[tokio::test]
-    async fn with_the_emergency_withdrawal_off_the_whole_coin_goes_as_before() {
+    async fn an_onchain_payout_sends_the_whole_coin() {
         let (base, _recorded) = coins_mock(&[("big", 150_000)]);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, KEEP_ONCHAIN, 0);
+        let engine = engine_for(&base, &db, KEEP_ONCHAIN);
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(150_000));
     }
 
@@ -2790,20 +2632,20 @@ mod tests {
         })
     }
 
-    fn engine_for(base: &str, db: &Db, destination: &str, cap: i64) -> SettlementEngine {
+    fn engine_for(base: &str, db: &Db, destination: &str) -> SettlementEngine {
         let client = crate::wallet::barkd::BarkdClient::new(
             crate::wallet::barkd::BarkdConfig::new(base, "t"),
         )
         .unwrap();
-        test_engine(client, db.clone(), Some(destination), cap)
+        test_engine(client, db.clone(), Some(destination))
     }
 
     #[tokio::test]
     async fn an_automatic_sweep_waits_for_a_minimum_excess_but_the_button_does_not() {
         const ARK: &str =
             "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
-        // The server keeps 1,000. With 2,499 held the excess is 1,499: not sent.
-        // With 2,500 held the excess is 1,500: sent. "Move my money now" always sends.
+        // With 1,499 held the automatic sweep waits (under the 1,500 minimum).
+        // With 1,500 held it sends. "Move my money now" always sends.
         let engine_holding = |held: i64| async move {
             let (base, _recorded) = mock::spawn(move |req| match req.route() {
                 "/api/v1/wallet/vtxos" => (
@@ -2821,14 +2663,14 @@ mod tests {
                 _ => (404, "{}".to_string()),
             });
             let db = Db::open(":memory:").unwrap();
-            (engine_for(&base, &db, ARK, 1_000), base)
+            (engine_for(&base, &db, ARK), base)
         };
 
-        let (engine, _base) = engine_holding(2_499).await;
+        let (engine, _base) = engine_holding(1_499).await;
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
-        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(2_499));
+        assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(1_499));
 
-        let (engine, _base) = engine_holding(2_500).await;
+        let (engine, _base) = engine_holding(1_500).await;
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_500));
     }
 
@@ -2838,7 +2680,7 @@ mod tests {
         // one calm "waiting" row is written (not one per tick).
         let (base, recorded) = fee_mock(80, 150_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
         for _ in 0..3 {
             let report = engine.tick().await.unwrap();
             assert!(report.swept_sats.is_none());
@@ -2869,7 +2711,7 @@ mod tests {
         // recorded as a refusal). Held 50,000: sent.
         let (base, recorded) = fee_mock(10, 49_999);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 0);
+        let engine = engine_for(&base, &db, ONCHAIN);
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
         assert!(report.sweep_refused.is_none());
@@ -2883,7 +2725,7 @@ mod tests {
 
         let (base, _recorded) = fee_mock(10, 50_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 0);
+        let engine = engine_for(&base, &db, ONCHAIN);
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(50_000));
     }
 
@@ -2896,7 +2738,7 @@ mod tests {
         db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
             .await
             .unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 0);
+        let engine = engine_for(&base, &db, ONCHAIN);
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
 
         let (base, _recorded) = fee_mock(10, 80_000);
@@ -2904,13 +2746,13 @@ mod tests {
         db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Onchain, 80_000))
             .await
             .unwrap();
-        let engine = engine_for(&base, &db, ONCHAIN, 0);
+        let engine = engine_for(&base, &db, ONCHAIN);
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(80_000));
     }
 
     /// An engine holding `held` sats in one Ark coin, paying out to an Ark
-    /// address, with the server-configuration amount kept set to `cap`.
-    async fn ark_engine_holding(held: i64, cap: i64) -> (SettlementEngine, Db) {
+    /// address.
+    async fn ark_engine_holding(held: i64) -> (SettlementEngine, Db) {
         const ARK: &str =
             "tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh";
         let (base, _recorded) = mock::spawn(move |req| match req.route() {
@@ -2929,60 +2771,32 @@ mod tests {
             _ => (404, "{}".to_string()),
         });
         let db = Db::open(":memory:").unwrap();
-        (engine_for(&base, &db, ARK, cap), db)
+        (engine_for(&base, &db, ARK), db)
     }
 
     #[tokio::test]
     async fn an_ark_sweep_sends_the_whole_balance_once_the_minimum_is_reached() {
         // Keeps nothing: 1,499 waits, 1,500 sends all 1,500, 2,345 sends all 2,345.
-        let (engine, _db) = ark_engine_holding(1_499, 0).await;
+        let (engine, _db) = ark_engine_holding(1_499).await;
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
-        let (engine, _db) = ark_engine_holding(1_500, 0).await;
+        let (engine, _db) = ark_engine_holding(1_500).await;
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(1_500));
-        let (engine, _db) = ark_engine_holding(2_345, 0).await;
+        let (engine, _db) = ark_engine_holding(2_345).await;
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(2_345));
     }
 
     #[tokio::test]
     async fn the_owners_ark_minimum_replaces_the_default() {
-        let (engine, db) = ark_engine_holding(2_999, 0).await;
+        let (engine, db) = ark_engine_holding(2_999).await;
         db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Ark, 3_000))
             .await
             .unwrap();
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
-        let (engine, db) = ark_engine_holding(3_000, 0).await;
+        let (engine, db) = ark_engine_holding(3_000).await;
         db.call(|c| crate::payout::set_min(c, crate::payout::Rail::Ark, 3_000))
             .await
             .unwrap();
         assert_eq!(engine.tick().await.unwrap().swept_sats, Some(3_000));
-    }
-
-    #[tokio::test]
-    async fn money_kept_for_the_emergency_withdrawal_stays_only_while_it_is_on() {
-        // 60,000 held; the owner chose to keep 50,000. Off: everything goes.
-        let (engine, db) = ark_engine_holding(60_000, 0).await;
-        db.call(|c| crate::payout::set_cap(c, 50_000))
-            .await
-            .unwrap();
-        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(60_000));
-        // On: only what is above the kept amount goes.
-        let (engine, db) = ark_engine_holding(60_000, 0).await;
-        db.call(|c| {
-            crate::emergency_exit::set_opted_in(c, true)?;
-            crate::payout::set_cap(c, 50_000)
-        })
-        .await
-        .unwrap();
-        assert_eq!(engine.tick().await.unwrap().swept_sats, Some(10_000));
-        // On and nothing above the kept amount: nothing is sent.
-        let (engine, db) = ark_engine_holding(50_000, 0).await;
-        db.call(|c| {
-            crate::emergency_exit::set_opted_in(c, true)?;
-            crate::payout::set_cap(c, 50_000)
-        })
-        .await
-        .unwrap();
-        assert!(engine.tick().await.unwrap().swept_sats.is_none());
     }
 
     #[tokio::test]
@@ -3014,7 +2828,7 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = test_engine(client, db.clone(), Some(ARK), 0);
+        let engine = test_engine(client, db.clone(), Some(ARK));
         // Automatic: waits for the round, quietly (nothing sent, nothing failed).
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
@@ -3066,7 +2880,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = test_engine(client, Db::open(":memory:").unwrap(), None, 100_000);
+        let engine = test_engine(client, Db::open(":memory:").unwrap(), None);
         assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1_000);
         let requests = recorded.lock().unwrap();
         let refresh = requests
@@ -3089,7 +2903,7 @@ mod tests {
     async fn automatic_onchain_sweep_goes_when_fees_are_low_even_without_a_reserve() {
         let (base, recorded) = fee_mock(50, 150_000); // exactly at the limit
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
         let report = engine.tick().await.unwrap();
         assert_eq!(report.swept_sats, Some(150_000));
         assert!(recorded
@@ -3100,18 +2914,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn manual_sweep_ignores_the_fee_limit_and_the_cap() {
-        // Fees 200 and the till (120,000) is only 20,000 over the 100,000 cap
-        // (under the 50,000 minimum): the automatic path does nothing, the
-        // button moves everything (the fee, about 80,000, still leaves plenty).
+    async fn manual_sweep_ignores_the_fee_limit() {
+        // Fees 200 (over the 50 limit) and a till of 120,000: the automatic path
+        // waits, the button moves everything (the fee, about 80,000, still leaves plenty).
         let (base, recorded) = fee_mock(200, 120_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(
-            &base,
-            &db,
-            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
-            100_000,
-        );
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
         assert!(engine.tick().await.unwrap().swept_sats.is_none());
         let report = engine.sweep_now().await.unwrap();
         assert_eq!(report.swept_sats, Some(120_000));
@@ -3154,7 +2962,7 @@ mod tests {
         // nothing would arrive, so nothing is sent and the reason is shown.
         let (base, recorded) = fee_mock(10, 4_000);
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
         for _ in 0..2 {
             let report = engine.sweep_now().await.unwrap();
             assert!(report.swept_sats.is_none());
@@ -3200,7 +3008,7 @@ mod tests {
         }
         });
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, ARK, 0);
+        let engine = engine_for(&base, &db, ARK);
         let report = engine.sweep_now().await.unwrap();
         assert!(report.swept_sats.is_none());
         let why = report.sweep_refused.expect("a plain reason");
@@ -3247,7 +3055,7 @@ mod tests {
         }
         });
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, ARK, 0);
+        let engine = engine_for(&base, &db, ARK);
         let sends = || {
             recorded
                 .lock()
@@ -3313,7 +3121,7 @@ mod tests {
         }
         });
         let db = Db::open(":memory:").unwrap();
-        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", 0);
+        let engine = engine_for(&base, &db, "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx");
         let report = engine.tick().await.unwrap();
         assert!(report.swept_sats.is_none());
         assert!(report.sweep_refused.unwrap().contains("fee rates"));
@@ -3344,10 +3152,9 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            100_000,
         );
         let report = engine.tick().await.unwrap();
-        assert_eq!(report.swept_sats, Some(100_001));
+        assert_eq!(report.swept_sats, Some(200_001));
         assert!(report.sweep_refused.is_none());
         let sent = recorded
             .lock()
@@ -3384,11 +3191,10 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            100_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 1);
-        assert!(report.swept_sats.is_none(), "below the cap: no sweep");
+        assert!(report.swept_sats.is_none(), "below the minimum: no sweep");
 
         let requests = recorded.lock().unwrap();
         let refresh = requests
@@ -3429,7 +3235,7 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = test_engine(client, db, None, 100_000);
+        let engine = test_engine(client, db, None);
         let report = engine.tick().await.unwrap();
         assert_eq!(
             report.refreshed_vtxos, 1,
@@ -3475,7 +3281,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = test_engine(client, Db::open(":memory:").unwrap(), None, 100_000);
+        let engine = test_engine(client, Db::open(":memory:").unwrap(), None);
         (engine, recorded)
     }
 
@@ -3614,7 +3420,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        test_engine(client, Db::open(":memory:").unwrap(), None, 100_000)
+        test_engine(client, Db::open(":memory:").unwrap(), None)
     }
 
     #[tokio::test]
@@ -3662,7 +3468,7 @@ mod tests {
     }
 
     /// A mock barkd with one coin due for renewal (expires in a day), a
-    /// balance well above the cap, and a refresh answer chosen by the test.
+    /// balance well above the minimum, and a refresh answer chosen by the test.
     fn due_and_rich_engine(
         refresh_status: u16,
     ) -> (
@@ -3694,7 +3500,6 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            100_000,
         );
         (engine, db, recorded)
     }
@@ -3705,13 +3510,13 @@ mod tests {
         let report = engine.tick().await.unwrap();
         // A failing renewal must never hold withdrawals back: that is when
         // the owner most needs the money to keep moving out.
-        assert_eq!(report.swept_sats, Some(50_000));
+        assert_eq!(report.swept_sats, Some(150_000));
         assert!(recorded
             .lock()
             .unwrap()
             .iter()
             .any(|r| r.route() == "/api/v1/wallet/send"));
-        // ... and "move my money now" works too (whole till, no cap).
+        // ... and "move my money now" works too (whole till).
         assert_eq!(engine.sweep_now().await.unwrap().swept_sats, Some(150_000));
         let failed: i64 = db
             .call(|c| {
@@ -3839,7 +3644,7 @@ mod tests {
             crate::wallet::barkd::BarkdConfig::new(&base, "t"),
         )
         .unwrap();
-        let engine = test_engine(client, Db::open(":memory:").unwrap(), None, 100_000);
+        let engine = test_engine(client, Db::open(":memory:").unwrap(), None);
         assert_eq!(engine.tick().await.unwrap().refreshed_vtxos, 1);
         assert!(recorded
             .lock()
@@ -3947,7 +3752,7 @@ mod tests {
         )
         .unwrap();
         let db = Db::open(":memory:").unwrap();
-        let engine = test_engine(client, db.clone(), None, 100_000);
+        let engine = test_engine(client, db.clone(), None);
         (engine, db, recorded)
     }
 
@@ -4180,7 +3985,6 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            1_000,
         );
         let report = engine.sweep_now().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 1);
@@ -4275,7 +4079,6 @@ mod tests {
             client,
             db.clone(),
             Some("tark1pe2tczy3pqflsjdvj46amgam8k4j4dxwd4wxgd39jfawf8caj9g7z2wy9d6dlzqq209rjh"),
-            1_000,
         );
         let report = engine.tick().await.unwrap();
         assert_eq!(report.refreshed_vtxos, 0);
@@ -4312,7 +4115,7 @@ mod tests {
         })
         .await
         .unwrap();
-        let engine = test_engine(client, db.clone(), None, 1_000);
+        let engine = test_engine(client, db.clone(), None);
         engine.tick().await.unwrap();
         assert!(
             !recorded

@@ -44,11 +44,11 @@ Each line names where to look in the code.
 ## Transfers to the owner's wallet
 
 - An automatic transfer sends the **whole balance** once the till holds at least the
-  send minimum (from 19 November 2026; the default amount kept is now 0, see
+  send minimum (from 19 November 2026; nothing is kept back, see
   BARK_0_9_REVIEW.md): **1,500 sats** for an Ark payout address, **50,000 sats** for an
   on-chain one (hard floors, `payout::Rail::floor`; the owner can choose more in
   Settings, `POST /admin/payout/min`), and for on-chain also low fees. An amount is
-  kept back only when the owner turned on the emergency withdrawal and chose one.
+  never kept back (the amount-to-keep setting was removed on 20 November 2026).
   "Move my money now" ignores all of that.
 - An automatic on-chain withdrawal waits for fees of 50 sat/vB or less, and is
   postponed when the fee rate cannot be read ("never overpay blind").

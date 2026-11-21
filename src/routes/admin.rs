@@ -303,21 +303,16 @@ pub async fn status(
             use crate::health_checks::Payout;
             facts.exit_opted_in = s.exit_opted_in;
             if let Some(active) = s.active.as_deref() {
-                // The most the server normally holds: what it keeps plus the
-                // amount at which it sends everything on.
+                // The most the server normally holds: the amount at which it
+                // sends everything on.
                 use crate::payout::Rail;
-                let keep = if s.exit_opted_in {
-                    s.cap_override.unwrap_or(0)
-                } else {
-                    0
-                };
                 let rail = Rail::of(active);
                 let min = match rail {
                     Rail::Ark => s.ark_min_override,
                     Rail::Onchain => s.onchain_min_override,
                 }
                 .unwrap_or(rail.floor());
-                facts.hot_wallet_cap_sats = keep.saturating_add(min);
+                facts.hot_wallet_cap_sats = min;
             }
             let invalid = s
                 .active

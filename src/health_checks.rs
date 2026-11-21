@@ -95,7 +95,7 @@ pub struct Facts {
 }
 
 /// The "large balance" warning fires above this many sats, whatever the
-/// amount the server keeps is set to.
+/// send minimum is set to.
 const LARGE_BALANCE_FLOOR_SATS: i64 = 100_000;
 pub fn build(f: &Facts) -> Vec<Check> {
     let mut out = Vec::new();
@@ -406,8 +406,8 @@ pub fn build(f: &Facts) -> Vec<Check> {
         // Any balance above the floor is worth a line: a big pile of coins is
         // costly to get out if the Ark server ever stops working (an emergency
         // withdrawal pays network fees per coin). The wording differs when the
-        // balance is more than twice the kept amount (money is not moving on
-        // as it should) and when the owner chose to keep a lot here.
+        // balance is more than twice the send minimum (money is not moving on
+        // as it should) and when the owner set a very large minimum.
         if f.hot_wallet_cap_sats > 0 && offchain > LARGE_BALANCE_FLOOR_SATS {
             let unusual = offchain > f.hot_wallet_cap_sats.saturating_mul(2);
             let first = if !unusual {

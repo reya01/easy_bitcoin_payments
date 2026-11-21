@@ -512,9 +512,8 @@ pub struct OptInRequest {
 /// withdrawal itself needs (two-step sign-in on, the admin password, a code).
 /// While it is on the server keeps at least [`ee::RESERVE_FLOOR_SATS`] of
 /// regular Bitcoin for the fees and never sends it out. Turning it off needs
-/// the password and, when two-step sign-in is on, a code; it forgets any amount
-/// kept for the withdrawal (so everything is sent on at the next check) and
-/// frees the fee money to be taken back. Refused while a withdrawal runs: that
+/// the password and, when two-step sign-in is on, a code; it frees the fee
+/// money to be taken back. Refused while a withdrawal runs: that
 /// money is in use. Starting, stopping and claiming a withdrawal never depend
 /// on this switch, so an emergency is never blocked by it.
 pub async fn set_opt_in(
@@ -555,8 +554,6 @@ pub async fn set_opt_in(
             if on {
                 audit(conn, "exit.turned_on", "emergency withdrawal turned on");
             } else {
-                // Nothing is kept for it any more: the whole balance is sent on.
-                crate::payout::clear_cap(conn)?;
                 audit(conn, "exit.turned_off", "emergency withdrawal turned off");
             }
             Ok(())

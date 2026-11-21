@@ -68,7 +68,7 @@ pub fn reserve_high(target: i64) -> i64 {
 /// Settings key: "true" once the owner has turned the emergency withdrawal on
 /// (it is opt-in, off until then). While it is on, the server keeps at least
 /// [`RESERVE_FLOOR_SATS`] of regular Bitcoin for the fees and never sends it
-/// out, and the owner may also choose an amount of Ark money to keep here.
+/// out. An emergency withdrawal always takes out everything on the server.
 pub const OPT_IN_KEY: &str = "exit_opt_in";
 /// While the emergency withdrawal is on, at least this much regular Bitcoin
 /// stays on the server to pay its network fees: nothing here sends it out, and

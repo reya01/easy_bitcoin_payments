@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The update card now tells you to go to the right folder first.** The Console commands on Home's "Update available" card started with `./scripts/...`, which fails with "No such file or directory" when the Console opens in the wrong folder (the usual case). Every command block now begins with `cd /opt/ebp`, and the guide says the same.
 ## 0.3.0-rc1 — release candidate: Bark 0.9, safer transfers and payouts (20 November 2026)
 
 - **What is in rc1.** The wallet software moves to barkd 0.9.0, and the payout path gets its safety work: every transfer is written down before it is sent and never repeated by mistake, payouts that the network fee would eat are held back, the money you chose to keep for the emergency withdrawal stays kept, and a payment that cannot be saved is shown on Home instead of failing silently. Try it with play money first, and with small amounts if you use real money. Two things are not yet confirmed on a real Bark 0.9 send: settling an unclear transfer from the wallet's history, and the "wallet software needs an update" detection (see `docs/KNOWN_ISSUES.md`).

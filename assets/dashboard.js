@@ -216,7 +216,7 @@ var UPD_REASONS = {
   fetch_failed: "Could not reach GitHub to fetch the release files. Try again later.",
   no_tag: "This release's files are not on GitHub.",
   no_running_version: "The helper could not read which version runs now, so it refused (it never skips the check against going backwards). Try again in a minute.",
-  arch: "The signed image is only built for x86-64 servers. Update from the Console with ./scripts/update.sh --from-source.",
+  arch: "The signed image is only built for x86-64 servers. Update from the Console: run cd /opt/ebp, then ./scripts/update.sh --from-source.",
   checkout_failed: "The EBP folder could not switch to the release's files (it may have local changes). Update from the Console to see why.",
   start_failed: "The new version did not start, so the old image setting was put back. In the Console run ./scripts/start.sh, then ask for help."
 };
@@ -274,9 +274,11 @@ function renderUpdate(v) {
     return;
   }
   if (!v.helper_version) {
-    u.appendChild(el("p", "To update from this page, install the update helper once. In your server's Console (at your hosting company), in the EBP folder, run:", "muted"));
+    u.appendChild(el("p", "To update from this page, install the update helper once. Open your server's Console (at your hosting company), log in as root, and run these two lines, one at a time (/opt/ebp is where the server was set up; if you chose another folder, go there instead):", "muted"));
+    u.appendChild(el("div", "cd /opt/ebp", "secret"));
     u.appendChild(el("div", "./scripts/install-update-helper.sh", "secret"));
-    u.appendChild(el("p", "Or update from the Console now with these two lines. The first only checks the new version's signature; the second asks you to type yes before anything changes:", "muted"));
+    u.appendChild(el("p", "Or update from the Console now. Run these three lines, one at a time. The second only checks the new version's signature; the third asks you to type yes before anything changes:", "muted"));
+    u.appendChild(el("div", "cd /opt/ebp", "secret"));
     u.appendChild(el("div", "./scripts/update.sh --check " + L.version, "secret"));
     u.appendChild(el("div", "./scripts/update.sh " + L.version, "secret"));
     return;

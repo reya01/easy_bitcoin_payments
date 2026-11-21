@@ -41,9 +41,11 @@ run" or "the signature check failed") and nothing is changed. The helper never g
 has no way to skip that check, and only installs this project's signed releases.
 
 **Installing the helper.** New DigitalOcean servers get it automatically. On a server set up
-earlier, open the Console once, in the EBP folder, and run:
+earlier, open the Console once, log in as root, and run these two lines, one at a time (the
+folder name may differ; `ls /opt` shows it):
 
 ```
+cd /opt/ebp
 ./scripts/install-update-helper.sh
 ```
 

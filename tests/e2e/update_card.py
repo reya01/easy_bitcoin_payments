@@ -96,6 +96,7 @@ def main():
 
         def c_missing(p, pr, calls):
             t = p.inner_text("#update")
+            want(pr, "move to the folder first", t, "cd /opt/ebp")
             want(pr, "install line", t, "./scripts/install-update-helper.sh")
             want(pr, "fallback", t, "./scripts/update.sh --check " + NEW)
             if p.locator('#update button:text-is("Start update")').count(): pr.append("no Start update without the helper")

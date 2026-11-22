@@ -321,7 +321,7 @@ jobs:
         run: |
           for v in 0.3.1 latest; do
             d="$RUNNER_TEMP/inst-$v"
-            EBP_INSTALL_DIR="$d" bash scripts/install.sh "$v" | tee "$RUNNER_TEMP/inst-$v.log"
+            EBP_INSTALL_DIR="$d" bash scripts/install.sh "$v"
             "$d/ebp" --help | grep -qi usage
           done
       - name: Render blueprints keep a paid plan, a disk and manual deploys

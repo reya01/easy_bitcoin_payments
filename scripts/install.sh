@@ -8,7 +8,7 @@
 # into ~/.local/bin (override with EBP_INSTALL_DIR). Nothing to install first.
 #
 # Usage:
-#   scripts/install.sh              # latest release
+#   scripts/install.sh              # latest release (the newest pre-release while there is no stable one)
 #   scripts/install.sh 0.1.0        # a specific release tag (v optional)
 set -euo pipefail
 
@@ -35,7 +35,20 @@ if [ "$VERSION" = "latest" ]; then
   # Find which tag "latest" is, so the signature can be checked for that tag.
   url="$("${CURL[@]}" -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")"
   TAG="${url##*/tag/}"
-  case "$TAG" in v[0-9]*) ;; *) echo "error: could not work out the latest release (got: $url)" >&2; exit 1 ;; esac
+  case "$TAG" in
+    v[0-9]*) ;;
+    *)
+      # GitHub's "latest" is the newest release that is not marked a pre-release.
+      # While every release is a pre-release there is none, so take the newest
+      # release of any kind and say so. The signature check below still applies.
+      json="$("${CURL[@]}" "https://api.github.com/repos/${REPO}/releases?per_page=1")" || json=""
+      TAG="$(printf '%s' "$json" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | sed 's/.*"\(v[^"]*\)"$/\1/' || true)"
+      case "$TAG" in
+        v[0-9]*) echo "==> no stable release yet; using the newest pre-release, ${TAG}" ;;
+        *) echo "error: could not work out the latest release. Give the version: scripts/install.sh 0.3.2-rc1 (got: $url)" >&2; exit 1 ;;
+      esac
+      ;;
+  esac
 else
   TAG="v${VERSION#v}"
 fi

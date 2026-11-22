@@ -24,15 +24,22 @@ on:
       - ".github/workflows/bark-canary.yml"
       - "scripts/bark_spec_diff.py"
 
+# Read-only by default. Only the small `report` job, which never runs
+# barkd and never checks out code, may write issues.
 permissions:
   contents: read
-  issues: write
 
 jobs:
   canary:
     name: newest barkd against our contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # This job runs a barkd we have not reviewed yet, so it gets no write
+    # access at all; it hands its findings to the `report` job below.
+    outputs:
+      newest: ${{ steps.ver.outputs.newest }}
+      pinned: ${{ steps.ver.outputs.pinned }}
+      checks: ${{ steps.checks.outcome }}
     env:
       GITLAB_API: https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark
     steps:
@@ -119,14 +126,37 @@ jobs:
       - name: Show the report
         run: cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Keep the report for the report job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canary-report
+          path: ${{ runner.temp }}/report.md
+          if-no-files-found: error
+
+  report:
+    name: open or update the issue
+    needs: canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: canary-report
+          path: ${{ runner.temp }}/in
+
       - name: Open or update the issue when something needs attention
         env:
           GH_TOKEN: ${{ github.token }}
-          NEWEST: ${{ steps.ver.outputs.newest }}
-          PINNED: ${{ steps.ver.outputs.pinned }}
-          CHECKS: ${{ steps.checks.outcome }}
+          GH_REPO: ${{ github.repository }}
+          NEWEST: ${{ needs.canary.outputs.newest }}
+          PINNED: ${{ needs.canary.outputs.pinned }}
+          CHECKS: ${{ needs.canary.outputs.checks }}
         run: |
           set -eu
+          cp "$RUNNER_TEMP/in/report.md" "$RUNNER_TEMP/report.md"
           if [ "$CHECKS" = "failure" ]; then
             TITLE="Bark canary: barkd $NEWEST breaks something EBP calls"
             LEAD="barkd $NEWEST does not match what EBP sends or reads. EBP pins $PINNED. Do not move to it until this is understood; the recipe is docs/dev/BARKD_0_9_0_UPGRADE.md."

@@ -2,10 +2,11 @@
 
 For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md).
 
-## Where things stand (21 November 2026)
+## Where things stand (22 November 2026)
 
-- **Latest release:** `v0.3.0-rc3` (pre-release). Earlier candidates: `v0.1.0-rc1`, `-rc2`,
-  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1`, `-rc2`. The release process is in
+- **Latest release:** `v0.3.2-rc1` (pre-release, 22 November 2026); the latest full release is `v0.3.1`.
+  Earlier candidates: `v0.1.0-rc1`, `-rc2`, `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`,
+  `v0.3.0-rc1` to `-rc4`. The release process is in
   [RC_CHECKLIST.md](RC_CHECKLIST.md); [CHANGELOG.md](../../CHANGELOG.md) says what is in each.
 - **Experimental.** Signet (play money) is the default; mainnet is opt-in and has been tried end
   to end with small real money (Lightning and Ark payments, a real WooCommerce shop, payouts,
@@ -146,10 +147,10 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 ## What is open
 
 The authoritative lists are [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and section 3 of
-[MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). In short, on 21 November 2026:
+[MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). In short, on 22 November 2026:
 
-1. **Owner's test of 0.3.0-rc3** on the test server (the quick drills are in that release's cut checklist):
-   Home shows the version, the weekly wallet check card, one small Ark payout, a restore on a new server.
+1. **Owner's test of 0.3.2-rc1** on the test server (the quick drills are in that release's cut checklist, in the
+   Claude project): update by exact version, Home shows 0.3.2-rc1, one small Ark and one Lightning payment.
    Settling an unclear transfer from the wallet's history is still unconfirmed on a real 0.9 send.
 2. **Decisions and answers outstanding:** whether a plain "server error" (HTTP 500) answer to a send should
    count as unclear (today only 502 and 504 do); Second's answers (when the Ark server moves to 0.9, the exact

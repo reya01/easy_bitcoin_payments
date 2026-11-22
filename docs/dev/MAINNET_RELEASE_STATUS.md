@@ -87,6 +87,16 @@ open the emergency-exit page.
   Lightning checks; no lost shop events; the weekly wallet check covers a skipped week. Details and what was
   declined: the project doc `full-review-validation-2026-11-21`.
 
+**Added in 0.3.0-rc4 to 0.3.2-rc1 (21 to 22 November 2026); rc4 and 0.3.1 were tried by the owner on the test server:**
+
+- Home: "Next round in" for upkeep waiting on the Ark server, the reason a renewal was asked for, a "waiting for the Ark
+  server" line and a mempool.space link for an on-chain transfer, and a CSV download of transfers and upkeep (with
+  fiat and price columns when a recent price was saved). Settings folds up when you leave it.
+- 0.3.2-rc1 (CI only so far): "It did not arrive" is refused while the wallet history shows the transfer pending
+  or sent for a different amount; the bare-binary installer checks the release signature; the update helper
+  trusts its pinned cosign first; every container image is pinned by digest; a weekly check compares the pinned barkd
+  with Second's Docker Hub image, GitLab's checksums and the tag's commit (Second does not sign releases).
+
 ## 3. Still open
 
 Needs a real-money test or an answer from someone else:

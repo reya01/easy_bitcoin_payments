@@ -31,8 +31,15 @@ With the **update helper** installed, you can update without the Console:
 2. The card then shows **Now** and **New** side by side, the signature result ("built and
    signed by this project's release workflow for v..., from commit ..."), the exact image
    (digest), and links to inspect it further on GitHub: the release page and the workflow run
-   that built it. Download a fresh backup (the card links to it).
-3. To go ahead, type your **admin password** and, if two-step sign-in is on, your **6-digit
+   that built it.
+3. Under that the card asks for two things, and **Update now** stays switched off until you
+   tick both boxes (the server refuses the update without them too):
+   - **Download a fresh backup.** The card links to Settings, Download a backup. Save the file
+     somewhere that is not this server, then tick *I downloaded a fresh backup...*
+   - **Check your 12 recovery words.** The server never stores or shows them, so it cannot
+     check for you. Make sure you still have them (paper or password manager), then tick
+     *I still have my 12 recovery words...*
+4. Type your **admin password** and, if two-step sign-in is on, your **6-digit
    code**, and press **Update now**. The helper checks everything again and installs only the
    image you were shown. The page reloads itself when the new version answers.
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Updating from the Home tab now asks you to back up first.** The confirm screen has a "Before you update" box with the steps to download a fresh backup and two boxes to tick: one saying you downloaded and saved a backup somewhere outside the server, one saying you still have your 12 recovery words. "Update now" stays switched off until both are ticked, and the server refuses the update without both too (so an old page or a script cannot skip them). The approval line in the Security activity log now notes that both were confirmed. The Console update (`update.sh`) is unchanged.
+
 ## 0.3.2-rc1 — safer "did not arrive", signed installer, supply-chain checks (22 November 2026)
 
 - **"It did not arrive" is refused while the transfer is still on its way.** When a transfer was interrupted and its outcome is unclear, EBP checks the wallet's own history before accepting "It did not arrive". That check used to count only finished transfers for about the expected amount. It now also counts one that is still pending, or that went out for a different amount, so the owner cannot accidentally clear a transfer that is still in progress and have the next one sent on top of it.

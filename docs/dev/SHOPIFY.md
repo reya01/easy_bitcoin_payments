@@ -1,7 +1,8 @@
 # Shopify (planned, not built)
 
-**Status: research and a written plan only, deliberately parked until
-WooCommerce is thoroughly tested and built out. There is no Shopify code in this
+**Status: research and a written plan only, deliberately parked until after
+version 1.0 (owner decision, 22 November 2026: Shopify's recent changes make outside
+payments harder, and invoices come first). There is no Shopify code in this
 project and the first release does not support Shopify.** WooCommerce is the
 supported shop ([WOOCOMMERCE.md](../WOOCOMMERCE.md)). This page records what we learned so the next
 step is a decision, not another round of research.

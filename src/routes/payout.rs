@@ -272,7 +272,7 @@ pub async fn transfer_outcome(
             })?;
         if shows == Some(true) {
             return Err(AppError::BadRequest(
-                "The wallet's history shows this transfer, so it looks like it went out. Saying it did not arrive could send the money twice. Check your payout wallet again; if it is really not there, wait a few minutes and try again.".into(),
+                "The wallet's history shows this transfer going out (it may still be on its way). Saying it did not arrive could send the money twice. Check your payout wallet again; if it is really not there, wait a few minutes and try again.".into(),
             ));
         }
     }

@@ -583,9 +583,33 @@ pub async fn unsettled_shows_in_history(
         return Ok(None);
     };
     let page = client.history().await?;
-    Ok(Some(
-        count_history_matches(&u, &page.entries, now_unix()) > 0,
-    ))
+    Ok(Some(history_may_show_send(&u, &page.entries)))
+}
+
+/// Could the wallet history show this send going out, or still going out?
+/// The guard for the owner's "It did not arrive", so it is generous on
+/// purpose: any movement to the same destination (or an outbound one whose
+/// destinations cannot be read) that is not clearly older than the attempt,
+/// whatever its amount, and whatever its status except a definite end
+/// without sending (`failed`, `canceled`). A `pending` send is still on its
+/// way: saying it did not arrive would let it be sent again.
+pub(crate) fn history_may_show_send(
+    u: &UnsettledSend,
+    entries: &[crate::wallet::barkd::HistoryEntry],
+) -> bool {
+    entries.iter().any(|e| {
+        let ended_unsent = e.status.as_deref().is_some_and(|s| {
+            s.eq_ignore_ascii_case("failed") || s.eq_ignore_ascii_case("canceled")
+        });
+        let names_it = match e.sent_to_destinations() {
+            Some(_) => e.sent_to_contains(&u.destination),
+            None => e.outbound_sats().is_some(),
+        };
+        !ended_unsent
+            && names_it
+            && e.detected_at_unix()
+                .is_none_or(|t| t >= u.created_at - HISTORY_MATCH_SLACK_SECS)
+    })
 }
 
 /// Plain words for the sweep note and Home while a transfer is unclear.
@@ -1777,9 +1801,16 @@ fn delete_setting(conn: &Connection, key: &str) -> Result<(), AppError> {
 }
 
 fn load_requested(conn: &Connection) -> Result<Vec<RequestedRenewal>, AppError> {
-    Ok(crate::settings::get(conn, REQUESTED_RENEWALS_KEY)?
-        .and_then(|v| serde_json::from_str(&v).ok())
-        .unwrap_or_default())
+    let Some(text) = crate::settings::get(conn, REQUESTED_RENEWALS_KEY)? else {
+        return Ok(Vec::new());
+    };
+    // Unreadable: start over with an empty list (the wallet's own round list
+    // and locked balance still keep coins in a round from being swept), but
+    // say so in the log instead of silently.
+    Ok(serde_json::from_str(&text).unwrap_or_else(|err| {
+        tracing::error!(error = %err, "saved renewal requests could not be read; starting a fresh list");
+        Vec::new()
+    }))
 }
 
 fn save_requested(conn: &Connection, list: &[RequestedRenewal]) -> Result<(), AppError> {
@@ -2750,6 +2781,64 @@ mod tests {
         assert!(unsettled_shows_in_history(&broken_client, &db)
             .await
             .is_err());
+    }
+
+    #[test]
+    fn did_not_arrive_is_refused_for_a_pending_or_odd_amount_send() {
+        let now = now_unix();
+        let u = UnsettledSend {
+            id: "stl_1".into(),
+            kind: "sweep_onchain".into(),
+            amount_sats: 50_000,
+            destination: "tark1dest".into(),
+            created_at: now - 60,
+            vtxos: vec![],
+        };
+        let entry = |status: &str, amount: i64, dest: &str, at: i64| {
+            history_entry(serde_json::json!({
+                "intended_balance_sat": -amount,
+                "status": status,
+                "sent_to": [{"destination": {"type": "ark", "value": dest}, "amount_sat": amount}],
+                "time": {"created_at": chrono::DateTime::from_timestamp(at, 0).unwrap().to_rfc3339()},
+            }))
+        };
+        // Still on its way: shows.
+        assert!(history_may_show_send(
+            &u,
+            &[entry("pending", 50_000, "tark1dest", now - 30)]
+        ));
+        // Sent, but for a different amount than expected (fees): shows.
+        assert!(history_may_show_send(
+            &u,
+            &[entry("successful", 31_000, "tark1dest", now - 30)]
+        ));
+        assert!(history_may_show_send(
+            &u,
+            &[entry("successful", 50_000, "tark1dest", now - 30)]
+        ));
+        // A status we do not know yet: shows (never assume it did not go out).
+        assert!(history_may_show_send(
+            &u,
+            &[entry("something_new", 50_000, "tark1dest", now - 30)]
+        ));
+        // Definitely ended without sending: does not show.
+        assert!(!history_may_show_send(
+            &u,
+            &[entry("failed", 50_000, "tark1dest", now - 30)]
+        ));
+        assert!(!history_may_show_send(
+            &u,
+            &[entry("canceled", 50_000, "tark1dest", now - 30)]
+        ));
+        // Another address, or a send from well before this attempt: does not show.
+        assert!(!history_may_show_send(
+            &u,
+            &[entry("pending", 50_000, "tark1other", now - 30)]
+        ));
+        assert!(!history_may_show_send(
+            &u,
+            &[entry("successful", 50_000, "tark1dest", now - 3_600)]
+        ));
     }
 
     #[test]

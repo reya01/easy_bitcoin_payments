@@ -53,11 +53,27 @@ matching and payment rules would be unchanged; only a front door would be added.
 - *New invoice*: amount (sats, or a fiat amount quoted when the invoice is made), a short
   note, an optional label for who it is for (typed by the owner, kept only in the server's
   database and its encrypted backups, never in logs or the repository).
-- *The request*, shown on screen and in a canned message with **Copy** and the phone's
-  **Share** button, for example: "Please pay 25,000 sats to Sam's Plumbing. To pay with
-  Lightning, paste this invoice into your wallet within 3 hours. To pay with Ark, send exactly
-  this amount to this address. If the Lightning invoice has expired, ask me for a fresh one."
-  The message carries the real expiry time, not a guess.
+- *The request*, shown on screen and in a canned "how to pay" message with **Copy** and the
+  phone's **Share** button. For example:
+
+  > Please pay 25,000 sats to Sam's Plumbing for "Bathroom tap repair".
+  >
+  > **Pay with Lightning** (any Lightning wallet): paste this invoice into your wallet. It
+  > expires on **Sunday 22 November 2026 at 6:42 PM EST (11:42 PM UTC)**. After that time
+  > it will not work, and you can ask me for a fresh one.
+  >
+  > **Pay with Ark** (works after that time too): in an Ark wallet, send exactly 25,000 sats
+  > to this address. Ark wallets that work with this server include Noah (Android) and Arké
+  > (iPhone), set to the Ark server named below.
+
+  The expiry is the real one, read from the invoice itself after the Ark server has set it
+  (not the time EBP asked for, which the server may extend), written out as an exact date
+  and time with the time zone in words and as an offset, and also in UTC so a payer in
+  another zone can read it. The owner's time zone is taken from their phone's browser.
+  The Ark address stays valid after the Lightning invoice expires for as long as the invoice
+  is open, and the message says so. The message names the Ark server the wallet must use
+  (`ark.second.tech` on a real-money server), because a wallet set to a different Ark server
+  cannot pay it (see `KNOWN_ISSUES.md`).
 - *Make a fresh Lightning invoice*: one button when it has expired. The invoice keeps the same
   Ark address, and the old Lightning invoice still counts if paid late (the existing 3-hour
   late window).
@@ -92,7 +108,9 @@ matching and payment rules would be unchanged; only a front door would be added.
 2. Database: an invoice "source" (shop or manual), note and label; each Lightning invoice made
    for an invoice is recorded (the existing `ln_invoices` already maps a BOLT11 to an invoice).
 3. API and the Invoices tab with copy and share; browser tests at phone width.
-4. A real-money drill: one small Lightning invoice, one small Ark invoice, a Lightning
+4. A real-money drill: one small Lightning invoice (check the expiry time in the message
+   against the invoice itself, in the owner's time zone and UTC), one small Ark invoice
+   paid from Noah or Arké after the Lightning one expired, a Lightning
    invoice paid after it expired (within the late window), a fresh invoice after expiry, one
    part paid, one cancelled then paid (must not silently credit).
 5. Release candidate; the owner cuts the tag.

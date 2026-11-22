@@ -305,7 +305,7 @@ jobs:
           fi
           echo "quinn is in Cargo.lock only, not in the build."
       - name: Install cargo-audit
-        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-audit
 
@@ -314,7 +314,7 @@ jobs:
       # Every crate comes from crates.io (no git or other registries), no
       # wildcard versions, and no OpenSSL. Settings and reasons: deny.toml.
       - name: Install cargo-deny
-        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-deny
       - name: Crate sources and bans (cargo deny)

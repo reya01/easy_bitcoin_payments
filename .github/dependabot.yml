@@ -12,9 +12,9 @@ updates:
     schedule:
       interval: weekly
   # Container images are pinned by digest (Dockerfile base images, Caddy in
-  # docker-compose.yml); these propose a new digest when the tag moves.
+  # docker-compose.yml, docker/barkd.Dockerfile); these propose a new digest when the tag moves.
   - package-ecosystem: docker
-    directory: /
+    directories: ["/", "/docker"]
     schedule:
       interval: weekly
   - package-ecosystem: docker-compose

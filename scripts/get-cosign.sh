@@ -5,6 +5,7 @@
 #   ./scripts/get-cosign.sh                 # download into ./bin/cosign
 #   ./scripts/get-cosign.sh --check         # CI: is the pinned fingerprint still right?
 #   ./scripts/get-cosign.sh --print VERSION # maintainer: show the fingerprints of a version
+#   ./scripts/get-cosign.sh --verify-local  # is ./bin/cosign still the pinned file? (no internet)
 #
 # ./scripts/update.sh runs this by itself when cosign is missing, so nobody has to
 # install anything by hand. If the three values below were ever empty, this script
@@ -67,6 +68,18 @@ if [ -z "$COSIGN_VERSION" ] || [ -z "$want" ]; then
   exit 1
 fi
 
+# Offline check of the copy already in ./bin: used by ./scripts/update.sh so
+# it only trusts ./bin/cosign while its fingerprint still matches the pin.
+if [ "$mode" = "--verify-local" ]; then
+  [ -f bin/cosign ] || { echo "./bin/cosign is missing." >&2; exit 1; }
+  got="$(sha256sum bin/cosign | cut -d' ' -f1)"
+  if [ "$got" != "$want" ]; then
+    echo "./bin/cosign does not match the pinned fingerprint for cosign $COSIGN_VERSION." >&2
+    exit 1
+  fi
+  echo "./bin/cosign matches the pinned fingerprint (cosign $COSIGN_VERSION)."
+  exit 0
+fi
 tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
 fetch "$COSIGN_VERSION" "$a" "$tmp"
 got="$(sha256sum "$tmp" | cut -d' ' -f1)"

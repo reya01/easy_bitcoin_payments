@@ -100,6 +100,31 @@ printf '%s' "$out" | grep -q 'cosign' || fail "missing cosign not explained: $ou
 no_change nocosign; echo "ok  missing cosign refused"
 rm -rf "$work"; trap - EXIT
 
+# 6b. the pinned ./bin/cosign is preferred over a cosign elsewhere on PATH
+new_sandbox
+mkdir -p bin
+printf '#!/usr/bin/env bash\necho "$*" >> "$FAKE_WORK/pinned.log"\necho "[{\\"critical\\":{},\\"optional\\":{\\"githubWorkflowSha\\":\\"${FAKE_SHA}\\"}}]"\n' > bin/cosign
+printf '#!/usr/bin/env bash\n[ "${1:-}" = --verify-local ] && exit 0\nexit 1\n' > scripts/get-cosign.sh
+chmod +x bin/cosign scripts/get-cosign.sh
+out="$(run --check 0.2.1-rc1)"
+printf '%s' "$out" | grep -q 'signature   : OK' || fail "pinned cosign not used: $out"
+[ -f "$work/pinned.log" ] || fail "the pinned ./bin/cosign was not used"
+[ ! -f "$work/cosign.log" ] || fail "a PATH cosign was trusted before the pinned copy"
+echo "ok  pinned cosign is used before any other cosign"
+rm -rf "$work"; trap - EXIT
+
+# 6c. a ./bin/cosign that no longer matches the pin is never run
+new_sandbox
+mkdir -p bin
+printf '#!/usr/bin/env bash\necho "$*" >> "$FAKE_WORK/pinned.log"\nexit 0\n' > bin/cosign
+printf '#!/usr/bin/env bash\nexit 1\n' > scripts/get-cosign.sh
+chmod +x bin/cosign scripts/get-cosign.sh
+out="$(run --check 0.2.1-rc1)"
+[ ! -f "$work/pinned.log" ] || fail "a ./bin/cosign with the wrong fingerprint was run"
+printf '%s' "$out" | grep -q 'already installed on this computer' || fail "fallback to the installed cosign not explained: $out"
+echo "ok  a tampered ./bin/cosign is not run"
+rm -rf "$work"; trap - EXIT
+
 # 7. a failed signature is refused
 new_sandbox; export FAKE_COSIGN_FAIL=1
 out="$(run --yes 0.2.1-rc1)"; printf '%s' "$out" | grep -q 'signature check FAILED' || fail "bad signature accepted: $out"

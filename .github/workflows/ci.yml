@@ -162,7 +162,7 @@ jobs:
           PY
           )"
           echo "packages: $pkgs"
-          docker run --rm ubuntu:24.04 bash -c "apt-get update -qq && apt-get install -s $pkgs | tail -3"
+          docker run --rm ubuntu:24.04@sha256:9c7f200c07e3d4a03e7249d2c16bf66a51120fb876aa2242cf31451412543289 bash -c "apt-get update -qq && apt-get install -s $pkgs | tail -3"
 
       # The real script, real compose stack, real Caddy: only the public
       # certificate is replaced by Caddy's local one (domain `localhost`).

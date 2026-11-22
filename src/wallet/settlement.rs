@@ -1538,13 +1538,7 @@ impl SettlementEngine {
                     // or by the owner).
                     let note = reason.clone();
                     self.db
-                        .call(move |conn| {
-                            conn.execute(
-                                "UPDATE settlements SET status = 'unknown', detail = COALESCE(?1 || ' ' || detail, ?1) WHERE id = ?2",
-                                params![note, send_id],
-                            )?;
-                            Ok(())
-                        })
+                        .call(move |conn| mark_unknown(conn, &send_id, &note))
                         .await?;
                     report.sweep_refused = Some(TRANSFER_UNKNOWN_NOTE.to_string());
                     self.alert_transfer_unknown().await?;
@@ -1577,6 +1571,22 @@ impl SettlementEngine {
 
         Ok(report)
     }
+}
+
+/// Mark a journal line "unknown" and keep why. The line's detail is JSON that
+/// names the coins the send used (`{"vtxos": [...]}`), and the check that settles
+/// an unclear on-chain send reads those coins back. So the reason goes in as one
+/// more JSON field; putting it in front as plain text would make the detail
+/// unreadable and the coins would be lost to that check.
+fn mark_unknown(conn: &Connection, send_id: &str, note: &str) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE settlements SET status = 'unknown', detail = CASE
+             WHEN json_valid(detail) THEN json_set(detail, '$.note', ?1)
+             ELSE json_object('note', ?1, 'earlier', detail) END
+         WHERE id = ?2",
+        params![note, send_id],
+    )?;
+    Ok(())
 }
 
 impl SettlementEngine {
@@ -2493,6 +2503,45 @@ mod tests {
             .contains("may or may not"));
         assert_eq!(sends(&rec), 0);
         assert_eq!(journal_status(&db).await, vec!["unknown"]);
+    }
+
+    #[tokio::test]
+    async fn a_timeout_note_keeps_the_coin_list_readable() {
+        let db = Db::open(":memory:").unwrap();
+        let (coins, detail, n) = db
+            .call(|conn| {
+                let id = record_id(
+                    conn,
+                    "sweep_onchain",
+                    50_000,
+                    "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+                    "sending",
+                    Some(r#"{"vtxos": ["v1", "v2"]}"#),
+                )?;
+                mark_unknown(conn, &id, "request timed out after 30s")?;
+                let coins = unsettled_send(conn)?.map(|u| u.vtxos).unwrap_or_default();
+                let detail: String = conn.query_row(
+                    "SELECT detail FROM settlements WHERE id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )?;
+                // A line whose detail was never JSON (or was empty) still gets its note.
+                let odd = record_id(conn, "sweep_ark", 1_000, "x", "sending", Some("plain words"))?;
+                mark_unknown(conn, &odd, "no answer")?;
+                let empty = record_id(conn, "sweep_ark", 1_000, "x", "sending", None)?;
+                mark_unknown(conn, &empty, "no answer")?;
+                let n: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM settlements WHERE status = 'unknown' AND detail LIKE '%no answer%'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                Ok((coins, detail, n))
+            })
+            .await
+            .unwrap();
+        assert_eq!(coins, vec!["v1".to_string(), "v2".to_string()]);
+        assert!(detail.contains("timed out"), "{detail}");
+        assert_eq!(n, 2);
     }
 
     #[tokio::test]

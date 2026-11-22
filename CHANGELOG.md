@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **"It did not arrive" is refused while the transfer is still on its way.** When a transfer was interrupted and its outcome is unclear, EBP checks the wallet's own history before accepting "It did not arrive". That check used to count only finished transfers for about the expected amount. It now also counts one that is still pending, or that went out for a different amount, so the owner cannot accidentally clear a transfer that is still in progress and have the next one sent on top of it.
+
 - **More supply-chain checks in CI.** `cargo deny` now fails the build if any Rust crate comes from somewhere other than crates.io, uses a wildcard version, or brings back OpenSSL (settings in `deny.toml`). The weekly Bark canary, which runs a barkd we have not reviewed yet, now runs with read-only access; a separate small job that never runs barkd opens the issue.
 
 - **The bare-binary installer now checks the release signature.** `scripts/install.sh` used to check the download only against the checksum file from the same release, which catches a broken download but not a tampered release. It now first checks that the checksum file was signed by this project's release workflow for that exact version (with its own pinned copy of cosign, so nothing extra to install), and installs nothing if that fails.

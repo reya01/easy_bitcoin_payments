@@ -1734,9 +1734,26 @@ fn record_id(
     detail: Option<&str>,
 ) -> Result<String, AppError> {
     let id = new_id("stl");
+    let now = now_unix();
+    // The dollar price at this moment, for the owner's bookkeeping. Blank when
+    // no recent price is saved: never guessed.
+    let (fiat_currency, fiat_amount, rate, rate_source) =
+        match crate::rates::saved_quote(conn, "USD", now) {
+            Some(q) => (
+                Some(q.currency),
+                Some(format!(
+                    "{:.2}",
+                    amount_sats as f64 / 100_000_000.0 * q.fiat_per_btc
+                )),
+                Some(format!("{:.2}", q.fiat_per_btc)),
+                Some(q.source),
+            ),
+            None => (None, None, None, None),
+        };
     conn.execute(
-        "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at,
+                                  fiat_currency, fiat_amount, rate, rate_source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             id,
             kind,
@@ -1744,7 +1761,11 @@ fn record_id(
             destination,
             status,
             detail,
-            now_unix()
+            now,
+            fiat_currency,
+            fiat_amount,
+            rate,
+            rate_source
         ],
     )?;
     Ok(id)
@@ -3710,6 +3731,50 @@ mod tests {
             "{note}"
         );
         assert!(!note.contains("close to expiring"), "{note}");
+    }
+
+    #[tokio::test]
+    async fn a_new_line_carries_the_saved_dollar_price_and_stays_blank_without_one() {
+        let db = Db::open(":memory:").unwrap();
+        db.call(|conn| {
+            let fiat = |id: &str| -> Result<Vec<Option<String>>, AppError> {
+                Ok(conn.query_row(
+                    "SELECT fiat_currency, fiat_amount, rate, rate_source FROM settlements WHERE id = ?1",
+                    [id],
+                    |r| Ok(vec![r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?]),
+                )?)
+            };
+            // No saved price: blank, not guessed.
+            let a = record_id(conn, "sweep_ark", 150_000, "d", "broadcast", None)?;
+            assert_eq!(fiat(&a)?, vec![None, None, None, None]);
+            // A recent saved price: 150,000 sats at 60,000 USD/BTC = 90.00.
+            let json = format!(
+                r#"{{"USD":{{"rate":60000.0,"at":{},"sources":["a","b"]}}}}"#,
+                now_unix() - 30
+            );
+            crate::settings::set(conn, "btc_price", &json)?;
+            let b = record_id(conn, "sweep_ark", 150_000, "d", "broadcast", None)?;
+            assert_eq!(
+                fiat(&b)?,
+                vec![
+                    Some("USD".to_string()),
+                    Some("90.00".to_string()),
+                    Some("60000.00".to_string()),
+                    Some("median(a,b)".to_string())
+                ]
+            );
+            // An old saved price is not used.
+            let old = format!(
+                r#"{{"USD":{{"rate":60000.0,"at":{},"sources":["a"]}}}}"#,
+                now_unix() - crate::rates::MAX_AGE_SECS - 10
+            );
+            crate::settings::set(conn, "btc_price", &old)?;
+            let c = record_id(conn, "renew", 1_000, "", "requested", None)?;
+            assert_eq!(fiat(&c)?, vec![None, None, None, None]);
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 
     #[test]

@@ -144,7 +144,8 @@ pub async fn settlements_csv(
         .db
         .call(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT created_at, kind, amount_sats, status, destination, detail, confirmed_at
+                "SELECT created_at, kind, amount_sats, status, destination, detail,
+                        fiat_currency, fiat_amount, rate, rate_source
                  FROM settlements ORDER BY created_at ASC, id LIMIT ?1",
             )?;
             let rows = stmt
@@ -156,7 +157,10 @@ pub async fn settlements_csv(
                         r.get::<_, String>(3)?,
                         r.get::<_, Option<String>>(4)?,
                         r.get::<_, Option<String>>(5)?,
-                        r.get::<_, Option<i64>>(6)?,
+                        r.get::<_, Option<String>>(6)?,
+                        r.get::<_, Option<String>>(7)?,
+                        r.get::<_, Option<String>>(8)?,
+                        r.get::<_, Option<String>>(9)?,
                     ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -166,10 +170,8 @@ pub async fn settlements_csv(
     let cut = rows.len() as i64 >= TRANSFERS_CSV_MAX_ROWS;
     let cell = crate::routes::invoices::csv_cell;
     // A byte-order mark so Excel reads the file as UTF-8.
-    let mut out = String::from(
-        "\u{feff}date,type,group,amount_sats,status,destination,confirmed_at,note\r\n",
-    );
-    for (at, kind, sats, status, dest, detail, confirmed) in &rows {
+    let mut out = String::from("\u{feff}date,type,group,amount_sats,status,destination,fiat_currency,fiat_amount,rate,rate_source,note\r\n");
+    for (at, kind, sats, status, dest, detail, fcur, famt, rate, rsrc) in &rows {
         let group = if kind.as_str() == "renew" || kind.as_str() == "consolidate" {
             "routine upkeep"
         } else {
@@ -182,7 +184,10 @@ pub async fn settlements_csv(
             sats.to_string(),
             cell(status),
             cell(dest.as_deref().unwrap_or("")),
-            cell(&confirmed.map(to_rfc3339).unwrap_or_default()),
+            cell(fcur.as_deref().unwrap_or("")),
+            cell(famt.as_deref().unwrap_or("")),
+            cell(rate.as_deref().unwrap_or("")),
+            cell(rsrc.as_deref().unwrap_or("")),
             cell(detail.as_deref().unwrap_or("")),
         ];
         out.push_str(&cells.join(","));

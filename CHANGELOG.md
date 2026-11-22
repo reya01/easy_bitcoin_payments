@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **More supply-chain checks in CI.** `cargo deny` now fails the build if any Rust crate comes from somewhere other than crates.io, uses a wildcard version, or brings back OpenSSL (settings in `deny.toml`). The weekly Bark canary, which runs a barkd we have not reviewed yet, now runs with read-only access; a separate small job that never runs barkd opens the issue.
+
 - **The update helper trusts only its own pinned signature checker first.** `./scripts/update.sh` now uses this project's copy of cosign (`./bin/cosign`) only while its fingerprint still matches the pinned one, downloads a fresh checked copy if it does not, and uses a cosign installed elsewhere on the server only as a last resort, saying so.
 
 - **Supply-chain checks in CI.** Every container image is now pinned by digest and checked (including the barkd image's base and the image CI uses to test the install packages). A new weekly check compares our pinned barkd with the copy inside Second's own Docker Hub image, the release's checksum list and the commit barkd reports, because Second does not sign its releases. CI also proves the HTTP/3 library listed in `Cargo.lock` is not compiled in. Workflow checkouts no longer keep a GitHub token on disk.

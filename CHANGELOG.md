@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The bare-binary installer now checks the release signature.** `scripts/install.sh` used to check the download only against the checksum file from the same release, which catches a broken download but not a tampered release. It now first checks that the checksum file was signed by this project's release workflow for that exact version (with its own pinned copy of cosign, so nothing extra to install), and installs nothing if that fails.
+
 - **The update helper trusts only its own pinned signature checker first.** `./scripts/update.sh` now uses this project's copy of cosign (`./bin/cosign`) only while its fingerprint still matches the pinned one, downloads a fresh checked copy if it does not, and uses a cosign installed elsewhere on the server only as a last resort, saying so.
 
 - **Supply-chain checks in CI.** Every container image is now pinned by digest and checked (including the barkd image's base and the image CI uses to test the install packages). A new weekly check compares our pinned barkd with the copy inside Second's own Docker Hub image, the release's checksum list and the commit barkd reports, because Second does not sign its releases. CI also proves the HTTP/3 library listed in `Cargo.lock` is not compiled in. Workflow checkouts no longer keep a GitHub token on disk.

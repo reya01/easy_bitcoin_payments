@@ -4,6 +4,8 @@
 
 - **The emergency section no longer looks empty while it loads.** The wallet's answer can take a few seconds, and until it came only the warning box showed. Settings now asks for it as soon as it opens, and the section says "Checking your wallet…" until the rows appear.
 
+- **The transfers file no longer has a blank "confirmed" column.** It was added by mistake: EBP does not record a confirmation time for transfers and upkeep, so the column was always empty. The status column says where each one stands.
+
 ## 0.3.0-rc4 — release candidate: easier Settings, a transfers file, next Ark round time (21 November 2026)
 
 - **Settings is easier to read.** (1) **When to send my money** is now its own folded row in Settings (with the **Move my money now** button inside it), not a part of **Where your money goes**, so a refused payout address shows right under its Save button instead of far down the page. (2) The emergency section lists all its rows from the start while it is on: **Take back extra fee money** (it says plainly when there is nothing to take back), **Start an emergency withdrawal** (it says why it cannot be started yet) and **Turn the emergency withdrawal off**. (3) The fee-money block shows only what matters: what is on the server, what is still to send, and one plain sentence. A failed load of the emergency section now shows its error where it can be seen.

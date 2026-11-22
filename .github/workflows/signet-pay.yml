@@ -38,6 +38,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # The payer wallet (signet play money only) is kept between runs so
       # coins you send are never lost with the machine. Signet coins expire
       # after about a day, so use them within a day.

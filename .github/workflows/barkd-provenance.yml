@@ -1,0 +1,118 @@
+# A second-source check for the barkd binary we ship (the wallet daemon that
+# holds the money).
+#
+# Our Dockerfiles pin barkd by SHA-256. That proves the file never changes
+# after we pinned it, but not that the first download was genuine: Second
+# does not sign its releases, so a tampered GitLab release would have
+# matched its own checksum list on the day we pinned it.
+#
+# This compares our pins with sources an attacker would have to tamper with
+# separately:
+#   1. the barkd binary inside Second's own Docker Hub image
+#      (secondark/bark:<version>), which is a different system from GitLab;
+#   2. the release's SHA256SUMS on GitLab;
+#   3. the commit barkd reports in `barkd --version`, against the commit
+#      the GitLab tag points at.
+# It downloads and inspects files only. It never starts barkd with a wallet,
+# and it needs no secrets and no write access.
+name: barkd-provenance
+
+on:
+  schedule:
+    - cron: "41 5 * * 3"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - "docker/barkd.Dockerfile"
+      - ".github/workflows/barkd-provenance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: barkd pins match a second source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GITLAB_API: https://gitlab.com/api/v4/projects/ark-bitcoin%2Fbark
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the pins
+        id: pins
+        run: |
+          set -eu
+          V=$(grep -o 'release-assets/bark-[0-9][0-9A-Za-z.-]*' docker/barkd.Dockerfile | head -1 | sed 's|release-assets/bark-||')
+          A=$(sed -n 's/.*amd64) BARK_ARCH=x86_64; BARK_SHA=\([0-9a-f]\{64\}\).*/\1/p' docker/barkd.Dockerfile)
+          R=$(sed -n 's/.*arm64) BARK_ARCH=arm64; BARK_SHA=\([0-9a-f]\{64\}\).*/\1/p' docker/barkd.Dockerfile)
+          [ -n "$V" ] && [ -n "$A" ] && [ -n "$R" ] || { echo "could not read the pins from docker/barkd.Dockerfile"; exit 1; }
+          # Both Dockerfiles must pin the same version and fingerprints.
+          grep -q "release-assets/bark-$V/" Dockerfile || { echo "Dockerfile pins a different barkd version"; exit 1; }
+          grep -q "$A" Dockerfile && grep -q "$R" Dockerfile || { echo "Dockerfile and docker/barkd.Dockerfile pin different fingerprints"; exit 1; }
+          { echo "version=$V"; echo "amd64=$A"; echo "arm64=$R"; } >> "$GITHUB_OUTPUT"
+          echo "barkd $V; amd64 $A; arm64 $R"
+
+      - name: Compare with the release's SHA256SUMS on GitLab
+        env:
+          V: ${{ steps.pins.outputs.version }}
+          A: ${{ steps.pins.outputs.amd64 }}
+          R: ${{ steps.pins.outputs.arm64 }}
+        run: |
+          set -eu
+          curl -fsSL "$GITLAB_API/packages/generic/release-assets/bark-$V/SHA256SUMS" -o "$RUNNER_TEMP/SHA256SUMS"
+          grep -q "^$A  *barkd-$V-linux-x86_64\$" "$RUNNER_TEMP/SHA256SUMS" || { echo "amd64 pin is not in GitLab's SHA256SUMS"; exit 1; }
+          grep -q "^$R  *barkd-$V-linux-arm64\$" "$RUNNER_TEMP/SHA256SUMS" || { echo "arm64 pin is not in GitLab's SHA256SUMS"; exit 1; }
+          echo "GitLab SHA256SUMS: both pins listed."
+
+      - name: Compare with the barkd inside Second's Docker Hub image
+        id: hub
+        env:
+          V: ${{ steps.pins.outputs.version }}
+          A: ${{ steps.pins.outputs.amd64 }}
+          R: ${{ steps.pins.outputs.arm64 }}
+        run: |
+          set -eu
+          ok=1
+          for pair in "amd64:$A" "arm64:$R"; do
+            arch="${pair%%:*}"; want="${pair#*:}"
+            img="secondark/bark:$V"
+            docker pull -q --platform "linux/$arch" "$img" >/dev/null
+            cid=$(docker create --platform "linux/$arch" "$img")
+            docker export "$cid" > "$RUNNER_TEMP/fs-$arch.tar"
+            docker rm "$cid" >/dev/null
+            path=$(tar -tf "$RUNNER_TEMP/fs-$arch.tar" | grep -E '(^|/)barkd$' | head -n 1 || true)
+            if [ -z "$path" ]; then echo "$arch: no barkd binary found in $img"; ok=0; continue; fi
+            got=$(tar -xOf "$RUNNER_TEMP/fs-$arch.tar" "$path" | sha256sum | cut -d' ' -f1)
+            if [ "$arch" = amd64 ]; then
+              tar -xOf "$RUNNER_TEMP/fs-$arch.tar" "$path" > "$RUNNER_TEMP/barkd-hub"; chmod +x "$RUNNER_TEMP/barkd-hub"
+            fi
+            echo "$arch: image /$path = $got; pin = $want"
+            [ "$got" = "$want" ] || ok=0
+            rm -f "$RUNNER_TEMP/fs-$arch.tar"
+          done
+          [ "$ok" = 1 ] || { echo "The Docker Hub image's barkd differs from our pins. This may just mean Second builds the image separately; look before trusting either."; exit 1; }
+          echo "Docker Hub image: barkd matches both pins byte for byte."
+
+      - name: Compare the commit barkd reports with the GitLab tag
+        env:
+          V: ${{ steps.pins.outputs.version }}
+        run: |
+          set -eu
+          curl -fsSL "$GITLAB_API/repository/tags/bark-$V" -o "$RUNNER_TEMP/tag.json"
+          TAG_COMMIT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"]["id"])' "$RUNNER_TEMP/tag.json")
+          OUT=$("$RUNNER_TEMP/barkd-hub" --version)
+          echo "tag bark-$V -> $TAG_COMMIT; barkd says: $OUT"
+          REPORTED=$(printf '%s' "$OUT" | grep -oE '[0-9a-f]{7,40}' | head -n 1 || true)
+          [ -n "$REPORTED" ] || { echo "barkd --version did not report a commit"; exit 1; }
+          case "$TAG_COMMIT" in "$REPORTED"*) echo "barkd was built from the tagged commit." ;; *) echo "barkd reports a different commit than the tag"; exit 1 ;; esac
+          {
+            echo "### barkd $V provenance"
+            echo
+            echo "- Our pins are in GitLab's SHA256SUMS"
+            echo "- Second's Docker Hub image contains the same barkd bytes (amd64 and arm64)"
+            echo "- barkd reports commit \`$REPORTED\`; tag \`bark-$V\` is \`$TAG_COMMIT\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The update helper trusts only its own pinned signature checker first.** `./scripts/update.sh` now uses this project's copy of cosign (`./bin/cosign`) only while its fingerprint still matches the pinned one, downloads a fresh checked copy if it does not, and uses a cosign installed elsewhere on the server only as a last resort, saying so.
+
+- **Supply-chain checks in CI.** Every container image is now pinned by digest and checked (including the barkd image's base and the image CI uses to test the install packages). A new weekly check compares our pinned barkd with the copy inside Second's own Docker Hub image, the release's checksum list and the commit barkd reports, because Second does not sign its releases. CI also proves the HTTP/3 library listed in `Cargo.lock` is not compiled in. Workflow checkouts no longer keep a GitHub token on disk.
+
 ## 0.3.1 — clearer waits, on-chain transfer links, price columns (21 November 2026)
 
 - **On-chain transfers show where they are.** In "Recent transfers to your own wallet", an on-chain transfer that was sent to the Bitcoin network now says so and links to the transaction on mempool.space, which shows how many confirmations it has (confirming can take a while). The transfers file has the transaction id in a new `txid` column. A transfer that is waiting for cheaper network fees now shows why, and a transfer being handed to the wallet says so.

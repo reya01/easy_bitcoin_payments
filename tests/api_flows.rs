@@ -4058,8 +4058,7 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     assert_eq!(v["helper_status"]["digest"], digest);
 
     // Second decision: a different digest than the one shown is refused.
-    let apply =
-        |d: &str, pw: &str| serde_json::json!({"version": newer, "digest": d, "password": pw});
+    let apply = |d: &str, pw: &str| serde_json::json!({"version": newer, "digest": d, "password": pw, "backup_ack": true, "seed_ack": true});
     let other = format!("sha256:{}", "c".repeat(64));
     let r = post(
         "/admin/update/apply",
@@ -4069,6 +4068,33 @@ async fn update_from_the_home_tab_needs_two_decisions_password_and_the_shown_dig
     .await
     .unwrap();
     assert_eq!(r.status().as_u16(), 409);
+    assert!(!req_file.exists());
+    // Both promises are required, whatever the page sent: nothing is written without them.
+    for (backup, seed, word) in [
+        (false, true, "backup"),
+        (true, false, "recovery words"),
+        (false, false, "backup"),
+    ] {
+        let r = post(
+            "/admin/update/apply",
+            serde_json::json!({"version": newer, "digest": digest, "password": "a good long password", "backup_ack": backup, "seed_ack": seed}),
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status().as_u16(), 400);
+        assert!(r.text().await.unwrap().contains(word));
+        assert!(!req_file.exists());
+    }
+    // An old page that sends neither is refused the same way.
+    let r = post(
+        "/admin/update/apply",
+        serde_json::json!({"version": newer, "digest": digest, "password": "a good long password"}),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.status().as_u16(), 400);
     assert!(!req_file.exists());
     // A wrong password is refused.
     let r = post(

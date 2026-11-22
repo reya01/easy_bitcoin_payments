@@ -115,6 +115,12 @@ pub struct ApplyRequest {
     pub password: String,
     #[serde(default)]
     pub code: Option<String>,
+    /// The owner ticked "I downloaded a fresh backup". Missing counts as no.
+    #[serde(default)]
+    pub backup_ack: bool,
+    /// The owner ticked "I still have my 12 recovery words". Missing counts as no.
+    #[serde(default)]
+    pub seed_ack: bool,
 }
 
 /// `POST /admin/update/apply` — the owner pressed "Update now" after the check.
@@ -139,6 +145,18 @@ pub async fn apply(
     if !matches {
         return Err(AppError::Conflict(
             "What you are approving is not what the last check showed, or that check is more than 30 minutes old. Press Start update again to check it first.".into(),
+        ));
+    }
+    // The two promises come before anything else is checked, so that nothing can
+    // start an update without them, whatever page or script sent the request.
+    if !req.backup_ack {
+        return Err(AppError::BadRequest(
+            "Before updating, download a fresh backup and tick the box that says you did.".into(),
+        ));
+    }
+    if !req.seed_ack {
+        return Err(AppError::BadRequest(
+            "Before updating, make sure you still have your 12 recovery words saved, and tick the box that says you do.".into(),
         ));
     }
     // Password first (slow hash, outside the database lock), then the second step.
@@ -168,7 +186,9 @@ pub async fn apply(
     let digest = req.digest.clone();
     let id =
         updates::write_request("apply", &version, Some(&digest)).map_err(|_| not_installed())?;
-    let detail = format!("approved the update to {version} ({digest})");
+    let detail = format!(
+        "approved the update to {version} ({digest}); confirmed a fresh backup and the 12 recovery words"
+    );
     state
         .db
         .call(move |c| {

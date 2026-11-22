@@ -370,27 +370,54 @@ function renderConfirm(v, st) {
   links.appendChild(st.run_url ? updLink("the workflow run that built and signed it", st.run_url) : updLink("the commit and its checks", repo + "/commit/" + st.commit));
   links.appendChild(document.createTextNode("."));
   u.appendChild(links);
-  var bk = el("p", "Download a fresh backup first. ", "muted");
-  var ba = el("a", "Go to Download a backup"); ba.href = "#";
+  // Two promises the owner must make before the password box even matters. The server
+  // refuses the update without both, so this is not only a reminder on the page.
+  var pre = el("div", "", "warnbox");
+  pre.appendChild(el("strong", "Before you update: two quick checks"));
+  pre.appendChild(el("p", "An update restarts your server. If anything ever went wrong, a fresh backup and your 12 recovery words are what let you carry on.", "muted"));
+  pre.appendChild(el("p", "1. Download a fresh backup", "ack-h"));
+  var steps = el("ol", "", "ack-steps");
+  var s1 = el("li", "Tap "); var ba = el("a", "Go to Download a backup"); ba.href = "#";
   ba.addEventListener("click", function (e) { e.preventDefault(); show("set"); openFold("fold-backup"); });
-  bk.appendChild(ba); u.appendChild(bk);
+  s1.appendChild(ba); s1.appendChild(document.createTextNode(" (it opens in Settings)."));
+  steps.appendChild(s1);
+  steps.appendChild(el("li", "Type your admin password and tap Download encrypted backup."));
+  steps.appendChild(el("li", "Save the file somewhere that is not this server: your phone's files, your computer, or cloud storage."));
+  steps.appendChild(el("li", "Come back to Home. If it has been more than 30 minutes, tap Start update again."));
+  pre.appendChild(steps);
+  var l1 = el("label", "", "ack"); var c1 = document.createElement("input"); c1.type = "checkbox"; c1.id = "upd-ack-backup";
+  l1.appendChild(c1); l1.appendChild(el("span", "I downloaded a fresh backup and saved it somewhere safe, outside this server."));
+  pre.appendChild(l1);
+  pre.appendChild(el("p", "2. Check your 12 recovery words", "ack-h"));
+  pre.appendChild(el("p", "This server never stores or shows your 12 recovery words, so it cannot check them for you. They are the only way to get your money back if this server is lost. Find them now: the paper or the password manager where you saved them.", "muted"));
+  var l2 = el("label", "", "ack"); var c2 = document.createElement("input"); c2.type = "checkbox"; c2.id = "upd-ack-seed";
+  l2.appendChild(c2); l2.appendChild(el("span", "I still have my 12 recovery words saved somewhere safe, and I can find them."));
+  pre.appendChild(l2);
+  u.appendChild(pre);
   u.appendChild(field("upd-pw", "Your admin password", "password"));
   var cw = el("div"); cw.className = "needcode" + (twofaOn ? "" : " hidden");
   cw.appendChild(field("upd-code", "Code from your authenticator app", "tel", "6 digits"));
   u.appendChild(cw);
   var msg = el("p", "", "bad hidden");
   var btns = el("div", "", "btns");
-  btns.appendChild(button("Update now", function (b) {
+  var both = function () { return c1.checked && c2.checked; };
+  var go = button("Update now", function (b) {
+    if (!both()) return;
     b.disabled = true; msg.classList.add("hidden");
-    var body = { version: st.version, digest: st.digest, password: $("upd-pw").value };
+    var body = { version: st.version, digest: st.digest, password: $("upd-pw").value, backup_ack: c1.checked, seed_ack: c2.checked };
     if (twofaOn) body.code = $("upd-code").value.trim();
     api("POST", "/admin/update/apply", body).then(function () {
       UPD.busy = true; UPD.target = st.version; UPD.started = Date.now();
       renderUpdating();
-    }).catch(function (e) { b.disabled = false; msg.textContent = e.message; msg.classList.remove("hidden"); });
-  }, "primary"));
+    }).catch(function (e) { b.disabled = !both(); msg.textContent = e.message; msg.classList.remove("hidden"); });
+  }, "primary");
+  go.disabled = true;
+  var hint = el("p", "Tick both boxes above to turn on Update now.", "muted");
+  var sync = function () { go.disabled = !both(); hint.classList.toggle("hidden", both()); };
+  c1.addEventListener("change", sync); c2.addEventListener("change", sync);
+  btns.appendChild(go);
   btns.appendChild(button("Cancel", function () { clear(u); u.classList.add("hidden"); }, "small"));
-  u.appendChild(btns); u.appendChild(msg);
+  u.appendChild(btns); u.appendChild(hint); u.appendChild(msg);
 }
 
 // Second decision made: the helper checks once more, then switches. EBP restarts.

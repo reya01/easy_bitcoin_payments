@@ -146,11 +146,24 @@ def main():
             if LATEST["url"] not in hrefs: pr.append("release page link missing")
             if RUN not in hrefs: pr.append("workflow run link missing")
             if body_of(calls, "/admin/update/apply"): pr.append("nothing may be applied before Update now")
-            p.fill("#upd-pw", "my admin password")
-            p.fill("#upd-code", "123456")
-            p.click('#update button:text-is("Update now")')
+            t = p.inner_text("#update")
+            for words in ["Before you update: two quick checks", "1. Download a fresh backup", "Go to Download a backup", "Save the file somewhere that is not this server", "2. Check your 12 recovery words", "never stores or shows your 12 recovery words", "Tick both boxes"]:
+                want(pr, "before-you-update box", t, words)
+            # Update now stays off until BOTH boxes are ticked, and nothing is sent meanwhile.
+            btn = '#update button:text-is("Update now")'
+            if not p.is_disabled(btn): pr.append("Update now must start switched off")
+            p.fill("#upd-pw", "my admin password"); p.fill("#upd-code", "123456")
+            p.check("#upd-ack-backup"); p.wait_for_timeout(100)
+            if not p.is_disabled(btn): pr.append("backup box alone must not turn Update now on")
+            p.uncheck("#upd-ack-backup"); p.check("#upd-ack-seed"); p.wait_for_timeout(100)
+            if not p.is_disabled(btn): pr.append("recovery-words box alone must not turn Update now on")
+            if body_of(calls, "/admin/update/apply"): pr.append("nothing may be applied with a box unticked")
+            p.check("#upd-ack-backup"); p.wait_for_timeout(100)
+            if p.is_disabled(btn): pr.append("both boxes ticked must turn Update now on")
+            p.click(btn)
             p.wait_for_timeout(300)
             b = body_of(calls, "/admin/update/apply") or {}
+            if b.get("backup_ack") is not True or b.get("seed_ack") is not True: pr.append(f"apply must send both promises, sent {b}")
             if b.get("digest") != DIGEST or b.get("version") != NEW: pr.append(f"apply must send the shown digest and version, sent {b}")
             if b.get("password") != "my admin password" or b.get("code") != "123456": pr.append("apply must send the password and the code")
             want(pr, "updating", p.inner_text("#update"), "Updating to version " + NEW)
@@ -172,7 +185,7 @@ def main():
             return (200, version(status=ready())) if path == "/api/v1/admin/version" else None
 
         def c_wrong(p, pr, calls):
-            p.fill("#upd-pw", "nope"); p.click('#update button:text-is("Update now")'); p.wait_for_timeout(300)
+            p.fill("#upd-pw", "nope"); p.check("#upd-ack-backup"); p.check("#upd-ack-seed"); p.click('#update button:text-is("Update now")'); p.wait_for_timeout(300)
             want(pr, "message", p.inner_text("#update"), "not your admin password")
             if p.is_disabled('#update button:text-is("Update now")'): pr.append("button must work again after a refusal")
         ok &= run_case(pw, "wrong password: clear message, try again", wrong_pw, c_wrong)
@@ -207,7 +220,7 @@ def main():
             return None
 
         def c_done(p, pr, calls):
-            p.fill("#upd-pw", "pw"); p.click('#update button:text-is("Update now")')
+            p.fill("#upd-pw", "pw"); p.check("#upd-ack-backup"); p.check("#upd-ack-seed"); p.click('#update button:text-is("Update now")')
             p.wait_for_timeout(14000)
             want(pr, "done", p.inner_text("body"), "Updated to version " + NEW)
             loads = len([c for c in calls if c[1] == "/admin/session"])

@@ -66,7 +66,7 @@ hesitation, and the real amounts.
 
 1. **Update from the Home tab** (the update helper has been used for real once, on 19 November): Home offers the new
    version; **Start update** shows the old and new version, a good signature and the image
-   fingerprint from the release notes; password and code, **Update now**; Home shows the
+   fingerprint from the release notes; the **Before you update** box (tick both boxes: **Update now** stays off until you do); password and code, **Update now**; Home shows the
    new **Version** and the same balance. If Home offers nothing, use the Console update
    in `docs/UPGRADING.md` instead.
 2. **Start the emergency withdrawal** (Settings, Emergency): it says **turned off** and has

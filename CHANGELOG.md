@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The bare-binary installer now checks the release signature.** `scripts/install.sh` used to check the download only against the checksum file from the same release, which catches a broken download but not a tampered release. It now first checks that the checksum file was signed by this project's release workflow for that exact version (with its own pinned copy of cosign, so nothing extra to install), and installs nothing if that fails.
+
 ## 0.3.1 — clearer waits, on-chain transfer links, price columns (21 November 2026)
 
 - **On-chain transfers show where they are.** In "Recent transfers to your own wallet", an on-chain transfer that was sent to the Bitcoin network now says so and links to the transaction on mempool.space, which shows how many confirmations it has (confirming can take a while). The transfers file has the transaction id in a new `txid` column. A transfer that is waiting for cheaper network fees now shows why, and a transfer being handed to the wallet says so.

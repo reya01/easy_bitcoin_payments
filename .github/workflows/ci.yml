@@ -309,6 +309,21 @@ jobs:
         run: bash scripts/test_update_helper.sh
       - name: The pinned cosign (if any) still matches its fingerprint
         run: bash scripts/get-cosign.sh --check
+      - name: install.sh pins the same cosign as get-cosign.sh
+        run: |
+          for v in COSIGN_VERSION COSIGN_SHA256_AMD64; do
+            a=$(grep "^$v=" scripts/get-cosign.sh); b=$(grep "^$v=" scripts/install.sh)
+            [ -n "$a" ] && [ "$a" = "$b" ] || { echo "$v differs: get-cosign.sh '$a' vs install.sh '$b'"; exit 1; }
+          done
+      # The real thing, against real published releases: download, check the
+      # signature for that exact tag, check the sum, install.
+      - name: install.sh installs a real release only after checking its signature
+        run: |
+          for v in 0.3.1 latest; do
+            d="$RUNNER_TEMP/inst-$v"
+            EBP_INSTALL_DIR="$d" bash scripts/install.sh "$v" | tee "$RUNNER_TEMP/inst-$v.log"
+            "$d/ebp" --help | grep -qi usage
+          done
       - name: Render blueprints keep a paid plan, a disk and manual deploys
         run: |
           python3 -m pip install --user pyyaml

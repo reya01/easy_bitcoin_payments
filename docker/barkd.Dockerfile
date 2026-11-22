@@ -14,7 +14,7 @@
 # (https://gitlab.com/ark-bitcoin/bark/-/releases) — the pins only guarantee
 # the asset we downloaded once, not GitLab's own integrity.
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 ARG TARGETARCH
 # GitLab release-asset arch names differ from Docker's TARGETARCH values.
 RUN apt-get update \

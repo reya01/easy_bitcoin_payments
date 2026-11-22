@@ -136,10 +136,12 @@ running_version() {
   printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p' | head -n 1
 }
 
-find_cosign() {
-  if command -v cosign >/dev/null 2>&1; then command -v cosign; return 0; fi
-  if [ -x ./bin/cosign ]; then echo ./bin/cosign; return 0; fi
-  return 1
+# The signature checker. Only this project's pinned copy (./bin/cosign) is
+# trusted first, and only while its fingerprint still matches the pin; a
+# cosign found elsewhere on this computer is used only as a last resort.
+pinned_cosign_ok() {
+  [ -x ./bin/cosign ] && [ -x ./scripts/get-cosign.sh ] \
+    && ./scripts/get-cosign.sh --verify-local >/dev/null 2>&1
 }
 
 usage() {
@@ -231,11 +233,16 @@ main() {
   fi
 
   # 3. The signature.
-  local cosign
-  if ! cosign="$(find_cosign)"; then
+  local cosign=""
+  if pinned_cosign_ok; then
+    cosign=./bin/cosign
+  else
     say "Getting the signature checker (cosign) once, checked against a pinned fingerprint..."
-    if [ -x ./scripts/get-cosign.sh ] && ./scripts/get-cosign.sh >/dev/null 2>&1 && [ -x ./bin/cosign ]; then
+    if [ -x ./scripts/get-cosign.sh ] && ./scripts/get-cosign.sh >/dev/null 2>&1 && pinned_cosign_ok; then
       cosign=./bin/cosign
+    elif command -v cosign >/dev/null 2>&1; then
+      cosign="$(command -v cosign)"
+      say "Could not get the pinned signature checker, so using the cosign already installed on this computer ($cosign)."
     else
       die "the signature checker 'cosign' could not be set up automatically (it needs internet). Install it yourself (https://docs.sigstore.dev/cosign/system_config/installation/) and run this again." no_cosign
     fi

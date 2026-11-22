@@ -653,6 +653,9 @@ function loadHome() {
     loadTestPrompt();
     var w = s.wallet || {};
     NEXT_ROUND_AT = w.next_round_at || null;
+    // The automatic transfer sends everything in one piece, so it waits while any coin is being
+    // renewed by the Ark server. That wait leaves no line of its own, so Home adds one.
+    SWEEP_WAITS = !!(s.payout_set && Number((s.counters || {}).renewals_waiting || 0) > 0 && Number(w.offchain_sats || 0) + Number(w.in_transit_sats || 0) > 0);
     var go = { late: "alerts", webhooks: "hooks", reserve: "set" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };
     (s.checks || []).forEach(function (k) {
@@ -698,6 +701,7 @@ function loadHome() {
 
 // When the Ark server's next round starts (set by loadHome while a renewal is waiting for one).
 var NEXT_ROUND_AT = null;
+var SWEEP_WAITS = false;
 function nextRoundText() {
   var t = NEXT_ROUND_AT ? Date.parse(NEXT_ROUND_AT) : NaN;
   if (isNaN(t)) return "";
@@ -715,19 +719,52 @@ var settleLine = function (x) {
     wr.appendChild(r); wr.appendChild(el("div", nextRoundText() + ". The Ark server renews coins in rounds, and on real money they are about an hour apart. Nothing is wrong while this waits.", "muted"));
     return wr;
   }
-  if ((x.status !== "failed" && x.status !== "unknown") || !x.detail) return r;
-  // Say WHY it failed, in the server's own words, right under the line.
+  // An on-chain transfer that has been handed to the Bitcoin network: say so and link to the
+  // transaction, because confirming can take a while (mempool.space shows how far it is).
+  if (x.kind === "sweep_onchain" && x.status === "broadcast" && x.txid) {
+    var ow = document.createElement("div");
+    ow.appendChild(r);
+    var recent = (Date.now() - Date.parse(x.created_at)) < 86400000;
+    ow.appendChild(el("div", recent ? "Sent to the Bitcoin network. Confirming can take a while, from minutes to hours when fees are low. The link shows how many confirmations it has." : "On-chain transaction:", "muted"));
+    var a = document.createElement("a");
+    a.href = mempoolTxUrl(x.destination, x.txid); a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.textContent = "View this transaction on mempool.space";
+    var lw = document.createElement("div"); lw.appendChild(a); ow.appendChild(lw);
+    return ow;
+  }
+  if (x.status === "sending") {
+    var sw = document.createElement("div");
+    sw.appendChild(r); sw.appendChild(el("div", "Handing this transfer to the wallet. This line updates when the wallet answers.", "muted"));
+    return sw;
+  }
+  var why = x.status === "failed" || x.status === "unknown" || (x.status === "waiting" && x.kind !== "renew");
+  if (!why || !x.detail) return r;
+  // Say WHY it failed or is waiting, in the server's own words, right under the line.
   var w = document.createElement("div");
-  w.appendChild(r); w.appendChild(el("div", "Why: " + x.detail, "muted"));
+  w.appendChild(r); w.appendChild(el("div", (x.status === "waiting" ? "Waiting: " : "Why: ") + x.detail, "muted"));
   return w;
 };
+// Where to look a transaction up. Real-money addresses (bc1, 1, 3) use the main site; the test
+// network (signet) has its own pages.
+function mempoolTxUrl(address, txid) {
+  var a = String(address || "").toLowerCase();
+  var main = a.indexOf("bc1") === 0 || a.charAt(0) === "1" || a.charAt(0) === "3";
+  return "https://mempool.space/" + (main ? "" : "signet/") + "tx/" + txid;
+}
 function loadSettlementList(group, key, boxId) {
   api("GET", "/api/v1/admin/settlements?group=" + group + "&" + pageQuery(key)).then(function (list) {
     var box = $(boxId); clear(box);
     var again = function () { loadSettlementList(group, key, boxId); };
     if (pageGone(key, list.length, again)) return;
+    if (group === "transfers" && SWEEP_WAITS && PAGE[key] === 0) {
+      var pw = document.createElement("div");
+      pw.appendChild(row("Next transfer to your wallet", "waiting"));
+      var nr = nextRoundText();
+      pw.appendChild(el("div", "Waiting for the Ark server to refresh your coins before sending. Your money then goes out all together." + (nr ? " " + nr + "." : ""), "muted"));
+      box.appendChild(pw);
+    }
     list.slice(0, PAGE_SIZE[key]).forEach(function (x) { box.appendChild(settleLine(x)); });
-    if (!list.length) box.appendChild(el("span", "None yet.", "muted"));
+    if (!list.length && !(group === "transfers" && SWEEP_WAITS)) box.appendChild(el("span", "None yet.", "muted"));
     pagerFor(box, key, list.length, again);
   }).catch(function (e) { $(boxId).textContent = e.message; });
 }

@@ -96,12 +96,14 @@ pub async fn settlements(
             let mut stmt = conn.prepare(sql)?;
             let rows = stmt
                 .query_map(params![limit, offset], |row| {
+                    let detail = row.get::<_, Option<String>>(4)?;
                     Ok(json!({
                         "kind": row.get::<_, String>(0)?,
                         "amount_sats": row.get::<_, i64>(1)?,
                         "destination": row.get::<_, Option<String>>(2)?,
                         "status": row.get::<_, String>(3)?,
-                        "detail": row.get::<_, Option<String>>(4)?,
+                        "txid": offboard_txid(detail.as_deref()),
+                        "detail": detail,
                         "created_at": to_rfc3339(row.get::<_, i64>(5)?),
                     }))
                 })?
@@ -110,6 +112,15 @@ pub async fn settlements(
         })
         .await?;
     Ok(Json(rows))
+}
+
+/// The Bitcoin transaction id of an on-chain transfer, when the wallet's answer
+/// (kept in `detail`) names one. Only a plain 64-character hex id is passed on,
+/// because the page turns it into a link.
+pub(crate) fn offboard_txid(detail: Option<&str>) -> Option<String> {
+    let v: Value = serde_json::from_str(detail?).ok()?;
+    let id = v.get("offboard_txid")?.as_str()?;
+    (id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit())).then(|| id.to_ascii_lowercase())
 }
 
 /// Plain words for a `settlements.kind`, the same ones Home shows.
@@ -170,7 +181,7 @@ pub async fn settlements_csv(
     let cut = rows.len() as i64 >= TRANSFERS_CSV_MAX_ROWS;
     let cell = crate::routes::invoices::csv_cell;
     // A byte-order mark so Excel reads the file as UTF-8.
-    let mut out = String::from("\u{feff}date,type,group,amount_sats,status,destination,fiat_currency,fiat_amount,rate,rate_source,note\r\n");
+    let mut out = String::from("\u{feff}date,type,group,amount_sats,status,destination,txid,fiat_currency,fiat_amount,rate,rate_source,note\r\n");
     for (at, kind, sats, status, dest, detail, fcur, famt, rate, rsrc) in &rows {
         let group = if kind.as_str() == "renew" || kind.as_str() == "consolidate" {
             "routine upkeep"
@@ -184,6 +195,7 @@ pub async fn settlements_csv(
             sats.to_string(),
             cell(status),
             cell(dest.as_deref().unwrap_or("")),
+            cell(&offboard_txid(detail.as_deref()).unwrap_or_default()),
             cell(fcur.as_deref().unwrap_or("")),
             cell(famt.as_deref().unwrap_or("")),
             cell(rate.as_deref().unwrap_or("")),
@@ -440,6 +452,7 @@ pub async fn status(
         .get("network")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let mut payout_set = false;
     {
         let cfg = state.config.settlement_destination.clone();
         if let Ok(s) = state
@@ -449,6 +462,7 @@ pub async fn status(
         {
             use crate::health_checks::Payout;
             facts.exit_opted_in = s.exit_opted_in;
+            payout_set = s.active.is_some();
             if let Some(active) = s.active.as_deref() {
                 // The most the server normally holds: the amount at which it
                 // sends everything on.
@@ -484,12 +498,35 @@ pub async fn status(
         "wallet": wallet,
         // Dollars per bitcoin, for showing "(about $0.40)" next to sats; null when no price is known.
         "usd_per_btc": usd_per_btc,
+        // Whether an automatic transfer has somewhere to go (Home explains a wait only then).
+        "payout_set": payout_set,
         // Seconds since the price was last refreshed; null = never yet.
         "price_age_secs": state.rates.newest_age_secs(),
         // Which of the five price sources answered last time.
         "price_sources": state.rates.usd_sources(),
         "price_sources_total": crate::rates::default_sources().len(),
     })))
+}
+
+#[cfg(test)]
+mod txid_link_tests {
+    #[test]
+    fn only_a_plain_transaction_id_is_passed_on_for_the_link() {
+        let id = "ab".repeat(32);
+        let ok = format!(r#"{{"offboard_txid":"{id}","movement_id":7}}"#);
+        assert_eq!(super::offboard_txid(Some(&ok)), Some(id.clone()));
+        let upper = format!(r#"{{"offboard_txid":"{}"}}"#, id.to_uppercase());
+        assert_eq!(super::offboard_txid(Some(&upper)), Some(id));
+        for bad in [
+            r#"{"offboard_txid":"short"}"#,
+            r#"{"offboard_txid":"javascript:alert(1)"}"#,
+            r#"{"vtxos":["a"]}"#,
+            "not json",
+        ] {
+            assert_eq!(super::offboard_txid(Some(bad)), None, "{bad}");
+        }
+        assert_eq!(super::offboard_txid(None), None);
+    }
 }
 
 #[cfg(test)]

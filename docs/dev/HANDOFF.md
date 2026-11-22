@@ -159,6 +159,10 @@ The authoritative lists are [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and section 3 
    comparison-table wording, held Dependabot PRs, and the decisions in `RC_CHECKLIST.md` section 3.
 4. **Later:** `update.sh --first-install`, Shopify ([SHOPIFY.md](SHOPIFY.md) is a plan), Lightning and silent-payment
    payouts, refunds, automatic updates.
+   Also later, not planned for any release yet: a beginner-friendly guided move from the free `sslip.io` address to
+   the owner's own domain (one easy default path, other routes for advanced users). The brainstorm seed is in the
+   Claude project (`claude/roadmap-own-domain-brainstorm-2026-11-21.md`); the main constraints are keeping the shop
+   working during the move, passkeys being tied to the address, and checking DNS before switching.
 
 ## Cold-start commands
 

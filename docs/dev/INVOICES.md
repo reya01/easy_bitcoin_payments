@@ -1,8 +1,7 @@
 # Invoices: get paid outside a shop checkout (plan, not built)
 
 **Status: a high-level draft for the owner to approve. No invoice code exists yet.**
-Written 22 November 2026, revised the same day: no payment link in the first version
-(see "Why no link"). Nothing here is a promise of dates.
+Written 22 November 2026, revised the same day: no payment link (see "Why no link"). Nothing here is a promise of dates.
 
 ## The idea
 
@@ -33,7 +32,7 @@ their phone by email, text or chat. EBP knows exactly which invoice was paid and
 | Know when it was paid | `GET /lightning/receives/{id}`, notifications, history | EBP already watches. |
 | A reusable "pay me" handle | **Not found.** barkd sends to BOLT12 offers, Lightning addresses and LNURL; its docs show no way to receive on one | A static address would not say which invoice was paid anyway. Watch Second's changelog. |
 
-## Why no link in the first version
+## Why no payment link
 
 An earlier draft had EBP serve a public payment page per invoice (`/i/<token>`) that makes a
 fresh Lightning invoice each time it is opened. That solves Lightning expiry, but:
@@ -44,7 +43,7 @@ fresh Lightning invoice each time it is opened. That solves Lightning expiry, bu
   or an unexpired Lightning invoice does not depend on the page;
 - it is more to build, test and keep safe, for a problem the 3-hour window mostly covers.
 
-**Revisit it** if owners find that "ask me for a fresh invoice" is a real annoyance. The
+**Not planned for any version.** Open to revisiting if owners find that "ask me for a fresh invoice" is a real annoyance. The
 matching and payment rules would be unchanged; only a front door would be added.
 
 ## How it works
@@ -97,7 +96,7 @@ matching and payment rules would be unchanged; only a front door would be added.
 | --- | --- |
 | 0.3.x (now) | Hardening and real-money drills. No new features. |
 | **0.4** | **Invoices, experimental.** New tab, payment request with copy and share, fresh Lightning invoice button, statuses, cancel, CSV, phone alert. Off until the owner turns it on in Settings. |
-| 0.5 | Invoice polish (duplicate an invoice, "valid until" wording, print or save as PDF), a "paid" signed event for people who connect their own tools, and the guided move to the owner's own domain. A payment link page is decided here, based on owner use. |
+| 0.5 | Invoice polish (duplicate an invoice, "valid until" wording, print or save as PDF), a "paid" signed event for people who connect their own tools, and the guided move to the owner's own domain. |
 | 0.6 to 0.9 | Release candidates for 1.0: a second independent review of the send path, arm64 builds, reproducible builds, tidy-up from owner use. |
 | **1.0** | Declared after the above has run on real money for a while. WooCommerce and invoices. |
 | After 1.0 | Shopify, Branta address checks, Lightning and silent-payment payouts, refunds, automatic updates. |

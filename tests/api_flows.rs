@@ -454,7 +454,7 @@ async fn the_transfers_file_lists_transfers_and_upkeep_oldest_first_and_needs_th
     assert_eq!(res.headers()["cache-control"], "no-store");
     let csv = res.text().await.unwrap();
     let lines: Vec<&str> = csv.lines().collect();
-    assert!(lines[0].ends_with("date,type,group,amount_sats,status,destination,fiat_currency,fiat_amount,rate,rate_source,note"));
+    assert!(lines[0].ends_with("date,type,group,amount_sats,status,destination,txid,fiat_currency,fiat_amount,rate,rate_source,note"));
     assert_eq!(lines.len(), 4, "a header and three rows: {csv}");
     assert!(lines[1].contains("Routine wallet upkeep,routine upkeep,4000,broadcast"));
     assert!(
@@ -462,10 +462,10 @@ async fn the_transfers_file_lists_transfers_and_upkeep_oldest_first_and_needs_th
     );
     // The line that was written with a price carries it; older lines are blank.
     assert!(
-        lines[2].contains(",ark1testdestination,USD,90.00,60000.00,median(a),"),
+        lines[2].contains(",ark1testdestination,,USD,90.00,60000.00,median(a),"),
         "{csv}"
     );
-    assert!(lines[1].contains(",ark1testdestination,,,,,"), "{csv}");
+    assert!(lines[1].contains(",ark1testdestination,,,,,,"), "{csv}");
     assert!(lines[3].contains("Transfer to your wallet (on-chain)"));
     assert!(
         !csv.contains(",=HYPERLINK") && !csv.contains("\"=HYPERLINK"),

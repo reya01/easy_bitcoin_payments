@@ -228,6 +228,63 @@ def main():
 
         ok &= run_case(pw, "failed upkeep lines say why", upkeep_handler, c_upkeep)
 
+        # On-chain transfers: pending with a mempool.space link, waiting with its reason.
+        TXID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"
+        def onchain_handler(path, req, calls):
+            if path == "/api/v1/admin/settlements":
+                if "group=upkeep" in (req.url or ""):
+                    return 200, []
+                import datetime as _d
+                fresh = (_d.datetime.now(_d.timezone.utc) - _d.timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                return 200, [
+                    {"kind": "sweep_onchain", "amount_sats": 50500, "status": "broadcast", "txid": TXID, "detail": "{}", "destination": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "created_at": fresh},
+                    {"kind": "sweep_onchain", "amount_sats": 30000, "status": "broadcast", "txid": TXID, "detail": "{}", "destination": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", "created_at": "2026-11-10T09:27:48Z"},
+                    {"kind": "sweep_onchain", "amount_sats": 52000, "status": "waiting", "txid": None, "detail": "waiting for on-chain fees to drop to 5 sat/vB or less", "destination": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "created_at": "2026-11-12T09:27:48Z"},
+                    {"kind": "sweep_onchain", "amount_sats": 52000, "status": "sending", "txid": None, "detail": None, "destination": "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "created_at": "2026-11-13T09:27:48Z"},
+                ]
+            return signed_in(path, req, calls)
+
+        def c_onchain(p, pr, calls):
+            p.wait_for_timeout(300)
+            txt = p.inner_text("#sweeps")
+            want(pr, "pending text on the fresh on-chain transfer", txt, "Sent to the Bitcoin network")
+            want(pr, "link text", txt, "View this transaction on mempool.space")
+            want(pr, "the older one still names the transaction", txt, "On-chain transaction:")
+            want(pr, "the waiting reason", txt, "Waiting: waiting for on-chain fees to drop to 5 sat/vB or less")
+            want(pr, "the sending note", txt, "Handing this transfer to the wallet")
+            hrefs = p.eval_on_selector_all("#sweeps a", "els => els.map(e => [e.href, e.target, e.rel])")
+            if len(hrefs) != 2: pr.append("two links expected, saw " + str(hrefs)); return
+            if hrefs[0][0] != "https://mempool.space/tx/" + TXID: pr.append("real-money transfers link to the main mempool.space: " + hrefs[0][0])
+            if hrefs[1][0] != "https://mempool.space/signet/tx/" + TXID: pr.append("test-network transfers link to the signet pages: " + hrefs[1][0])
+            if hrefs[0][1] != "_blank" or "noopener" not in hrefs[0][2]: pr.append("the link opens in a new tab safely: " + str(hrefs[0]))
+        ok &= run_case(pw, "on-chain transfers: pending line with a mempool.space link, waiting reason", onchain_handler, c_onchain)
+
+        # The automatic transfer waits for an Ark refresh: Home says so at the top of the transfers.
+        import datetime as _d2
+        def wait_handler_for(payout_set, waiting, at):
+            def h(path, req, calls):
+                if path == "/api/v1/admin/status":
+                    w = {"offchain_sats": 78109, "in_transit_sats": 0}
+                    if at: w["next_round_at"] = at
+                    return 200, {"checks": [], "counters": {"renewals_waiting": waiting}, "wallet": w, "mode": "live", "usd_per_btc": 67000, "payout_set": payout_set}
+                if path == "/api/v1/admin/settlements":
+                    return 200, []
+                return signed_in(path, req, calls)
+            return h
+        in10 = (_d2.datetime.now(_d2.timezone.utc) + _d2.timedelta(minutes=10, seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        def c_wait(p, pr, calls):
+            p.wait_for_timeout(400)
+            txt = p.inner_text("#sweeps")
+            want(pr, "pending line", txt, "Waiting for the Ark server to refresh your coins before sending")
+            want(pr, "next round time", txt, "Next round in: 1")
+            if "None yet" in txt: pr.append("the pending line replaces None yet")
+        ok &= run_case(pw, "transfers: a renewal in progress shows the transfer is waiting for the refresh", wait_handler_for(True, 1, in10), c_wait)
+        def c_nowait(p, pr, calls):
+            p.wait_for_timeout(400)
+            if "Waiting for the Ark server" in p.inner_text("#sweeps"): pr.append("nothing is waiting, so the line must not show")
+        ok &= run_case(pw, "transfers: no waiting line without a renewal", wait_handler_for(True, 0, None), c_nowait)
+        ok &= run_case(pw, "transfers: no waiting line without a payout address", wait_handler_for(False, 1, None), c_nowait)
+
         # A renewal that waits for an Ark round says when the next round starts.
         import datetime, re as _re
         def round_handler_for(at):

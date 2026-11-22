@@ -1,0 +1,31 @@
+# cargo-deny settings, checked in CI (`cargo deny check sources bans`).
+# Vulnerabilities are checked separately by `cargo audit`.
+
+[graph]
+# Only what we ship: Linux on x86-64 and ARM. Crates used only on other
+# platforms (wasm, Windows, macOS) are not part of the check.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-unknown-linux-musl",
+]
+
+[sources]
+# Every crate must come from crates.io. A git or other-registry dependency
+# would bypass Cargo.lock checksums and crates.io's immutability, so it fails.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[bans]
+# Two versions of one crate are reported (to keep an eye on), not failed.
+multiple-versions = "warn"
+wildcards = "deny"
+# OpenSSL must never come back: TLS is rustls only.
+deny = [
+  { crate = "openssl" },
+  { crate = "openssl-sys" },
+  { crate = "native-tls" },
+]

@@ -612,6 +612,23 @@ def main():
 
         ok &= run_case(pw, "emergency withdrawal: fee money amounts, deposit address, and why Start is grey", exit_handler(), c_short)
 
+        # Slow wallet answer: the section says it is checking, then shows its rows.
+        def slow_exit_handler(path, req, calls):
+            if path == "/admin/exit/status":
+                import time; time.sleep(1.5)
+            return exit_handler()(path, req, calls)
+        def c_slow_exit(p, pr, calls):
+            p.click('#tabs button[data-v="set"]')
+            p.evaluate("document.getElementById('ex-box').open = true")
+            p.wait_for_timeout(100)
+            # Settings fetched the status ahead of time (exactly one call so far, plus none on open).
+            n = len([c for c in calls if c[1] == "/admin/exit/status"])
+            if n < 1: pr.append("the emergency status should be asked as soon as Settings opens")
+            p.wait_for_timeout(3000)
+            if not p.is_hidden("#ex-loading"): pr.append("the checking line should go away once the answer arrives")
+            if p.is_hidden("#ex-left-box") and p.is_hidden("#ex-start-fold"): pr.append("the rows should be listed after the answer")
+        ok &= run_case(pw, "emergency section: a slow wallet answer is prefetched and shows a checking line", slow_exit_handler, c_slow_exit)
+
         def c_enough(p, pr, calls):
             open_exit(p)
             want(pr, "verdict says enough", p.inner_text("#ex-fee-verdict"), "Enough")

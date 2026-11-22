@@ -157,7 +157,8 @@ function show(name) {
   if (name === "orders") { PAGE.orders = 0; loadOrders(); }
   if (name === "alerts") loadAlerts();
   if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
-  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); }
+  // The emergency answer is fetched ahead, so the section is usually ready when it is opened.
+  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); loadExit(); }
   if (name === "home" || name === "set" || name === "alerts") loadPhone();
   if (name === "home" || name === "set") loadTwofa();
   if (name === "home") loadRecon();
@@ -1574,8 +1575,12 @@ function syncStartFold(opted, running) {
   fold.classList.toggle("hidden", !(opted || running));
   if (running && !exFoldOpened) { fold.open = true; exFoldOpened = true; }
 }
+// The status answer comes from the wallet and can take a few seconds. Until the first answer the
+// section says so, instead of showing only the warning box.
+function exLoaded() { var l = $("ex-loading"); if (l) l.classList.add("hidden"); }
 function loadExit() {
   api("POST", "/admin/exit/status", {}).then(function (s) {
+    exLoaded();
     exState = s;
     var f = $("ex-facts"); clear(f);
     // The emergency withdrawal is opt-in: off until the owner turns it on. One
@@ -1701,7 +1706,7 @@ function loadExit() {
     else { nx.textContent = "You are set. Nothing more to do now. If you ever need it, open \u201CStart an emergency withdrawal\u201D at the bottom."; nx.className = "msg ok"; }
     syncStartFold(opted, running);
     exReady();
-  }).catch(function (e) { say("exo-msg", e.message, true); });
+  }).catch(function (e) { exLoaded(); say("exo-msg", e.message, true); });
 }
 $("ex-box").addEventListener("toggle", function () {
   if (exTimer) { clearInterval(exTimer); exTimer = null; }

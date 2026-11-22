@@ -73,7 +73,7 @@ services:
   caddy:
     # Pinned by digest: Caddy handles the server's https traffic (including the
     # admin password), so the exact image is fixed. Dependabot proposes updates.
-    image: caddy:2.10@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+    image: caddy:2.11@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
     profiles: ["https"]
     environment:
       EBP_DOMAIN: ${EBP_DOMAIN:-localhost}

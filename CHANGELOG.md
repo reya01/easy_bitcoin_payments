@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.1 — clearer waits, on-chain transfer links, price columns (21 November 2026)
+
 - **On-chain transfers show where they are.** In "Recent transfers to your own wallet", an on-chain transfer that was sent to the Bitcoin network now says so and links to the transaction on mempool.space, which shows how many confirmations it has (confirming can take a while). The transfers file has the transaction id in a new `txid` column. A transfer that is waiting for cheaper network fees now shows why, and a transfer being handed to the wallet says so.
 
 - **Home says when the automatic transfer is waiting for an Ark refresh.** The automatic transfer sends everything in one piece, so it waits while the Ark server is renewing any of your coins. That wait used to show nothing. Now the top of "Recent transfers to your own wallet" says "Waiting for the Ark server to refresh your coins before sending", with the time to the next round.

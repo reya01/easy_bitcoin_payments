@@ -4,6 +4,8 @@
 
 - **The emergency section no longer looks empty while it loads.** The wallet's answer can take a few seconds, and until it came only the warning box showed. Settings now asks for it as soon as it opens, and the section says "Checking your wallet…" until the rows appear.
 
+- **The transfers file shows the dollar price at the time.** Four new columns, `fiat_currency`, `fiat_amount`, `rate` and `rate_source`, are written when each transfer or upkeep line is recorded (the dollar value of the sats, the price used and the price sources), for bookkeeping. Lines written before this version stay blank: EBP does not guess a price after the fact, and the price is left blank if no recent price is known. The payments file already has the same four columns, filled from the price locked at checkout (blank for payments priced in sats).
+
 - **The transfers file no longer has a blank "confirmed" column.** It was added by mistake: EBP does not record a confirmation time for transfers and upkeep, so the column was always empty. The status column says where each one stands.
 
 ## 0.3.0-rc4 — release candidate: easier Settings, a transfers file, next Ark round time (21 November 2026)

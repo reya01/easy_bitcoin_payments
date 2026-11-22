@@ -80,6 +80,26 @@ struct Entry {
     sources: Vec<String>,
 }
 
+/// The saved price for `currency` straight from the database (what the price
+/// keeper last wrote), for bookkeeping at the moment a transfer is recorded.
+/// `None` when there is none or it is older than [`MAX_AGE_SECS`]: a missing
+/// price is left blank, never guessed.
+pub fn saved_quote(conn: &rusqlite::Connection, currency: &str, now: i64) -> Option<RateQuote> {
+    let json = crate::settings::get(conn, SETTINGS_KEY).ok()??;
+    let saved: BTreeMap<String, Entry> = serde_json::from_str(&json).ok()?;
+    let currency = currency.trim().to_uppercase();
+    let entry = saved.get(&currency)?;
+    if now - entry.at > MAX_AGE_SECS || !(entry.rate.is_finite() && entry.rate > 0.0) {
+        return None;
+    }
+    Some(RateQuote {
+        currency,
+        fiat_per_btc: entry.rate,
+        source: format!("median({})", entry.sources.join(",")),
+        quoted_at: entry.at,
+    })
+}
+
 /// The stored Bitcoin price. Create it with [`RateService::new`], then call
 /// [`RateService::spawn`] once to keep it fresh.
 #[derive(Default)]

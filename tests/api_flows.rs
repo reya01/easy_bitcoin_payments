@@ -421,6 +421,10 @@ async fn the_transfers_file_lists_transfers_and_upkeep_oldest_first_and_needs_th
                     rusqlite::params![id, kind, sats, dest, status, detail, at],
                 )?;
             }
+            c.execute(
+                "UPDATE settlements SET fiat_currency='USD', fiat_amount='90.00', rate='60000.00', rate_source='median(a)' WHERE id='t2'",
+                [],
+            )?;
             Ok(())
         })
         .await
@@ -450,12 +454,18 @@ async fn the_transfers_file_lists_transfers_and_upkeep_oldest_first_and_needs_th
     assert_eq!(res.headers()["cache-control"], "no-store");
     let csv = res.text().await.unwrap();
     let lines: Vec<&str> = csv.lines().collect();
-    assert!(lines[0].ends_with("date,type,group,amount_sats,status,destination,note"));
+    assert!(lines[0].ends_with("date,type,group,amount_sats,status,destination,fiat_currency,fiat_amount,rate,rate_source,note"));
     assert_eq!(lines.len(), 4, "a header and three rows: {csv}");
     assert!(lines[1].contains("Routine wallet upkeep,routine upkeep,4000,broadcast"));
     assert!(
         lines[2].contains("Transfer to your wallet (Ark),transfer to your wallet,150000,broadcast")
     );
+    // The line that was written with a price carries it; older lines are blank.
+    assert!(
+        lines[2].contains(",ark1testdestination,USD,90.00,60000.00,median(a),"),
+        "{csv}"
+    );
+    assert!(lines[1].contains(",ark1testdestination,,,,,"), "{csv}");
     assert!(lines[3].contains("Transfer to your wallet (on-chain)"));
     assert!(
         !csv.contains(",=HYPERLINK") && !csv.contains("\"=HYPERLINK"),

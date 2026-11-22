@@ -6,7 +6,7 @@ Detailed plans live in `docs/dev/`.
 | | |
 | --- | --- |
 | **Now: WooCommerce** | Live. Lightning and Ark checkout, automatic payout to your own wallet, backups, one-tap updates, emergency withdrawal. Still experimental: start small. |
-| **Next: invoices (v0.4)** | Send a link by email, text or chat to get paid in bitcoin without a web shop. A new Invoices tab; paid by Lightning or Ark so each payment is matched to its invoice. Plan: [docs/dev/INVOICES.md](dev/INVOICES.md). |
+| **Next: invoices (v0.4)** | Get paid in bitcoin without a web shop: make an invoice, copy or share the payment request by email, text or chat. A new Invoices tab; paid by Lightning or Ark so each payment is matched to its invoice. Plan: [docs/dev/INVOICES.md](dev/INVOICES.md). |
 | **Then (v0.5)** | Invoice polish, and a guided move from the free address to your own domain. |
 | **Before 1.0 (v0.6 to v0.9)** | Release candidates: a second independent review of the money-sending code, ARM servers, reproducible builds. |
 | **1.0** | WooCommerce and invoices, after a good stretch of real-money use. |

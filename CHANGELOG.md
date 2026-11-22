@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **An unclear transfer keeps its coin list readable.** When a send to your payout address timed out, the reason was written in front of the record that names the coins the send used, which made that record unreadable. The server then could not tell, from the wallet, that an on-chain transfer's coins were all still there and so nothing had been sent, and it asked you instead. It failed safe (it never guessed), but now the reason is stored as its own field and the coin list stays readable.
+- **A test now guards the fee money.** The few regular-Bitcoin sats the server keeps to pay for an emergency withdrawal can only be spent by the emergency-withdrawal buttons. A test reads the source and fails the build if any automatic code (transfers, renewals, watchers, alerts) calls a wallet function that could spend it.
+- **Updated parts.** The database library (SQLite) and the Caddy web server are newer (Caddy 2.11, pinned by digest), and the CI and release tooling was refreshed (the release dry run passes). Nothing you need to do.
 - **Updating from the Home tab now asks you to back up first.** The confirm screen has a "Before you update" box with the steps to download a fresh backup and two boxes to tick: one saying you downloaded and saved a backup somewhere outside the server, one saying you still have your 12 recovery words. "Update now" stays switched off until both are ticked, and the server refuses the update without both too (so an old page or a script cannot skip them). The approval line in the Security activity log now notes that both were confirmed. The Console update (`update.sh`) is unchanged.
 
 ## 0.3.2-rc1 — safer "did not arrive", signed installer, supply-chain checks (22 November 2026)

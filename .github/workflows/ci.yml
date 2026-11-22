@@ -347,7 +347,10 @@ jobs:
           # image, every compose image and every public image CI pulls must
           # carry @sha256:. On failure, print the current digest of each one
           # so it can be checked and pasted in.
-          if ! python3 scripts/check_image_pins.py | tee "$RUNNER_TEMP/pins.txt"; then
+          # (No pipe: CI's default shell has no pipefail, so `| tee` would
+          # hide a failure.)
+          if ! python3 scripts/check_image_pins.py > "$RUNNER_TEMP/pins.txt"; then
+            cat "$RUNNER_TEMP/pins.txt"
             echo "Current digests (verify before pinning):"
             for ref in $(sed -n 's/^  [^ ]*: //p' "$RUNNER_TEMP/pins.txt" | sort -u); do
               d=$(docker buildx imagetools inspect "$ref" | sed -n 's/^Digest: *//p' | head -n 1)
@@ -355,6 +358,7 @@ jobs:
             done
             exit 1
           fi
+          cat "$RUNNER_TEMP/pins.txt"
       - name: Caddyfile is valid
         run: |
           # The same Caddy image the merchant's server runs.

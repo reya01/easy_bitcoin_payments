@@ -616,20 +616,41 @@ pub(crate) fn history_may_show_send(
 pub const TRANSFER_UNKNOWN_NOTE: &str = "A transfer to your payout address may or may not have gone out: it was interrupted before the server heard back. Your money is safe either way. No more transfers are made until this is cleared, so it is not sent again by mistake. Check your payout wallet, then tell the server below whether it arrived.";
 
 /// Did this failed send possibly go through anyway? A timeout, a dropped
-/// connection after the request left, or an answer we could not read: yes.
-/// A clear refusal, a connection that never opened or an error answer: no.
+/// connection after the request left, a server error, or an answer we could
+/// not read: yes. A clear refusal or a connection that never opened: no.
 pub(crate) fn send_outcome_unknown(err: &crate::wallet::WalletError) -> bool {
     use crate::wallet::WalletError;
     match err {
         WalletError::Unavailable(m) => {
+            let http_5xx = m.split("HTTP ").skip(1).any(|rest| {
+                rest.get(..3)
+                    .and_then(|code| code.parse::<u16>().ok())
+                    .is_some_and(|code| (500..=599).contains(&code))
+            });
             m.contains("timed out")
                 || m.contains("request failed")
-                // A gateway that gave up waiting says nothing about whether
-                // the send went through behind it.
-                || m.contains("HTTP 502")
-                || m.contains("HTTP 504")
+                // A server or gateway error says nothing about whether the
+                // send went through behind it.
+                || http_5xx
         }
         WalletError::Rejected(m) => m.contains("unparseable response"),
+    }
+}
+
+#[cfg(test)]
+mod send_outcome_unknown_tests {
+    use super::send_outcome_unknown;
+    use crate::wallet::WalletError;
+
+    #[test]
+    fn http_5xx_send_outcomes_are_unknown() {
+        for status in [500, 501, 502, 503, 504, 599] {
+            let err = WalletError::Unavailable(format!("wallet returned HTTP {status}"));
+            assert!(
+                send_outcome_unknown(&err),
+                "HTTP {status} should have an unknown outcome"
+            );
+        }
     }
 }
 

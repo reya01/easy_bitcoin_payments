@@ -368,6 +368,7 @@ pub async fn status(
             };
             crate::config::is_loopback_host(host)
         },
+        private_targets_allowed: crate::webhook::allow_private_from_env(),
         // Filled in below from the payout settings (the most the server normally holds).
         hot_wallet_cap_sats: 0,
         unmatched_open: counters["unmatched_payments_open"].as_i64().unwrap_or(0),

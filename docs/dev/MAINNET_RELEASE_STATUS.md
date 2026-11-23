@@ -1,4 +1,4 @@
-# First real-money release: where things stand (updated 21 November 2026)
+# First real-money release: where things stand (updated 22 November 2026)
 
 This is the one page to read before deciding to cut the first release that is
 meant to be tried with real money. It replaces the signet-only wording in
@@ -96,6 +96,13 @@ open the emergency-exit page.
   or sent for a different amount; the bare-binary installer checks the release signature; the update helper
   trusts its pinned cosign first; every container image is pinned by digest; a weekly check compares the pinned barkd
   with Second's Docker Hub image, GitLab's checksums and the tag's commit (Second does not sign releases).
+
+**Added in 0.3.2-rc2 (22 November 2026), CI and browser tests only:**
+
+- Updating from Home asks for a fresh backup and the 12 recovery words (two boxes to tick; the server refuses without both). It first shows on the update after rc2.
+- An unclear on-chain transfer's coin list stays readable, so the wallet's history can settle it; a test guards that only the emergency-withdrawal buttons can spend the on-chain fee money.
+- The bare-binary installer uses the newest pre-release while there is no stable release.
+- Newer database library (SQLite) and Caddy 2.11; not yet seen on a live server.
 
 ## 3. Still open
 

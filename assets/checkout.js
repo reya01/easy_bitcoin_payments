@@ -214,7 +214,7 @@ function showPart(b) {
   setTotals(); render();
   setStatusRich("Part paid: " + fmtSats(remaining) + " to go.", " Send exactly the rest to this same payment before the timer runs out, and it completes on its own.", "Already sent some? Don't send the full amount again. That would overpay.", "warn");
 }
-// Success picture: one of four mascots, picked from the payment id (a refresh shows the same one).
+// Success picture: one of ten mascots, picked from the payment id (a refresh shows the same one).
 // The art is part of the server program (/assets/mascot/*, read-only, fixed list); this code only
 // builds image elements with those fixed names and never takes a name or address from anywhere else.
 function showMascot() {
@@ -223,7 +223,7 @@ function showMascot() {
   s.mascot = true;
   var h = 0;
   for (var i = 0; i < id.length; i++) h = (Math.imul(h, 31) + id.charCodeAt(i)) >>> 0;
-  var v = h % 4;
+  var v = h % 10;
   function img(name, cls) { var e = document.createElement("img"); e.src = "/assets/mascot/" + name + ".png"; e.alt = ""; if (cls) e.className = cls; return e; }
   function node(cls, left, top, width, color, delay) {
     var e = document.createElement("div"); e.className = cls;
@@ -241,11 +241,29 @@ function showMascot() {
   } else if (v === 2) {
     var bow = node("mc-bow"); bow.appendChild(img("fancy-body")); bow.appendChild(img("fancy-hat", "mc-hat")); box.appendChild(bow);
     box.appendChild(node("mc-star tw", "19.4%", "8.2%", "7.6%", "#ffd23f", ".05s")); box.appendChild(node("mc-star tw", "11.8%", "21.8%", "5.3%", "#ff7a8c", ".25s")); box.appendChild(node("mc-star tw", "84.7%", "5.3%", "5.9%", "#5b3df5", ".15s"));
-  } else {
+  } else if (v === 3) {
     box.appendChild(img("acro", "mc-acro"));
     box.appendChild(node("mc-star pp", "10.6%", "20.6%", "7%", "#ffd23f", ".1s")); box.appendChild(node("mc-star pp", "85.9%", "32.4%", "5.3%", "#ff7a8c", ".5s")); box.appendChild(node("mc-star pp", "79.4%", "8.8%", "5.9%", "#5b3df5", ".9s"));
+  } else if (v === 4) {
+    box.appendChild(img("surfer", "mc-surf"));
+    box.appendChild(node("mc-star tw", "12%", "14%", "7%", "#ffd23f", ".1s")); box.appendChild(node("mc-star tw", "84%", "24%", "5.5%", "#ff7a8c", ".9s")); box.appendChild(node("mc-star tw", "76%", "8%", "6%", "#7fe0ff", "1.7s"));
+  } else if (v === 5) {
+    box.appendChild(img("lifter", "mc-lift"));
+    box.appendChild(node("mc-star pp", "14%", "22%", "7%", "#ffd23f", ".2s")); box.appendChild(node("mc-star pp", "82%", "18%", "6%", "#ff7a8c", "1s")); box.appendChild(node("mc-star pp", "50%", "4%", "6%", "#7fe0ff", "1.6s"));
+  } else if (v === 6) {
+    box.appendChild(img("dj", "mc-groove"));
+    box.appendChild(node("mc-note", "70%", "34%", null, "#ffd23f", "0s")); box.appendChild(node("mc-note m2", "80%", "40%", null, "#ff7a8c", ".7s")); box.appendChild(node("mc-note m3", "16%", "36%", null, "#7fe0ff", "1.4s"));
+  } else if (v === 7) {
+    box.appendChild(img("cozy", "mc-breathe"));
+    box.appendChild(node("mc-note m4", "22%", "40%", null, "#ff7a8c", "0s")); box.appendChild(node("mc-note m4", "66%", "36%", null, "#ff7a8c", "1.1s")); box.appendChild(node("mc-note m4", "46%", "30%", null, "#ffd23f", "2.2s"));
+  } else if (v === 8) {
+    box.appendChild(img("drums", "mc-drum"));
+    box.appendChild(node("mc-star pp", "10%", "10%", "7%", "#ffd23f", ".1s")); box.appendChild(node("mc-star pp", "88%", "40%", "5.5%", "#ff7a8c", ".6s")); box.appendChild(node("mc-star pp", "78%", "8%", "6%", "#7fe0ff", "1.2s"));
+  } else {
+    box.appendChild(img("planet", "mc-float"));
+    box.appendChild(node("mc-star tw", "8%", "12%", "6%", "#ffd23f", ".2s")); box.appendChild(node("mc-star tw", "90%", "60%", "5%", "#ffffff", "1s")); box.appendChild(node("mc-star tw", "62%", "6%", "5.5%", "#7fe0ff", "1.8s"));
   }
-  box.setAttribute("data-v", ["sir", "ufo", "fancy", "acrobat"][v]);
+  box.setAttribute("data-v", ["sir", "ufo", "fancy", "acrobat", "surfer", "lifter", "dj", "cozy", "drums", "planet"][v]);
   box.classList.remove("hidden");
 }
 function poll() {

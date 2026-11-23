@@ -348,17 +348,17 @@ def main():
                        invoice(), [{"status": "cancelled"}], c_cancelled, json_delay_ms=700)
         ok &= run_case(pw, "narrow phone (320 px) fits", invoice(store_name="A very long shop name " * 6), [{"status": "pending"}], c_pending, width=320)
 
-        # Success mascot: one of four, picked from the payment id (same hash as the page).
+        # Success mascot: one of ten, picked from the payment id (same hash as the page).
         def pick(i):
             h = 0
             for ch in i:
                 h = (h * 31 + ord(ch)) & 0xFFFFFFFF
-            return h % 4
-        names = ["sir", "ufo", "fancy", "acrobat"]
+            return h % 10
+        names = ["sir", "ufo", "fancy", "acrobat", "surfer", "lifter", "dj", "cozy", "drums", "planet"]
         ids = {}
-        for n in range(1000):
+        for n in range(20000):
             ids.setdefault(pick(f"inv_m{n}"), f"inv_m{n}")
-            if len(ids) == 4:
+            if len(ids) == 10:
                 break
         for v, iid in sorted(ids.items()):
             def c_mascot(a, pr, v=v):

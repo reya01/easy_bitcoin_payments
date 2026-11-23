@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Six new mascots at checkout.** After a customer pays, the checkout page now shows one of ten little animated Bitcoin characters (new: a surfer, a weightlifter, a DJ, a cozy fireside reader, a drummer and a planet). Which one appears depends on the payment, so a refresh shows the same one. People who prefer reduced motion get the still picture. The pictures are built into the program like the first four.
+- **A weightlifter cheers on Home when you get paid.** While the Home tab is open, a short animation with a "New payment!" message plays when a payment arrives, at most once a minute. It is only for fun: it reads the payments list the Payments tab already reads, and if anything goes wrong it simply does not show.
+
 ## 0.3.2-rc2 — backup first, tidier unclear transfers (22 November 2026)
 
 - **The bare-binary installer works while every release is a pre-release.** `scripts/install.sh` with no version asked GitHub for the "latest" release, which is only a release not marked pre-release, so it stopped with "could not work out the latest release". It now falls back to the newest pre-release and says so (the signature check is unchanged). Giving a version, such as `scripts/install.sh 0.3.2-rc1`, always worked.

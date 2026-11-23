@@ -153,7 +153,7 @@ function show(name) {
   views.forEach(function (v) { $("v-" + v).classList.toggle("hidden", v !== name); });
   var tabs = document.querySelectorAll("#tabs button");
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("on", tabs[i].getAttribute("data-v") === name);
-  if (name === "home") { PAGE.sweeps = 0; PAGE.upkeep = 0; loadHome(); }
+  if (name === "home") { PAGE.sweeps = 0; PAGE.upkeep = 0; loadHome(); cheerCheck(); }
   if (name === "orders") { PAGE.orders = 0; loadOrders(); }
   if (name === "alerts") loadAlerts();
   if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
@@ -666,6 +666,49 @@ function loadTestPrompt() {
     c.classList.remove("hidden");
   }).catch(function () { c.classList.add("hidden"); });
 }
+
+// Payment cheer: a little weightlifter on Home when a payment arrives. Pure fun, never part of
+// the money path: it only reads the payments list the Payments tab already reads, runs at most
+// once a minute, and any failure (network, picture, odd answer) is swallowed on purpose.
+var CHEER = { seen: null, last: 0, hide: null };
+function cheerCheck() {
+  try {
+    if (document.hidden || $("v-home").classList.contains("hidden")) return;
+    api("GET", "/api/v1/invoices?limit=50").then(function (list) {
+      try {
+        var now = Date.now(), fresh = [], ids = {};
+        (list || []).forEach(function (i) {
+          if (i.status !== "paid" && i.status !== "overpaid") return;
+          ids[i.id] = true;
+          if (CHEER.seen && !CHEER.seen[i.id] && i.paid_at && now - Date.parse(i.paid_at) < 180000) fresh.push(i);
+        });
+        var first = !CHEER.seen;
+        CHEER.seen = Object.assign(CHEER.seen || {}, ids);
+        if (first || !fresh.length || now - CHEER.last < 60000) return;
+        CHEER.last = now;
+        cheer(fresh);
+      } catch (e) { /* the cheer is optional */ }
+    }).catch(function () { /* optional */ });
+  } catch (e) { /* optional */ }
+}
+function cheer(fresh) {
+  var box = $("cheer"); if (!box) return;
+  var sats = fresh.reduce(function (t, i) { return t + (Number(i.amount_sats) || 0); }, 0);
+  var lines = ["You just made Bitcoin!", "Cha-ching! Bitcoin, earned.", "Another sale, in bitcoin. Nice lift!", "You are officially a Bitcoin business."];
+  var img = document.createElement("img");
+  img.alt = ""; img.className = "cheer-pic";
+  img.onerror = function () { box.classList.add("hidden"); };
+  img.src = "/assets/mascot/lifter.png";
+  var text = el("div", "", "cheer-text");
+  text.appendChild(el("div", fresh.length > 1 ? fresh.length + " new payments!" : "New payment!", "cheer-h"));
+  text.appendChild(el("div", lines[Math.floor(Math.random() * lines.length)], ""));
+  if (sats > 0) text.appendChild(el("div", "+" + fmtSats(sats), "muted"));
+  clear(box); box.appendChild(img); box.appendChild(text);
+  box.classList.remove("hidden");
+  clearTimeout(CHEER.hide);
+  CHEER.hide = setTimeout(function () { box.classList.add("hidden"); }, 9000);
+}
+setInterval(cheerCheck, 30000);
 
 function loadHome() {
   api("GET", "/api/v1/admin/status").then(function (s) {

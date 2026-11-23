@@ -920,6 +920,12 @@ async fn mascot_art_is_built_in_read_only_and_cannot_be_uploaded() {
         "fancy-body",
         "fancy-hat",
         "acro",
+        "surfer",
+        "lifter",
+        "dj",
+        "cozy",
+        "drums",
+        "planet",
     ];
     let mut originals = Vec::new();
     for name in names {

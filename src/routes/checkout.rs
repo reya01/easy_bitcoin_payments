@@ -41,6 +41,12 @@ pub async fn mascot(
         "fancy-body.png" => include_bytes!("../../assets/mascot/fancy-body.png"),
         "fancy-hat.png" => include_bytes!("../../assets/mascot/fancy-hat.png"),
         "acro.png" => include_bytes!("../../assets/mascot/acro.png"),
+        "surfer.png" => include_bytes!("../../assets/mascot/surfer.png"),
+        "lifter.png" => include_bytes!("../../assets/mascot/lifter.png"),
+        "dj.png" => include_bytes!("../../assets/mascot/dj.png"),
+        "cozy.png" => include_bytes!("../../assets/mascot/cozy.png"),
+        "drums.png" => include_bytes!("../../assets/mascot/drums.png"),
+        "planet.png" => include_bytes!("../../assets/mascot/planet.png"),
         _ => return Err(AppError::NotFound),
     };
     Ok((

@@ -88,3 +88,7 @@ nav button.on{background:var(--tab-on);color:var(--fg);font-weight:700}
 .pkuse,.pklogin{margin:6px 0 4px}.pkuse .pknote{margin:6px 0 0}.pkuse .pkswitch{margin-left:8px}.pkuse .pkhint{margin:6px 0 0;font-size:13px}
 details.updfold{margin-top:12px}
 details.updfold>summary{cursor:pointer;color:var(--muted);font-size:.95em;padding:8px 0}
+
+.cheer{display:flex;align-items:center;gap:14px;background:var(--ok-bg);color:var(--ok)}.cheer-pic{width:96px;height:96px;flex:none;transform-origin:50% 92%;animation:cheer-lift 1.2s ease-in-out 4}.cheer-text{min-width:0}.cheer-h{font-weight:800;font-size:18px}
+@keyframes cheer-lift{0%,100%{transform:translateY(0) scale(1,1)}30%{transform:translateY(2%) scale(1.04,.95)}55%{transform:translateY(-10%) scale(.98,1.05) rotate(-2deg)}}
+@media(prefers-reduced-motion:reduce){.cheer-pic{animation:none}}

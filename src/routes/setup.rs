@@ -867,7 +867,7 @@ pub async fn create_wallet(
             Ok(before)
         })
         .await?;
-    let outcome = create_till_wallet(
+    let outcome = match create_till_wallet_checked(
         &base_url,
         &network,
         &asp_url,
@@ -875,7 +875,28 @@ pub async fn create_wallet(
         token.as_deref(),
         tried_before,
     )
-    .await?;
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err((err, nothing_made)) => {
+            // Nothing was made, so forget the attempt: a wallet that someone else makes
+            // before the next try must not be taken for ours. (A timeout or a lost answer
+            // keeps the memory: that wallet may be ours.)
+            if nothing_made && !tried_before {
+                let _ = state
+                    .db
+                    .call(|conn| {
+                        conn.execute(
+                            "DELETE FROM settings WHERE key = ?1",
+                            rusqlite::params![WALLET_CREATE_TRIED_KEY],
+                        )?;
+                        Ok(())
+                    })
+                    .await;
+            }
+            return Err(err);
+        }
+    };
 
     // A wallet that was already there (made by hand, or an earlier wizard
     // run) is adopted only if it really is on the chosen network: the mode
@@ -1025,10 +1046,35 @@ async fn create_till_wallet(
     asp_url: &str,
     restore_words: Option<&str>,
     token: Option<&str>,
+    tried_before: bool,
+) -> Result<CreateWalletOutcome, AppError> {
+    create_till_wallet_checked(
+        base_url,
+        network,
+        asp_url,
+        restore_words,
+        token,
+        tried_before,
+    )
+    .await
+    .map_err(|(err, _)| err)
+}
+
+/// [`create_till_wallet`], but a failure also says whether it is certain that nothing was made
+/// (`true`): barkd was never reached, or it answered with a clear refusal and no wallet is there.
+/// Only then may the "this wizard has tried" memory be wiped, so a wallet that someone else
+/// makes in the gap is not adopted on the next try. A timeout or a lost answer stays `false`:
+/// the wallet may be ours, and carrying on with it is how a lost answer is recovered.
+async fn create_till_wallet_checked(
+    base_url: &str,
+    network: &str,
+    asp_url: &str,
+    restore_words: Option<&str>,
+    token: Option<&str>,
     // This wizard asked barkd before: a wallet now there may be the result
     // of that earlier restore, whose answer was lost.
     tried_before: bool,
-) -> Result<CreateWalletOutcome, AppError> {
+) -> Result<CreateWalletOutcome, (AppError, bool)> {
     // A restore may have to scan the chain for the wallet's coins, so it is
     // allowed far longer than making a new, empty wallet.
     let client = reqwest::Client::builder()
@@ -1038,7 +1084,12 @@ async fn create_till_wallet(
             60
         }))
         .build()
-        .map_err(|err| AppError::Internal(format!("could not build the barkd client: {err}")))?;
+        .map_err(|err| {
+            (
+                AppError::Internal(format!("could not build the barkd client: {err}")),
+                true,
+            )
+        })?;
 
     let mut request = client
         .post(format!("{base_url}{PATH_WALLET_CREATE}"))
@@ -1063,14 +1114,21 @@ async fn create_till_wallet(
         // Log the detail; return a generic message (no internal URL) to
         // the unauthenticated caller (R9).
         tracing::warn!(error = %err, "setup: could not reach barkd");
-        AppError::Internal("could not reach the wallet service".into())
+        // A connection that never opened means barkd never saw the request.
+        (
+            AppError::Internal("could not reach the wallet service".into()),
+            err.is_connect(),
+        )
     })?;
 
     if response.status().is_success() {
         let body: serde_json::Value = response.json().await.map_err(|err| {
-            AppError::Internal(format!(
-                "barkd's wallet-create answer was not valid JSON: {err}"
-            ))
+            (
+                AppError::Internal(format!(
+                    "barkd's wallet-create answer was not valid JSON: {err}"
+                )),
+                false, // barkd said yes: the wallet is there and may be ours
+            )
         })?;
         // The pinned spec returns no words here; kept as a tolerant fallback.
         let mnemonic = ["mnemonic", "seed_phrase", "recovery_phrase"]
@@ -1110,15 +1168,21 @@ async fn create_till_wallet(
                 mnemonic: None,
             });
         }
-        return Err(if exists {
-            AppError::Conflict(
-                "This server already has a wallet, so it cannot restore a different one. Restore onto a fresh server with an empty data folder.".into(),
-            )
-        } else {
-            AppError::BadRequest(
-                "The wallet service did not accept those words. Check every word and its order against your paper copy, then try again. Nothing was changed.".into(),
-            )
-        });
+        // Either way nothing was made by this request, as long as barkd gave a clear
+        // refusal (a 4xx answer); a 5xx is not clear.
+        let nothing_made = status.is_client_error();
+        return Err((
+            if exists {
+                AppError::Conflict(
+                    "This server already has a wallet, so it cannot restore a different one. Restore onto a fresh server with an empty data folder.".into(),
+                )
+            } else {
+                AppError::BadRequest(
+                    "The wallet service did not accept those words. Check every word and its order against your paper copy, then try again. Nothing was changed.".into(),
+                )
+            },
+            nothing_made,
+        ));
     }
     if let Some(probe) = barkd_get(base_url, PATH_WALLET_BALANCE, token).await {
         if probe.is_success() {
@@ -1129,10 +1193,13 @@ async fn create_till_wallet(
             });
         }
     }
-    Err(AppError::Internal(format!(
-        "barkd refused to create the wallet (HTTP {status}). Check `docker compose logs barkd`; \
-         if a wallet already exists, re-run — the wizard will detect it."
-    )))
+    Err((
+        AppError::Internal(format!(
+            "barkd refused to create the wallet (HTTP {status}). Check `docker compose logs barkd`; \
+             if a wallet already exists, re-run — the wizard will detect it."
+        )),
+        status.is_client_error(),
+    ))
 }
 
 // ---------------------------------------------------------------------------

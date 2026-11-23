@@ -1330,6 +1330,16 @@ impl SettlementEngine {
                 report.sweep_refused = Some(TRANSFER_UNKNOWN_NOTE.to_string());
                 return Ok(report);
             }
+            // The unclear transfer is now settled. The coin list and balance above were read
+            // BEFORE the wallet history, so they may still count coins that very transfer
+            // spent. Sending from them could try to send money that is already gone, or
+            // send the wrong amount. Stop here: the next check reads everything fresh.
+            if manual {
+                report.sweep_refused = Some(
+                    "An earlier unclear transfer was just settled from the wallet history. Nothing else was sent in this step, so the numbers on screen are fresh: press the button again to send what is free.".to_string(),
+                );
+            }
+            return Ok(report);
         }
         let offchain = balances.offchain_sats.saturating_sub(locked_sats);
         // Nothing stays behind: everything that is free is sent.
@@ -2441,15 +2451,19 @@ mod tests {
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         let mode = Arc::new(AtomicUsize::new(0));
         let hist = Arc::new(AtomicBool::new(false));
-        let (base, _rec) = journal_mock(mode.clone(), hist.clone());
+        let (base, rec) = journal_mock(mode.clone(), hist.clone());
         let db = Db::open(":memory:").unwrap();
         let engine = engine_for(&base, &db, JOURNAL_ARK);
         engine.tick().await.unwrap();
         assert_eq!(journal_status(&db).await, vec!["unknown"]);
+        assert_eq!(sends(&rec), 1);
         // The wallet's history now shows the send going out.
         hist.store(true, Ordering::SeqCst);
         mode.store(1, Ordering::SeqCst); // any new send would be refused: only the settling is under test
         engine.tick().await.unwrap();
+        // Settling ends this check: the coin list and balance were read before the history,
+        // so nothing is sent from them (the next check reads everything fresh).
+        assert_eq!(sends(&rec), 1, "no send in the same check that settled");
         let first: (String, String) = db
             .call(|c| {
                 Ok(c.query_row(

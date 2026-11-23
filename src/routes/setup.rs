@@ -1040,6 +1040,7 @@ struct CreateWalletOutcome {
 /// Request body per the pinned OpenAPI (`network`, `ark_server`); the
 /// response carries only a `fingerprint`, so the mnemonic lookup below is a
 /// harmless fallback and the words come from the mnemonic endpoint.
+#[cfg(test)]
 async fn create_till_wallet(
     base_url: &str,
     network: &str,

@@ -32,7 +32,7 @@ online; if it ever disappears you can exit to regular Bitcoin on your own.)
 **Our design stance.** AI is making software easier to attack, and in this
 environment a hack is a matter of *when*, not *if*. We cannot fix that by "coding
 harder": every program has bugs we have not found yet. So EBP is built around
-choices that make a break-in matter less: keep little money on the server (Ark),
+choices that make a break-in matter less: keep little money on the server,
 keep the keys with you, make payouts go to one fixed address that takes a day to
 change, ask for a second lock (a code from your phone) before anything risky, and
 keep the amount of code and number of moving parts small. (Example: after the PHP2Shell bugs showed that any PHP shop can be taken over, we made sure a hacked shop cannot move your money, and added a one-click pause and optional limits on the shop's key.) We still write careful

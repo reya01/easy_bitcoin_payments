@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.2-rc2 — backup first, tidier unclear transfers (22 November 2026)
+
 - **The bare-binary installer works while every release is a pre-release.** `scripts/install.sh` with no version asked GitHub for the "latest" release, which is only a release not marked pre-release, so it stopped with "could not work out the latest release". It now falls back to the newest pre-release and says so (the signature check is unchanged). Giving a version, such as `scripts/install.sh 0.3.2-rc1`, always worked.
 - **An unclear transfer keeps its coin list readable.** When a send to your payout address timed out, the reason was written in front of the record that names the coins the send used, which made that record unreadable. The server then could not tell, from the wallet, that an on-chain transfer's coins were all still there and so nothing had been sent, and it asked you instead. It failed safe (it never guessed), but now the reason is stored as its own field and the coin list stays readable.
 - **A test now guards the fee money.** The few regular-Bitcoin sats the server keeps to pay for an emergency withdrawal can only be spent by the emergency-withdrawal buttons. A test reads the source and fails the build if any automatic code (transfers, renewals, watchers, alerts) calls a wallet function that could spend it.

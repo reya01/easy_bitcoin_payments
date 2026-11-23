@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Setup no longer adopts a wallet someone else made after a refused try.** If the first try to restore or create the wallet was clearly refused (barkd never reached, or it answered "no" because a wallet was already there), the setup now forgets that it tried. Before, a second try could take over a wallet that was not made by this setup. A try that timed out or lost its answer still counts, because that wallet may be yours.
+- **After an unclear transfer is settled from the wallet history, nothing is sent in the same check.** The balance and coin list were read before the history, so they could still count coins that transfer had spent. The next check (or a second press of the button) reads everything fresh.
+
 - **Six new mascots at checkout.** After a customer pays, the checkout page now shows one of ten little animated Bitcoin characters (new: a surfer, a weightlifter, a DJ, a cozy fireside reader, a drummer and a planet). Which one appears depends on the payment, so a refresh shows the same one. People who prefer reduced motion get the still picture. The pictures are built into the program like the first four.
 - **A weightlifter cheers on Home when you get paid.** While the Home tab is open, a short animation with a "New payment!" message plays when a payment arrives, at most once a minute. It is only for fun: it reads the payments list the Payments tab already reads, and if anything goes wrong it simply does not show.
 

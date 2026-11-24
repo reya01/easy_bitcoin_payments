@@ -8,7 +8,7 @@ what is not, read [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md) and
 Goal of every tag so far: a **release candidate** that testers can install (play
 money by default, real money experimental) and that has a documented, short list
 of things it does not do. **Not** a "ready for real money" release. The first one
-was `v0.1.0-rc1`; the latest is `v0.3.2-rc2` (22 November 2026). Sections 3 and 4 below apply to each.
+was `v0.1.0-rc1`; the latest is `v0.3.2-rc3` (24 November 2026). Sections 3 and 4 below apply to each.
 
 Nothing here is published until the owner publishes a release (the tag is made by it). Tags on a public
 repository cannot be taken back cleanly, so check first.

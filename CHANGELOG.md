@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.3.3 — everything from the 0.3.2 release candidates, plus clearer refused-connection messages and a per-shop limit (24 November 2026)
+## 0.3.3-rc1 — clearer refused-connection messages and a per-shop limit (24 November 2026)
 
-This is the full release of the 0.3.2 line: it contains every change in 0.3.2-rc1, -rc2 and -rc3 below (0.3.2 itself was never released as a full version), plus:
+The first release candidate of 0.3.3. 0.3.3 will be the full release of the 0.3.2 line: everything in 0.3.2-rc1 to -rc3 below, plus:
 
 - **A refused connection now says why.** When a shop's webhook address or your phone-alert address is refused because the name points at a private address, the delivery log and the test-alert message now say so in plain words, and other failures say what happened (took too long, could not connect, and why) instead of just "request failed". The rarer private ranges (6to4, Teredo and the old site-local range) are refused too, and Home shows a yellow line while the local-testing switch `EBP_WEBHOOK_ALLOW_PRIVATE` is on.
 - **A per-shop limit on open payment requests.** One shop can now have at most 300 unpaid payment requests open at once (the server-wide limit stays 1,000), so a flood from one shop, or a stolen key for it, cannot use up all the room and block other shops. A small shop never gets near it.

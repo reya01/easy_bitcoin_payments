@@ -179,7 +179,7 @@ pub fn list(
         "WHERE store_id = ?1 AND source = 'manual'
            AND (?2 IS NULL OR invoice_number LIKE ?2 ESCAPE '\\'
                 OR customer_name LIKE ?2 ESCAPE '\\')
-         ORDER BY created_at DESC, id DESC LIMIT ?3"
+         ORDER BY created_at DESC, rowid DESC LIMIT ?3"
     );
     let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map(
@@ -197,7 +197,7 @@ pub fn list(
 pub fn export_all(conn: &Connection, store_id: &str) -> Result<Vec<ManualInvoice>, AppError> {
     let sql = manual_select!(
         "WHERE store_id = ?1 AND source = 'manual'
-         ORDER BY created_at ASC, id LIMIT ?2"
+         ORDER BY created_at ASC, rowid LIMIT ?2"
     );
     let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map(

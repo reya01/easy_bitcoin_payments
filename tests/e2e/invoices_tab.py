@@ -139,7 +139,8 @@ def main():
             p.reload(); p.wait_for_timeout(600)
             open_tab(p)
             if p.input_value("#inv-num") != "3": pr.append(f"the next number must be filled in: {p.input_value('#inv-num')!r}")
-            p.fill("#inv-amt", "25000"); p.fill("#inv-note", "Bathroom tap repair"); p.fill("#inv-cust", "Sam Rivera")
+            p.fill("#inv-amt", "25000"); p.fill("#inv-note", "Bathroom tap repair")
+            p.click("#inv-more summary"); p.wait_for_timeout(150); p.fill("#inv-cust", "Sam Rivera")
             p.click("#inv-go"); p.wait_for_timeout(600)
             sent = [x for x in posts if x[0] == "create"]
             if not sent: pr.append("nothing was sent"); return

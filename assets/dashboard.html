@@ -73,7 +73,7 @@
   <h2>Recent payments</h2>
   <div class="card" id="orders"></div>
   <div class="btns btns-gap"><button id="csv-go" type="button">Download all payments (CSV)</button></div>
-  <p class="muted">A spreadsheet file with every payment, oldest first: date, order number, status, amounts and the dollar rate used. It opens in Excel, Numbers or Google Sheets.</p>
+  <p class="muted">Every payment, oldest first, for Excel, Numbers or Google Sheets.</p>
   <p class="msg hidden" id="csv-msg"></p>
 </section>
 
@@ -85,10 +85,12 @@
     <div class="amtrow"><input type="text" id="inv-amt" inputmode="decimal" autocomplete="off"><select id="inv-unit" aria-label="Amount in"><option value="sats">sats</option><option value="fiat" id="inv-unit-fiat">USD</option></select></div>
     <div class="muted" id="inv-amt-hint"></div>
     <label for="inv-note">What it is for (optional, your customer sees it)</label><input type="text" id="inv-note" maxlength="200" autocomplete="off">
+    <details class="more" id="inv-more"><summary>Invoice number, customer and how long it stays open</summary>
     <label for="inv-num">Invoice number</label><input type="text" id="inv-num" maxlength="40" autocomplete="off">
     <div class="muted">Filled in with the next number. You can type your own instead (for example INV-0015). Each number can only be used once.</div>
     <label for="inv-cust">Customer name (optional, only you see it)</label><input type="text" id="inv-cust" maxlength="100" list="inv-names" autocomplete="off"><datalist id="inv-names"></datalist>
     <label for="inv-days">Stays open for</label><select id="inv-days"></select>
+    </details>
     <div class="btns"><button class="primary" id="inv-go" type="button">Make the invoice</button></div>
     <p class="msg hidden" id="inv-msg"></p>
   </div>
@@ -97,7 +99,7 @@
   <label for="inv-q">Search by number or customer name</label><input type="text" id="inv-q" autocomplete="off">
   <div class="card" id="inv-list"></div>
   <div class="btns btns-gap"><button id="icsv-go" type="button">Download all invoices (CSV)</button></div>
-  <p class="muted">A spreadsheet with every invoice made here, oldest first: number, customer, dates, status, amounts and note.</p>
+  <p class="muted">Every invoice made here, oldest first, for your spreadsheet.</p>
   <p class="msg hidden" id="icsv-msg"></p>
 </section>
 
@@ -161,25 +163,7 @@
 
 <section id="v-set" class="hidden">
   <h2>Settings</h2>
-  <details class="fold" id="fold-pause"><summary><span class="fx"><span class="ft">Pause new payments</span><span class="fs">Stops customers from starting new Bitcoin payments if you think something is wrong.</span></span></summary>
-  <div class="card" id="pause-card"></div>
-  </details>
-  <details class="fold" id="fold-inv"><summary><span class="fx"><span class="ft">Invoices (in testing)</span><span class="fs">Make invoices for customers outside your shop and send them yourself.</span></span></summary>
-  <div class="card" id="inv-set"></div>
-  </details>
-  <details class="fold" id="fold-2fa"><summary><span class="fx"><span class="ft">Two-step sign-in (2FA)</span><span class="fs">Adds a 6-digit code from an app on your phone to your admin password.</span></span></summary>
-  <div class="card" id="twofa-card"></div>
-  </details>
-  <details class="fold" id="fold-password"><summary><span class="fx"><span class="ft">Change admin password</span><span class="fs">Change the password you use to sign in here.</span></span></summary>
-  <div class="card">
-    <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
-    <label for="pw-new">New password (16+ characters)</label><input type="password" id="pw-new" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
-    <div class="pwrow"><span id="pw-new-count"></span><button type="button" id="pw-new-show">Show</button></div>
-    <div class="needcode hidden"><label for="pw-code">Code from your authenticator app</label><input type="text" id="pw-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
-    <div class="btns"><button id="pw-save" type="button">Change password</button></div>
-    <p class="msg hidden" id="pw-msg"></p>
-  </div>
-  </details>
+  <h3 class="sgroup">Your money</h3>
   <details class="fold" id="fold-payout"><summary><span class="fx"><span class="ft">Where your money goes</span><span class="fs">Sets the address your payments are sent to and how much stays on this server.</span></span></summary>
   <div class="card">
     <p class="muted">The small till wallet on this server is emptied to this address, which should belong to a wallet <strong>you</strong> control. Changing it takes effect after a safety delay and needs your admin password, so a stolen login cannot redirect your money quickly.</p>
@@ -215,23 +199,8 @@
     </div>
   </div>
   </details>
-  <details class="fold" id="fold-backup"><summary><span class="fx"><span class="ft">Download a backup</span><span class="fs">Saves an encrypted copy of your orders, settings and wallet files.</span></span></summary>
-  <div class="card">
-    <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
-    <label for="bk-admin">Admin password</label><input type="password" id="bk-admin" autocomplete="current-password">
-    <div class="needcode hidden"><label for="bk-code">Code from your authenticator app</label><input type="text" id="bk-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
-    <div class="btns"><button id="bk-go" type="button">Download encrypted backup</button></div>
-    <p class="msg hidden" id="bk-msg"></p>
-  </div>
-  </details>
-  <details class="fold" id="fold-check"><summary><span class="fx"><span class="ft">Check a backup</span><span class="fs">Tests that a backup file you saved opens, without changing anything.</span></span></summary>
-  <div class="card">
-    <p class="muted">Pick a backup file you saved and type its password (the admin password you had when you downloaded it). This only opens the file to show that it works and what it holds. Nothing is changed, and the file is not kept.</p>
-    <label for="ck-file">Backup file</label><input type="file" id="ck-file">
-    <label for="ck-pw">Password for that backup</label><input type="password" id="ck-pw" autocomplete="off">
-    <div class="btns"><button id="ck-go" type="button">Check this backup</button></div>
-    <p class="msg hidden" id="ck-msg"></p>
-  </div>
+  <details class="fold" id="fold-inv"><summary><span class="fx"><span class="ft">Invoices (in testing)</span><span class="fs">Make invoices for customers outside your shop and send them yourself.</span></span></summary>
+  <div class="card" id="inv-set"></div>
   </details>
   <details class="fold" id="ex-box"><summary><span class="fx"><span class="ft bad">Emergency: withdraw without the Ark server</span><span class="fs">A last resort for taking your money out yourself if the Ark server is gone or refuses to help.</span></span></summary>
     <div class="card">
@@ -304,8 +273,44 @@
       </details>
     </div>
   </details>
+  <h3 class="sgroup">Safety</h3>
+  <details class="fold" id="fold-pause"><summary><span class="fx"><span class="ft">Pause new payments</span><span class="fs">Stops customers from starting new Bitcoin payments if you think something is wrong.</span></span></summary>
+  <div class="card" id="pause-card"></div>
+  </details>
+  <details class="fold" id="fold-2fa"><summary><span class="fx"><span class="ft">Two-step sign-in (2FA)</span><span class="fs">Adds a 6-digit code from an app on your phone to your admin password.</span></span></summary>
+  <div class="card" id="twofa-card"></div>
+  </details>
+  <details class="fold" id="fold-password"><summary><span class="fx"><span class="ft">Change admin password</span><span class="fs">Change the password you use to sign in here.</span></span></summary>
+  <div class="card">
+    <label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password">
+    <label for="pw-new">New password (16+ characters)</label><input type="password" id="pw-new" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <div class="pwrow"><span id="pw-new-count"></span><button type="button" id="pw-new-show">Show</button></div>
+    <div class="needcode hidden"><label for="pw-code">Code from your authenticator app</label><input type="text" id="pw-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+    <div class="btns"><button id="pw-save" type="button">Change password</button></div>
+    <p class="msg hidden" id="pw-msg"></p>
+  </div>
+  </details>
   <details class="fold" id="fold-audit"><summary><span class="fx"><span class="ft">Security activity</span><span class="fs">A log of sign-ins and changes to your settings.</span></span></summary>
   <div class="card" id="audit"></div>
+  </details>
+  <h3 class="sgroup">Backups</h3>
+  <details class="fold" id="fold-backup"><summary><span class="fx"><span class="ft">Download a backup</span><span class="fs">Saves an encrypted copy of your orders, settings and wallet files.</span></span></summary>
+  <div class="card">
+    <p class="muted">An encrypted copy of your order history and settings (and your wallet files when this server runs the wallet itself). It is locked with your admin password, so there is nothing new to remember. Your 12 recovery words are still the real backup of your money.</p>
+    <label for="bk-admin">Admin password</label><input type="password" id="bk-admin" autocomplete="current-password">
+    <div class="needcode hidden"><label for="bk-code">Code from your authenticator app</label><input type="text" id="bk-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
+    <div class="btns"><button id="bk-go" type="button">Download encrypted backup</button></div>
+    <p class="msg hidden" id="bk-msg"></p>
+  </div>
+  </details>
+  <details class="fold" id="fold-check"><summary><span class="fx"><span class="ft">Check a backup</span><span class="fs">Tests that a backup file you saved opens, without changing anything.</span></span></summary>
+  <div class="card">
+    <p class="muted">Pick a backup file you saved and type its password (the admin password you had when you downloaded it). This only opens the file to show that it works and what it holds. Nothing is changed, and the file is not kept.</p>
+    <label for="ck-file">Backup file</label><input type="file" id="ck-file">
+    <label for="ck-pw">Password for that backup</label><input type="password" id="ck-pw" autocomplete="off">
+    <div class="btns"><button id="ck-go" type="button">Check this backup</button></div>
+    <p class="msg hidden" id="ck-msg"></p>
+  </div>
   </details>
 </section>
 </main>

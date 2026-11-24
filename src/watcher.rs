@@ -584,6 +584,31 @@ impl PollingWatcher {
         invoice: &crate::models::Invoice,
         status: InvoiceStatus,
     ) {
+        // An invoice the owner made on the Invoices tab is not a shop order:
+        // no shop webhook. A paid one queues a phone notice instead (no
+        // amount, number or name, like every alert).
+        let (inv_id, paid) = (
+            invoice.id.clone(),
+            matches!(status, InvoiceStatus::Paid | InvoiceStatus::Overpaid),
+        );
+        match self
+            .db
+            .call(move |conn| {
+                let manual = crate::manual_invoice::is_manual(conn, &inv_id)?;
+                if manual && paid {
+                    crate::alerts::queue_notice(conn, "invoice_paid")?;
+                }
+                Ok(manual)
+            })
+            .await
+        {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(err) => {
+                tracing::warn!(error = %err, "could not check the invoice's source; no webhook queued");
+                return;
+            }
+        }
         let store_id = store_id.to_string();
         let store = match self.db.call(move |conn| store::get(conn, &store_id)).await {
             Ok(Some(store)) => store,

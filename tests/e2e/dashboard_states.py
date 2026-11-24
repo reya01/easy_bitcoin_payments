@@ -1121,7 +1121,7 @@ def main():
         def c_settings_folded(p, pr, calls):
             p.click('#tabs button[data-v="set"]'); p.wait_for_timeout(500)
             folds = p.query_selector_all("#v-set details.fold:not(#ex-box details.fold)")
-            if len(folds) != 9: pr.append(f"expected 9 folded sections, saw {len(folds)}")
+            if len(folds) != 10: pr.append(f"expected 10 folded sections, saw {len(folds)}")
             for d in folds:
                 name = d.get_attribute("id") or "?"
                 if d.evaluate("e => e.open"): pr.append("every section must start folded: " + name)
@@ -1144,7 +1144,7 @@ def main():
             if not p.is_visible("#phone-set"): pr.append("the Alerts tab should show Phone alerts open, with no folding")
             if p.locator("#phone-set").evaluate("e => !!e.closest('details')"): pr.append("Phone alerts on the Alerts tab must not be inside a fold")
 
-        ok &= run_case(pw, "settings: nine compact folded rows with one sentence each, phone alerts open on the Alerts tab", signed_in, c_settings_folded)
+        ok &= run_case(pw, "settings: ten compact folded rows with one sentence each, phone alerts open on the Alerts tab", signed_in, c_settings_folded)
 
         # Leaving Settings folds every section again.
         def c_settings_refold(p, pr, calls):

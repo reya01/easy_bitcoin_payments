@@ -134,16 +134,16 @@ fn polymod(values: &[u8]) -> u32 {
 }
 
 /// A bech32 / bech32m string with a good checksum.
-struct Decoded {
-    hrp: String,
+pub(crate) struct Decoded {
+    pub(crate) hrp: String,
     /// 5-bit values, checksum removed.
-    data: Vec<u8>,
-    bech32m: bool,
+    pub(crate) data: Vec<u8>,
+    pub(crate) bech32m: bool,
 }
 
 /// Decode a lowercase ASCII bech32 string; `None` if the characters or the
 /// checksum are wrong.
-fn decode_bech32(s: &str) -> Option<Decoded> {
+pub(crate) fn decode_bech32(s: &str) -> Option<Decoded> {
     if !s.is_ascii() {
         return None;
     }

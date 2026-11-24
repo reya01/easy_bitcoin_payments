@@ -875,7 +875,7 @@ fn is_unique_violation(err: &rusqlite::Error) -> bool {
     )
 }
 
-fn row_to_invoice(row: &rusqlite::Row<'_>) -> rusqlite::Result<Invoice> {
+pub(crate) fn row_to_invoice(row: &rusqlite::Row<'_>) -> rusqlite::Result<Invoice> {
     let status_raw: String = row.get("status")?;
     let status = InvoiceStatus::from_str(&status_raw).map_err(|_| {
         rusqlite::Error::FromSqlConversionFailure(

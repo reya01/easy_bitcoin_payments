@@ -92,3 +92,14 @@ details.updfold>summary{cursor:pointer;color:var(--muted);font-size:.95em;paddin
 .cheer{display:flex;align-items:center;gap:14px;background:var(--ok-bg);color:var(--ok)}.cheer-pic{width:96px;height:96px;flex:none;transform-origin:50% 92%;animation:cheer-lift 1.2s ease-in-out 4}.cheer-text{min-width:0}.cheer-h{font-weight:800;font-size:18px}
 @keyframes cheer-lift{0%,100%{transform:translateY(0) scale(1,1)}30%{transform:translateY(2%) scale(1.04,.95)}55%{transform:translateY(-10%) scale(.98,1.05) rotate(-2deg)}}
 @media(prefers-reduced-motion:reduce){.cheer-pic{animation:none}}
+
+/* Invoices tab (in testing) */
+.pill{display:inline-block;vertical-align:middle;background:var(--warn-bg);color:var(--warn);border:2px solid var(--line);border-radius:999px;padding:0 10px;font-size:12px;font-weight:700}
+.amtrow{display:flex;gap:8px}.amtrow input{flex:1;min-width:0}.amtrow select{width:auto;flex:none}
+.inv-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.45;background:var(--soft);border-radius:14px;padding:12px;margin:8px 0}
+.inv-pic{display:block;width:100%;height:auto;border-radius:14px;margin:10px 0;border:2px solid var(--line)}
+.warnbox{background:var(--warn-bg);color:var(--fg);border:2px solid var(--line);border-radius:16px;padding:12px;margin-top:12px;font-size:14px;line-height:1.45}
+.warnbox strong{display:block;margin-bottom:4px}
+.inv-row{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;min-height:52px;padding:8px 4px;border:0;border-bottom:1.5px solid var(--soft);border-radius:0;background:none;white-space:normal}
+.inv-row:last-child{border-bottom:0}.inv-row span{min-width:0;overflow-wrap:anywhere}
+.ark-amt{border:2px solid var(--line);border-radius:16px;padding:10px 12px;margin:10px 0;font-size:14px}.ark-amt strong{display:block;font-size:30px;line-height:1.15;font-weight:800;margin-top:2px}

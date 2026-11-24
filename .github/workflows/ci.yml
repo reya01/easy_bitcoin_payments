@@ -81,6 +81,11 @@ jobs:
       - name: Payment cheer
         run: python3 tests/e2e/payment_cheer.py
 
+      # The Invoices tab (in testing): off until turned on, text without the customer
+      # name, the picture, the send-privately warning, copy, run-out Lightning.
+      - name: Invoices tab
+        run: python3 tests/e2e/invoices_tab.py
+
       # Real-money (mainnet) wording and guards on the setup and admin pages,
       # server mocked: the tick-box, the REAL MONEY banners, address hints and the
       # danger box, the emergency withdrawal being off.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Invoices tab (in testing, off until you turn it on in Settings).** Make an invoice for a customer outside your shop: amount (sats, or money turned into sats at today's price), what it is for, an invoice number (the next number is filled in; your own text is fine, each number once) and a customer name only you see. It stays open for 1, 7, 14 or 30 days. You get a ready-made text (amount, your store name, the note, the number, a Lightning invoice with the exact time it stops working, and the Ark address) and a plain picture of the same facts with QR codes, to copy, share or save. A warning under every invoice says to send it privately (for example an encrypted email provider such as Proton Mail or an encrypted messenger such as Signal), because EBP cannot stop a message being read or changed on the way. A fresh Lightning invoice can be made after the old one runs out; the Ark address keeps working. Search by number or customer, cancel, and download all invoices as a spreadsheet. Invoices send no shop notification; a paid one sends a plain phone alert (no amount or name). This adds a database change (migration 0016).
+
 ## 0.3.3-rc1 — clearer refused-connection messages, a per-shop limit, invoice fields in the spreadsheet, a checkable image (24 November 2026)
 
 The first release candidate of 0.3.3. 0.3.3 will be the full release of the 0.3.2 line: everything in 0.3.2-rc1 to -rc3 below, plus:

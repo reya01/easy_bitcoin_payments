@@ -76,6 +76,30 @@
   <p class="msg hidden" id="csv-msg"></p>
 </section>
 
+<section id="v-inv" class="hidden">
+  <h2>Invoices <span class="pill">In testing</span></h2>
+  <p class="muted">Make an invoice for a customer who is not using your shop, then send it yourself by email or chat. This is new: try it with small amounts first.</p>
+  <div class="card" id="inv-new">
+    <label for="inv-amt">Amount</label>
+    <div class="amtrow"><input type="text" id="inv-amt" inputmode="decimal" autocomplete="off"><select id="inv-unit" aria-label="Amount in"><option value="sats">sats</option><option value="fiat" id="inv-unit-fiat">USD</option></select></div>
+    <div class="muted" id="inv-amt-hint"></div>
+    <label for="inv-note">What it is for (optional, your customer sees it)</label><input type="text" id="inv-note" maxlength="200" autocomplete="off">
+    <label for="inv-num">Invoice number</label><input type="text" id="inv-num" maxlength="40" autocomplete="off">
+    <div class="muted">Filled in with the next number. You can type your own instead (for example INV-0015). Each number can only be used once.</div>
+    <label for="inv-cust">Customer name (optional, only you see it)</label><input type="text" id="inv-cust" maxlength="100" list="inv-names" autocomplete="off"><datalist id="inv-names"></datalist>
+    <label for="inv-days">Stays open for</label><select id="inv-days"></select>
+    <div class="btns"><button class="primary" id="inv-go" type="button">Make the invoice</button></div>
+    <p class="msg hidden" id="inv-msg"></p>
+  </div>
+  <div class="card hidden" id="inv-out" aria-live="polite"></div>
+  <h2>Your invoices</h2>
+  <label for="inv-q">Search by number or customer name</label><input type="text" id="inv-q" autocomplete="off">
+  <div class="card" id="inv-list"></div>
+  <div class="btns btns-gap"><button id="icsv-go" type="button">Download all invoices (CSV)</button></div>
+  <p class="muted">A spreadsheet with every invoice made here, oldest first: number, customer, dates, status, amounts and note.</p>
+  <p class="msg hidden" id="icsv-msg"></p>
+</section>
+
 <section id="v-alerts" class="hidden">
   <h2>Payments that need you</h2>
   <p class="muted">Money that arrived but could not be matched to an open order (for example a part payment that came in after the order expired, a second payment on an order already paid, or a payment more than 3 hours late). Check your wallet, decide whether to fulfil or refund, then mark it handled.</p>
@@ -138,6 +162,9 @@
   <h2>Settings</h2>
   <details class="fold" id="fold-pause"><summary><span class="fx"><span class="ft">Pause new payments</span><span class="fs">Stops customers from starting new Bitcoin payments if you think something is wrong.</span></span></summary>
   <div class="card" id="pause-card"></div>
+  </details>
+  <details class="fold" id="fold-inv"><summary><span class="fx"><span class="ft">Invoices (in testing)</span><span class="fs">Make invoices for customers outside your shop and send them yourself.</span></span></summary>
+  <div class="card" id="inv-set"></div>
   </details>
   <details class="fold" id="fold-2fa"><summary><span class="fx"><span class="ft">Two-step sign-in (2FA)</span><span class="fs">Adds a 6-digit code from an app on your phone to your admin password.</span></span></summary>
   <div class="card" id="twofa-card"></div>
@@ -287,6 +314,7 @@
   <button data-v="orders" type="button">Payments</button>
   <button data-v="alerts" type="button">Alerts<span class="badge hidden" id="alert-badge"></span></button>
   <button data-v="hooks" type="button">Connect</button>
+  <button data-v="inv" type="button" id="tab-inv" class="hidden">Invoices</button>
   <button data-v="set" type="button">Settings</button>
 </nav>
 

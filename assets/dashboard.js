@@ -1140,7 +1140,7 @@ $("po-go").addEventListener("click", function () {
   var b = $("po-go"); b.disabled = true;
   api("POST", "/admin/payout", { address: $("po-addr").value, admin_password: $("po-pw").value, code: $("po-code").value }).then(function (r) {
     $("po-addr").value = ""; $("po-pw").value = ""; $("po-code").value = "";
-    say("po-msg", r.applied_now ? "Saved. Payouts now go to the new address." : "Saved. For safety it takes effect in about " + r.change_delay_hours + " hours; you can cancel until then.");
+    say("po-msg", r.applied_now ? "Saved. Payouts now go to the new address." : "Saved. For safety it takes effect in about " + r.change_delay_hours + " hours; you can cancel until then. If you are having any issues, you can also use \"Pause new payments\" above.");
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });
 });

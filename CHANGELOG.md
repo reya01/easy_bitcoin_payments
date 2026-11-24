@@ -1,11 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
 
 - **A refused connection now says why.** When a shop's webhook address or your phone-alert address is refused because the name points at a private address, the delivery log and the test-alert message now say so in plain words, and other failures say what happened (took too long, could not connect, and why) instead of just "request failed". The rarer private ranges (6to4, Teredo and the old site-local range) are refused too, and Home shows a yellow line while the local-testing switch `EBP_WEBHOOK_ALLOW_PRIVATE` is on.
 
 - **Six new mascots at checkout.** After a customer pays, the checkout page now shows one of ten little animated Bitcoin characters (new: a surfer, a weightlifter, a DJ, a cozy fireside reader, a drummer and a planet). Which one appears depends on the payment, so a refresh shows the same one. People who prefer reduced motion get the still picture. The pictures are built into the program like the first four.
 - **A weightlifter cheers on Home when you get paid.** While the Home tab is open, a short animation with a "New payment!" message plays when a payment arrives, at most once a minute. It is only for fun: it reads the payments list the Payments tab already reads, and if anything goes wrong it simply does not show.
+- **Clearer note after you change the payout address.** The "Saved. For safety it takes effect in about 24 hours" message now also says that if you are having any issues you can use "Pause new payments" above.
+- **Setup no longer adopts a wallet someone else made after a refused try.** If the first try to restore or create the wallet was clearly refused (barkd never reached, or it answered "no" because a wallet was already there), the setup now forgets that it tried. Before, a second try could take over a wallet that was not made by this setup. A try that timed out or lost its answer still counts, because that wallet may be yours.
+- **After an unclear transfer is settled from the wallet history, nothing is sent in the same check.** The balance and coin list were read before the history, so they could still count coins that transfer had spent. The next check (or a second press of the button) reads everything fresh.
 
 ## 0.3.2-rc2 — backup first, tidier unclear transfers (22 November 2026)
 

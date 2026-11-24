@@ -129,3 +129,13 @@ details.more>summary::-webkit-details-marker{display:none}details.more>summary::
 /* Amounts line up */
 .row>span:last-child,.pa,.ark-amt strong{font-variant-numeric:tabular-nums}
 .card>:first-child{margin-top:0}
+
+/* Home: balance card and health summary */
+.balance{background:var(--tab-on)}
+.bal-label{font-size:14px;font-weight:600;color:var(--muted)}
+.bal-sats{font-size:40px;line-height:1.1;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:2px;overflow-wrap:anywhere}
+.bal-fiat{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
+.bal-note{font-size:13px;color:var(--muted);margin-top:8px}
+.hsum{font-weight:800;font-size:18px;padding:2px 0 8px}
+.hsum.ok{color:var(--ok)}.hsum.warn{color:var(--warn)}
+.check-ok{padding:6px 0;font-size:14px}

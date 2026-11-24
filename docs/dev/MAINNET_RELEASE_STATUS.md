@@ -97,6 +97,11 @@ open the emergency-exit page.
   trusts its pinned cosign first; every container image is pinned by digest; a weekly check compares the pinned barkd
   with Second's Docker Hub image, GitLab's checksums and the tag's commit (Second does not sign releases).
 
+**Added in 0.3.3-rc1 and rc2 (24 November 2026), CI and browser tests only:**
+
+- rc1: a refused connection says why; a per-shop limit of 300 open payment requests; invoice number and customer name columns (migration 0015); the image's program matches the reproducible build, with `scripts/verify-release.sh`.
+- rc2: the Invoices tab, in testing and off by default (migration 0016): owner-made invoices with a text and a picture to send, a send-privately warning, fresh Lightning invoice, cancel, search and CSV. No real-money drill yet.
+
 **Added in 0.3.2-rc3 (24 November 2026), CI and browser tests only:**
 
 - Six new checkout characters (thirteen mascot pictures in all, ten scenes) and a small cheer on Home when a payment arrives (at most once a minute; it fails quietly).

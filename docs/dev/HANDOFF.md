@@ -4,8 +4,8 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 
 ## Where things stand (24 November 2026)
 
-- **Latest release:** `v0.3.2-rc3` (pre-release, 24 November 2026; the last release candidate of this line, next version is 0.3.3). Earlier: `v0.1.0-rc1`, `-rc2`,
-  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1`, `-rc2`. The release process is in
+- **Latest release:** `v0.3.3-rc2` (pre-release, 24 November 2026; adds the Invoices tab, in testing and off by default). Earlier: `v0.1.0-rc1`, `-rc2`,
+  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1` to `-rc3`, `v0.3.3-rc1`. The release process is in
   [RC_CHECKLIST.md](RC_CHECKLIST.md); [CHANGELOG.md](../../CHANGELOG.md) says what is in each.
 - **Experimental.** Signet (play money) is the default; mainnet is opt-in and has been tried end
   to end with small real money (Lightning and Ark payments, a real WooCommerce shop, payouts,
@@ -148,10 +148,11 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 The authoritative lists are [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and section 3 of
 [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md). In short, on 24 November 2026:
 
-1. **Owner's test of 0.3.2-rc3** on the test server (updating from rc2) (the quick drills are in that release's cut checklist, in the
-   Claude project): update by exact version, Home shows 0.3.2-rc3, payments, transfers and a backup check still read
-   back (the database library changed), the admin page loads over https (Caddy changed), one small Ark and one
-   Lightning payment. The two update boxes (fresh backup, recovery words) first show on this update from rc2, and the new checkout characters and the Home payment cheer should be seen.
+1. **Owner's test of 0.3.3-rc2** on the test server (the 30-minute sheet is in that release's cut checklist, in the
+   Claude project): update, turn invoices on, make one, check the text (no customer name, Ark amount on its own line)
+   and the picture, copy and share on the phone, pay one by Lightning (and one by Ark), the number rules, cancel and
+   search, both spreadsheets, a backup check. rc1 and rc2 each add a database migration (0015, 0016): no going back
+   to an older version after updating. The real-money invoice drill (INVOICES.md phase 4) is still to do.
    Settling an unclear transfer from the wallet's history is still unconfirmed on a real 0.9 send.
 2. **Decisions and answers outstanding:** whether a plain "server error" (HTTP 500) answer to a send should
    count as unclear (today only 502 and 504 do); Second's answers (when the Ark server moves to 0.9, the exact

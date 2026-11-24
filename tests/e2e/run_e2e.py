@@ -814,7 +814,7 @@ def main():
             wait_for(lambda: status_of({"id": inv_id})["status"] == "paid", "test payment paid")
             page.click('#tabs button[data-v="home"]')
             page.click('#tabs button[data-v="orders"]')
-            wait_for(lambda: "paid" in page.inner_text("#orders"), "paid shown in list")
+            wait_for(lambda: "paid" in page.inner_text("#orders").lower(), "paid shown in list")
 
         @step("backup: encrypted download from the settings tab opens with the admin password only")
         def _():

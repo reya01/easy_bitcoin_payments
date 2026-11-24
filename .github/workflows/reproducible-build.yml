@@ -1,4 +1,5 @@
-# Reproducible builds, stage 1 (docs/dev/REPRODUCIBLE_BUILDS.md): the `ebp` binary.
+# Reproducible builds (docs/dev/REPRODUCIBLE_BUILDS.md): the `ebp` binary, and the same binary
+# inside the Docker image (stage 2).
 #
 # Builds the binary twice, on two DIFFERENT machines (Ubuntu 22.04 and Ubuntu 24.04 runners),
 # with scripts/repro-build.sh, and fails if the two sha256 values differ. The build itself runs
@@ -48,9 +49,33 @@ jobs:
             dist-repro/build-info.txt
           if-no-files-found: error
 
+  image:
+    name: binary inside the Docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the image (EBP only) and take its binary out
+        run: |
+          set -eu
+          docker build --target runtime -t ebp-repro-check .
+          id=$(docker create ebp-repro-check)
+          docker cp "$id":/usr/local/bin/ebp ./ebp
+          docker rm "$id" >/dev/null
+          mkdir -p dist-image
+          sha256sum ebp > dist-image/ebp.sha256
+          cat dist-image/ebp.sha256
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: repro-image
+          path: dist-image/ebp.sha256
+          if-no-files-found: error
+
   compare:
     name: the two builds are byte-identical
-    needs: build
+    needs: [build, image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -62,20 +87,25 @@ jobs:
           set -eu
           a=$(cut -d' ' -f1 results/repro-ubuntu-22.04/ebp.sha256)
           b=$(cut -d' ' -f1 results/repro-ubuntu-24.04/ebp.sha256)
+          c=$(cut -d' ' -f1 results/repro-image/ebp.sha256)
           {
             echo "### Reproducible build (the ebp binary)"
             echo
             echo "- Ubuntu 22.04 runner: \`$a\`"
             echo "- Ubuntu 24.04 runner: \`$b\`"
+            echo "- Inside the Docker image: \`$c\`"
             echo
             echo '```'
             cat results/repro-ubuntu-22.04/build-info.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$a" = "$b" ]; then
-            echo "Identical: the two machines built the same bytes." | tee -a "$GITHUB_STEP_SUMMARY"
-          else
+          if [ "$a" != "$b" ]; then
             echo "DIFFERENT: the two machines built different bytes." | tee -a "$GITHUB_STEP_SUMMARY"
             diff results/repro-ubuntu-22.04/build-info.txt results/repro-ubuntu-24.04/build-info.txt || true
             exit 1
           fi
+          if [ "$a" != "$c" ]; then
+            echo "DIFFERENT: the binary inside the Docker image is not the one the script builds." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Identical: both machines and the Docker image have the same bytes." | tee -a "$GITHUB_STEP_SUMMARY"

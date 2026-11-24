@@ -7,6 +7,14 @@ FROM rust:1-bookworm@sha256:ade39a710ef85f3506cffcfec3e8a24ba090badef1dff2fb798f
 
 WORKDIR /src
 
+# The same settings as scripts/repro-build.sh, so the binary in this image has
+# the same bytes as the one anyone can rebuild from the source
+# (docs/dev/REPRODUCIBLE_BUILDS.md, stage 2): no incremental builds, and the
+# build folders rewritten to fixed names inside the binary. The paths are the
+# official Rust image's CARGO_HOME and RUSTUP_HOME.
+ENV CARGO_INCREMENTAL=0 \
+    RUSTFLAGS="--remap-path-prefix=/src=/build --remap-path-prefix=/usr/local/cargo=/cargo --remap-path-prefix=/usr/local/rustup=/rustup"
+
 # Build dependencies first so source edits do not invalidate the dep cache.
 # The lockfile is copied so image builds are reproducible and match CI.
 COPY Cargo.toml Cargo.lock ./

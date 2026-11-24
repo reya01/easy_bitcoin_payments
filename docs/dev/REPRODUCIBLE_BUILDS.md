@@ -1,4 +1,4 @@
-# Reproducible builds (stage 1 built; stage 2 not started)
+# Reproducible builds (stage 1 built; stage 2 first part built)
 
 **Goal:** anyone can build a release from its source and get the **same bytes** the project
 published, so the signature does not have to be taken on trust ("built by our workflow") but
@@ -27,16 +27,25 @@ How the script removes the usual causes of difference:
   committed files are built (`git archive HEAD`), never the working folder.
 
 What it does **not** yet prove:
-- The Dockerfile builds the image's binary a little differently (a two-step build for caching,
-  and without the path-rewriting flags), so this hash is **not yet** the hash of the file inside
-  the published image. Stage 2 aligns the Dockerfile with the script and compares the real
-  image.
+- Until stage 2 (below), the Dockerfile built the image's binary without the path-rewriting
+  flags, so the published images up to then do not match this hash.
 - `rust-toolchain.toml` says only `stable`, so it does not pin a compiler. The digest-pinned
   image does, which is why the script uses it. (The release's `ebp-*.tar.gz` is still built on
   the runner with the latest stable and the runner's musl tools, and its tarball also stores
   file times, so its hash is not reproducible; that is for stage 2.)
 
-**Stage 2: the image.** Docker adds more moving parts:
+**Stage 2, first part: the binary inside the image. Built (24 November 2026, held for after
+0.3.3).** The Dockerfile's build stage now sets the same `CARGO_INCREMENTAL=0` and
+`--remap-path-prefix` flags as the script, in the same `/src` folder and the same pinned Rust
+image. The `reproducible-build` workflow gained a third job that builds the image
+(`--target runtime`), copies `/usr/local/bin/ebp` out of it, and fails unless its sha256 equals
+the two script builds. The managed (default) stage copies the same file from the same build
+stage. And `scripts/verify-release.sh VERSION` lets anyone check a published release: it
+rebuilds the tag with the script, takes the program out of the published amd64 image (by the
+digest in the release's `IMAGE_DIGEST`), and prints MATCH or DIFFERENT. Only releases built
+after this change can match. The arm64 image is built under emulation and is not compared yet.
+
+**Stage 2, still to do: the whole image.** Docker adds more moving parts:
 - `apt-get install` in the image fetches whatever Debian serves that day. Either remove the
   packages (the healthcheck can stop needing `curl`), or install from a dated
   `snapshot.debian.org` mirror with exact versions.
@@ -48,8 +57,9 @@ What it does **not** yet prove:
 
 ## Then publish a way to check
 
-`scripts/verify-release.sh VERSION`: rebuild at the tag, compare to the published binary hash
-and to the image's layer hashes, print match or mismatch. Mention it in each release's notes.
+`scripts/verify-release.sh VERSION` exists (the binary inside the image, above). Still to do:
+compare the image's layer hashes once the whole image is reproducible, and mention the script
+in each release's notes.
 
 ## Related, smaller steps that help
 
@@ -57,4 +67,4 @@ and to the image's layer hashes, print match or mismatch. Mention it in each rel
   crates.io for anything it did not already have; CI already runs `cargo audit`.
 - Keep the Dependabot proposals for base images and actions; a human reads each one.
 
-Order: stage 1 (done, CI proves it), then stage 2.
+Order: stage 1 (done, CI proves it), stage 2 first part (built, CI proves it), then the rest of stage 2.

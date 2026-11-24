@@ -906,10 +906,10 @@ function loadOrders() {
     if (pageGone("orders", list.length, loadOrders)) return;
     var o = $("orders"); clear(o);
     list.slice(0, PAGE_SIZE.orders).forEach(function (i) {
-      var label = (i.fiat_amount ? i.fiat_currency + " " + i.fiat_amount : fmtSats(i.amount_sats));
-      o.appendChild(prow(label, when(i.created_at), i.status));
+      var money = i.fiat_amount ? i.fiat_currency + " " + i.fiat_amount : (USD > 0 ? fmtSats(i.amount_sats).replace(/^.*\(|\)$/g, "") : "");
+      o.appendChild(prow(Number(i.amount_sats).toLocaleString("en-US") + " sats", (money ? money + " \u00b7 " : "") + when(i.created_at), i.status));
     });
-    if (!list.length) o.appendChild(el("span", "No payments yet.", "muted"));
+    if (!list.length) o.appendChild(el("span", "No payments yet. Try one above to see your checkout.", "muted"));
     pagerFor(o, "orders", list.length, loadOrders);
   }).catch(function (e) { $("orders").textContent = e.message; });
 }
@@ -2106,7 +2106,7 @@ function loadInvList() {
       b.addEventListener("click", function () { renderInvoice(r); try { $("inv-out").scrollIntoView({ behavior: "smooth" }); } catch (e) {} });
       box.appendChild(b);
     });
-    if (!list.length) box.appendChild(el("span", q ? "No invoice matches that search." : "No invoices yet.", "muted"));
+    if (!list.length) box.appendChild(el("span", q ? "No invoice matches that search." : "No invoices yet. Make your first one above.", "muted"));
   }).catch(function (e) { $("inv-list").textContent = e.message; });
 }
 

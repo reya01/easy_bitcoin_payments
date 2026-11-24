@@ -73,6 +73,9 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
     els.steps.forEach(function (element, index) {
       element.className = index < step ? "done" : index === step ? "now" : "";
     });
+    // The bars in words too: "Step 2 of 4", or "All set" at the end.
+    var n = els.steps.length, label = document.getElementById("step-label");
+    if (label) label.textContent = step >= n ? "All set" : "Step " + (step + 1) + " of " + n;
   }
 
   // Payout wallet picker: choosing a kind shows the address box with the right

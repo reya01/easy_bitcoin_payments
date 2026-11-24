@@ -110,12 +110,15 @@ pub fn set_identifiers(
     Ok(())
 }
 
+/// An invoice's number and customer name, either of which may be empty.
+pub type Identifiers = (Option<String>, Option<String>);
+
 /// Number and customer name for every invoice of a store that has either,
 /// keyed by invoice id (for the payments export).
 pub fn identifiers_by_invoice(
     conn: &Connection,
     store_id: &str,
-) -> Result<HashMap<String, (Option<String>, Option<String>)>, AppError> {
+) -> Result<HashMap<String, Identifiers>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT id, invoice_number, customer_name FROM invoices
          WHERE store_id = ?1 AND (invoice_number IS NOT NULL OR customer_name IS NOT NULL)",

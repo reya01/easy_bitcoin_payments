@@ -1929,8 +1929,9 @@ function invText(r) {
       (r.lightning_fee_estimate_sat > 0 ? " It includes the Ark server's fee of " + Number(r.lightning_fee_estimate_sat).toLocaleString("en-US") + " sats." : ""));
     lines.push(r.lightning_invoice);
   }
-  lines.push("", "Pay with Ark" + (invLightningLive(r) ? " (works after that time too)" : "") + ": in an Ark wallet, send exactly " + Number(r.amount_sats).toLocaleString("en-US") + " sats to this address" +
+  lines.push("", "Pay with Ark" + (invLightningLive(r) ? " (works after that time too)" : "") + ": in an Ark wallet, send exactly the amount below to this address. The address does not carry the amount, so type it in yourself" +
     (r.ark_server ? ", with the wallet set to the Ark server " + r.ark_server : "") + ". Ark wallets include Noah (Android) and Arké (iPhone).");
+  lines.push("AMOUNT: " + Number(r.amount_sats).toLocaleString("en-US") + " sats");
   lines.push(r.ark_address);
   return lines.join("\n");
 }
@@ -1952,7 +1953,7 @@ function invFit(ctx, text, max, weight, size) {
   var s = size; do { ctx.font = weight + " " + s + "px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"; s -= 2; } while (ctx.measureText(text).width > max && s > 12);
 }
 function invPicture(r) {
-  var ln = invLightningLive(r), W = 1200, pad = 56, qr = ln ? 500 : 620, boxH = qr + 220;
+  var ln = invLightningLive(r), W = 1200, pad = 56, qr = ln ? 500 : 620, boxH = qr + 280;
   var top = pad + (r.test_mode ? 60 : 0), headH = 250 + (r.fiat_amount ? 50 : 0);
   var H = top + headH + boxH + pad;
   var cv = document.createElement("canvas"); cv.width = W; cv.height = H;
@@ -1968,18 +1969,25 @@ function invPicture(r) {
   if (r.fiat_amount) { y += 50; ctx.fillStyle = muted; invFit(ctx, r.fiat_currency + " " + r.fiat_amount, W - 2 * pad, "400", 38); ctx.fillText(r.fiat_currency + " " + r.fiat_amount, pad, y); ctx.fillStyle = ink; }
   y += 60; invFit(ctx, "Invoice " + (r.invoice_number || ""), W - 2 * pad, "400", 38); ctx.fillText("Invoice " + (r.invoice_number || ""), pad, y);
   var by = top + headH, cols = ln ? 2 : 1, gap = 40, bw = ln ? (W - 2 * pad - gap) / 2 : W - 2 * pad;
-  function box(i, text, title, sub, sub2) {
+  function box(i, text, title, sub, sub2, big) {
     var bx = pad + i * (bw + gap);
     ctx.strokeStyle = ink; ctx.lineWidth = 4; invRound(ctx, bx, by, bw, boxH, 28); ctx.stroke();
     invDrawQr(ctx, text, bx + (bw - qr) / 2, by + 24, qr);
     ctx.fillStyle = ink; ctx.textAlign = "center";
     invFit(ctx, title, bw - 40, "700", 44); ctx.fillText(title, bx + bw / 2, by + qr + 86);
-    ctx.fillStyle = muted; invFit(ctx, sub, bw - 40, "400", 32); ctx.fillText(sub, bx + bw / 2, by + qr + 136);
-    if (sub2) { invFit(ctx, sub2, bw - 40, "400", 32); ctx.fillText(sub2, bx + bw / 2, by + qr + 180); }
+    if (big) {
+      // Ark: the code holds no amount, so the amount is the biggest thing in the box.
+      invFit(ctx, big, bw - 40, "800", 64); ctx.fillText(big, bx + bw / 2, by + qr + 160);
+      ctx.fillStyle = muted; invFit(ctx, sub, bw - 40, "400", 30); ctx.fillText(sub, bx + bw / 2, by + qr + 206);
+      if (sub2) { invFit(ctx, sub2, bw - 40, "400", 30); ctx.fillText(sub2, bx + bw / 2, by + qr + 246); }
+    } else {
+      ctx.fillStyle = muted; invFit(ctx, sub, bw - 40, "400", 32); ctx.fillText(sub, bx + bw / 2, by + qr + 136);
+      if (sub2) { invFit(ctx, sub2, bw - 40, "400", 32); ctx.fillText(sub2, bx + bw / 2, by + qr + 180); }
+    }
     ctx.textAlign = "left";
   }
   if (ln) box(0, "lightning:" + r.lightning_invoice, "Lightning", "Works until " + invLocal(r.lightning_expires_at, true), invInUtc() ? "" : "(" + invUtc(r.lightning_expires_at) + ")");
-  box(cols - 1, r.ark_address, "Ark", "Send exactly " + amt, r.ark_server ? "Ark server: " + r.ark_server : "");
+  box(cols - 1, r.ark_address, "Ark", "Type this amount in your wallet", r.ark_server ? "Ark server: " + r.ark_server : "", amt);
   return cv;
 }
 function invCopyText(text, msgId) {
@@ -2028,6 +2036,10 @@ function renderInvoice(r) {
   var msgId = "inv-out-msg";
   if (open) {
     var text = invText(r), name = "invoice-" + String(r.invoice_number || "").replace(/[^A-Za-z0-9_-]+/g, "-") + ".png";
+    var arkAmt = el("div", "", "ark-amt"); arkAmt.id = "inv-ark-amt";
+    arkAmt.appendChild(el("span", "Ark payers type this amount in themselves (the Ark code holds no amount):"));
+    arkAmt.appendChild(el("strong", Number(r.amount_sats).toLocaleString("en-US") + " sats"));
+    box.appendChild(arkAmt);
     box.appendChild(el("p", "Send your customer the text or the picture (or both):", "muted"));
     var t = el("div", text, "inv-text"); t.id = "inv-text"; box.appendChild(t);
     var b1 = el("div", "", "btns");

@@ -119,9 +119,18 @@ pub struct ManualInvoice {
     pub bolt11: Option<String>,
 }
 
-const SELECT: &str = "SELECT invoices.*,
-        (SELECT bolt11 FROM ln_invoices l WHERE l.invoice_id = invoices.id) AS bolt11
-     FROM invoices";
+/// The invoice row plus its current Lightning invoice, followed by `$rest`
+/// (a fixed string; every value is a bound parameter).
+macro_rules! manual_select {
+    ($rest:literal) => {
+        concat!(
+            "SELECT invoices.*,
+                (SELECT bolt11 FROM ln_invoices l WHERE l.invoice_id = invoices.id) AS bolt11
+             FROM invoices ",
+            $rest
+        )
+    };
+}
 
 fn row_to_manual(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManualInvoice> {
     Ok(ManualInvoice {
@@ -138,9 +147,9 @@ pub fn get(
     store_id: &str,
     invoice_id: &str,
 ) -> Result<Option<ManualInvoice>, AppError> {
-    let sql = format!("{SELECT} WHERE id = ?1 AND store_id = ?2 AND source = 'manual'");
+    let sql = manual_select!("WHERE id = ?1 AND store_id = ?2 AND source = 'manual'");
     Ok(conn
-        .query_row(&sql, params![invoice_id, store_id], row_to_manual)
+        .query_row(sql, params![invoice_id, store_id], row_to_manual)
         .optional()?)
 }
 
@@ -166,13 +175,13 @@ pub fn list(
     limit: i64,
 ) -> Result<Vec<ManualInvoice>, AppError> {
     let q = query.map(str::trim).filter(|q| !q.is_empty());
-    let sql = format!(
-        "{SELECT} WHERE store_id = ?1 AND source = 'manual'
+    let sql = manual_select!(
+        "WHERE store_id = ?1 AND source = 'manual'
            AND (?2 IS NULL OR invoice_number LIKE ?2 ESCAPE '\\'
                 OR customer_name LIKE ?2 ESCAPE '\\')
          ORDER BY created_at DESC, id DESC LIMIT ?3"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map(
         params![store_id, q.map(like_pattern), limit.clamp(1, 500)],
         row_to_manual,
@@ -186,11 +195,11 @@ pub fn list(
 
 /// Every manual invoice of a store, oldest first, for the invoices CSV.
 pub fn export_all(conn: &Connection, store_id: &str) -> Result<Vec<ManualInvoice>, AppError> {
-    let sql = format!(
-        "{SELECT} WHERE store_id = ?1 AND source = 'manual'
+    let sql = manual_select!(
+        "WHERE store_id = ?1 AND source = 'manual'
          ORDER BY created_at ASC, id LIMIT ?2"
     );
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map(
         params![store_id, crate::invoice::EXPORT_MAX_ROWS],
         row_to_manual,

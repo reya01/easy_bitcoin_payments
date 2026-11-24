@@ -151,6 +151,9 @@ def main():
             for must in ["25,000 sats", "Sam's Plumbing", "Bathroom tap repair", "(invoice 3)", "Pay with Lightning", "It works until", "UTC", BOLT11, "Pay with Ark", ARK, "TEST INVOICE"]:
                 if must not in text: pr.append(f"the text is missing {must!r}")
             if "Sam Rivera" in text: pr.append("the customer name must not be in the text sent to the customer")
+            if "AMOUNT: 25,000 sats\n" + ARK not in text: pr.append("the Ark amount must be on its own line right above the address")
+            big = p.evaluate("(function(){var e=document.querySelector('#inv-ark-amt strong');return e?[e.textContent,parseFloat(getComputedStyle(e).fontSize),getComputedStyle(e).fontWeight]:null})()")
+            if not big or big[0] != "25,000 sats" or big[1] < 24 or int(big[2]) < 700: pr.append(f"the Ark amount must be big and bold on screen: {big}")
             w = p.inner_text("#inv-warn") if p.is_visible("#inv-warn") else ""
             for must in ["Send this privately", "Proton Mail", "Signal", "cannot stop"]:
                 if must not in w: pr.append(f"the warning is missing {must!r}")

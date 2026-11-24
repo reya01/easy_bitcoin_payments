@@ -269,7 +269,7 @@ mod tests {
     // created 1764000000, expiry field 10800 seconds.
     const WITH_EXPIRY: &str = "lntbs10u1p5jfqgqdqydxyzxqr23sqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpmn3vw";
     // The same without an expiry field: BOLT11's default of 3600 seconds.
-    const NO_EXPIRY: &str = "lnbc11p5jfqgqdqydxyzqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7lwwyz";
+    const NO_EXPIRY: &str = "lnbc11p5jfqgqdqydxyzqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7lwwyz";
 
     #[test]
     fn lightning_expiry_is_read_from_the_invoice() {

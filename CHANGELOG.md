@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Clearer note after you change the payout address.** The "Saved. For safety it takes effect in about 24 hours" message now also says that if you are having any issues you can use "Pause new payments" above.
+
 - **Setup no longer adopts a wallet someone else made after a refused try.** If the first try to restore or create the wallet was clearly refused (barkd never reached, or it answered "no" because a wallet was already there), the setup now forgets that it tried. Before, a second try could take over a wallet that was not made by this setup. A try that timed out or lost its answer still counts, because that wallet may be yours.
 - **After an unclear transfer is settled from the wallet history, nothing is sent in the same check.** The balance and coin list were read before the history, so they could still count coins that transfer had spent. The next check (or a second press of the button) reads everything fresh.
 

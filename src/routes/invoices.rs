@@ -807,22 +807,29 @@ pub async fn export_csv(
     use axum::response::IntoResponse;
 
     let store_id = auth.store.id.clone();
-    let (invoices, received) = state
+    let (invoices, received, labels) = state
         .db
         .call(move |conn| {
             Ok((
                 invoice::export_all(conn, &store_id)?,
                 invoice::received_by_invoice(conn, &store_id)?,
+                crate::invoice_ident::identifiers_by_invoice(conn, &store_id)?,
             ))
         })
         .await?;
     let cut = invoices.len() as i64 >= invoice::EXPORT_MAX_ROWS;
     // A byte-order mark so Excel reads the file as UTF-8.
     let mut out = String::from(
-        "\u{feff}created_at,paid_at,invoice_id,order_id,status,amount_sats,paid_sats,received_sats,fiat_currency,fiat_amount,rate,rate_source\r\n",
+        "\u{feff}created_at,paid_at,invoice_id,order_id,status,amount_sats,paid_sats,received_sats,fiat_currency,fiat_amount,rate,rate_source,invoice_number,customer_name\r\n",
     );
     for inv in &invoices {
         let r = to_response(inv, &state.config, None);
+        // Owner-chosen labels (empty for shop orders). Last, so the columns
+        // that were already there keep their places in owners' spreadsheets.
+        let (number, name) = labels
+            .get(&r.id)
+            .map(|(n, c)| (n.as_deref().unwrap_or(""), c.as_deref().unwrap_or("")))
+            .unwrap_or(("", ""));
         let cells = [
             csv_cell(&r.created_at),
             csv_cell(r.paid_at.as_deref().unwrap_or("")),
@@ -836,6 +843,8 @@ pub async fn export_csv(
             csv_cell(r.fiat_amount.as_deref().unwrap_or("")),
             csv_cell(r.rate.as_deref().unwrap_or("")),
             csv_cell(r.rate_source.as_deref().unwrap_or("")),
+            csv_cell(number),
+            csv_cell(name),
         ];
         out.push_str(&cells.join(","));
         out.push_str("\r\n");

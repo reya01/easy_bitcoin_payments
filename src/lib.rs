@@ -19,6 +19,7 @@ pub mod emergency_exit;
 pub mod error;
 pub mod health_checks;
 pub mod invoice;
+pub mod invoice_ident;
 pub mod managed_barkd;
 pub mod models;
 pub mod passkey;

@@ -34,8 +34,8 @@ What it does **not** yet prove:
   the runner with the latest stable and the runner's musl tools, and its tarball also stores
   file times, so its hash is not reproducible; that is for stage 2.)
 
-**Stage 2, first part: the binary inside the image. Built (24 November 2026, held for after
-0.3.3).** The Dockerfile's build stage now sets the same `CARGO_INCREMENTAL=0` and
+**Stage 2, first part: the binary inside the image. Built (24 November 2026, first in
+0.3.3-rc1).** The Dockerfile's build stage now sets the same `CARGO_INCREMENTAL=0` and
 `--remap-path-prefix` flags as the script, in the same `/src` folder and the same pinned Rust
 image. The `reproducible-build` workflow gained a third job that builds the image
 (`--target runtime`), copies `/usr/local/bin/ebp` out of it, and fails unless its sha256 equals

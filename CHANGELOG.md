@@ -1,11 +1,13 @@
 # Changelog
 
-## 0.3.3-rc1 — clearer refused-connection messages and a per-shop limit (24 November 2026)
+## 0.3.3-rc1 — clearer refused-connection messages, a per-shop limit, invoice fields in the spreadsheet, a checkable image (24 November 2026)
 
 The first release candidate of 0.3.3. 0.3.3 will be the full release of the 0.3.2 line: everything in 0.3.2-rc1 to -rc3 below, plus:
 
 - **A refused connection now says why.** When a shop's webhook address or your phone-alert address is refused because the name points at a private address, the delivery log and the test-alert message now say so in plain words, and other failures say what happened (took too long, could not connect, and why) instead of just "request failed". The rarer private ranges (6to4, Teredo and the old site-local range) are refused too, and Home shows a yellow line while the local-testing switch `EBP_WEBHOOK_ALLOW_PRIVATE` is on.
 - **A per-shop limit on open payment requests.** One shop can now have at most 300 unpaid payment requests open at once (the server-wide limit stays 1,000), so a flood from one shop, or a stolen key for it, cannot use up all the room and block other shops. A small shop never gets near it.
+- **Invoice number and customer name in the payments spreadsheet (first piece of invoices, in testing).** The payments CSV gets two new last columns, `invoice_number` and `customer_name` (empty for shop orders; the columns that were already there keep their places). They are kept in the database (the invoice number counts up from 1 by default, can be your own text up to 40 characters, and is never used twice) ready for the coming Invoices tab; nothing fills them in yet. This adds a database change: once a server runs this version, an older version will not open its data (the automatic copy made before each update still has the old data).
+- **Anyone can check the published image was built from this source.** The program inside the Docker image is now built with the same settings as `scripts/repro-build.sh`, CI checks they are byte-for-byte the same, and `scripts/verify-release.sh VERSION` rebuilds a release and compares it with the published image.
 
 ## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
 

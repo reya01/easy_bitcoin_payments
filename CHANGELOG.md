@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
+## Unreleased
 
 - **A refused connection now says why.** When a shop's webhook address or your phone-alert address is refused because the name points at a private address, the delivery log and the test-alert message now say so in plain words, and other failures say what happened (took too long, could not connect, and why) instead of just "request failed". The rarer private ranges (6to4, Teredo and the old site-local range) are refused too, and Home shows a yellow line while the local-testing switch `EBP_WEBHOOK_ALLOW_PRIVATE` is on.
+
+## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
 
 - **Six new mascots at checkout.** After a customer pays, the checkout page now shows one of ten little animated Bitcoin characters (new: a surfer, a weightlifter, a DJ, a cozy fireside reader, a drummer and a planet). Which one appears depends on the payment, so a refresh shows the same one. People who prefer reduced motion get the still picture. The pictures are built into the program like the first four.
 - **A weightlifter cheers on Home when you get paid.** While the Home tab is open, a short animation with a "New payment!" message plays when a payment arrives, at most once a minute. It is only for fun: it reads the payments list the Payments tab already reads, and if anything goes wrong it simply does not show.

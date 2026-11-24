@@ -173,6 +173,13 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices/{id}` | Fetch one invoice (store-scoped) |
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `GET` | `/api/v1/invoices.csv` | Payments export (CSV; includes what the wallet actually received next to what was credited, and the invoice number and customer name as the last two columns, empty for shop orders) |
+| `GET` | `/api/v1/admin/invoices` | Invoices tab (owner session): list, newest first; `q` searches number and customer name |
+| `POST` | `/api/v1/admin/invoices` | Invoices tab: make an invoice (`sats` or `fiat`, `note`, `invoice_number`, `customer_name`, `open_days` 1/7/14/30); refused while the tab is off |
+| `GET` | `/api/v1/admin/invoices/settings` | Invoices tab: on or off, next number, customer names used before |
+| `POST` | `/api/v1/admin/invoices/enabled` | Turn the Invoices tab on or off (`{"enabled": true}`) |
+| `POST` | `/api/v1/admin/invoices/{id}/lightning` | A fresh Lightning invoice, about 10 minutes after the old one ran out |
+| `POST` | `/api/v1/admin/invoices/{id}/cancel` | Cancel an invoice made on the Invoices tab |
+| `GET` | `/api/v1/admin/invoices.csv` | Invoices export: number and customer name first |
 | `GET` | `/api/v1/admin/settlements.csv` | Transfers and upkeep export (CSV, oldest first; **admin session or admin token**): transfers to your own wallet and routine upkeep, with status, destination and note |
 | `POST` | `/api/v1/invoices/{id}/cancel` | Cancel a pending invoice |
 | `GET` | `/api/v1/unmatched-payments?limit=&offset=` | Payments that could not complete an order: part payments after expiry, extra payments on a paid order, or anything more than 3 hours late (needs merchant action) (**admin session only**) |

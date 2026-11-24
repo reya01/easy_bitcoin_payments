@@ -18,7 +18,7 @@ pwHelper("pw-new", "pw-new-show", "pw-new-count");
 var csrf = "";
 var twofaOn = false, twofaDeclined = false, paused = false, passkeysOn = false, loginPasskey = null;
 var $ = function (id) { return document.getElementById(id); };
-var views = ["login", "home", "orders", "alerts", "hooks", "set"];
+var views = ["login", "home", "orders", "inv", "alerts", "hooks", "set"];
 
 function el(tag, text, cls) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
@@ -155,16 +155,17 @@ function show(name) {
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("on", tabs[i].getAttribute("data-v") === name);
   if (name === "home") { PAGE.sweeps = 0; PAGE.upkeep = 0; loadHome(); cheerCheck(); }
   if (name === "orders") { PAGE.orders = 0; loadOrders(); }
+  if (name === "inv") { loadInvSettings(); loadInvList(); }
   if (name === "alerts") loadAlerts();
   if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
   // The emergency answer is fetched ahead, so the section is usually ready when it is opened.
-  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); loadExit(); }
+  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); loadExit(); loadInvSettings(); }
   if (name === "home" || name === "set" || name === "alerts") loadPhone();
   if (name === "home" || name === "set") loadTwofa();
   if (name === "home") loadRecon();
 }
 function signedOut() { var n = $("login-note"); if (pwChanged) { n.textContent = "Password changed. Sign in with your new password."; n.classList.remove("hidden"); pwChanged = false; } else { n.classList.add("hidden"); } csrf = ""; twofaOn = false; twofaDeclined = false; paused = false; passkeysOn = false; loginPasskey = null; $("login-pk").classList.add("hidden"); $("code-box").classList.add("hidden"); $("code").value = ""; $("tabs").classList.add("hidden"); $("logout").classList.add("hidden"); show("login"); }
-function signedIn(token) { csrf = token; $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show(location.hash === "#test" ? "orders" : "home"); if (location.hash === "#test") { try { $("tp-sats").focus(); } catch (e) {} } }
+function signedIn(token) { csrf = token; loadInvSettings(); $("tabs").classList.remove("hidden"); $("logout").classList.remove("hidden"); $("base").textContent = location.origin; show(location.hash === "#test" ? "orders" : "home"); if (location.hash === "#test") { try { $("tp-sats").focus(); } catch (e) {} } }
 
 function boot() {
   fetch("/admin/session", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (s) {
@@ -1852,6 +1853,262 @@ $("exo-on").addEventListener("click", function () { exOptIn(true, "exo-pw", "exo
 $("exo-off-go").addEventListener("click", function () {
   askConfirm({ title: "Turn off the emergency withdrawal?", body: "Everything will be sent on to your payout address as usual, and the fee money can be taken back. You can turn it on again any time.", cancel: "Keep it on", ok: "Turn off" })
     .then(function (yes) { if (yes) exOptIn(false, "exoff-pw", "exoff-code", $("exo-off-go")); });
+});
+
+// ---- Invoices (in testing; docs/dev/INVOICES.md). Off until turned on in Settings.
+// The owner makes an invoice, then copies or shares the text or a picture of it.
+// Nothing here is sent anywhere by EBP; the picture is drawn in this browser.
+var INV = { enabled: false, s: null, cur: null, qTimer: null };
+var INV_WARN_T = "Send this privately.";
+var INV_WARN = "EBP cannot stop an email or chat message from being read or changed on the way. Someone who gets into your account or your customer's could swap in their own payment details. We recommend an encrypted email provider such as Proton Mail or an encrypted messenger such as Signal. For a large amount, confirm the amount and the last few characters of the address with your customer another way, for example by phone.";
+var INV_STATUS = { pending: "Open", paid: "Paid", overpaid: "Paid (a little extra)", underpaid: "Part paid", expired: "Expired", cancelled: "Cancelled" };
+
+function loadInvSettings() {
+  return api("GET", "/api/v1/admin/invoices/settings").then(function (s) {
+    INV.s = s; INV.enabled = !!s.enabled;
+    $("tab-inv").classList.toggle("hidden", !INV.enabled);
+    renderInvSettings();
+    var cur = (s.default_currency || "USD").toUpperCase();
+    $("inv-unit-fiat").textContent = cur;
+    var days = $("inv-days"), keep = days.value;
+    clear(days);
+    (s.open_days_choices || [1, 7, 14, 30]).forEach(function (d) {
+      var o = el("option", d === 1 ? "1 day" : d + " days"); o.value = String(d); days.appendChild(o);
+    });
+    days.value = keep || String(s.default_open_days || 7);
+    if (!$("inv-num").value || $("inv-num").getAttribute("data-auto") === "1") { $("inv-num").value = s.next_number || ""; $("inv-num").setAttribute("data-auto", "1"); }
+    var dl = $("inv-names"); clear(dl);
+    (s.customer_names || []).forEach(function (n) { var o = el("option"); o.value = n; dl.appendChild(o); });
+    return s;
+  }).catch(function () {});
+}
+function renderInvSettings() {
+  var box = $("inv-set"); clear(box);
+  box.appendChild(el("p", INV.enabled
+    ? "Invoices are on. The Invoices tab is at the bottom of the screen. Invoices already sent still get paid if you turn this off."
+    : "Make an invoice for a customer who is not using your shop (a job, a market stall, a friend), then send it yourself by email or chat. In testing: not ready for everyday use yet.", "muted"));
+  var b = el("div", "", "btns");
+  b.appendChild(button(INV.enabled ? "Turn invoices off" : "Turn invoices on", function (btn) {
+    btn.disabled = true;
+    api("POST", "/api/v1/admin/invoices/enabled", { enabled: !INV.enabled })
+      .then(function () { return loadInvSettings(); })
+      .catch(function (e) { say("inv-set-msg", e.message, true); })
+      .then(function () { btn.disabled = false; });
+  }, INV.enabled ? "" : "primary"));
+  box.appendChild(b);
+  var m = el("p", "", "msg hidden"); m.id = "inv-set-msg"; box.appendChild(m);
+}
+
+function invAmountLabel(r) {
+  var sats = Number(r.amount_sats).toLocaleString("en-US") + " sats";
+  return r.fiat_amount ? r.fiat_currency + " " + r.fiat_amount + " (" + sats + ")" : sats;
+}
+// "Tuesday, 24 November 2026 at 6:42 PM EST (11:42 PM UTC)", in this phone's time zone.
+// The UTC time is added unless this phone already uses UTC.
+function invInUtc() { try { return /^(Etc\/)?(UTC|GMT|Universal|Zulu)$/.test(Intl.DateTimeFormat().resolvedOptions().timeZone || ""); } catch (e) { return false; } }
+function invUtc(iso) { return new Date(iso).toLocaleString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit" }) + " UTC"; }
+function invLocal(iso, short) {
+  return new Date(iso).toLocaleString(undefined, short
+    ? { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" }
+    : { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+}
+function invWhen(iso) {
+  if (isNaN(new Date(iso))) return iso;
+  return invLocal(iso) + (invInUtc() ? "" : " (" + invUtc(iso) + ")");
+}
+function invLightningLive(r) {
+  return !!(r.lightning_invoice && r.lightning_expires_at && new Date(r.lightning_expires_at) > new Date());
+}
+// The message the owner sends. Only facts the customer needs; no customer name.
+function invText(r) {
+  var lines = [];
+  if (r.test_mode) lines.push("TEST INVOICE: play money (signet), not real Bitcoin.", "");
+  lines.push("Please pay " + invAmountLabel(r) + " to " + r.store_name + (r.note ? " for “" + r.note + "”" : "") + " (invoice " + (r.invoice_number || "") + ").");
+  if (invLightningLive(r)) {
+    lines.push("", "Pay with Lightning (any Lightning wallet): paste this invoice into your wallet. It works until " + invWhen(r.lightning_expires_at) + ". After that time it will not work; ask me for a fresh one." +
+      (r.lightning_fee_estimate_sat > 0 ? " It includes the Ark server's fee of " + Number(r.lightning_fee_estimate_sat).toLocaleString("en-US") + " sats." : ""));
+    lines.push(r.lightning_invoice);
+  }
+  lines.push("", "Pay with Ark" + (invLightningLive(r) ? " (works after that time too)" : "") + ": in an Ark wallet, send exactly " + Number(r.amount_sats).toLocaleString("en-US") + " sats to this address" +
+    (r.ark_server ? ", with the wallet set to the Ark server " + r.ark_server : "") + ". Ark wallets include Noah (Android) and Arké (iPhone).");
+  lines.push(r.ark_address);
+  return lines.join("\n");
+}
+
+// The picture: the same facts, nothing to edit later. Drawn on a canvas so it can be
+// copied, shared or saved as a PNG. QR codes come from the built-in generator.
+function invDrawQr(ctx, text, x, y, size) {
+  var q = window.ebpQrEncode(text), n = q.size + 4, cell = size / n;
+  ctx.fillStyle = "#fff"; ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = "#000";
+  for (var r = 0; r < q.size; r++) for (var c = 0; c < q.size; c++)
+    if (q.modules[r][c]) ctx.fillRect(Math.floor(x + (c + 2) * cell), Math.floor(y + (r + 2) * cell), Math.ceil(cell), Math.ceil(cell));
+}
+function invRound(ctx, x, y, w, h, rad) {
+  ctx.beginPath(); ctx.moveTo(x + rad, y); ctx.arcTo(x + w, y, x + w, y + h, rad); ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad); ctx.arcTo(x, y, x + w, y, rad); ctx.closePath();
+}
+function invFit(ctx, text, max, weight, size) {
+  var s = size; do { ctx.font = weight + " " + s + "px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"; s -= 2; } while (ctx.measureText(text).width > max && s > 12);
+}
+function invPicture(r) {
+  var ln = invLightningLive(r), W = 1200, pad = 56, qr = ln ? 500 : 620, boxH = qr + 220;
+  var top = pad + (r.test_mode ? 60 : 0), headH = 250 + (r.fiat_amount ? 50 : 0);
+  var H = top + headH + boxH + pad;
+  var cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  var ctx = cv.getContext("2d"), ink = "#1d1530", muted = "#5c5470";
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = ink; ctx.lineWidth = 6; invRound(ctx, 3, 3, W - 6, H - 6, 40); ctx.stroke();
+  ctx.textBaseline = "alphabetic"; ctx.fillStyle = ink;
+  if (r.test_mode) { ctx.fillStyle = "#a31d33"; invFit(ctx, "TEST INVOICE · play money", W - 2 * pad, "700", 34); ctx.fillText("TEST INVOICE · play money", pad, pad + 34); ctx.fillStyle = ink; }
+  var y = top + 44;
+  invFit(ctx, r.store_name, W - 2 * pad, "700", 44); ctx.fillText(r.store_name, pad, y);
+  y += 120; var amt = Number(r.amount_sats).toLocaleString("en-US") + " sats";
+  invFit(ctx, amt, W - 2 * pad, "800", 104); ctx.fillText(amt, pad, y);
+  if (r.fiat_amount) { y += 50; ctx.fillStyle = muted; invFit(ctx, r.fiat_currency + " " + r.fiat_amount, W - 2 * pad, "400", 38); ctx.fillText(r.fiat_currency + " " + r.fiat_amount, pad, y); ctx.fillStyle = ink; }
+  y += 60; invFit(ctx, "Invoice " + (r.invoice_number || ""), W - 2 * pad, "400", 38); ctx.fillText("Invoice " + (r.invoice_number || ""), pad, y);
+  var by = top + headH, cols = ln ? 2 : 1, gap = 40, bw = ln ? (W - 2 * pad - gap) / 2 : W - 2 * pad;
+  function box(i, text, title, sub, sub2) {
+    var bx = pad + i * (bw + gap);
+    ctx.strokeStyle = ink; ctx.lineWidth = 4; invRound(ctx, bx, by, bw, boxH, 28); ctx.stroke();
+    invDrawQr(ctx, text, bx + (bw - qr) / 2, by + 24, qr);
+    ctx.fillStyle = ink; ctx.textAlign = "center";
+    invFit(ctx, title, bw - 40, "700", 44); ctx.fillText(title, bx + bw / 2, by + qr + 86);
+    ctx.fillStyle = muted; invFit(ctx, sub, bw - 40, "400", 32); ctx.fillText(sub, bx + bw / 2, by + qr + 136);
+    if (sub2) { invFit(ctx, sub2, bw - 40, "400", 32); ctx.fillText(sub2, bx + bw / 2, by + qr + 180); }
+    ctx.textAlign = "left";
+  }
+  if (ln) box(0, "lightning:" + r.lightning_invoice, "Lightning", "Works until " + invLocal(r.lightning_expires_at, true), invInUtc() ? "" : "(" + invUtc(r.lightning_expires_at) + ")");
+  box(cols - 1, r.ark_address, "Ark", "Send exactly " + amt, r.ark_server ? "Ark server: " + r.ark_server : "");
+  return cv;
+}
+function invCopyText(text, msgId) {
+  var done = function () { say(msgId, "Copied. Paste it into an encrypted email or Signal message."); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(done, function () { say(msgId, "Your browser would not copy. Select the text above and copy it.", true); });
+  }
+  say(msgId, "Your browser cannot copy here. Select the text above and copy it.", true);
+}
+function invCopyPicture(cv, msgId) {
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === "undefined") throw new Error("no");
+    var blob = new Promise(function (ok) { cv.toBlob(ok, "image/png"); });
+    navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]).then(function () {
+      say(msgId, "Picture copied. Paste it into an encrypted email or Signal message.");
+    }, function () { say(msgId, "Your browser would not copy the picture. Use Save picture or Share instead.", true); });
+  } catch (e) { say(msgId, "Your browser cannot copy pictures. Use Save picture or Share instead.", true); }
+}
+function invSavePicture(cv, name, msgId) {
+  cv.toBlob(function (blob) {
+    if (!blob) { say(msgId, "Could not make the picture.", true); return; }
+    var a = document.createElement("a"), url = URL.createObjectURL(blob);
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+    say(msgId, "The picture is saving.");
+  }, "image/png");
+}
+function invShare(text, cv, name, msgId) {
+  cv.toBlob(function (blob) {
+    var data = { text: text };
+    try { var f = new File([blob], name, { type: "image/png" }); if (navigator.canShare && navigator.canShare({ files: [f] })) data = { text: text, files: [f] }; } catch (e) {}
+    navigator.share(data).catch(function (e) { if (e && e.name !== "AbortError") say(msgId, "Could not open sharing. Use Copy instead.", true); });
+  }, "image/png");
+}
+
+function renderInvoice(r) {
+  INV.cur = r;
+  var box = $("inv-out"); clear(box); box.classList.remove("hidden");
+  var open = r.status === "pending" || r.status === "underpaid";
+  box.appendChild(el("h2", "Invoice " + (r.invoice_number || "")));
+  box.appendChild(row(invAmountLabel(r), INV_STATUS[r.status] || r.status, r.status === "paid" || r.status === "overpaid" ? "ok" : ""));
+  if (r.customer_name) box.appendChild(row("Customer", r.customer_name));
+  if (r.paid_at) box.appendChild(row("Paid", when(r.paid_at)));
+  else box.appendChild(row(open ? "Open until" : "Was open until", when(r.expires_at)));
+  if (r.status === "underpaid") box.appendChild(el("p", "Part of this invoice has been paid (" + Number(r.paid_sats).toLocaleString("en-US") + " sats so far).", "muted"));
+  var msgId = "inv-out-msg";
+  if (open) {
+    var text = invText(r), name = "invoice-" + String(r.invoice_number || "").replace(/[^A-Za-z0-9_-]+/g, "-") + ".png";
+    box.appendChild(el("p", "Send your customer the text or the picture (or both):", "muted"));
+    var t = el("div", text, "inv-text"); t.id = "inv-text"; box.appendChild(t);
+    var b1 = el("div", "", "btns");
+    b1.appendChild(button("Copy text", function () { invCopyText(text, msgId); }, "primary"));
+    var cv = invPicture(r);
+    if (navigator.share) b1.appendChild(button("Share", function () { invShare(text, cv, name, msgId); }));
+    box.appendChild(b1);
+    var img = el("img", undefined, "inv-pic"); img.alt = "Picture of invoice " + (r.invoice_number || "") + " with its QR codes"; img.id = "inv-pic";
+    try { img.src = cv.toDataURL("image/png"); } catch (e) {}
+    box.appendChild(img);
+    var b2 = el("div", "", "btns");
+    b2.appendChild(button("Copy picture", function () { invCopyPicture(cv, msgId); }));
+    b2.appendChild(button("Save picture", function () { invSavePicture(cv, name, msgId); }));
+    box.appendChild(b2);
+    var w = el("div", "", "warnbox"); w.id = "inv-warn"; w.setAttribute("role", "note");
+    w.appendChild(el("strong", INV_WARN_T)); w.appendChild(document.createTextNode(INV_WARN)); box.appendChild(w);
+    if (!invLightningLive(r)) box.appendChild(el("p", r.lightning_invoice ? "The Lightning invoice has run out. The Ark address still works." : "No Lightning invoice right now. The Ark address works.", "muted"));
+    var b3 = el("div", "", "btns");
+    if (r.can_refresh_lightning) b3.appendChild(button("Make a fresh Lightning invoice", function (btn) {
+      btn.disabled = true;
+      api("POST", "/api/v1/admin/invoices/" + encodeURIComponent(r.id) + "/lightning", {}).then(function (x) { renderInvoice(x); loadInvList(); })
+        .catch(function (e) { btn.disabled = false; say(msgId, e.message, true); });
+    }));
+    if (r.status === "pending") b3.appendChild(button("Cancel this invoice", function (btn) {
+      askConfirm({ title: "Cancel invoice " + (r.invoice_number || "") + "?", body: "Your customer can no longer pay it. If they pay anyway, the money still arrives and shows under Alerts.", cancel: "Keep it", ok: "Cancel the invoice" })
+        .then(function (yes) {
+          if (!yes) return;
+          btn.disabled = true;
+          api("POST", "/api/v1/admin/invoices/" + encodeURIComponent(r.id) + "/cancel", {}).then(function (x) { renderInvoice(x); loadInvList(); })
+            .catch(function (e) { btn.disabled = false; say(msgId, e.message, true); });
+        });
+    }));
+    if (b3.firstChild) box.appendChild(b3);
+  }
+  var m = el("p", "", "msg hidden"); m.id = msgId; box.appendChild(m);
+}
+
+function loadInvList() {
+  var q = $("inv-q").value.trim();
+  api("GET", "/api/v1/admin/invoices?limit=100" + (q ? "&q=" + encodeURIComponent(q) : "")).then(function (list) {
+    var box = $("inv-list"); clear(box);
+    list.forEach(function (r) {
+      var b = el("button", "", "inv-row"); b.type = "button";
+      b.appendChild(el("span", (r.invoice_number || "") + (r.customer_name ? " · " + r.customer_name : "") + " · " + invAmountLabel(r)));
+      b.appendChild(el("span", INV_STATUS[r.status] || r.status, r.status === "paid" || r.status === "overpaid" ? "ok" : "muted"));
+      b.addEventListener("click", function () { renderInvoice(r); try { $("inv-out").scrollIntoView({ behavior: "smooth" }); } catch (e) {} });
+      box.appendChild(b);
+    });
+    if (!list.length) box.appendChild(el("span", q ? "No invoice matches that search." : "No invoices yet.", "muted"));
+  }).catch(function (e) { $("inv-list").textContent = e.message; });
+}
+
+function invHint() {
+  var v = $("inv-amt").value.trim(), h = $("inv-amt-hint");
+  if ($("inv-unit").value === "sats" && /^\d+$/.test(v) && USD > 0) h.textContent = "About " + fmtSats(Number(v)).replace(/^.*\(|\)$/g, "") + ".";
+  else if ($("inv-unit").value === "fiat") h.textContent = "Turned into sats at today's price when you make the invoice. The sats amount then stays fixed.";
+  else h.textContent = "";
+}
+$("inv-amt").addEventListener("input", invHint);
+$("inv-unit").addEventListener("change", invHint);
+$("inv-num").addEventListener("input", function () { $("inv-num").setAttribute("data-auto", "0"); });
+$("inv-q").addEventListener("input", function () { clearTimeout(INV.qTimer); INV.qTimer = setTimeout(loadInvList, 300); });
+$("icsv-go").addEventListener("click", function () { downloadCsv("icsv-go", "icsv-msg", "/api/v1/admin/invoices.csv", "ebp-invoices-"); });
+$("inv-go").addEventListener("click", function () {
+  var v = $("inv-amt").value.trim().replace(/,/g, ""), body = {
+    note: $("inv-note").value, invoice_number: $("inv-num").value,
+    customer_name: $("inv-cust").value, open_days: Number($("inv-days").value)
+  };
+  if ($("inv-unit").value === "sats") {
+    if (!/^\d+$/.test(v) || Number(v) <= 0) { say("inv-msg", "Enter the amount in whole sats, like 25000.", true); return; }
+    body.sats = Number(v);
+  } else {
+    if (!/^\d+(\.\d{1,2})?$/.test(v) || Number(v) <= 0) { say("inv-msg", "Enter the amount as a number, like 25 or 25.50.", true); return; }
+    body.fiat = { currency: $("inv-unit-fiat").textContent, amount: v };
+  }
+  var b = $("inv-go"); b.disabled = true; $("inv-msg").className = "msg hidden";
+  api("POST", "/api/v1/admin/invoices", body).then(function (r) {
+    $("inv-amt").value = ""; $("inv-note").value = ""; $("inv-cust").value = ""; $("inv-num").setAttribute("data-auto", "1"); $("inv-num").value = "";
+    invHint(); renderInvoice(r); loadInvList(); loadInvSettings();
+    try { $("inv-out").scrollIntoView({ behavior: "smooth" }); } catch (e) {}
+  }).catch(function (e) { say("inv-msg", e.message, true); }).then(function () { b.disabled = false; });
 });
 
 boot();

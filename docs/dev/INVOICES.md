@@ -1,6 +1,6 @@
-# Invoices: get paid outside a shop checkout (plan, not built)
+# Invoices: get paid outside a shop checkout (in testing)
 
-**Status: a high-level draft for the owner to approve. No invoice code exists yet.**
+**Status: the Invoices tab is built and in testing (off until the owner turns it on in Settings). The real-money drill (phase 4) is still to do.** Where the owner had not decided an open question, the build follows the recommendation below it.
 Written 22 November 2026, revised the same day: no payment link (see "Why no link"). Nothing here is a promise of dates.
 
 ## The idea

@@ -65,6 +65,7 @@ function render() {
   // What is scanned, copied and shown is the same thing.
   s.copyValue = shown;
   drawQr(s.copyValue);
+  if (els.copy.textContent !== "Copied!") els.copy.textContent = copyLabel();
   // The two choices (Lightning on top, Ark below) are offered only while there is a
   // Lightning invoice, and not during a top-up (a top-up can only be paid over Ark).
   // Both are always shown; a check mark says which one is selected.
@@ -115,9 +116,11 @@ function copyText(t, btn, label) {
   try { navigator.clipboard.writeText(t).then(done, function () {}); } catch (e) {}
 }
 // The main button and the visible payment details copy the same thing.
-els.addr.addEventListener("click", function () { copyText(els.addr.textContent, els.copy, "Copy payment details"); });
-els.copy.addEventListener("click", function () { copyText(s.copyValue || els.addr.textContent, els.copy, "Copy payment details"); });
-$("copy-ark-amount").addEventListener("click", function () { copyText(String(s.arkDue || ""), $("copy-ark-amount"), "Copy the number"); });
+// What the copy button copies, in its own words.
+function copyLabel() { return s.tab === "ark" ? "Copy address" : "Copy invoice"; }
+els.addr.addEventListener("click", function () { copyText(els.addr.textContent, els.copy, copyLabel()); });
+els.copy.addEventListener("click", function () { copyText(s.copyValue || els.addr.textContent, els.copy, copyLabel()); });
+$("copy-ark-amount").addEventListener("click", function () { copyText(String(s.arkDue || ""), $("copy-ark-amount"), "Copy amount"); });
 // Once a payment is finished (paid, expired or cancelled) the pay details go
 // away, so nobody sends money to a request that is no longer open.
 function closeCard() { $("pay-card").classList.add("hidden"); els.cd.textContent = ""; s.deadline = 0; s.topupDeadline = 0; }

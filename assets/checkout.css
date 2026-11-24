@@ -83,3 +83,14 @@ details{margin-top:16px}summary{cursor:pointer;color:var(--muted);font-size:14px
 .mc-drum{transform-origin:50% 96%;animation:mc-drum .8s ease-in-out infinite}.mc-float{transform-origin:50% 50%;animation:mc-float 4s ease-in-out infinite}
 .mc-note{position:absolute;font:700 30px/1 -apple-system,Helvetica,Arial,sans-serif;color:var(--c);text-shadow:-1px -1px 0 #1d1530,1px -1px 0 #1d1530,-1px 1px 0 #1d1530,1px 1px 0 #1d1530;opacity:0;animation:mc-rise 2.8s ease-out infinite}.mc-note::after{content:"\266A"}.mc-note.m2::after{content:"\266B"}.mc-note.m3::after{content:"\266A"}.mc-note.m4::after{content:"\2665"}
 @media(prefers-reduced-motion:reduce){.mascot *{animation:none!important}.mc-bill,.mc-streak,.mc-coin,.mc-star,.mc-note{opacity:0!important}}
+
+/* Lightning | Ark as a two-option switch at the top of the payment box */
+.choices{grid-template-columns:1fr 1fr;gap:4px;margin:0 0 14px;padding:4px;border:2px solid var(--line);border-radius:14px;background:var(--soft)}
+.choice{justify-content:center;min-height:44px;padding:8px 10px;border:2px solid transparent;border-radius:10px;background:transparent;box-shadow:none;font-weight:700}
+.choice .tick{display:none}
+.choice.on{background:var(--card);border-color:var(--line);box-shadow:0 2px 0 var(--shadow)}
+/* Quieter test banner and timer, so the amount and the code lead */
+.test-banner{padding:6px 12px;font-size:12px;margin:10px 0 12px}
+.countdown{background:transparent;border-width:1.5px;color:var(--muted);font-weight:600}
+/* Paid: a big check mark in the message */
+.status.ok::before{content:"\2713";width:auto;height:auto;border:0;background:none;color:var(--ok);font-size:22px;font-weight:800;line-height:1;vertical-align:-2px;margin-right:8px}

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **A refused connection now says why.** When a shop's webhook address or your phone-alert address is refused because the name points at a private address, the delivery log and the test-alert message now say so in plain words, and other failures say what happened (took too long, could not connect, and why) instead of just "request failed". The rarer private ranges (6to4, Teredo and the old site-local range) are refused too, and Home shows a yellow line while the local-testing switch `EBP_WEBHOOK_ALLOW_PRIVATE` is on.
+- **A per-shop limit on open payment requests.** One shop can now have at most 300 unpaid payment requests open at once (the server-wide limit stays 1,000), so a flood from one shop, or a stolen key for it, cannot use up all the room and block other shops. A small shop never gets near it.
 
 ## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
 

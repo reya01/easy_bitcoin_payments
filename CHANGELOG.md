@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
+## Unreleased
 
 - **A per-shop limit on open payment requests.** One shop can now have at most 300 unpaid payment requests open at once (the server-wide limit stays 1,000), so a flood from one shop, or a stolen key for it, cannot use up all the room and block other shops. A small shop never gets near it.
+
+## 0.3.2-rc3 — new checkout characters, a cheer on Home, safer setup retry (23 November 2026)
 
 - **Six new mascots at checkout.** After a customer pays, the checkout page now shows one of ten little animated Bitcoin characters (new: a surfer, a weightlifter, a DJ, a cozy fireside reader, a drummer and a planet). Which one appears depends on the payment, so a refresh shows the same one. People who prefer reduced motion get the still picture. The pictures are built into the program like the first four.
 - **A weightlifter cheers on Home when you get paid.** While the Home tab is open, a short animation with a "New payment!" message plays when a payment arrives, at most once a minute. It is only for fun: it reads the payments list the Payments tab already reads, and if anything goes wrong it simply does not show.

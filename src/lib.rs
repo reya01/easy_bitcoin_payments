@@ -21,6 +21,7 @@ pub mod health_checks;
 pub mod invoice;
 pub mod invoice_ident;
 pub mod managed_barkd;
+pub mod manual_invoice;
 pub mod models;
 pub mod passkey;
 pub mod payout;

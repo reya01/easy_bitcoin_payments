@@ -138,7 +138,7 @@ fn fee_client() -> Option<&'static reqwest::Client> {
         .as_ref()
 }
 
-async fn fetch_lightning_fee_estimate(
+pub(crate) async fn fetch_lightning_fee_estimate(
     config: &crate::config::Config,
     amount_sats: i64,
 ) -> Option<i64> {

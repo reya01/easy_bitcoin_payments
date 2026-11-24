@@ -9,6 +9,7 @@ pub mod deliveries;
 pub mod exit;
 pub mod health;
 pub mod invoices;
+pub mod manual_invoices;
 pub mod page_assets;
 pub mod passkeys;
 pub mod payout;
@@ -178,6 +179,31 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/invoices.csv", get(invoices::export_csv))
         .route("/api/v1/invoices/{id}", get(invoices::get_one))
         .route("/api/v1/invoices/{id}/cancel", post(invoices::cancel))
+        // The Invoices tab (owner-only, in testing; docs/dev/INVOICES.md).
+        .route(
+            "/api/v1/admin/invoices",
+            post(manual_invoices::create).get(manual_invoices::list),
+        )
+        .route(
+            "/api/v1/admin/invoices.csv",
+            get(manual_invoices::export_csv),
+        )
+        .route(
+            "/api/v1/admin/invoices/settings",
+            get(manual_invoices::settings),
+        )
+        .route(
+            "/api/v1/admin/invoices/enabled",
+            post(manual_invoices::set_enabled),
+        )
+        .route(
+            "/api/v1/admin/invoices/{id}/lightning",
+            post(manual_invoices::fresh_lightning),
+        )
+        .route(
+            "/api/v1/admin/invoices/{id}/cancel",
+            post(manual_invoices::cancel),
+        )
         .route("/api/v1/admin/status", get(admin::status))
         .route("/api/v1/admin/settlements", get(admin::settlements))
         .route("/api/v1/admin/settlements.csv", get(admin::settlements_csv))

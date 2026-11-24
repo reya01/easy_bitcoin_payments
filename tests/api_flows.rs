@@ -4848,3 +4848,230 @@ async fn home_gets_the_next_round_time_only_while_a_renewal_is_waiting_for_one()
     assert_eq!(st["counters"]["renewals_waiting"], 1);
     assert_eq!(st["wallet"]["next_round_at"], "2026-11-21T22:00:00Z");
 }
+
+#[tokio::test]
+async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
+    let client = reqwest::Client::new();
+    let (base, state, _store, key) = serve().await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let get = |path: &str| {
+        client
+            .get(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+    };
+    let post = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
+            .json(&body)
+    };
+
+    // A shop key is never enough, and neither is no sign-in.
+    for res in [
+        client
+            .get(format!("{base}/api/v1/admin/invoices"))
+            .header("host", "localhost")
+            .bearer_auth(&key)
+            .send()
+            .await
+            .unwrap(),
+        client
+            .get(format!("{base}/api/v1/admin/invoices"))
+            .header("host", "localhost")
+            .send()
+            .await
+            .unwrap(),
+    ] {
+        assert_eq!(res.status(), 401);
+    }
+
+    // Off until the owner turns it on.
+    let s: serde_json::Value = get("/api/v1/admin/invoices/settings")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s["enabled"], false);
+    assert_eq!(s["next_number"], "1");
+    assert_eq!(s["store_name"], "Flow Shop");
+    let off = post("/api/v1/admin/invoices", serde_json::json!({"sats": 25000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(off.status(), 409);
+    // A change without the CSRF token is refused.
+    let no_csrf = client
+        .post(format!("{base}/api/v1/admin/invoices/enabled"))
+        .header("host", "localhost")
+        .header("cookie", &cookie)
+        .json(&serde_json::json!({"enabled": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_csrf.status(), 401);
+    let on = post(
+        "/api/v1/admin/invoices/enabled",
+        serde_json::json!({"enabled": true}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(on.status(), 200);
+
+    // The first invoice is number 1.
+    let res = post(
+        "/api/v1/admin/invoices",
+        serde_json::json!({"sats": 25000, "note": "Bathroom tap repair", "customer_name": "Sam Rivera"}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(res.status(), 201);
+    let first: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(first["invoice_number"], "1");
+    assert_eq!(first["customer_name"], "Sam Rivera");
+    assert_eq!(first["note"], "Bathroom tap repair");
+    assert_eq!(first["status"], "pending");
+    assert_eq!(first["amount_sats"], 25000);
+    assert!(first["ark_address"].as_str().is_some_and(|a| !a.is_empty()));
+    let created = chrono_secs(first["created_at"].as_str().unwrap());
+    let expires = chrono_secs(first["expires_at"].as_str().unwrap());
+    assert_eq!(expires - created, 7 * 86_400, "open for 7 days by default");
+
+    // A used number (any case) is refused; a typed label is fine; counting goes on.
+    let dup = post(
+        "/api/v1/admin/invoices",
+        serde_json::json!({"sats": 1000, "invoice_number": "1"}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(dup.status(), 409);
+    let typed: serde_json::Value = post(
+        "/api/v1/admin/invoices",
+        serde_json::json!({"sats": 1000, "invoice_number": "INV-7", "customer_name": "Alex", "open_days": 1}),
+    )
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(typed["invoice_number"], "INV-7");
+    let next: serde_json::Value = post("/api/v1/admin/invoices", serde_json::json!({"sats": 2000}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(next["invoice_number"], "2");
+    let bad_days = post(
+        "/api/v1/admin/invoices",
+        serde_json::json!({"sats": 2000, "open_days": 3}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(bad_days.status(), 400);
+
+    // List and search.
+    let all: Vec<serde_json::Value> = get("/api/v1/admin/invoices")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0]["invoice_number"], "2", "newest first");
+    let found: Vec<serde_json::Value> = get("/api/v1/admin/invoices?q=rivera")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0]["id"], first["id"]);
+
+    // Cancel one of them; a shop order cannot be reached through this route.
+    let cancelled: serde_json::Value = post(
+        &format!(
+            "/api/v1/admin/invoices/{}/cancel",
+            next["id"].as_str().unwrap()
+        ),
+        serde_json::json!({}),
+    )
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(cancelled["status"], "cancelled");
+    let (_, shop_inv) = create(&client, &base, &key, "wc-1", 5000).await;
+    let shop_cancel = post(
+        &format!(
+            "/api/v1/admin/invoices/{}/cancel",
+            shop_inv["id"].as_str().unwrap()
+        ),
+        serde_json::json!({}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(shop_cancel.status(), 404);
+
+    // The invoices file starts with the number and name; the payments file has them last.
+    let csv = get("/api/v1/admin/invoices.csv")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let lines: Vec<&str> = csv.lines().collect();
+    assert!(lines[0].ends_with(
+        "invoice_number,customer_name,created_at,paid_at,status,amount_sats,paid_sats,fiat_currency,fiat_amount,note"
+    ));
+    assert_eq!(lines.len(), 4, "{csv}");
+    assert!(lines[1].starts_with("1,Sam Rivera,"), "{csv}");
+    assert!(lines[1].ends_with(",Bathroom tap repair"), "{csv}");
+    let payments = get("/api/v1/invoices.csv")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(payments.contains(",1,Sam Rivera\r\n"), "{payments}");
+
+    // Turned off again: no new invoices, the list still reads.
+    post(
+        "/api/v1/admin/invoices/enabled",
+        serde_json::json!({"enabled": false}),
+    )
+    .send()
+    .await
+    .unwrap();
+    let off_again = post("/api/v1/admin/invoices", serde_json::json!({"sats": 1000}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(off_again.status(), 409);
+    assert_eq!(
+        get("/api/v1/admin/invoices").send().await.unwrap().status(),
+        200
+    );
+}
+
+/// Seconds since 1970 from the server's RFC 3339 times (UTC, "Z").
+fn chrono_secs(s: &str) -> i64 {
+    chrono::DateTime::parse_from_rfc3339(s).unwrap().timestamp()
+}

@@ -126,7 +126,8 @@ matching and payment rules would be unchanged; only a front door would be added.
 
 1. Design sign-off by the owner (this page).
 2. Database: an invoice "source" (shop or manual), note, `invoice_number` (unique index) and
-   `customer_name`; each Lightning invoice made for an invoice is recorded (the existing
+   `customer_name` (these two, their checks, the counting default and the two CSV columns are
+   built: migration 0015 and `src/invoice_ident.rs`; nothing sets them until the Invoices tab exists); each Lightning invoice made for an invoice is recorded (the existing
    `ln_invoices` already maps a BOLT11 to an invoice). The next-number counter is derived from
    the stored numbers, not kept separately, so a restore from a backup cannot reuse a number.
 3. API and the Invoices tab with copy and share; browser tests at phone width.

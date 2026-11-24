@@ -22,6 +22,22 @@ var views = ["login", "home", "orders", "inv", "alerts", "hooks", "set"];
 
 function el(tag, text, cls) { var e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
 function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+// A status as a pill: symbol + word (the symbol is decoration; the word carries it).
+var ST = {
+  paid: ["\u2713", "Paid", "st-ok"], overpaid: ["\u2713", "Paid (extra)", "st-ok"], underpaid: ["\u25d0", "Part paid", "st-warn"],
+  pending: ["\u25cb", "Open", ""], expired: ["\u2013", "Expired", ""], cancelled: ["\u00d7", "Cancelled", ""]
+};
+function pill(status, label) {
+  var d = ST[status] || ["", String(status), ""], s = el("span", "", "st " + d[2]);
+  var i = el("span", d[0]); i.setAttribute("aria-hidden", "true"); s.appendChild(i);
+  s.appendChild(document.createTextNode(label || d[1])); return s;
+}
+// A list row: amount (bold) over a muted second line, pill on the right.
+function prow(amount, sub, status, label) {
+  var r = el("div", "", "prow"), l = el("span", "", "pl");
+  l.appendChild(el("span", amount, "pa")); if (sub) l.appendChild(el("span", sub, "pd"));
+  r.appendChild(l); r.appendChild(pill(status, label)); return r;
+}
 function row(a, b, cls) { var r = el("div", "", "row"); r.appendChild(el("span", a)); r.appendChild(el("span", b, cls || "")); return r; }
 // Where the guides live (rendered on GitHub). One map, so every reference is a real link.
 var DOCS_BASE = "https://github.com/reya01/easy_bitcoin_payments/blob/main/docs/";
@@ -891,7 +907,7 @@ function loadOrders() {
     var o = $("orders"); clear(o);
     list.slice(0, PAGE_SIZE.orders).forEach(function (i) {
       var label = (i.fiat_amount ? i.fiat_currency + " " + i.fiat_amount : fmtSats(i.amount_sats));
-      o.appendChild(row(label + " \u00b7 " + when(i.created_at), i.status, i.status === "paid" || i.status === "overpaid" ? "ok" : ""));
+      o.appendChild(prow(label, when(i.created_at), i.status));
     });
     if (!list.length) o.appendChild(el("span", "No payments yet.", "muted"));
     pagerFor(o, "orders", list.length, loadOrders);
@@ -2028,7 +2044,7 @@ function renderInvoice(r) {
   var box = $("inv-out"); clear(box); box.classList.remove("hidden");
   var open = r.status === "pending" || r.status === "underpaid";
   box.appendChild(el("h2", "Invoice " + (r.invoice_number || "")));
-  box.appendChild(row(invAmountLabel(r), INV_STATUS[r.status] || r.status, r.status === "paid" || r.status === "overpaid" ? "ok" : ""));
+  var top = el("div", "", "row"); top.appendChild(el("span", invAmountLabel(r), "pa")); top.appendChild(pill(r.status, INV_STATUS[r.status])); box.appendChild(top);
   if (r.customer_name) box.appendChild(row("Customer", r.customer_name));
   if (r.paid_at) box.appendChild(row("Paid", when(r.paid_at)));
   else box.appendChild(row(open ? "Open until" : "Was open until", when(r.expires_at)));
@@ -2083,8 +2099,10 @@ function loadInvList() {
     var box = $("inv-list"); clear(box);
     list.forEach(function (r) {
       var b = el("button", "", "inv-row"); b.type = "button";
-      b.appendChild(el("span", (r.invoice_number || "") + (r.customer_name ? " · " + r.customer_name : "") + " · " + invAmountLabel(r)));
-      b.appendChild(el("span", INV_STATUS[r.status] || r.status, r.status === "paid" || r.status === "overpaid" ? "ok" : "muted"));
+      var l = el("span", "", "pl");
+      l.appendChild(el("span", invAmountLabel(r), "pa"));
+      l.appendChild(el("span", "Invoice " + (r.invoice_number || "") + (r.customer_name ? " · " + r.customer_name : ""), "pd"));
+      b.appendChild(l); b.appendChild(pill(r.status, INV_STATUS[r.status]));
       b.addEventListener("click", function () { renderInvoice(r); try { $("inv-out").scrollIntoView({ behavior: "smooth" }); } catch (e) {} });
       box.appendChild(b);
     });

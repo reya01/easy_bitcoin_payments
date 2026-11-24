@@ -279,7 +279,7 @@ function poll() {
       }
       if (b.status === "paid" || b.status === "overpaid") {
         s.part = null; setTotals();
-        setStatus("Paid. Thank you! " + (b.status === "overpaid" ? "You sent a little extra, so please contact the store about the difference. " : "") + "Bitcoin payments cannot be reversed, so any refund is up to the store.", "ok");
+        setStatus("Paid. Thank you! " + (b.status === "overpaid" ? "You sent a little extra, so please contact the store about the difference." : "Your payment is complete."), "ok");
         els.backLink.classList.add("done"); goBackLabel("Done: return to " + (s.data && s.data.store_name ? s.data.store_name : "the shop"));
         closeCard();
         showMascot();

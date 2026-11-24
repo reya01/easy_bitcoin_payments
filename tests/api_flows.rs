@@ -4694,15 +4694,27 @@ async fn a_restore_whose_answer_was_lost_carries_on_and_shows_the_words_again() 
         "network": "signet", "mnemonic": WORDS, "paper_copies_exist": true
     });
     // Never tried here before: a wallet that is already there is not restored over.
-    let (base, _state) = serve_fresh_setup(wallet_already_there_barkd().await, false).await;
-    let resp = reqwest::Client::new()
-        .post(format!("{base}/setup/wallet"))
-        .header("host", "localhost")
-        .json(&restore)
-        .send()
+    let (base, state) = serve_fresh_setup(wallet_already_there_barkd().await, false).await;
+    for attempt in 1..=2 {
+        let resp = reqwest::Client::new()
+            .post(format!("{base}/setup/wallet"))
+            .header("host", "localhost")
+            .json(&restore)
+            .send()
+            .await
+            .unwrap();
+        // Trying again must not turn a wallet that was never ours into ours.
+        assert_eq!(resp.status().as_u16(), 409, "attempt {attempt}");
+    }
+    let tried = state
+        .db
+        .call(|c| easy_bitcoin_payments::settings::get_bool(c, "setup_wallet_create_tried"))
         .await
         .unwrap();
-    assert_eq!(resp.status().as_u16(), 409);
+    assert!(
+        !tried,
+        "a clear refusal must not leave the attempt remembered"
+    );
 
     // This wizard's own earlier restore went through, but its answer was lost.
     let (base, state) = serve_fresh_setup(wallet_already_there_barkd().await, true).await;

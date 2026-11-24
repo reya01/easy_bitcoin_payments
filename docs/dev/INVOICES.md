@@ -50,8 +50,29 @@ matching and payment rules would be unchanged; only a front door would be added.
 
 **Owner side, a new Invoices tab**
 - *New invoice*: amount (sats, or a fiat amount quoted when the invoice is made), a short
-  note, an optional label for who it is for (typed by the owner, kept only in the server's
-  database and its encrypted backups, never in logs or the repository).
+  note, an invoice number and a customer name (see below).
+- *Identifiers for matching and analysis* (both optional to fill, both saved in the database
+  and both columns in the CSV download):
+  - **Invoice number.** Filled in by default with the next number, counting up from 1
+    (1, 2, 3...). The owner can type their own instead (for example `2026-014` or `INV-0007`).
+    It is **unique**: a number already used by another invoice is refused with a plain
+    message, so a number always points to exactly one invoice. Cancelled and expired invoices
+    keep their numbers (never reused). The default is one more than the highest purely numeric
+    number so far, so a typed `INV-0007` does not disturb the counting and a typed `500`
+    continues from 501. Gaps are fine. Plain text, trimmed, at most 40 characters.
+  - **Customer name.** Free text, at most 100 characters. Not unique on purpose: the same
+    customer has many invoices, and the name is what groups them in a spreadsheet. The form
+    suggests names used before so one customer is spelled the same way each time.
+  - Both are kept only in the server's database and its encrypted backups; never in logs, the
+    repository, or phone alerts (an alert says "Invoice 14 paid: 25,000 sats", without the
+    customer name, because alerts pass through a push service).
+  - Both appear in the Invoices list (search by either), in the canned message (the invoice
+    number only, as a reference the customer can quote), and as the first columns of the
+    invoices CSV: `invoice_number, customer_name, created_at, paid_at, status, amount_sats,
+    paid_sats, fiat_currency, fiat_amount, note`. The same two columns are added to the
+    payments CSV (empty for shop orders) so one file can be analysed. Text is handled by the
+    existing `csv_cell` rules, so a name that starts with `=` or `+` cannot run as a formula
+    in a spreadsheet.
 - *The request*, shown on screen and in a canned "how to pay" message with **Copy** and the
   phone's **Share** button. For example:
 
@@ -104,14 +125,18 @@ matching and payment rules would be unchanged; only a front door would be added.
 ## Phases for 0.4
 
 1. Design sign-off by the owner (this page).
-2. Database: an invoice "source" (shop or manual), note and label; each Lightning invoice made
-   for an invoice is recorded (the existing `ln_invoices` already maps a BOLT11 to an invoice).
+2. Database: an invoice "source" (shop or manual), note, `invoice_number` (unique index) and
+   `customer_name`; each Lightning invoice made for an invoice is recorded (the existing
+   `ln_invoices` already maps a BOLT11 to an invoice). The next-number counter is derived from
+   the stored numbers, not kept separately, so a restore from a backup cannot reuse a number.
 3. API and the Invoices tab with copy and share; browser tests at phone width.
 4. A real-money drill: one small Lightning invoice (check the expiry time in the message
    against the invoice itself, in the owner's time zone and UTC), one small Ark invoice
    paid from Noah or Arké after the Lightning one expired, a Lightning
    invoice paid after it expired (within the late window), a fresh invoice after expiry, one
-   part paid, one cancelled then paid (must not silently credit).
+   part paid, one cancelled then paid (must not silently credit). Also: two invoices with
+   the same typed number (second refused), the default number counting 1, 2, 3 and carrying on
+   after a typed `500`, and the CSV opened in a spreadsheet with both columns correct.
 5. Release candidate; the owner cuts the tag.
 
 ## Open questions for the owner
@@ -121,5 +146,7 @@ matching and payment rules would be unchanged; only a front door would be added.
 2. Business name in the canned message: the store name, or a new setting?
 3. Should EBP ever send the message itself by email? Recommended no.
 4. Is "mark as paid outside EBP" wanted (cash, bank)? Leaning no for 0.4.
-5. Re-measure the Lightning window on the live Ark server before release; it is the server
+5. Invoice number format: free text with a counting default (as drafted), or numbers only?
+   Recommended: free text, so owners can keep an existing numbering scheme.
+6. Re-measure the Lightning window on the live Ark server before release; it is the server
    operator's setting and may change.

@@ -94,12 +94,31 @@ matching and payment rules would be unchanged; only a front door would be added.
   is open, and the message says so. The message names the Ark server the wallet must use
   (`ark.second.tech` on a real-money server), because a wallet set to a different Ark server
   cannot pay it (see `KNOWN_ISSUES.md`).
+- *A picture to paste* (next to the text, not instead of it): a **Copy picture** button (and
+  Share / Save on phones) makes a simple image of the same request that pastes into chats and
+  emails. Because a picture cannot be edited like text, it holds **only the facts, no wording to
+  fix later**: the business name, the amount in sats (and the fiat amount if the invoice was
+  made in fiat), the invoice number, a QR code for Lightning labelled with the exact time it
+  stops working, and a QR code for Ark labelled "Ark" with the Ark server name. No customer
+  name, no note, no greeting, no instructions. Drawn in the owner's browser from what is
+  already on the screen; never stored on the server and never sent anywhere by EBP. When the
+  Lightning invoice has expired the picture is made with the fresh one (or with Ark only).
 - *Make a fresh Lightning invoice*: one button when it has expired. The invoice keeps the same
   Ark address, and the old Lightning invoice still counts if paid late (the existing 3-hour
   late window).
 - *List*: Open, Paid, Part paid, Expired, Cancelled, with the amount received and when.
   Actions: Cancel, Copy again, Download CSV. Phone alert when one is paid.
 - EBP does not send email or texts itself: no mail account to set up, nothing for EBP to leak.
+- *A warning under every request* (always shown after an invoice is made, under the Copy and
+  Share buttons; not dismissable for good, because it is about each message):
+
+  > **Send this privately.** EBP cannot stop an email or chat message from being read or
+  > changed on the way. Someone who gets into your account or your customer's could swap in
+  > their own payment details. We recommend an encrypted email provider such as Proton Mail or
+  > an encrypted messenger such as Signal. For a large amount, confirm the amount and the last
+  > few characters of the address with your customer another way, for example by phone.
+
+  The same applies to the picture: a QR code can be swapped as easily as text.
 
 **Safety rules**
 - Same open-request cap, late-payment window and part / over payment rules as shop orders.
@@ -130,7 +149,8 @@ matching and payment rules would be unchanged; only a front door would be added.
    built: migration 0015 and `src/invoice_ident.rs`; nothing sets them until the Invoices tab exists); each Lightning invoice made for an invoice is recorded (the existing
    `ln_invoices` already maps a BOLT11 to an invoice). The next-number counter is derived from
    the stored numbers, not kept separately, so a restore from a backup cannot reuse a number.
-3. API and the Invoices tab with copy and share; browser tests at phone width.
+3. API and the Invoices tab with copy and share, the picture to paste and the warning; browser
+   tests at phone width (the picture holds only the listed facts, the warning is always shown).
 4. A real-money drill: one small Lightning invoice (check the expiry time in the message
    against the invoice itself, in the owner's time zone and UTC), one small Ark invoice
    paid from Noah or Arké after the Lightning one expired, a Lightning

@@ -624,7 +624,14 @@ pub async fn create(
 
     let invoice = state
         .db
-        .call(move |conn| invoice::insert_with_cap(conn, &new_invoice, invoice::MAX_OPEN_INVOICES))
+        .call(move |conn| {
+            invoice::insert_with_cap(
+                conn,
+                &new_invoice,
+                invoice::MAX_OPEN_INVOICES,
+                invoice::MAX_OPEN_INVOICES_PER_STORE,
+            )
+        })
         .await?;
 
     // Lightning receive (Phase 1): ask the wallet for an LN invoice through

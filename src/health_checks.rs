@@ -92,6 +92,9 @@ pub struct Facts {
     pub payment_save_trouble: bool,
     /// A transfer to the payout address was interrupted and its outcome is unclear.
     pub transfer_unknown: bool,
+    /// `EBP_WEBHOOK_ALLOW_PRIVATE` is on: shop and phone-alert addresses may point at this
+    /// server's own network (for local testing only).
+    pub private_targets_allowed: bool,
 }
 
 /// The "large balance" warning fires above this many sats, whatever the
@@ -180,6 +183,15 @@ pub fn build(f: &Facts) -> Vec<Check> {
             Level::Bad,
             "Emergency withdrawal in progress",
             &format!("Started {ago}. Normal transfers and coin renewals are paused until it finishes. Leave the server on, and follow it in Settings, Emergency."),
+        );
+    }
+
+    if f.private_targets_allowed {
+        push(
+            "private_hooks",
+            Level::Warn,
+            "Local-testing switch is on",
+            "EBP_WEBHOOK_ALLOW_PRIVATE is set, so shop and phone-alert addresses may point at your own network. That is for testing on your own computer only. On a real shop, remove it from your server settings and restart, so nothing can ever aim this server at its own network.",
         );
     }
 
@@ -601,6 +613,18 @@ mod tests {
         let c = build(&f);
         assert_eq!(find(&c, "payout").level, Level::Bad);
         assert!(find(&c, "payout").title.contains("not valid"));
+    }
+
+    #[test]
+    fn the_local_testing_switch_shows_a_yellow_line_only_while_on() {
+        let mut f = healthy();
+        assert!(build(&f).iter().all(|c| c.id != "private_hooks"));
+        f.private_targets_allowed = true;
+        let c = build(&f);
+        assert_eq!(find(&c, "private_hooks").level, Level::Warn);
+        assert!(find(&c, "private_hooks")
+            .detail
+            .contains("EBP_WEBHOOK_ALLOW_PRIVATE"));
     }
 
     #[test]

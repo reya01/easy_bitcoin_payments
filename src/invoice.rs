@@ -109,6 +109,10 @@ pub const MAX_INVOICE_SATS: i64 = 2_100_000_000_000_000;
 /// buggy plugin) must hit a wall. Far above what a small shop has open.
 pub const MAX_OPEN_INVOICES: i64 = 1_000;
 
+/// Most payment requests one shop may have open at once, so a flood from a single shop (or a
+/// stolen key for it) cannot use up the whole server's room and block the others.
+pub const MAX_OPEN_INVOICES_PER_STORE: i64 = 300;
+
 /// How many payment requests are open right now (see [`MAX_OPEN_INVOICES`]).
 pub fn count_open(conn: &Connection, now: i64) -> Result<i64, AppError> {
     Ok(conn.query_row(
@@ -119,15 +123,32 @@ pub fn count_open(conn: &Connection, now: i64) -> Result<i64, AppError> {
     )?)
 }
 
-/// [`insert`], refused when `max_open` payment requests are already open. The
-/// count and the insert run in one database call, so two requests can never
-/// both slip under the limit.
+/// How many payment requests one shop has open right now.
+pub fn count_open_for_store(conn: &Connection, store_id: &str, now: i64) -> Result<i64, AppError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM invoices
+         WHERE store_id = ?1 AND status IN ('pending', 'underpaid') AND expires_at > ?2",
+        params![store_id, now],
+        |r| r.get(0),
+    )?)
+}
+
+/// [`insert`], refused when `max_open` payment requests are already open on the server, or
+/// `max_open_per_store` on this shop. The counts and the insert run in one database call, so two
+/// requests can never both slip under a limit.
 pub fn insert_with_cap(
     conn: &Connection,
     new: &NewInvoice,
     max_open: i64,
+    max_open_per_store: i64,
 ) -> Result<Invoice, AppError> {
-    if count_open(conn, now_unix())? >= max_open {
+    let now = now_unix();
+    if count_open_for_store(conn, &new.store_id, now)? >= max_open_per_store {
+        return Err(AppError::TooManyRequests(
+            "This shop has too many unpaid payment requests open right now. Please try again in a few minutes.".into(),
+        ));
+    }
+    if count_open(conn, now)? >= max_open {
         return Err(AppError::TooManyRequests(
             "Too many unpaid payment requests are open right now. Please try again in a few minutes.".into(),
         ));
@@ -1205,8 +1226,8 @@ mod tests {
         let (db, store_id) = setup().await;
         let sid = store_id.clone();
         db.call(move |conn| {
-            insert_with_cap(conn, &new_invoice(&sid, "inv_1", 1000), 2)?;
-            insert_with_cap(conn, &new_invoice(&sid, "inv_2", 1000), 2)?;
+            insert_with_cap(conn, &new_invoice(&sid, "inv_1", 1000), 2, 100)?;
+            insert_with_cap(conn, &new_invoice(&sid, "inv_2", 1000), 2, 100)?;
             Ok(())
         })
         .await
@@ -1217,7 +1238,7 @@ mod tests {
             .unwrap();
         let sid = store_id.clone();
         let err = db
-            .call(move |conn| insert_with_cap(conn, &new_invoice(&sid, "inv_3", 1000), 2))
+            .call(move |conn| insert_with_cap(conn, &new_invoice(&sid, "inv_3", 1000), 2, 100))
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::TooManyRequests(_)), "{err:?}");
@@ -1225,9 +1246,40 @@ mod tests {
         db.call(|conn| record_payment(conn, &obs("inv_2", "ark", 1000, Some("vtxo_2"))))
             .await
             .unwrap();
-        db.call(move |conn| insert_with_cap(conn, &new_invoice(&store_id, "inv_3", 1000), 2))
+        db.call(move |conn| insert_with_cap(conn, &new_invoice(&store_id, "inv_3", 1000), 2, 100))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_shop_hitting_its_own_cap_does_not_block_another_shop() {
+        let (db, store_id) = setup().await;
+        let other_id = db
+            .call(|conn| Ok(store::create(conn, "Other Shop", None)?.0.id))
+            .await
+            .unwrap();
+        let (a, b) = (store_id.clone(), other_id.clone());
+        db.call(move |conn| {
+            insert_with_cap(conn, &new_invoice(&a, "inv_a1", 1000), 100, 2)?;
+            insert_with_cap(conn, &new_invoice(&a, "inv_a2", 1000), 100, 2)?;
+            // The third for the same shop is refused with the shop-specific message...
+            let err = insert_with_cap(conn, &new_invoice(&a, "inv_a3", 1000), 100, 2).unwrap_err();
+            assert!(
+                matches!(&err, AppError::TooManyRequests(m) if m.contains("This shop")),
+                "{err:?}"
+            );
+            // ...while the other shop still has room.
+            insert_with_cap(conn, &new_invoice(&b, "inv_b1", 1000), 100, 2)?;
+            // The server-wide limit still applies on top.
+            let err = insert_with_cap(conn, &new_invoice(&b, "inv_b2", 1000), 3, 2).unwrap_err();
+            assert!(
+                matches!(&err, AppError::TooManyRequests(m) if m.starts_with("Too many")),
+                "{err:?}"
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]

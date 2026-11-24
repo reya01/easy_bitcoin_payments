@@ -487,7 +487,7 @@ pub async fn send(
         .body(body.to_string())
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::webhook::transport_reason(&e))?;
     if resp.status().is_success() {
         Ok(())
     } else {

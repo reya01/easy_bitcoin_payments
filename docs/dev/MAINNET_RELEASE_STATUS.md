@@ -97,6 +97,11 @@ open the emergency-exit page.
   trusts its pinned cosign first; every container image is pinned by digest; a weekly check compares the pinned barkd
   with Second's Docker Hub image, GitLab's checksums and the tag's commit (Second does not sign releases).
 
+**Added in 0.3.2-rc3 (24 November 2026), CI and browser tests only:**
+
+- Six new checkout characters (thirteen mascot pictures in all, ten scenes) and a small cheer on Home when a payment arrives (at most once a minute; it fails quietly).
+- Setup: a wallet-create retry no longer stays blocked when nothing was made; an unclear transfer is settled from wallet history before the next send.
+
 **Added in 0.3.2-rc2 (22 November 2026), CI and browser tests only:**
 
 - Updating from Home asks for a fresh backup and the 12 recovery words (two boxes to tick; the server refuses without both). It first shows on the update after rc2.

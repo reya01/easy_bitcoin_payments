@@ -64,7 +64,8 @@ pub fn verify_signature(
 /// Addresses a webhook must never be sent to: loopback, private, link-local,
 /// unspecified, carrier-grade NAT, benchmarking/protocol ranges, cloud
 /// metadata, and IPv6 forms that embed an IPv4 address (mapped `::ffff:`,
-/// compatible, NAT64 `64:ff9b::/96`), which are checked as the IPv4 they carry.
+/// compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`), which are checked as the IPv4 they
+/// carry, plus Teredo `2001::/32` and the old site-local `fec0::/10`.
 fn ip_is_private(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
@@ -105,8 +106,20 @@ fn ip_is_private(ip: std::net::IpAddr) -> bool {
                 );
                 return ip_is_private(std::net::IpAddr::V4(v4));
             }
+            if seg[0] == 0x2002 {
+                // 6to4 2002::/16 carries an IPv4 address in the next 32 bits.
+                let v4 = std::net::Ipv4Addr::new(
+                    (seg[1] >> 8) as u8,
+                    seg[1] as u8,
+                    (seg[2] >> 8) as u8,
+                    seg[2] as u8,
+                );
+                return ip_is_private(std::net::IpAddr::V4(v4));
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
+                || (seg[0] == 0x2001 && seg[1] == 0) // Teredo 2001::/32 (tunnel; hides an IPv4 address)
+                || (seg[0] & 0xffc0) == 0xfec0 // site-local fec0::/10 (old private range)
                 || (seg[0] & 0xfe00) == 0xfc00 // unique local fc00::/7
                 || (seg[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
                 || (seg[0] & 0xff00) == 0xff00 // multicast
@@ -180,6 +193,33 @@ fn public_addresses_only(addrs: Vec<std::net::SocketAddr>) -> Vec<std::net::Sock
 /// numbers in the URL never reach this resolver; the textual check covers them.
 pub(crate) struct PublicOnlyResolver;
 
+/// What the owner is told when a website name points at a private or local address.
+const PRIVATE_NAME_REFUSED: &str =
+    "that website name points at a private or local address, so nothing was sent";
+
+/// A plain reason for a failed connection. `reqwest` keeps the real cause (a refused name, a
+/// closed port, a timeout) in the error's chain of causes and prints only "error sending
+/// request" on top; this walks the chain so the delivery log says what actually happened.
+pub(crate) fn transport_reason(e: &reqwest::Error) -> String {
+    use std::error::Error as _;
+    let mut causes = Vec::new();
+    let mut cur = e.source();
+    while let Some(c) = cur {
+        causes.push(c.to_string());
+        cur = c.source();
+    }
+    if causes.iter().any(|c| c.contains(PRIVATE_NAME_REFUSED)) {
+        return PRIVATE_NAME_REFUSED.to_string();
+    }
+    if e.is_timeout() {
+        return "the address took too long to answer".to_string();
+    }
+    if causes.is_empty() {
+        return e.to_string();
+    }
+    format!("could not connect: {}", causes.join(": "))
+}
+
 impl reqwest::dns::Resolve for PublicOnlyResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let host = name.as_str().to_string();
@@ -191,10 +231,7 @@ impl reqwest::dns::Resolve for PublicOnlyResolver {
             let public = public_addresses_only(found);
             if public.is_empty() {
                 let refused: Box<dyn std::error::Error + Send + Sync> = Box::new(
-                    std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        "that website name points at a private or local address, so nothing was sent",
-                    ),
+                    std::io::Error::new(std::io::ErrorKind::PermissionDenied, PRIVATE_NAME_REFUSED),
                 );
                 return Err(refused);
             }
@@ -287,7 +324,7 @@ impl WebhookEmitter {
             .body(body)
             .send()
             .await
-            .map_err(|e| WebhookError::Transport(e.to_string()))?;
+            .map_err(|e| WebhookError::Transport(transport_reason(&e)))?;
 
         if response.status().is_success() {
             let is_web_page = response
@@ -333,6 +370,9 @@ mod tests {
             "http://[fd00::1]/",
             "http://[ff02::1]/",
             "http://224.0.0.1/",
+            "http://[2002:7f00:1::1]/",
+            "http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/",
+            "http://[fec0::1]/",
         ] {
             assert!(
                 validate_webhook_url(bad, false).is_err(),
@@ -345,6 +385,7 @@ mod tests {
             "https://[2001:db8::1]/hook",
             "http://100.63.0.1/",
             "http://198.20.0.1/",
+            "https://[2002:cb00:7109::1]/hook",
         ] {
             assert!(
                 validate_webhook_url(good, false).is_ok(),
@@ -388,6 +429,12 @@ mod tests {
         assert!(
             matches!(result, Err(WebhookError::Transport(_))),
             "{result:?}"
+        );
+        // The delivery log must say why, in plain words, not just "request failed".
+        let shown = result.unwrap_err().to_string();
+        assert!(
+            shown.contains("points at a private or local address"),
+            "the refusal reason must reach the log: {shown}"
         );
         assert!(
             matches!(

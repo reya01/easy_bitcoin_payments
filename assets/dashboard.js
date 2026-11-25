@@ -1908,14 +1908,12 @@ function loadInvSettings() {
     INV.s = s; INV.enabled = !!s.enabled;
     $("tab-inv").classList.toggle("hidden", !INV.enabled);
     renderInvSettings();
-    var cur = (s.default_currency || "USD").toUpperCase();
-    $("inv-unit-fiat").textContent = cur;
-    var days = $("inv-days"), keep = days.value;
-    clear(days);
-    (s.open_days_choices || [1, 7, 14, 30]).forEach(function (d) {
-      var o = el("option", d === 1 ? "1 day" : d + " days"); o.value = String(d); days.appendChild(o);
-    });
-    days.value = keep || String(s.default_open_days || 7);
+    // sats first, then each currency the server has a recent price for.
+    var unit = $("inv-unit"), keepUnit = unit.value;
+    clear(unit);
+    var so = el("option", "sats"); so.value = "sats"; unit.appendChild(so);
+    (s.currencies || []).forEach(function (c) { var o = el("option", c); o.value = c; unit.appendChild(o); });
+    unit.value = Array.prototype.some.call(unit.options, function (o) { return o.value === keepUnit; }) ? keepUnit : "sats";
     if (!$("inv-num").value || $("inv-num").getAttribute("data-auto") === "1") { $("inv-num").value = s.next_number || ""; $("inv-num").setAttribute("data-auto", "1"); }
     var dl = $("inv-names"); clear(dl);
     (s.customer_names || []).forEach(function (n) { var o = el("option"); o.value = n; dl.appendChild(o); });
@@ -1969,7 +1967,7 @@ function invText(r) {
       (r.lightning_fee_estimate_sat > 0 ? " It includes the Ark server's fee of " + Number(r.lightning_fee_estimate_sat).toLocaleString("en-US") + " sats." : ""));
     lines.push(r.lightning_invoice);
   }
-  lines.push("", "Pay with Ark" + (invLightningLive(r) ? " (works after that time too)" : "") + ": in an Ark wallet, send exactly the amount below to this address. The address does not carry the amount, so type it in yourself" +
+  lines.push("", "Pay with Ark (works until " + invWhen(r.expires_at) + "): in an Ark wallet, send exactly the amount below to this address. The address does not carry the amount, so type it in yourself" +
     (r.ark_server ? ", with the wallet set to the Ark server " + r.ark_server : "") + ". Ark wallets include Noah (Android) and Arké (iPhone).");
   lines.push("AMOUNT: " + Number(r.amount_sats).toLocaleString("en-US") + " sats");
   lines.push(r.ark_address);
@@ -2027,7 +2025,7 @@ function invPicture(r) {
     ctx.textAlign = "left";
   }
   if (ln) box(0, "lightning:" + r.lightning_invoice, "Lightning", "Works until " + invLocal(r.lightning_expires_at, true), invInUtc() ? "" : "(" + invUtc(r.lightning_expires_at) + ")");
-  box(cols - 1, r.ark_address, "Ark", "Type this amount in your wallet", r.ark_server ? "Ark server: " + r.ark_server : "", amt);
+  box(cols - 1, r.ark_address, "Ark", "Type this amount in your wallet", "Works until " + invLocal(r.expires_at, true) + (r.ark_server ? " \u00b7 " + r.ark_server : ""), amt);
   return cv;
 }
 function invCopyText(text, msgId) {
@@ -2137,7 +2135,7 @@ function loadInvList() {
 function invHint() {
   var v = $("inv-amt").value.trim(), h = $("inv-amt-hint");
   if ($("inv-unit").value === "sats" && /^\d+$/.test(v) && USD > 0) h.textContent = "About " + fmtSats(Number(v)).replace(/^.*\(|\)$/g, "") + ".";
-  else if ($("inv-unit").value === "fiat") h.textContent = "Turned into sats at today's price when you make the invoice. The sats amount then stays fixed.";
+  else if ($("inv-unit").value !== "sats") h.textContent = "Turned into sats at today's price when you make the invoice. The sats amount then stays fixed.";
   else h.textContent = "";
 }
 $("inv-amt").addEventListener("input", invHint);
@@ -2148,14 +2146,14 @@ $("icsv-go").addEventListener("click", function () { downloadCsv("icsv-go", "ics
 $("inv-go").addEventListener("click", function () {
   var v = $("inv-amt").value.trim().replace(/,/g, ""), body = {
     note: $("inv-note").value, invoice_number: $("inv-num").value,
-    customer_name: $("inv-cust").value, open_days: Number($("inv-days").value)
+    customer_name: $("inv-cust").value
   };
   if ($("inv-unit").value === "sats") {
     if (!/^\d+$/.test(v) || Number(v) <= 0) { say("inv-msg", "Enter the amount in whole sats, like 25000.", true); return; }
     body.sats = Number(v);
   } else {
     if (!/^\d+(\.\d{1,2})?$/.test(v) || Number(v) <= 0) { say("inv-msg", "Enter the amount as a number, like 25 or 25.50.", true); return; }
-    body.fiat = { currency: $("inv-unit-fiat").textContent, amount: v };
+    body.fiat = { currency: $("inv-unit").value, amount: v };
   }
   var b = $("inv-go"); b.disabled = true; $("inv-msg").className = "msg hidden";
   api("POST", "/api/v1/admin/invoices", body).then(function (r) {

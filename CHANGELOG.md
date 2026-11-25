@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Invoices: amount in sats or any currency with a current price.** The amount menu starts with sats, then lists each currency EBP already looks up (USD, EUR, GBP, CHF, CAD, AUD, JPY) that has a recent price. Nothing new is fetched.
+- **Invoices: one simple time limit.** The "Stays open for" menu is gone. Every invoice can be paid for 24 hours, with Lightning or Ark, and a short note under the form says so. The end time shown for Lightning is read from the invoice itself (some Ark servers make shorter ones; you can make a fresh one), and the text and picture also say when Ark stops working.
+- **Invoices list:** the amount and the invoice number are on two lines again.
+
 ## 0.3.3-rc3 — a calmer, clearer look (design only) (25 November 2026)
 
 Looks and words only: no change to how payments, transfers, settings or the database work, and every safety message keeps its exact words.

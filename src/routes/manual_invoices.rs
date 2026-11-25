@@ -53,10 +53,15 @@ pub struct ManualInvoiceResponse {
     pub test_mode: bool,
 }
 
+/// When the Lightning invoice stops counting for this invoice: the end time
+/// written in the BOLT11 itself, but never later than the invoice's own
+/// deadline (a server could hand out a longer one; a payment after the
+/// deadline is not counted automatically, so the page never promises it).
 fn lightning_expiry(m: &ManualInvoice) -> Option<i64> {
     m.bolt11
         .as_deref()
         .and_then(manual_invoice::bolt11_expires_at)
+        .map(|t| t.min(m.invoice.expires_at))
 }
 
 fn can_refresh(m: &ManualInvoice, now: i64, lightning_on: bool) -> bool {
@@ -132,9 +137,10 @@ pub async fn settings(
         "next_number": next,
         "customer_names": names,
         "store_name": auth.store.name,
-        "open_days_choices": manual_invoice::OPEN_DAYS_CHOICES,
-        "default_open_days": manual_invoice::DEFAULT_OPEN_DAYS,
+        "open_hours": manual_invoice::OPEN_SECS / 3600,
         "default_currency": state.config.default_currency,
+        // Money the amount can be given in: only currencies with a recent price.
+        "currencies": state.rates.available_currencies(),
         "ark_server": ark_server(&state.config),
         "test_mode": state.config.mode == "test",
     })))
@@ -207,7 +213,6 @@ pub struct CreateRequest {
     pub note: Option<String>,
     pub invoice_number: Option<String>,
     pub customer_name: Option<String>,
-    pub open_days: Option<i64>,
 }
 
 /// Ask the wallet for a Lightning invoice for this invoice and store it.
@@ -337,12 +342,6 @@ pub async fn create(
     let customer_name =
         crate::invoice_ident::clean_customer_name(req.customer_name.as_deref().unwrap_or(""))?
             .unwrap_or_default();
-    let open_days = req.open_days.unwrap_or(manual_invoice::DEFAULT_OPEN_DAYS);
-    if !manual_invoice::OPEN_DAYS_CHOICES.contains(&open_days) {
-        return Err(AppError::BadRequest(
-            "Choose how long the invoice stays open: 1, 7, 14 or 30 days.".into(),
-        ));
-    }
 
     // The number: the typed one if free, otherwise the next one counting up.
     let number = state
@@ -363,7 +362,7 @@ pub async fn create(
 
     let invoice_id = new_id("inv");
     let now = now_unix();
-    let seconds_open = open_days * 86_400;
+    let seconds_open = manual_invoice::OPEN_SECS;
 
     // A fresh Ark address that no open payment request is using.
     let fresh_address = || {
@@ -441,7 +440,7 @@ pub async fn create(
         &invoice_id,
         amount_sats,
         &format!("Invoice {number}"),
-        seconds_open,
+        manual_invoice::OPEN_SECS,
     )
     .await?;
 

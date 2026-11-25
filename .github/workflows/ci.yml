@@ -86,6 +86,11 @@ jobs:
       - name: Invoices tab
         run: python3 tests/e2e/invoices_tab.py
 
+      # Settings, "Where your money goes": current address in groups, Ark / On-chain cards,
+      # the matching card selected when an address is pasted.
+      - name: Payout form
+        run: python3 tests/e2e/payout_form.py
+
       # Real-money (mainnet) wording and guards on the setup and admin pages,
       # server mocked: the tick-box, the REAL MONEY banners, address hints and the
       # danger box, the emergency withdrawal being off.

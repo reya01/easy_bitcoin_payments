@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Clearer "Where your money goes".** Your current payout address shows with an Ark or On-chain label, split into groups of four so it is easy to check against your wallet. Changing it is three numbered steps: pick Ark or On-chain on two cards that explain the difference, paste the address, confirm. Pasting an address of the other kind selects the matching card by itself and says so. Saving, the safety delay and the checks work exactly as before.
 - **Invoices: amount in sats or any currency with a current price.** The amount menu starts with sats, then lists each currency EBP already looks up (USD, EUR, GBP, CHF, CAD, AUD, JPY) that has a recent price. Nothing new is fetched.
 - **Invoices: one simple time limit.** The "Stays open for" menu is gone. Every invoice can be paid for 24 hours, with Lightning or Ark, and a short note under the form says so. The end time shown for Lightning is read from the invoice itself (some Ark servers make shorter ones; you can make a fresh one), and the text and picture also say when Ark stops working.
 - **Invoices list:** the amount and the invoice number are on two lines again.

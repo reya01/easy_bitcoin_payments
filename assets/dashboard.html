@@ -171,15 +171,24 @@
   <details class="fold" id="fold-payout"><summary><span class="fx"><span class="ft">Where your money goes</span><span class="fs">Sets the address your payments are sent to and how much stays on this server.</span></span></summary>
   <div class="card">
     <p class="muted">The small till wallet on this server is emptied to this address, which should belong to a wallet <strong>you</strong> control. Changing it takes effect after a safety delay and needs your admin password, so a stolen login cannot redirect your money quickly.</p>
-    <div id="po-now" class="muted">Loading…</div>
+    <div class="po-current" id="po-current">
+      <div class="po-label">Your money goes to <span class="st hidden" id="po-kind-pill"></span></div>
+      <div id="po-now" class="po-addr-now">Loading…</div>
+    </div>
     <div id="po-pending" class="msg hidden"></div>
     <div class="btns hidden" id="po-cancel-box"><button id="po-cancel" type="button">Cancel the pending change</button></div>
     <div id="po-form">
-      <div class="muted" id="po-kinds"></div>
-      <label for="po-addr">New payout address</label><input type="text" id="po-addr" autocomplete="off" spellcheck="false">
+      <h3 class="po-step"><span class="po-n">1</span>Pick the kind of wallet</h3>
+      <div class="po-kinds" id="po-kinds" role="radiogroup" aria-label="Kind of payout wallet"></div>
+      <h3 class="po-step"><span class="po-n">2</span>Paste the address</h3>
+      <label for="po-addr" id="po-addr-label">New payout address</label><input type="text" id="po-addr" autocomplete="off" spellcheck="false">
+      <div class="muted" id="po-hint"></div>
+      <p class="msg hidden" id="po-switched" role="status"></p>
+      <h3 class="po-step"><span class="po-n">3</span>Confirm</h3>
       <label for="po-pw">Admin password</label><input type="password" id="po-pw" autocomplete="current-password">
       <div class="needcode hidden"><label for="po-code">Code from your authenticator app</label><input type="text" id="po-code" inputmode="numeric" autocomplete="off" placeholder="6 digits"></div>
-      <div class="btns"><button id="po-go" type="button">Save payout address</button></div>
+      <p class="muted">For your safety the change takes effect after a delay, and you can cancel it until then.</p>
+      <div class="btns"><button class="primary" id="po-go" type="button">Save payout address</button></div>
     </div>
     <p class="msg hidden" id="po-msg"></p>
   </div>

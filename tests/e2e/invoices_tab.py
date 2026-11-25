@@ -34,7 +34,7 @@ def inv(n, status="pending", ln_left=3 * 3600, name="Sam Rivera", refresh=False)
         "status": status, "amount_sats": 25000, "paid_sats": 25000 if status == "paid" else 0,
         "fiat_currency": None, "fiat_amount": None, "ark_address": ARK,
         "lightning_invoice": BOLT11, "lightning_expires_at": iso(ln_left), "can_refresh_lightning": refresh,
-        "lightning_fee_estimate_sat": 20, "expires_at": iso(7 * 86400), "created_at": iso(-60),
+        "lightning_fee_estimate_sat": 20, "expires_at": iso(24 * 3600), "created_at": iso(-60),
         "paid_at": iso(-10) if status == "paid" else None, "store_name": "Sam's Plumbing",
         "ark_server": None, "test_mode": True,
     }
@@ -63,7 +63,7 @@ def run(pw, name, steps):
         if path == "/api/v1/admin/invoices/settings":
             return route.fulfill(status=200, content_type="application/json", body=json.dumps({
                 "enabled": state["enabled"], "next_number": state["next"], "customer_names": ["Sam Rivera", "Alex"],
-                "store_name": "Sam's Plumbing", "open_days_choices": [1, 7, 14, 30], "default_open_days": 7,
+                "store_name": "Sam's Plumbing", "open_hours": 24, "lightning_hours": 3,
                 "default_currency": "USD", "currencies": ["USD", "EUR"], "ark_server": None, "test_mode": True}))
         if path == "/api/v1/admin/invoices/enabled":
             body = json.loads(req.post_data or "{}")
@@ -142,13 +142,17 @@ def main():
             opts = p.eval_on_selector_all("#inv-unit option", "os => os.map(o => o.value)")
             if opts != ["sats", "USD", "EUR"]: pr.append(f"the amount menu must be sats first, then the priced currencies: {opts}")
             if p.input_value("#inv-unit") != "sats": pr.append("the amount menu starts on sats")
+            lim = p.inner_text("#inv-limits")
+            for must in ["Lightning:", "3 hours", "Ark:", "24 hours", "still reaches your wallet"]:
+                if must not in lim: pr.append(f"the time limits note is missing {must!r}")
+            if p.query_selector("#inv-days"): pr.append("the 'stays open for' menu must be gone")
             p.fill("#inv-amt", "25000"); p.fill("#inv-note", "Bathroom tap repair")
             p.click("#inv-more summary"); p.wait_for_timeout(150); p.fill("#inv-cust", "Sam Rivera")
             p.click("#inv-go"); p.wait_for_timeout(600)
             sent = [x for x in posts if x[0] == "create"]
             if not sent: pr.append("nothing was sent"); return
             body = sent[-1][1]
-            want = {"sats": 25000, "note": "Bathroom tap repair", "invoice_number": "3", "customer_name": "Sam Rivera", "open_days": 7}
+            want = {"sats": 25000, "note": "Bathroom tap repair", "invoice_number": "3", "customer_name": "Sam Rivera"}
             for k, v in want.items():
                 if body.get(k) != v: pr.append(f"{k}: sent {body.get(k)!r}, want {v!r}")
             text = p.inner_text("#inv-text")

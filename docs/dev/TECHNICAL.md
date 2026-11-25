@@ -174,7 +174,7 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `GET` | `/api/v1/invoices.csv` | Payments export (CSV; includes what the wallet actually received next to what was credited, and the invoice number and customer name as the last two columns, empty for shop orders) |
 | `GET` | `/api/v1/admin/invoices` | Invoices tab (owner session): list, newest first; `q` searches number and customer name |
-| `POST` | `/api/v1/admin/invoices` | Invoices tab: make an invoice (`sats` or `fiat`, `note`, `invoice_number`, `customer_name`, `open_days` 1/7/14/30); refused while the tab is off |
+| `POST` | `/api/v1/admin/invoices` | Invoices tab: make an invoice (`sats` or `fiat`, `note`, `invoice_number`, `customer_name`; Ark 24 hours, Lightning 3 hours); refused while the tab is off |
 | `GET` | `/api/v1/admin/invoices/settings` | Invoices tab: on or off, next number, customer names used before |
 | `POST` | `/api/v1/admin/invoices/enabled` | Turn the Invoices tab on or off (`{"enabled": true}`) |
 | `POST` | `/api/v1/admin/invoices/{id}/lightning` | A fresh Lightning invoice, about 10 minutes after the old one ran out |

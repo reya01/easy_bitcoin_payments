@@ -86,12 +86,15 @@
     <div class="amtrow"><input type="text" id="inv-amt" inputmode="decimal" autocomplete="off"><select id="inv-unit" aria-label="Amount in"><option value="sats">sats</option></select></div>
     <div class="muted" id="inv-amt-hint"></div>
     <label for="inv-note">What it is for (optional, your customer sees it)</label><input type="text" id="inv-note" maxlength="200" autocomplete="off">
-    <details class="more" id="inv-more"><summary>Invoice number, customer and how long it stays open</summary>
+    <details class="more" id="inv-more"><summary>Invoice number and customer</summary>
     <label for="inv-num">Invoice number</label><input type="text" id="inv-num" maxlength="40" autocomplete="off">
     <div class="muted">Filled in with the next number. You can type your own instead (for example INV-0015). Each number can only be used once.</div>
     <label for="inv-cust">Customer name (optional, only you see it)</label><input type="text" id="inv-cust" maxlength="100" list="inv-names" autocomplete="off"><datalist id="inv-names"></datalist>
-    <label for="inv-days">Stays open for</label><select id="inv-days"></select>
     </details>
+    <div class="limits" id="inv-limits"><strong>How long your customer has to pay</strong>
+      <span><b>Lightning:</b> 3 hours. That is as long as a Lightning invoice can last. If it runs out, you can make a fresh one here.</span>
+      <span><b>Ark:</b> 24 hours. After that the invoice shows Expired.</span>
+      <span>Paid too late? The money still reaches your wallet and shows under Alerts, so nothing is lost.</span></div>
     <div class="btns"><button class="primary" id="inv-go" type="button">Make the invoice</button></div>
     <p class="msg hidden" id="inv-msg"></p>
   </div>

@@ -1818,11 +1818,13 @@ mod tests {
     #[tokio::test]
     async fn an_entry_the_database_does_not_hold_is_never_remembered() {
         let (db, _) = setup(vec![]).await;
+        // Money at an address of no payment request with no VTXO id or txid:
+        // it cannot be written down safely (it would repeat), so it is not.
         let stranger = WalletPayment {
             address: "ark1qsomeone_else".to_string(),
             rail: Rail::Ark,
             amount_sats: 5000,
-            vtxo_id: Some("vtxo_x".to_string()),
+            vtxo_id: None,
             txid: None,
             detected_at: now_unix(),
             confirmed_at: None,
@@ -1834,8 +1836,33 @@ mod tests {
         assert_eq!(
             remembered(&watcher),
             0,
-            "ignored entries are looked at every time"
+            "entries not in the database are looked at every time"
         );
+    }
+
+    #[tokio::test]
+    async fn money_from_elsewhere_is_written_down_and_then_remembered() {
+        let (db, _) = setup(vec![]).await;
+        let stranger = WalletPayment {
+            address: "ark1qsomeone_else".to_string(),
+            rail: Rail::Ark,
+            amount_sats: 5000,
+            vtxo_id: Some("vtxo_x".to_string()),
+            txid: None,
+            detected_at: now_unix(),
+            confirmed_at: None,
+        };
+        let watcher = quiet_watcher(db.clone(), vec![stranger]);
+        for _ in 0..3 {
+            assert_eq!(watcher.tick().await.unwrap(), 0, "never credited");
+        }
+        assert_eq!(
+            remembered(&watcher),
+            1,
+            "held in the database, so skipped next time"
+        );
+        let sql = "SELECT COUNT(*) FROM unmatched_payments WHERE reason = 'unknown_address'";
+        assert_eq!(count(&db, sql).await, 1);
     }
 
     #[tokio::test]

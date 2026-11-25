@@ -107,7 +107,7 @@ We do **not** claim EBP is more secure than BTCPay Server. It is **lower risk, o
 purpose**: the server only ever holds a small amount of money, so less is in harm's
 way. A smaller prize is not a stronger vault; it is a different bet.
 
-For example, set your payout address to an Ark wallet on your phone. The server
+For example, set your payout address to an Ark wallet on your phone (Noah on Android, Arké on iPhone). The server
 keeps nothing: once it holds at least 1,500 sats (the default and lowest setting
 for an Ark address), it sends everything to your wallet, usually within minutes
 (coins the Ark server is renewing follow after its next round, usually under an

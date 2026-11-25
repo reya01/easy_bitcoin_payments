@@ -44,6 +44,10 @@ no ability to fix a problem themselves. So:
   words on Home, and tell the owner what to do (or that nothing is needed).
 - No fixed or fake data in a "test mode" code path: test mode should exercise the
   same code that live mode will run.
+- Give one curated easy path. Where a beginner must pick something, name the
+  recommended choice and the exact next step: "install Noah on Android or Arké on
+  iPhone", not "a wallet (Ark or on-chain)". Mention the alternatives briefly,
+  after the easy path, for people who already have their own setup.
 
 ## People are running this: updates must not break them
 

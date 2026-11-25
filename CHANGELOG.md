@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.3-rc3 — a calmer, clearer look (design only) (25 November 2026)
+
+Looks and words only: no change to how payments, transfers, settings or the database work, and every safety message keeps its exact words.
+
+- **Home looks like a wallet.** A balance card at the top (big sats, dollars under it), and health opens with "All good" or "N things need a look", problems first.
+- **Statuses as pills.** Payments, invoices, transfers and upkeep show a symbol and one word (Paid, Open, Sent, Failed…), never split across lines; amounts in sats first with money and date under them.
+- **Settings in three groups** (Your money, Safety, Backups) with an icon on each row.
+- **Checkout:** Lightning or Ark as a switch at the top of the payment box; a quieter test banner and timer; "Copy invoice", "Copy address" and "Copy amount"; a check mark when paid, and the refund line shown once.
+- **Invoices tab** has its icon; the form shows amount and note first, the rest folded.
+- **Smaller touches:** a shorter "Try a payment" card, friendlier empty lists, "Step 2 of 4" in setup, and keyboard focus always visible.
+
 ## 0.3.3-rc2 — the Invoices tab, in testing (24 November 2026)
 
 - **Invoices tab (in testing, off until you turn it on in Settings).** Make an invoice for a customer outside your shop: amount (sats, or money turned into sats at today's price), what it is for, an invoice number (the next number is filled in; your own text is fine, each number once) and a customer name only you see. It stays open for 1, 7, 14 or 30 days. You get a ready-made text (amount, your store name, the note, the number, a Lightning invoice with the exact time it stops working, and the Ark address) and a plain picture of the same facts with QR codes, to copy, share or save. A warning under every invoice says to send it privately (for example an encrypted email provider such as Proton Mail or an encrypted messenger such as Signal), because EBP cannot stop a message being read or changed on the way. A fresh Lightning invoice can be made after the old one runs out; the Ark address keeps working. Search by number or customer, cancel, and download all invoices as a spreadsheet. Invoices send no shop notification; a paid one sends a plain phone alert (no amount or name). This adds a database change (migration 0016).

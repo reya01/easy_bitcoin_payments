@@ -1,6 +1,6 @@
 # Invoices: get paid outside a shop checkout (in testing)
 
-**Time limits (owner decision, 24 November 2026):** no "stays open" choice. A Lightning invoice can be paid for 3 hours (about the most the Ark server allows; a fresh one can be made after it runs out), an Ark payment counts for 24 hours, then the invoice shows Expired. Later payments still land in the wallet and show under Alerts.
+**Time limits (owner decision, 24 November 2026):** no "stays open" choice. Every invoice can be paid for 24 hours, with Lightning or Ark, then it shows Expired. Each Lightning invoice is asked for the time left; the Ark server may shorten it (its `invoice_expiry`, 48 hours by default in Bark 0.8.1+; Second's play-money server gave 3 hours on 15 November 2026, its real-money server gave the full 24 hours on 24 November 2026), and the end time shown is read from the invoice itself, never later than the 24-hour deadline. Later payments still land in the wallet and show under Alerts.
 
 **Status: the Invoices tab is built and in testing (off until the owner turns it on in Settings). The real-money drill (phase 4) is still to do.** Where the owner had not decided an open question, the build follows the recommendation below it.
 Written 22 November 2026, revised the same day: no payment link (see "Why no link"). Nothing here is a promise of dates.
@@ -28,7 +28,7 @@ their phone by email, text or chat. EBP knows exactly which invoice was paid and
 | Need | What barkd offers | Consequence |
 | --- | --- | --- |
 | A unique way to pay one invoice | `POST /lightning/receives/invoice` (amount, optional description, optional `expiry_secs`) | One BOLT11 per invoice. Unique by construction. |
-| Lightning invoice lifetime | The Ark server sets it. `expiry_secs` can only shorten it, never extend it. **Measured on Second's server on 15 November 2026: 3 hours** (shorter requests were rewritten up to 3 hours and payments worked the whole way). Second's example server config shows 48 hours, so the number is each server's own setting. | A pasted Lightning invoice is good for hours, not days. |
+| Lightning invoice lifetime | The Ark server sets it. `expiry_secs` can only shorten it, never extend it. **Measured: 3 hours on Second's server on 15 November 2026 (play money); the full 24 hours asked for on the real-money server (ark.second.tech) on 24 November 2026.** Bark's default server setting is 48 hours, so the number is each server's own setting. | A pasted Lightning invoice is good for hours, not days. |
 | Unique Ark way to pay | `POST /wallet/addresses/next` | One Ark address per invoice, which does not expire. |
 | One string with both | `POST /wallet/bip321` builds a `bitcoin:` style URI holding the Ark address and, with an amount, a BOLT11, with a label and message | An optional extra for QR codes; same Lightning lifetime. |
 | Know when it was paid | `GET /lightning/receives/{id}`, notifications, history | EBP already watches. |

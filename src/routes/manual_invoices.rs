@@ -53,10 +53,15 @@ pub struct ManualInvoiceResponse {
     pub test_mode: bool,
 }
 
+/// When the Lightning invoice stops counting for this invoice: the end time
+/// written in the BOLT11 itself, but never later than the invoice's own
+/// deadline (a server could hand out a longer one; a payment after the
+/// deadline is not counted automatically, so the page never promises it).
 fn lightning_expiry(m: &ManualInvoice) -> Option<i64> {
     m.bolt11
         .as_deref()
         .and_then(manual_invoice::bolt11_expires_at)
+        .map(|t| t.min(m.invoice.expires_at))
 }
 
 fn can_refresh(m: &ManualInvoice, now: i64, lightning_on: bool) -> bool {
@@ -133,7 +138,6 @@ pub async fn settings(
         "customer_names": names,
         "store_name": auth.store.name,
         "open_hours": manual_invoice::OPEN_SECS / 3600,
-        "lightning_hours": manual_invoice::LIGHTNING_SECS / 3600,
         "default_currency": state.config.default_currency,
         // Money the amount can be given in: only currencies with a recent price.
         "currencies": state.rates.available_currencies(),
@@ -436,7 +440,7 @@ pub async fn create(
         &invoice_id,
         amount_sats,
         &format!("Invoice {number}"),
-        manual_invoice::LIGHTNING_SECS,
+        manual_invoice::OPEN_SECS,
     )
     .await?;
 
@@ -486,7 +490,7 @@ pub async fn fresh_lightning(
         &m.invoice.id,
         m.invoice.amount_sats,
         label.trim(),
-        (m.invoice.expires_at - now).min(manual_invoice::LIGHTNING_SECS),
+        m.invoice.expires_at - now,
     )
     .await?;
     let store_id = auth.store.id.clone();

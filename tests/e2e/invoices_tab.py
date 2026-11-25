@@ -63,7 +63,7 @@ def run(pw, name, steps):
         if path == "/api/v1/admin/invoices/settings":
             return route.fulfill(status=200, content_type="application/json", body=json.dumps({
                 "enabled": state["enabled"], "next_number": state["next"], "customer_names": ["Sam Rivera", "Alex"],
-                "store_name": "Sam's Plumbing", "open_hours": 24, "lightning_hours": 3,
+                "store_name": "Sam's Plumbing", "open_hours": 24,
                 "default_currency": "USD", "currencies": ["USD", "EUR"], "ark_server": None, "test_mode": True}))
         if path == "/api/v1/admin/invoices/enabled":
             body = json.loads(req.post_data or "{}")
@@ -143,7 +143,7 @@ def main():
             if opts != ["sats", "USD", "EUR"]: pr.append(f"the amount menu must be sats first, then the priced currencies: {opts}")
             if p.input_value("#inv-unit") != "sats": pr.append("the amount menu starts on sats")
             lim = p.inner_text("#inv-limits")
-            for must in ["Lightning:", "3 hours", "Ark:", "24 hours", "still reaches your wallet"]:
+            for must in ["24 hours", "Lightning or Ark", "exact end time", "make a fresh one", "still reaches your wallet"]:
                 if must not in lim: pr.append(f"the time limits note is missing {must!r}")
             if p.query_selector("#inv-days"): pr.append("the 'stays open for' menu must be gone")
             p.fill("#inv-amt", "25000"); p.fill("#inv-note", "Bathroom tap repair")
@@ -178,6 +178,7 @@ def main():
             if not any("image/png" in t for t in types): pr.append(f"Copy picture must put a PNG on the clipboard: {types}")
             if p.input_value("#inv-num") != "4": pr.append("after making one, the next number must be filled in")
             if "3 · Sam Rivera" not in p.inner_text("#inv-list"): pr.append("the new invoice must be listed with its customer")
+            if p.evaluate("getComputedStyle(document.querySelector('#inv-list .pl')).flexDirection") != "column": pr.append("the amount and the invoice line must be on two lines")
             if SHOTS:
                 os.makedirs(SHOTS, exist_ok=True)
                 p.locator("#inv-out").screenshot(path=os.path.join(SHOTS, "invoice-made.png"))

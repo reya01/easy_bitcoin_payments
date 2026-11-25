@@ -92,8 +92,8 @@
     <label for="inv-cust">Customer name (optional, only you see it)</label><input type="text" id="inv-cust" maxlength="100" list="inv-names" autocomplete="off"><datalist id="inv-names"></datalist>
     </details>
     <div class="limits" id="inv-limits"><strong>How long your customer has to pay</strong>
-      <span><b>Lightning:</b> 3 hours. That is as long as a Lightning invoice can last. If it runs out, you can make a fresh one here.</span>
-      <span><b>Ark:</b> 24 hours. After that the invoice shows Expired.</span>
+      <span><b>24 hours</b>, with Lightning or Ark. The exact end time is written on the invoice.</span>
+      <span>Some Ark servers make Lightning invoices that run out sooner. If that happens, you can make a fresh one here.</span>
       <span>Paid too late? The money still reaches your wallet and shows under Alerts, so nothing is lost.</span></div>
     <div class="btns"><button class="primary" id="inv-go" type="button">Make the invoice</button></div>
     <p class="msg hidden" id="inv-msg"></p>

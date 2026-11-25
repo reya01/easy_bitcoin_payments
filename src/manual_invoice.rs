@@ -4,9 +4,11 @@
 //! (migration 0016), so the watcher, the paid / part-paid / overpaid rules,
 //! the late-payment window and the payments export treat it exactly like a
 //! shop order. What differs: the owner gives it a note, an invoice number and
-//! a customer name (src/invoice_ident.rs), it stays open for days instead of
-//! minutes, no shop webhook is sent for it, and the Invoices tab can ask for a
-//! fresh Lightning invoice once the old one has run out.
+//! a customer name (src/invoice_ident.rs), it can be paid for 24 hours instead
+//! of minutes, no shop webhook is sent for it, and the Invoices tab can ask for
+//! a fresh Lightning invoice once the old one has run out. A payment that
+//! arrives after it stopped taking payments is written to the late-payment list
+//! (Alerts) with the invoice's id, and is shown on the invoice too.
 //!
 //! The feature is in testing and off until the owner turns it on in Settings.
 //! The note and customer name are never logged and never put in phone alerts.
@@ -122,6 +124,105 @@ pub struct ManualInvoice {
     pub invoice_number: Option<String>,
     pub customer_name: Option<String>,
     pub bolt11: Option<String>,
+    /// Every payment that reached this invoice, oldest first (see
+    /// [`InvoicePayment`]). Filled by [`get`], [`list`] and [`export_all`].
+    pub payments: Vec<InvoicePayment>,
+}
+
+/// One payment that reached an invoice from the Invoices tab. Either it was
+/// counted toward the invoice (`counted`), or it arrived when the invoice no
+/// longer took payments (paid after its time ran out, a second payment, a
+/// payment to a cancelled invoice, a top-up too late) and was written to the
+/// late-payment list shown under Alerts, with that list's `reason`. Both kinds
+/// are shown on the invoice, so the owner can always tell where money on the
+/// server came from.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct InvoicePayment {
+    pub rail: String,
+    pub amount_sats: i64,
+    /// When the wallet saw it (unix seconds).
+    pub detected_at: i64,
+    pub counted: bool,
+    /// Why it was not counted (`paid_after_expiry`, `invoice_expired`,
+    /// `invoice_closed`, `topup_window_closed`, ...); `None` when counted.
+    pub reason: Option<String>,
+    /// The owner pressed "Mark as handled" on it under Alerts.
+    pub handled: bool,
+}
+
+/// Payments of every manual invoice of `store_id`, counted and late alike,
+/// keyed by invoice id, each list oldest first.
+fn payments_by_invoice(
+    conn: &Connection,
+    store_id: &str,
+) -> Result<std::collections::HashMap<String, Vec<InvoicePayment>>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT p.invoice_id, p.rail, p.amount_sats, p.detected_at, 1 AS counted,
+                NULL AS reason, 0 AS handled
+           FROM payments p JOIN invoices i ON i.id = p.invoice_id
+          WHERE i.store_id = ?1 AND i.source = 'manual'
+         UNION ALL
+         SELECT u.invoice_id, u.rail, u.amount_sats, u.detected_at, 0,
+                u.reason, u.resolved_at IS NOT NULL
+           FROM unmatched_payments u JOIN invoices i ON i.id = u.invoice_id
+          WHERE i.store_id = ?1 AND i.source = 'manual'
+         ORDER BY 4, 5 DESC",
+    )?;
+    let rows = stmt.query_map(params![store_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            InvoicePayment {
+                rail: r.get(1)?,
+                amount_sats: r.get(2)?,
+                detected_at: r.get(3)?,
+                counted: r.get::<_, i64>(4)? == 1,
+                reason: r.get(5)?,
+                handled: r.get::<_, i64>(6)? == 1,
+            },
+        ))
+    })?;
+    let mut out: std::collections::HashMap<String, Vec<InvoicePayment>> = Default::default();
+    for row in rows {
+        let (id, p) = row?;
+        out.entry(id).or_default().push(p);
+    }
+    Ok(out)
+}
+
+fn attach_payments(
+    conn: &Connection,
+    store_id: &str,
+    invoices: &mut [ManualInvoice],
+) -> Result<(), AppError> {
+    if invoices.is_empty() {
+        return Ok(());
+    }
+    let mut all = payments_by_invoice(conn, store_id)?;
+    for m in invoices.iter_mut() {
+        m.payments = all.remove(&m.invoice.id).unwrap_or_default();
+    }
+    Ok(())
+}
+
+impl ManualInvoice {
+    /// Sats that reached this invoice but were not counted toward it (they
+    /// are in the wallet and listed under Alerts).
+    pub fn late_sats(&self) -> i64 {
+        self.payments
+            .iter()
+            .filter(|p| !p.counted)
+            .map(|p| p.amount_sats)
+            .sum()
+    }
+
+    /// When the last payment that was not counted arrived.
+    pub fn late_at(&self) -> Option<i64> {
+        self.payments
+            .iter()
+            .filter(|p| !p.counted)
+            .map(|p| p.detected_at)
+            .max()
+    }
 }
 
 /// The invoice row plus its current Lightning invoice, followed by `$rest`
@@ -144,6 +245,7 @@ fn row_to_manual(row: &rusqlite::Row<'_>) -> rusqlite::Result<ManualInvoice> {
         invoice_number: row.get("invoice_number")?,
         customer_name: row.get("customer_name")?,
         bolt11: row.get("bolt11")?,
+        payments: Vec::new(),
     })
 }
 
@@ -153,9 +255,12 @@ pub fn get(
     invoice_id: &str,
 ) -> Result<Option<ManualInvoice>, AppError> {
     let sql = manual_select!("WHERE id = ?1 AND store_id = ?2 AND source = 'manual'");
-    Ok(conn
+    let found = conn
         .query_row(sql, params![invoice_id, store_id], row_to_manual)
-        .optional()?)
+        .optional()?;
+    let mut found: Vec<ManualInvoice> = found.into_iter().collect();
+    attach_payments(conn, store_id, &mut found)?;
+    Ok(found.pop())
 }
 
 /// Escape `%`, `_` and `\` so typed text is matched literally by LIKE.
@@ -195,6 +300,7 @@ pub fn list(
     for row in rows {
         out.push(row?);
     }
+    attach_payments(conn, store_id, &mut out)?;
     Ok(out)
 }
 
@@ -213,6 +319,7 @@ pub fn export_all(conn: &Connection, store_id: &str) -> Result<Vec<ManualInvoice
     for row in rows {
         out.push(row?);
     }
+    attach_payments(conn, store_id, &mut out)?;
     Ok(out)
 }
 
@@ -363,6 +470,57 @@ mod tests {
             assert_eq!(list(conn, &s.id, Some("%"), 50)?.len(), 1);
             assert_eq!(list(conn, &s.id, Some("nobody"), 50)?.len(), 0);
             assert_eq!(export_all(conn, &s.id)?.len(), 2);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn late_and_counted_payments_show_on_the_invoice() {
+        let db = Db::open(":memory:").unwrap();
+        db.call(|conn| {
+            let (s, _, _) = store::create(conn, "Sam's Plumbing", None)?;
+            for id in ["m1", "m2", "shop1"] {
+                insert(conn, &new_invoice(&s.id, id))?;
+            }
+            finish_new(conn, &s.id, "m1", None, "1", "Sam Rivera")?;
+            finish_new(conn, &s.id, "m2", None, "2", "")?;
+            // m1: one counted Lightning payment, then an Ark payment after it closed.
+            conn.execute(
+                "INSERT INTO payments (id, invoice_id, rail, amount_sats, detected_at)
+                 VALUES ('p1', 'm1', 'lightning', 10000, 100)",
+                [],
+            )?;
+            for (id, inv, sats, at) in [("u1", "m1", 15000, 200), ("u2", "shop1", 999, 50)] {
+                conn.execute(
+                    "INSERT INTO unmatched_payments
+                       (id, address, invoice_id, rail, amount_sats, reason, detected_at, created_at)
+                     VALUES (?1, 'addr', ?2, 'ark', ?3, 'paid_after_expiry', ?4, ?4)",
+                    params![id, inv, sats, at],
+                )?;
+            }
+            let m1 = get(conn, &s.id, "m1")?.unwrap();
+            assert_eq!(m1.payments.len(), 2);
+            assert!(m1.payments[0].counted && m1.payments[0].rail == "lightning");
+            let late = &m1.payments[1];
+            assert!(!late.counted && !late.handled);
+            assert_eq!(late.reason.as_deref(), Some("paid_after_expiry"));
+            assert_eq!((m1.late_sats(), m1.late_at()), (15000, Some(200)));
+            // Marked handled under Alerts: still shown, as handled.
+            conn.execute(
+                "UPDATE unmatched_payments SET resolved_at = 300 WHERE id = 'u1'",
+                [],
+            )?;
+            let listed = list(conn, &s.id, None, 50)?;
+            let m1 = listed.iter().find(|m| m.invoice.id == "m1").unwrap();
+            assert!(m1.payments[1].handled);
+            let m2 = listed.iter().find(|m| m.invoice.id == "m2").unwrap();
+            assert!(m2.payments.is_empty() && m2.late_sats() == 0 && m2.late_at().is_none());
+            // A shop order's late payment never shows on the Invoices tab.
+            assert!(export_all(conn, &s.id)?
+                .iter()
+                .all(|m| m.late_sats() != 999));
             Ok(())
         })
         .await

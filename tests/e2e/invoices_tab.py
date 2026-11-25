@@ -212,6 +212,47 @@ def main():
                 pr.append("a paid invoice must offer nothing to send")
             if "Paid" not in p.inner_text("#inv-out"): pr.append("a paid invoice must say Paid")
         ok &= run(pw, "a paid invoice offers nothing to send", s_paid)
+
+        def s_late(p, pr, st, posts):
+            st["enabled"] = True
+            late = inv(7, status="expired")
+            late["created_at"], late["expires_at"] = iso(-30 * 3600), iso(-6 * 3600)
+            late["payments"] = [{"rail": "ark", "amount_sats": 25000, "detected_at": iso(-60), "counted": False,
+                                 "reason": "paid_after_expiry", "handled": False}]
+            late["late_sats"], late["late_at"] = 25000, iso(-60)
+            part = inv(8, status="underpaid")
+            part["paid_sats"] = 10000
+            part["payments"] = [{"rail": "lightning", "amount_sats": 10000, "detected_at": iso(-30), "counted": True,
+                                 "reason": None, "handled": False}]
+            st["list"] = [late, part]
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            rows = p.locator("#inv-list .inv-row")
+            first = rows.nth(0).inner_text()
+            if "Expired" not in first or "Paid late" not in first:
+                pr.append(f"an invoice paid after its time shows both Expired and Paid late: {first!r}")
+            if "25,000 sats arrived by Ark after its 24 hours ran out" not in first:
+                pr.append(f"the row says what arrived: {first!r}")
+            if "Part paid: 10,000 of 25,000 sats" not in rows.nth(1).inner_text():
+                pr.append("a part-paid invoice says how much of it was paid")
+            rows.nth(0).click(); p.wait_for_timeout(300)
+            if not p.is_visible("#inv-late") or "listed under Alerts" not in p.inner_text("#inv-late"):
+                pr.append("the opened invoice explains the late money")
+            story = p.inner_text("#inv-story")
+            for want in ("Made", "Time to pay ran out", "arrived after it stopped taking payments"):
+                if want not in story: pr.append(f"the story must say {want!r}: {story!r}")
+            if story.index("Time to pay ran out") > story.index("arrived after"):
+                pr.append("the story is in time order")
+            if p.is_visible("#inv-text"): pr.append("an expired invoice offers nothing to send")
+            rows.nth(1).click(); p.wait_for_timeout(300)
+            if "Paid 10,000 sats by Lightning" not in p.inner_text("#inv-story"):
+                pr.append("a counted payment is in the story")
+            if not p.is_visible("#inv-text"): pr.append("a part-paid invoice can still be sent again")
+            if SHOTS:
+                rows.nth(0).click(); p.wait_for_timeout(200)
+                p.locator("#inv-list").screenshot(path=os.path.join(SHOTS, "invoice-late-list.png"))
+                p.locator("#inv-out").screenshot(path=os.path.join(SHOTS, "invoice-late-story.png"))
+        ok &= run(pw, "money after the invoice closed shows on it: Expired and Paid late, and its story", s_late)
     sys.exit(0 if ok else 1)
 
 

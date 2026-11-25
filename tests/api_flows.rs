@@ -5039,11 +5039,11 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
         .unwrap();
     let lines: Vec<&str> = csv.lines().collect();
     assert!(lines[0].ends_with(
-        "invoice_number,customer_name,created_at,paid_at,status,amount_sats,paid_sats,fiat_currency,fiat_amount,note"
+        "invoice_number,customer_name,created_at,paid_at,status,amount_sats,paid_sats,fiat_currency,fiat_amount,note,late_sats,late_at"
     ));
     assert_eq!(lines.len(), 4, "{csv}");
     assert!(lines[1].starts_with("1,Sam Rivera,"), "{csv}");
-    assert!(lines[1].ends_with(",Bathroom tap repair"), "{csv}");
+    assert!(lines[1].ends_with(",Bathroom tap repair,0,"), "{csv}");
     let payments = get("/api/v1/invoices.csv")
         .send()
         .await

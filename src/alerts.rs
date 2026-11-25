@@ -115,6 +115,10 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "An invoice was paid",
             "One of the invoices you made on the Invoices tab has been paid. Open your dashboard, Invoices, to see which one.",
         )),
+        "invoice_paid_late" => Some((
+            "An invoice was paid late",
+            "Money arrived for one of the invoices you made on the Invoices tab after it stopped taking payments. It is in your wallet. Open your dashboard, Invoices or Alerts, to see which one.",
+        )),
         "exit_started" => Some((
             "An emergency withdrawal was started",
             "Someone started taking the money on your payment server out without the Ark server. If this was not you, open Settings, Emergency, now, press Stop, and change your admin password.",

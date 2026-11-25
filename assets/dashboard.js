@@ -745,8 +745,13 @@ function loadHome() {
     SWEEP_WAITS = !!(s.payout_set && Number((s.counters || {}).renewals_waiting || 0) > 0 && Number(w.offchain_sats || 0) + Number(w.in_transit_sats || 0) > 0);
     var go = { late: "alerts", webhooks: "hooks", reserve: "set" };
     var sym = { ok: "\u2713 ", warn: "! ", bad: "\u2715 " };
-    (s.checks || []).forEach(function (k) {
-      var d = el("div", "", "check");
+    // One summary line first: all good, or how many things need a look. Problems come first.
+    var checks = (s.checks || []).slice(), bad = checks.filter(function (k) { return k.level !== "ok"; }).length;
+    var sum = el("div", bad ? "! " + (bad === 1 ? "1 thing needs a look" : bad + " things need a look") : "\u2713 All good", "hsum " + (bad ? "warn" : "ok"));
+    h.appendChild(sum);
+    checks.sort(function (a, b) { return (a.level === "ok") - (b.level === "ok"); });
+    checks.forEach(function (k) {
+      var d = el("div", "", "check" + (k.level === "ok" ? " check-ok" : ""));
       d.appendChild(el("div", (sym[k.level] || "") + k.title, k.level));
       if (k.level !== "ok") d.appendChild(el("div", k.detail, "muted"));
       if (go[k.id] && k.level !== "ok") { d.style.cursor = "pointer"; d.addEventListener("click", function () { show(go[k.id]); }); }
@@ -769,11 +774,17 @@ function loadHome() {
       }
       h.appendChild(d);
     });
+    // The balance, wallet style: big sats, money on the line under it.
+    var bal = $("balance"); clear(bal);
     if (w.offchain_sats !== undefined) {
-      var transit = Number(w.in_transit_sats || 0);
-      h.appendChild(row("Held on your server", fmtSats(Number(w.offchain_sats) + transit)));
-      if (transit > 0) h.appendChild(el("div", fmtSats(transit) + " of this is still arriving or being renewed. It is yours; it just cannot be moved for a few minutes.", "muted"));
-    }
+      var transit = Number(w.in_transit_sats || 0), total = Number(w.offchain_sats) + transit;
+      bal.appendChild(el("div", "Held on your server", "bal-label"));
+      bal.appendChild(el("div", total.toLocaleString("en-US") + " sats", "bal-sats"));
+      if (USD > 0) bal.appendChild(el("div", fmtSats(total).replace(/^.*\(|\)$/g, ""), "bal-fiat"));
+      if (transit > 0) bal.appendChild(el("div", fmtSats(transit) + " of this is still arriving or being renewed. It is yours; it just cannot be moved for a few minutes.", "muted"));
+      bal.appendChild(el("div", s.payout_set ? "Sent on to your own wallet automatically." : "Set where your money goes in Settings.", "bal-note"));
+      bal.classList.remove("hidden");
+    } else { bal.classList.add("hidden"); }
     var c = s.counters || {}, a = $("attention"); clear(a);
     var n = 0;
     function add(label, count, view) { if (count > 0) { n++; var r = row(label, String(count), "bad"); r.style.cursor = "pointer"; r.addEventListener("click", function () { show(view); }); a.appendChild(r); } }
@@ -799,8 +810,21 @@ function nextRoundText() {
   var h = Math.floor(mins / 60), m = mins % 60;
   return "Next round in: " + h + (h === 1 ? " hour" : " hours") + (m ? " " + m + (m === 1 ? " minute" : " minutes") : "");
 }
+// Transfer and upkeep statuses as pills (the server's own word stays in the label's title).
+var SETTLE_ST = {
+  broadcast: ["\u2713", "Sent", "st-ok"], done: ["\u2713", "Done", "st-ok"], confirmed: ["\u2713", "Done", "st-ok"],
+  sending: ["\u2192", "Sending", ""], requested: ["\u25cb", "Asked", ""], waiting: ["\u25cb", "Waiting", ""],
+  failed: ["!", "Failed", "st-warn"], unknown: ["?", "Unclear", "st-warn"]
+};
 var settleLine = function (x) {
-  var r = row(when(x.created_at) + " \u00b7 " + (KIND[x.kind] || x.kind), fmtSats(x.amount_sats) + " \u00b7 " + x.status);
+  var d = SETTLE_ST[x.status], money = USD > 0 ? fmtSats(x.amount_sats).replace(/^.*\(|\)$/g, "") + " \u00b7 " : "";
+  var r = el("div", "", "prow"), l = el("span", "", "pl");
+  l.appendChild(el("span", Number(x.amount_sats).toLocaleString("en-US") + " sats", "pa"));
+  l.appendChild(el("span", (KIND[x.kind] || x.kind) + " \u00b7 " + money + when(x.created_at), "pd"));
+  r.appendChild(l);
+  var pl = el("span", "", "st " + (d ? d[2] : "")), pi = el("span", d ? d[0] : ""); pi.setAttribute("aria-hidden", "true");
+  pl.appendChild(pi); pl.appendChild(document.createTextNode(d ? d[1] : String(x.status))); pl.title = String(x.status);
+  r.appendChild(pl);
   if (x.kind === "renew" && (x.status === "requested" || x.status === "waiting") && nextRoundText()) {
     var wr = document.createElement("div");
     wr.appendChild(r); wr.appendChild(el("div", nextRoundText() + ". The Ark server renews coins in rounds, and on real money they are about an hour apart. Nothing is wrong while this waits.", "muted"));

@@ -158,9 +158,29 @@ def main():
         assert c in (200, 201), (c, b)
         state.update(a=a["id"], b=b["id"], b_addr=b["ark_address"])
 
+    # A build with the Invoices tab (0.3.3-rc2 and later): an invoice made on it
+    # with a Lightning invoice, and a payment that arrived after it closed.
+    cols = [r[1] for r in sqlite3.connect(os.path.join(data, "ebp.sqlite3")).execute("PRAGMA table_info(invoices)")]
+    state["manual"] = "source" in cols and "invoice_number" in cols
+    if state["manual"]:
+        @step("OLD build: an invoice from the Invoices tab, its Lightning invoice and a late payment")
+        def _():
+            c, _, m = jhttp("POST", f"{base}/api/v1/invoices", {"order_id": "up-m", "sats": 2500}, auth)
+            assert c in (200, 201), (c, m)
+            state.update(m=m["id"])
+
     stop(old)
     dbc = sqlite3.connect(os.path.join(data, "ebp.sqlite3"))
     dbc.execute("UPDATE invoices SET status='paid', paid_sats=2000, paid_at=strftime('%s','now') WHERE id=?", (state["a"],))
+    if state["manual"]:
+        dbc.execute("UPDATE invoices SET source='manual', order_id=NULL, invoice_number='7', customer_name='Pat', "
+                    "note='Upgrade test', status='expired' WHERE id=?", (state["m"],))
+        dbc.execute("INSERT OR REPLACE INTO ln_invoices (invoice_id, bolt11, identifier, created_at) "
+                    "VALUES (?, 'lntbs25u1upgradetest', NULL, strftime('%s','now'))", (state["m"],))
+        dbc.execute("INSERT INTO unmatched_payments (id, address, invoice_id, rail, amount_sats, vtxo_id, reason, detected_at, created_at) "
+                    "VALUES ('unm_up', 'x', ?, 'ark', 2500, 'up_late', 'paid_after_expiry', strftime('%s','now'), strftime('%s','now'))",
+                    (state["m"],))
+    state["count"] = dbc.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
     dbc.commit()
     dbc.close()
 
@@ -182,7 +202,7 @@ def main():
         c = sqlite3.connect(files[0])
         n = c.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
         c.close()
-        assert n == 2, n
+        assert n == state["count"], (n, state["count"])
 
     @step("old invoices, the API key and idempotency survived the upgrade")
     def _():
@@ -207,6 +227,31 @@ def main():
     p = subprocess.run([NEW, "admin", "set-password"], input=ADMIN_PW + "\n", capture_output=True, text=True,
                        env=env_for(data, PORT), cwd=tmp)
     assert p.returncode == 0, p.stderr
+
+    if state["manual"]:
+        @step("the invoice from the Invoices tab survived, with its late payment shown on it and under Alerts")
+        def _():
+            c, hdr, body = jhttp("POST", f"{base}/admin/login", {"password": ADMIN_PW})
+            assert c == 200, (c, body)
+            cookie = {k.lower(): v for k, v in hdr.items()}.get("set-cookie", "").split(";")[0]
+            h = {"cookie": cookie}
+            c, _, lst = jhttp("GET", f"{base}/api/v1/admin/invoices", headers=h)
+            assert c == 200, (c, lst)
+            m = [x for x in lst if x["id"] == state["m"]]
+            assert m, lst
+            m = m[0]
+            assert m["invoice_number"] == "7" and m["customer_name"] == "Pat" and m["status"] == "expired", m
+            assert m["lightning_invoice"] == "lntbs25u1upgradetest", m
+            assert m.get("late_sats") == 2500 and any(not p["counted"] for p in m.get("payments", [])), m
+            c, _, alerts = jhttp("GET", f"{base}/api/v1/unmatched-payments", headers=h)
+            row = [a for a in alerts if a["id"] == "unm_up"]
+            assert row and row[0].get("invoice_number") == "7" and row[0].get("source") == "manual", alerts
+            c, _, csv = http("GET", f"{base}/api/v1/admin/invoices.csv", headers=h)
+            assert c == 200 and b"Upgrade test" in csv, (c, csv[:300])
+            db = sqlite3.connect(os.path.join(data, "ebp.sqlite3"))
+            have = db.execute("SELECT COUNT(*) FROM ln_invoice_history WHERE bolt11 = 'lntbs25u1upgradetest'").fetchone()[0]
+            db.close()
+            assert have == 1, "the old Lightning invoice is kept in the new history table"
     backup = os.path.join(tmp, "test.ebpbackup")
 
     @step("download an encrypted backup from the running server")

@@ -196,6 +196,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/admin/invoices/enabled",
             post(manual_invoices::set_enabled),
         )
+        .route("/api/v1/admin/invoices/{id}", get(manual_invoices::get_one))
         .route(
             "/api/v1/admin/invoices/{id}/lightning",
             post(manual_invoices::fresh_lightning),

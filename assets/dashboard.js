@@ -171,7 +171,7 @@ function show(name) {
   for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle("on", tabs[i].getAttribute("data-v") === name);
   if (name === "home") { PAGE.sweeps = 0; PAGE.upkeep = 0; loadHome(); cheerCheck(); }
   if (name === "orders") { PAGE.orders = 0; loadOrders(); }
-  if (name === "inv") { loadInvSettings(); loadInvList(); }
+  if (name === "inv") { loadInvSettings(); loadInvList(); } else invStopWatch();
   if (name === "alerts") loadAlerts();
   if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
   // The emergency answer is fetched ahead, so the section is usually ready when it is opened.
@@ -1965,7 +1965,7 @@ $("exo-off-go").addEventListener("click", function () {
 // ---- Invoices (in testing; docs/dev/INVOICES.md). Off until turned on in Settings.
 // The owner makes an invoice, then copies or shares the text or a picture of it.
 // Nothing here is sent anywhere by EBP; the picture is drawn in this browser.
-var INV = { enabled: false, s: null, cur: null, qTimer: null };
+var INV = { enabled: false, s: null, cur: null, qTimer: null, watch: null };
 var INV_WARN_T = "Send this privately.";
 var INV_WARN = "EBP cannot stop an email or chat message from being read or changed on the way. Someone who gets into your account or your customer's could swap in their own payment details. We recommend an encrypted email provider such as Proton Mail or an encrypted messenger such as Signal. For a large amount, confirm the amount and the last few characters of the address with your customer another way, for example by phone.";
 var INV_STATUS = { pending: "Open", paid: "Paid", overpaid: "Paid (a little extra)", underpaid: "Part paid", expired: "Expired", cancelled: "Cancelled" };
@@ -1973,6 +1973,7 @@ var INV_STATUS = { pending: "Open", paid: "Paid", overpaid: "Paid (a little extr
 function loadInvSettings() {
   return api("GET", "/api/v1/admin/invoices/settings").then(function (s) {
     INV.s = s; INV.enabled = !!s.enabled;
+    if (!INV.enabled) invStopWatch();
     $("tab-inv").classList.toggle("hidden", !INV.enabled);
     renderInvSettings();
     // sats first, then each currency the server has a recent price for.
@@ -2129,8 +2130,8 @@ function invPicture(r) {
   box(cols - 1, r.ark_address, "Ark", "Type this amount in your wallet", "Works until " + invLocal(r.expires_at, true) + (r.ark_server ? " \u00b7 " + r.ark_server : ""), amt);
   return cv;
 }
-function invCopyText(text, msgId) {
-  var done = function () { say(msgId, "Copied. Paste it into an encrypted email or Signal message."); };
+function invCopyText(text, msgId, okText) {
+  var done = function () { say(msgId, okText || "Copied. Paste it into an encrypted email or Signal message."); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     return navigator.clipboard.writeText(text).then(done, function () { say(msgId, "Your browser would not copy. Select the text above and copy it.", true); });
   }
@@ -2162,8 +2163,71 @@ function invShare(text, cv, name, msgId) {
   }, "image/png");
 }
 
+// While an open invoice is on screen, ask the server for it every 15 seconds, so the
+// owner can leave it up and watch it turn Paid. Stops when it closes or the tab changes.
+var INV_POLL_MS = 15000;
+function invStopWatch() { if (INV.watch) { clearInterval(INV.watch); INV.watch = null; } }
+function invSig(r) {
+  return JSON.stringify([r.status, r.paid_sats, r.lightning_invoice, r.can_refresh_lightning,
+    (r.payments || []).map(function (p) { return [p.amount_sats, p.counted, p.handled]; })]);
+}
+function invOpen(r) { return r.status === "pending" || r.status === "underpaid"; }
+function invLeft(r) {
+  var ms = Date.parse(r.expires_at) - Date.now();
+  if (!(ms > 0)) return "Time to pay has run out.";
+  var mins = Math.ceil(ms / 60000), h = Math.floor(mins / 60), m = mins % 60;
+  return (h ? h + " h" : "") + (h && m ? " " : "") + (m || !h ? m + " min" : "") + " left to pay.";
+}
+function invFetch(id) { return api("GET", "/api/v1/admin/invoices/" + encodeURIComponent(id)); }
+function invWatch(r) {
+  invStopWatch();
+  if (!invOpen(r)) return;
+  var sig = invSig(r);
+  INV.watch = setInterval(function () {
+    if (!INV.cur || INV.cur.id !== r.id || $("v-inv").classList.contains("hidden")) { invStopWatch(); return; }
+    var left = $("inv-left"); if (left) left.textContent = invLeft(r);
+    if (document.hidden) return;
+    invFetch(r.id).then(function (x) {
+      if (!INV.cur || INV.cur.id !== r.id || invSig(x) === sig) return;
+      var nowPaid = x.status === "paid" || x.status === "overpaid";
+      renderInvoice(x); loadInvList();
+      if (nowPaid) say("inv-out-msg", "Paid. The money is in your wallet.");
+    }).catch(function () {});
+  }, INV_POLL_MS);
+}
+
+// Fill the "new invoice" form from an earlier invoice (Invoice again, or the rest of a
+// part payment). Nothing is made until the owner checks it and presses Make the invoice.
+function invFill(o) {
+  var unit = $("inv-unit"), hasCur = o.currency && Array.prototype.some.call(unit.options, function (x) { return x.value === o.currency; });
+  if (hasCur) { unit.value = o.currency; $("inv-amt").value = o.fiat; }
+  else { unit.value = "sats"; $("inv-amt").value = String(o.sats); }
+  $("inv-note").value = (o.note || "").slice(0, 200);
+  $("inv-cust").value = o.customer || "";
+  if (o.customer) $("inv-more").open = true;
+  $("inv-num").setAttribute("data-auto", "1"); $("inv-num").value = (INV.s && INV.s.next_number) || "";
+  invHint();
+  say("inv-msg", o.msg + (hasCur ? " The sats amount is worked out again at today's price." : ""));
+  try { $("inv-new").scrollIntoView({ behavior: "smooth" }); $("inv-amt").focus({ preventScroll: true }); } catch (e) {}
+}
+function invSats(n) { return Number(n).toLocaleString("en-US") + " sats"; }
+// The receipt the owner can send once an invoice is paid. Facts only; no customer name.
+function invReceipt(r) {
+  var lines = [];
+  if (r.test_mode) lines.push("TEST RECEIPT: play money (signet), not real Bitcoin.", "");
+  lines.push("Receipt from " + r.store_name);
+  lines.push("Invoice " + (r.invoice_number || "") + (r.note ? ": " + r.note : ""));
+  lines.push(r.status === "overpaid"
+    ? "Paid: " + invSats(r.paid_sats) + " (the invoice was for " + invAmountLabel(r) + ")"
+    : "Paid in full: " + invAmountLabel(r));
+  if (r.paid_at) lines.push("Paid on " + invWhen(r.paid_at));
+  lines.push("", "Thank you!");
+  return lines.join("\n");
+}
+
 function renderInvoice(r) {
   INV.cur = r;
+  invWatch(r);
   var box = $("inv-out"); clear(box); box.classList.remove("hidden");
   var open = r.status === "pending" || r.status === "underpaid";
   box.appendChild(el("h2", "Invoice " + (r.invoice_number || "")));
@@ -2171,9 +2235,28 @@ function renderInvoice(r) {
   if (r.customer_name) box.appendChild(row("Customer", r.customer_name));
   if (r.paid_at) box.appendChild(row("Paid", when(r.paid_at)));
   else box.appendChild(row(open ? "Open until" : "Was open until", when(r.expires_at)));
+  if (open) { var left = el("p", invLeft(r), "muted"); left.id = "inv-left"; box.appendChild(left); }
   if (r.status === "underpaid") box.appendChild(el("p", "Part paid: " + Number(r.paid_sats).toLocaleString("en-US") + " of " + Number(r.amount_sats).toLocaleString("en-US") + " sats so far.", "muted"));
   var late = invLate(r);
-  if (late) { var lb = el("p", late.line + " It is also listed under Alerts, where you can mark it handled.", "msg warn"); lb.id = "inv-late"; box.appendChild(lb); }
+  if (late) {
+    var open_ = (r.payments || []).filter(function (p) { return !p.counted && !p.handled; });
+    var todo = open_.filter(function (p) { return p.unmatched_id; });
+    var lb = el("p", late.line + (open_.length
+      ? " It is also listed under Alerts. Once you have dealt with it (kept it, refunded it, or counted it yourself), mark it handled."
+      : " You marked it handled."), open_.length ? "msg warn" : "msg");
+    lb.id = "inv-late"; box.appendChild(lb);
+    if (todo.length) {
+      var hb = el("div", "", "btns");
+      hb.appendChild(button("Mark handled", function (btn) {
+        btn.disabled = true;
+        Promise.all(todo.map(function (p) { return api("POST", "/api/v1/unmatched-payments/" + encodeURIComponent(p.unmatched_id) + "/resolve", {}); }))
+          .then(function () { return invFetch(r.id); })
+          .then(function (x) { renderInvoice(x); loadInvList(); say("inv-out-msg", "Marked handled. It stays in What happened below and under Alerts."); })
+          .catch(function (e) { btn.disabled = false; say("inv-out-msg", e.message, true); });
+      }));
+      box.appendChild(hb);
+    }
+  }
   box.appendChild(el("h3", "What happened"));
   var story = invStory(r); story.id = "inv-story"; box.appendChild(story);
   var msgId = "inv-out-msg";
@@ -2217,6 +2300,31 @@ function renderInvoice(r) {
     }));
     if (b3.firstChild) box.appendChild(b3);
   }
+  if (r.status === "paid" || r.status === "overpaid") {
+    var rtext = invReceipt(r);
+    box.appendChild(el("h3", "Receipt"));
+    box.appendChild(el("p", "Send your customer a receipt if they want one:", "muted"));
+    var rt = el("div", rtext, "inv-text"); rt.id = "inv-receipt"; box.appendChild(rt);
+    var rb = el("div", "", "btns");
+    rb.appendChild(button("Copy receipt", function () { invCopyText(rtext, msgId, "Receipt copied."); }));
+    if (navigator.share) rb.appendChild(button("Share receipt", function () {
+      navigator.share({ text: rtext }).catch(function (e) { if (e && e.name !== "AbortError") say(msgId, "Could not open sharing. Use Copy receipt instead.", true); });
+    }));
+    box.appendChild(rb);
+  }
+  var b4 = el("div", "", "btns");
+  var rest = r.amount_sats - r.paid_sats;
+  if (r.status === "expired" && r.paid_sats > 0 && rest > 0) {
+    b4.appendChild(button("Make a new invoice for the " + invSats(rest) + " still owed", function () {
+      invFill({ sats: rest, customer: r.customer_name, note: "Rest of invoice " + (r.invoice_number || "") + (r.note ? ": " + r.note : ""),
+        msg: "Filled in from invoice " + (r.invoice_number || "") + ": the " + invSats(rest) + " still owed. Check it, then press Make the invoice." });
+    }, "primary"));
+  }
+  b4.appendChild(button("Invoice again", function () {
+    invFill({ sats: r.amount_sats, currency: r.fiat_currency, fiat: r.fiat_amount, customer: r.customer_name, note: r.note,
+      msg: "Filled in from invoice " + (r.invoice_number || "") + ". Change anything you need, then press Make the invoice." });
+  }));
+  box.appendChild(b4);
   var m = el("p", "", "msg hidden"); m.id = msgId; box.appendChild(m);
 }
 
@@ -2263,13 +2371,38 @@ $("inv-go").addEventListener("click", function () {
     if (!/^\d+(\.\d{1,2})?$/.test(v) || Number(v) <= 0) { say("inv-msg", "Enter the amount as a number, like 25 or 25.50.", true); return; }
     body.fiat = { currency: $("inv-unit").value, amount: v };
   }
+  var big = invBigAmount(body);
+  if (!big) { invCreate(body); return; }
+  askConfirm({ title: "Make an invoice for " + big.label + "?", body: big.why + " Check the amount before you send it.", cancel: "Go back and check", ok: "Yes, make it", danger: false })
+    .then(function (yes) { if (yes) invCreate(body); else try { $("inv-amt").focus(); } catch (e) {} });
+});
+// "Is this right?" before an invoice far bigger than usual: a typo like 250000 for
+// 25000 is the easiest way to confuse or overcharge a customer.
+var INV_BIG_USD = 500, INV_BIG_TIMES = 10;
+function invBigAmount(body) {
+  var s = INV.s || {}, prices = s.prices || {}, usdPer = s.usd_per_btc > 0 ? Number(s.usd_per_btc) : (USD > 0 ? USD : null);
+  var sats = body.sats, label;
+  if (body.fiat) {
+    var p = Number(prices[body.fiat.currency]);
+    sats = p > 0 ? Math.round(Number(body.fiat.amount) / p * 1e8) : null;
+    label = body.fiat.currency + " " + body.fiat.amount + (sats ? " (about " + invSats(sats) + ")" : "");
+  } else label = invSats(sats);
+  var usd = body.fiat && body.fiat.currency === "USD" ? Number(body.fiat.amount) : (sats && usdPer ? sats / 1e8 * usdPer : null);
+  var largest = Number(s.largest_sats) || 0, why = [];
+  if (usd != null && usd >= INV_BIG_USD) why.push("That is about $" + Math.round(usd).toLocaleString("en-US") + ".");
+  else if (usd == null && sats >= 1000000) why.push("That is a large amount.");
+  if (largest > 0 && sats > INV_BIG_TIMES * largest && (usd != null ? usd >= 50 : sats >= 50000))
+    why.push("It is more than " + INV_BIG_TIMES + " times your largest invoice so far (" + invSats(largest) + ").");
+  return why.length ? { label: label, why: why.join(" ") } : null;
+}
+function invCreate(body) {
   var b = $("inv-go"); b.disabled = true; $("inv-msg").className = "msg hidden";
   api("POST", "/api/v1/admin/invoices", body).then(function (r) {
     $("inv-amt").value = ""; $("inv-note").value = ""; $("inv-cust").value = ""; $("inv-num").setAttribute("data-auto", "1"); $("inv-num").value = "";
     invHint(); renderInvoice(r); loadInvList(); loadInvSettings();
     try { $("inv-out").scrollIntoView({ behavior: "smooth" }); } catch (e) {}
   }).catch(function (e) { say("inv-msg", e.message, true); }).then(function () { b.disabled = false; });
-});
+}
 
 boot();
 })();

@@ -148,6 +148,9 @@ pub struct InvoicePayment {
     pub reason: Option<String>,
     /// The owner pressed "Mark as handled" on it under Alerts.
     pub handled: bool,
+    /// The late-payment list row (Alerts) for a payment that was not counted,
+    /// so the invoice can mark it handled too; `None` when counted.
+    pub unmatched_id: Option<String>,
 }
 
 /// Payments of every manual invoice of `store_id`, counted and late alike,
@@ -158,12 +161,12 @@ fn payments_by_invoice(
 ) -> Result<std::collections::HashMap<String, Vec<InvoicePayment>>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT p.invoice_id, p.rail, p.amount_sats, p.detected_at, 1 AS counted,
-                NULL AS reason, 0 AS handled
+                NULL AS reason, 0 AS handled, NULL AS unmatched_id
            FROM payments p JOIN invoices i ON i.id = p.invoice_id
           WHERE i.store_id = ?1 AND i.source = 'manual'
          UNION ALL
          SELECT u.invoice_id, u.rail, u.amount_sats, u.detected_at, 0,
-                u.reason, u.resolved_at IS NOT NULL
+                u.reason, u.resolved_at IS NOT NULL, u.id
            FROM unmatched_payments u JOIN invoices i ON i.id = u.invoice_id
           WHERE i.store_id = ?1 AND i.source = 'manual'
          ORDER BY 4, 5 DESC",
@@ -178,6 +181,7 @@ fn payments_by_invoice(
                 counted: r.get::<_, i64>(4)? == 1,
                 reason: r.get(5)?,
                 handled: r.get::<_, i64>(6)? == 1,
+                unmatched_id: r.get(7)?,
             },
         ))
     })?;
@@ -261,6 +265,16 @@ pub fn get(
     let mut found: Vec<ManualInvoice> = found.into_iter().collect();
     attach_payments(conn, store_id, &mut found)?;
     Ok(found.pop())
+}
+
+/// The largest amount (sats) of any invoice from the Invoices tab, or 0. The
+/// page asks "is this right?" before an invoice far bigger than usual.
+pub fn largest_sats(conn: &Connection, store_id: &str) -> Result<i64, AppError> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(MAX(amount_sats), 0) FROM invoices WHERE store_id = ?1 AND source = 'manual'",
+        params![store_id],
+        |r| r.get(0),
+    )?)
 }
 
 /// Escape `%`, `_` and `\` so typed text is matched literally by LIKE.
@@ -506,6 +520,9 @@ mod tests {
             let late = &m1.payments[1];
             assert!(!late.counted && !late.handled);
             assert_eq!(late.reason.as_deref(), Some("paid_after_expiry"));
+            // The late one points at its Alerts row, so the invoice can mark it handled.
+            assert_eq!(m1.payments[0].unmatched_id, None);
+            assert_eq!(late.unmatched_id.as_deref(), Some("u1"));
             assert_eq!((m1.late_sats(), m1.late_at()), (15000, Some(200)));
             // Marked handled under Alerts: still shown, as handled.
             conn.execute(
@@ -517,6 +534,22 @@ mod tests {
             assert!(m1.payments[1].handled);
             let m2 = listed.iter().find(|m| m.invoice.id == "m2").unwrap();
             assert!(m2.payments.is_empty() && m2.late_sats() == 0 && m2.late_at().is_none());
+            // The largest invoice so far counts invoices from the tab only.
+            conn.execute(
+                "UPDATE invoices SET amount_sats = 90000 WHERE id = 'shop1'",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE invoices SET amount_sats = 30000 WHERE id = 'm2'",
+                [],
+            )?;
+            let expected = conn.query_row(
+                "SELECT MAX(amount_sats) FROM invoices WHERE id IN ('m1', 'm2')",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?;
+            assert_eq!(largest_sats(conn, &s.id)?, expected);
+            assert!(largest_sats(conn, &s.id)? < 90000);
             // A shop order's late payment never shows on the Invoices tab.
             assert!(export_all(conn, &s.id)?
                 .iter()

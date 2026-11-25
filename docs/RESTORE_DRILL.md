@@ -31,7 +31,7 @@ same process as a practice run, with checks.
    cd /opt/ebp
    ./scripts/update.sh VERSION
    ```
-   (`VERSION` is the newest one on the Releases page, for example `0.3.3-rc4`; see
+   (`VERSION` is the newest one on the Releases page, for example `0.3.3-rc5`; see
    [UPGRADING.md](UPGRADING.md). On a folder without `update.sh`, run `git pull` once first.)
 2. **In your browser, on the old server's `/admin` page,** open **Home** and
    **Settings**. Write down your answer key:

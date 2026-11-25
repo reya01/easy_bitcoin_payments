@@ -69,11 +69,11 @@ and run these, one at a time (the folder name may differ; `ls` shows it):
 
 ```
 cd /opt/ebp
-./scripts/update.sh --check 0.3.3-rc4
-./scripts/update.sh 0.3.3-rc4
+./scripts/update.sh --check 0.3.3-rc5
+./scripts/update.sh 0.3.3-rc5
 ```
 
-Use the version you want instead of `0.3.3-rc4`. The first command only **checks**:
+Use the version you want instead of `0.3.3-rc5`. The first command only **checks**:
 it shows which version runs now, the version you asked for, the exact image
 (its "digest") and whether the signature is genuine, and changes nothing. The second
 shows the same and then asks you to **type yes** before it changes anything.
@@ -116,7 +116,7 @@ source on your own server:
 
 ```
 cd /opt/ebp
-./scripts/update.sh --from-source 0.3.3-rc4
+./scripts/update.sh --from-source 0.3.3-rc5
 ```
 
 It fetches that release's source, switches the folder to it, and builds the server there.

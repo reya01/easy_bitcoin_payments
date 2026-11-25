@@ -177,6 +177,11 @@ def main():
                     "note='Upgrade test', status='expired' WHERE id=?", (state["m"],))
         dbc.execute("INSERT OR REPLACE INTO ln_invoices (invoice_id, bolt11, identifier, created_at) "
                     "VALUES (?, 'lntbs25u1upgradetest', NULL, strftime('%s','now'))", (state["m"],))
+        # A build that already keeps every Lightning invoice (migration 0017 and
+        # later) writes it to the history table too; do what that build would.
+        if dbc.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ln_invoice_history'").fetchone():
+            dbc.execute("INSERT OR IGNORE INTO ln_invoice_history (bolt11, invoice_id, created_at) "
+                        "VALUES ('lntbs25u1upgradetest', ?, strftime('%s','now'))", (state["m"],))
         dbc.execute("INSERT INTO unmatched_payments (id, address, invoice_id, rail, amount_sats, vtxo_id, reason, detected_at, created_at) "
                     "VALUES ('unm_up', 'x', ?, 'ark', 2500, 'up_late', 'paid_after_expiry', strftime('%s','now'), strftime('%s','now'))",
                     (state["m"],))
@@ -192,12 +197,19 @@ def main():
         db = sqlite3.connect(os.path.join(data, "ebp.sqlite3"))
         v = db.execute("PRAGMA user_version").fetchone()[0]
         db.close()
-        assert v > state["old_version"], (state["old_version"], v)
-        print(f"      schema version {state['old_version']} -> {v}")
+        latest = len(glob.glob(os.path.join(ROOT, "migrations", "*.sql")))
+        assert v == latest and v >= state["old_version"], (state["old_version"], v, latest)
+        # The last release may already have this build's schema (no migration
+        # in between): then there is nothing to migrate, and that is fine.
+        note = "" if v > state["old_version"] else " (no database change since the old build)"
+        print(f"      schema version {state['old_version']} -> {v}{note}")
 
     @step("a copy of the database was kept before the upgrade")
     def _():
         files = glob.glob(os.path.join(data, "backups", "ebp-*-before-v*.sqlite3"))
+        if not files and state["old_version"] == len(glob.glob(os.path.join(ROOT, "migrations", "*.sql"))):
+            print("      no migration ran, so no copy was needed")
+            return
         assert files, "no pre-upgrade copy in backups/"
         c = sqlite3.connect(files[0])
         n = c.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]

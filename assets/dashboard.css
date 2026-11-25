@@ -139,3 +139,6 @@ details.more>summary::-webkit-details-marker{display:none}details.more>summary::
 .hsum{font-weight:800;font-size:18px;padding:2px 0 8px}
 .hsum.ok{color:var(--ok)}.hsum.warn{color:var(--warn)}
 .check-ok{padding:6px 0;font-size:14px}
+
+/* Keyboard focus is always visible */
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}

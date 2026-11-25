@@ -228,13 +228,23 @@ jobs:
         run: docker compose logs --no-color --tail 80 || true
 
   upgrade:
-    name: upgrade + backup/restore (previous build to this build)
+    name: upgrade + backup/restore (${{ matrix.name }} to this build)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest build kept in the test: before the audit log, admin
+          # login and most migrations, so every migration runs in one go.
+          - name: oldest build
+            baseline: 6681165
+          # The last release people actually run. Move this forward with every
+          # release (RC_CHECKLIST.md), so each update is tested from where
+          # testers really are.
+          - name: last release
+            baseline: v0.3.3-rc4
     env:
-      # The "previous release" until a real one exists: the build from before
-      # the audit log, admin login and later migrations. Move this forward to
-      # the last published release tag once there is one.
-      BASELINE_REF: 6681165
+      BASELINE_REF: ${{ matrix.baseline }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

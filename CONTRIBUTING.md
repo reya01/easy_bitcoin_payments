@@ -45,6 +45,35 @@ no ability to fix a problem themselves. So:
 - No fixed or fake data in a "test mode" code path: test mode should exercise the
   same code that live mode will run.
 
+## People are running this: updates must not break them
+
+EBP now has its first outside users. They update from one release candidate to
+the next, often from a phone, and many cannot fix a broken server by hand. So:
+
+- **Mark breaking changes clearly.** A change is breaking if, after updating, a
+  server, shop plugin, saved setting, backup, API caller or habit stops working
+  the way it did, or needs a step from the owner (a new setting, a changed
+  `.env`, a plugin update at the same time, a migration that cannot be undone).
+  Put **BREAKING:** at the start of the PR title and of its `CHANGELOG.md` line,
+  say in plain words what the owner must do, and put that step in the release
+  notes. Prefer a change that is not breaking: keep the old way working
+  alongside the new one for at least one release when you can.
+- **Test the update, not only the new code.** CI's `upgrade` job starts the
+  last published release, gives it real data, stops it and starts this build on
+  the same data folder (and restores a backup). A change to migrations, stored
+  settings, the backup, the API or the plugin must pass it, and should add the
+  data it touches to `tests/upgrade/run_upgrade.py` so the test proves that data
+  survives. Keep the job's `last release` baseline on the newest release.
+- **Migrations only add.** New tables and new columns with a default; never
+  rename or drop a column, change what a stored value means, or edit a migration
+  that has shipped. Old data must still read the same after the update.
+- **API and plugin answers only add.** New fields are fine; removing or renaming
+  a field, or changing its meaning, is breaking (an older shop plugin may still be
+  calling). The same goes for CSV columns: add new ones at the end.
+- **Say how it was tested.** The PR description lists the tests that cover the
+  change, including the update path, and what still needs a person on a real
+  server (add it to the next release's test sheet).
+
 ## Ground rules
 
 - **Browsers.** The checkout page, setup page and admin page are tested only in Google
@@ -84,7 +113,8 @@ CI runs all three on every push; a PR that fails them is not reviewed.
   state machine, auth, webhook signing, rates, migrations, watcher) carry
   their own tests.
 - Migrations are append-only: add `migrations/000N_*.sql` and register it in
-  `src/db.rs`. Never edit a migration that has shipped.
+  `src/db.rs`. Never edit a migration that has shipped (see "People are running
+  this" above).
 - PRs describe what changed and why, and call out anything touching custody,
   secrets, or webhooks.
 

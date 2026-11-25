@@ -70,7 +70,10 @@ that release's cut checklist on the test server. Still open:
    workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
    before building if any of these disagree with the tag (you can run it
    yourself first).
-3. Tag the new version (for example `v0.3.2-rc2`) on `main` and push it. The
+3. Tag the new version (for example `v0.3.2-rc2`) on `main` and push it.
+   Right after the release, move the **last release** baseline of the CI
+   `upgrade` job (`.github/workflows/ci.yml`, matrix entry `last release`) to the
+   new tag, so every later change is tested as an update from what people run. The
    `-rcN` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.

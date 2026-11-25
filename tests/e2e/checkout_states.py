@@ -192,17 +192,16 @@ def main():
             has(a, pr, "fee note says what the wallet will show", "wallet will show 1,503 sats", pg.inner_text("#ln-fee"))
             if not pg.is_visible("#open-wallet"): pr.append("Lightning needs the 'Open in my wallet app' button")
             if pg.get_attribute("#open-wallet", "href") != "lightning:" + BOLT: pr.append("the wallet button should open the Lightning invoice")
-            # Two choices under the code, Lightning on top, both always there, a check on the selected one.
+            # Two choices as a switch at the top of the payment box, Lightning first, both always there.
             # Nothing else: no tabs, no combined code, no regular Bitcoin.
-            if not pg.is_visible("#ark-choice"): pr.append("the two choices must be visible under the code")
+            if not pg.is_visible("#ark-choice"): pr.append("the two choices must be visible")
             has(a, pr, "first choice is labelled Lightning (fast)", "Lightning (fast)", pg.inner_text("#pick-ln"))
             has(a, pr, "second choice is labelled Ark (also fast)", "Ark (also fast)", pg.inner_text("#pick-ark"))
-            if pg.evaluate("document.getElementById('pick-ln').getBoundingClientRect().top") >= pg.evaluate("document.getElementById('pick-ark').getBoundingClientRect().top"): pr.append("Lightning must be on top of Ark")
-            if pg.evaluate("document.getElementById('ark-choice').getBoundingClientRect().top") <= pg.evaluate("document.getElementById('qr').getBoundingClientRect().bottom") - 1: pr.append("the choices belong below the QR code")
+            if pg.evaluate("document.getElementById('pick-ln').getBoundingClientRect().left") >= pg.evaluate("document.getElementById('pick-ark').getBoundingClientRect().left"): pr.append("Lightning must come first (left)")
+            if pg.evaluate("document.getElementById('ark-choice').getBoundingClientRect().bottom") > pg.evaluate("document.getElementById('qr').getBoundingClientRect().top"): pr.append("the switch belongs above the QR code")
             if pg.get_attribute("#pick-ln", "aria-checked") != "true" or "on" not in (pg.get_attribute("#pick-ln", "class") or "").split(): pr.append("Lightning starts selected, with its check")
             if pg.get_attribute("#pick-ark", "aria-checked") != "false": pr.append("Ark starts unselected")
-            if pg.evaluate("getComputedStyle(document.querySelector('#pick-ln .tick'), '::after').content") in ("none", "normal", ""): pr.append("the selected choice shows a check mark")
-            if pg.evaluate("getComputedStyle(document.querySelector('#pick-ark .tick'), '::after').content") not in ("none", "normal", ""): pr.append("the unselected choice shows no check mark")
+            if pg.evaluate("getComputedStyle(document.getElementById('pick-ln')).backgroundColor") == pg.evaluate("getComputedStyle(document.getElementById('pick-ark')).backgroundColor"): pr.append("the selected choice must look different")
             if pg.query_selector("#other") or pg.query_selector(".tabs"): pr.append("there is no 'Other ways to pay' menu or tabs any more")
             body = pg.inner_text("body").lower()
             for gone in ("regular bitcoin (slower)", "one code, any wallet", "one code for any wallet"):
@@ -221,7 +220,7 @@ def main():
             has(a, pr, "Ark amount box says to type it", "type exactly", pg.inner_text("#ark-amount"))
             if pg.evaluate("parseFloat(getComputedStyle(document.getElementById('ark-sats')).fontSize)") < 30: pr.append("the Ark amount must be big")
             pg.evaluate("window.__copied = null"); pg.click("#copy-ark-amount"); pg.wait_for_timeout(100)
-            if pg.evaluate("window.__copied") != "1500": pr.append(f"'Copy the number' should copy 1500, saw {pg.evaluate('window.__copied')}")
+            if pg.evaluate("window.__copied") != "1500": pr.append(f"'Copy amount' should copy 1500, saw {pg.evaluate('window.__copied')}")
             pg.click("#pick-ln")
             if pg.is_visible("#ark-amount"): pr.append("the Ark amount box belongs to Ark only")
             if shown(a) != BOLT: pr.append("choosing Lightning returns to the Lightning invoice")

@@ -446,7 +446,7 @@ pub fn find_pending_by_address(
         "SELECT * FROM invoices
          WHERE status IN ('pending', 'underpaid')
            AND (ark_address = ?1
-                OR id = (SELECT invoice_id FROM ln_invoices
+                OR id = (SELECT invoice_id FROM ln_invoice_history
                          WHERE bolt11 = ?1 LIMIT 1))
          ORDER BY created_at DESC LIMIT 1",
         params![address],
@@ -471,7 +471,7 @@ pub fn find_creditable_by_address(
          WHERE (status IN ('pending', 'underpaid')
                 OR (status = 'expired' AND ?2 <= expires_at + ?3))
            AND (ark_address = ?1
-                OR id = (SELECT invoice_id FROM ln_invoices
+                OR id = (SELECT invoice_id FROM ln_invoice_history
                          WHERE bolt11 = ?1 LIMIT 1))
          ORDER BY (status = 'expired'), created_at DESC LIMIT 1",
         params![address, detected_at, LATE_FULL_PAYMENT_SECS],
@@ -549,8 +549,12 @@ pub struct UnmatchedInput<'a> {
 /// BETA-HARDENING (P0): such payments used to be dropped with a debug log,
 /// leaving funds in the till with no record. This writes an audit row in
 /// `unmatched_payments` for the merchant to reconcile (refund / re-credit).
-/// Addresses that match NO invoice (e.g. the merchant funding the exit
-/// reserve) are deliberately not recorded. Idempotent: the unique
+/// Money at an address that matches NO payment request is recorded too, with
+/// no invoice: reason `exit_fees` (already marked handled) when the address
+/// is the one shown for the emergency withdrawal's fee money, otherwise
+/// `unknown_address` ("Money from elsewhere" under Alerts), so the owner can
+/// always tell where money on the server came from. Such an entry needs a
+/// VTXO id or txid (the unique guard), or it is not recorded. Idempotent: the unique
 /// vtxo/txid indexes make re-delivery a no-op. Returns true if a NEW row
 /// was written (callers may warn loudly once).
 pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<bool, AppError> {
@@ -586,14 +590,14 @@ pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<boo
                 -- Old invoices kept the on-chain address they were given before
                 -- EBP stopped taking on-chain payments; newer ones hold ''.
                 OR (onchain_address != '' AND onchain_address = ?1)
-                OR id = (SELECT invoice_id FROM ln_invoices WHERE bolt11 = ?1 LIMIT 1)
+                OR id = (SELECT invoice_id FROM ln_invoice_history WHERE bolt11 = ?1 LIMIT 1)
              ORDER BY created_at DESC LIMIT 1",
             params![address],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
     let Some((invoice_id, status)) = found else {
-        return Ok(false);
+        return record_unexplained(conn, input);
     };
     // `reason_override` lets the watcher park payments that arrive on a way
     // EBP does not accept (e.g. `onchain_rail_disabled`) even though the
@@ -621,6 +625,60 @@ pub fn record_unmatched(conn: &Connection, input: &UnmatchedInput) -> Result<boo
         ],
     )?;
     Ok(changed > 0)
+}
+
+/// Money at an address that belongs to no payment request.
+fn record_unexplained(conn: &Connection, input: &UnmatchedInput) -> Result<bool, AppError> {
+    if input.vtxo_id.is_none() && input.txid.is_none() {
+        tracing::warn!(
+            "money at an address of no payment request has no VTXO id or txid; not recorded"
+        );
+        return Ok(false);
+    }
+    let purpose: Option<String> = conn
+        .query_row(
+            "SELECT purpose FROM own_addresses WHERE address = ?1",
+            params![input.address],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let (reason, resolved_at) = match purpose.as_deref() {
+        Some("exit_fees") => ("exit_fees", Some(now_unix())),
+        _ => ("unknown_address", None),
+    };
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO unmatched_payments
+            (id, address, invoice_id, rail, amount_sats, vtxo_id, txid, reason, detected_at,
+             created_at, resolved_at)
+         VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            crate::util::new_id("unm"),
+            input.address,
+            input.rail,
+            input.amount_sats,
+            input.vtxo_id,
+            input.txid,
+            reason,
+            input.detected_at,
+            now_unix(),
+            resolved_at
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Remember an address of this server handed out for `purpose` (see
+/// `own_addresses`), so money that arrives there is named under Alerts.
+pub fn remember_own_address(
+    conn: &Connection,
+    address: &str,
+    purpose: &str,
+) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO own_addresses (address, purpose, created_at) VALUES (?1, ?2, ?3)",
+        params![address, purpose, now_unix()],
+    )?;
+    Ok(())
 }
 
 /// Does the database already hold this wallet entry, either credited
@@ -661,6 +719,13 @@ pub fn set_lightning_invoice(
             bolt11 = excluded.bolt11,
             identifier = excluded.identifier",
         params![invoice_id, bolt11, identifier, now_unix()],
+    )?;
+    // Kept for good: a payment to this Lightning invoice after a fresh one
+    // replaced it must still find its payment request.
+    conn.execute(
+        "INSERT OR IGNORE INTO ln_invoice_history (bolt11, invoice_id, created_at)
+         VALUES (?1, ?2, ?3)",
+        params![bolt11, invoice_id, now_unix()],
     )?;
     Ok(())
 }
@@ -1564,7 +1629,7 @@ mod tests {
             .unwrap();
         assert!(!again, "re-delivery must not duplicate the row");
 
-        // Addresses that belong to no invoice are not recorded.
+        // Money at an address of no invoice is recorded once, with no invoice.
         let unknown = db
             .call(|conn| {
                 record_unmatched(
@@ -1582,7 +1647,55 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(!unknown);
+        assert!(unknown, "money from elsewhere is written down");
+        let (inv, reason, handled) = db
+            .call(|conn| {
+                Ok(conn.query_row(
+                    "SELECT invoice_id, reason, resolved_at IS NOT NULL FROM unmatched_payments
+                      WHERE address = 'ark1qnobody'",
+                    [],
+                    |r| {
+                        Ok((
+                            r.get::<_, Option<String>>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, bool>(2)?,
+                        ))
+                    },
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            (inv, reason.as_str(), handled),
+            (None, "unknown_address", false)
+        );
+        // The emergency fee address is named, and needs nothing from the owner.
+        let fees = db
+            .call(|conn| {
+                remember_own_address(conn, "bc1qfees", "exit_fees")?;
+                let input = |txid| UnmatchedInput {
+                    address: "bc1qfees",
+                    rail: "onchain",
+                    amount_sats: 6000,
+                    vtxo_id: None,
+                    txid,
+                    detected_at: 6,
+                    reason_override: None,
+                };
+                let first = record_unmatched(conn, &input(Some("tx_fee")))?;
+                let again = record_unmatched(conn, &input(Some("tx_fee")))?;
+                // No dedupe key: not written (it would repeat every check).
+                let keyless = record_unmatched(conn, &input(None))?;
+                let row: (String, bool) = conn.query_row(
+                    "SELECT reason, resolved_at IS NOT NULL FROM unmatched_payments WHERE txid = 'tx_fee'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                Ok((first, again, keyless, row))
+            })
+            .await
+            .unwrap();
+        assert_eq!(fees, (true, false, false, ("exit_fees".to_string(), true)));
     }
 
     #[tokio::test]

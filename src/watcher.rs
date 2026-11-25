@@ -493,8 +493,8 @@ impl PollingWatcher {
             // BETA-HARDENING: no PENDING invoice owns this address. If it
             // belongs to an expired/closed invoice, the funds are in the
             // till and MUST be recorded (late payment) rather than
-            // dropped. Unknown addresses (e.g. reserve funding) are
-            // ignored by `record_unmatched`.
+            // dropped. Money at an address of no payment request is
+            // recorded too ("Money from elsewhere"), see `record_unmatched`.
             let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
             let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
             let (amount, seen) = (payment.amount_sats, payment.detected_at);
@@ -920,6 +920,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_payment_to_a_replaced_lightning_invoice_still_finds_its_order() {
+        // A fresh Lightning invoice replaced the first one, but the customer
+        // paid the first: the Ark server can accept it a while after its
+        // written end. It must count toward the same order, not go missing.
+        let (db, store_id) = setup(vec![]).await;
+        db.call(|c| {
+            invoice::set_lightning_invoice(c, "inv_1", "lntbs10030n1pold", None)?;
+            invoice::set_lightning_invoice(c, "inv_1", "lntbs10030n1pnew", None)
+        })
+        .await
+        .unwrap();
+        let watcher = PollingWatcher::new(
+            Arc::new(FakeWallet {
+                payments: vec![WalletPayment {
+                    address: "lntbs10030n1pold".to_string(),
+                    rail: Rail::Ark,
+                    amount_sats: 1000,
+                    vtxo_id: Some("ln_old:0".to_string()),
+                    txid: None,
+                    detected_at: now_unix(),
+                    confirmed_at: None,
+                }],
+                vtxos: vec![],
+            }),
+            db.clone(),
+            Arc::new(WebhookEmitter::new(1)),
+            Duration::from_secs(1),
+            604_800,
+        );
+        assert_eq!(watcher.tick().await.unwrap(), 1, "credited to its order");
+        let invoice = db
+            .call(move |conn| invoice::get(conn, &store_id, "inv_1"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Paid);
+    }
+
+    #[tokio::test]
     async fn a_lightning_payment_of_our_own_invoice_pays_the_order_in_full() {
         // The Ark server keeps its receive fee: 1003 asked (1000 + fee),
         // 998 arrived after rounding. The order is still paid, not underpaid.
@@ -1092,9 +1131,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn on_chain_money_to_an_address_no_invoice_owns_is_left_alone() {
-        // For example the merchant funding the emergency-exit fee money: no
-        // invoice owns the address, so nothing is parked and nothing is credited.
+    async fn on_chain_money_to_an_address_no_invoice_owns_is_written_down_not_credited() {
+        // For example money sent to an address of this server outside any
+        // invoice: nothing is credited, and it is written down once as money
+        // from elsewhere so the owner can see where it came from.
         let (db, store_id) = setup(vec![]).await;
         let mut stray = onchain_payment();
         stray.address = "bc1qsomeoneelse".to_string();
@@ -1115,11 +1155,17 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(invoice.status, InvoiceStatus::Pending);
-        let parked: i64 = db
-            .call(|c| Ok(c.query_row("SELECT COUNT(*) FROM unmatched_payments", [], |r| r.get(0))?))
+        let parked: (i64, String) = db
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT COUNT(*), MAX(reason) FROM unmatched_payments WHERE invoice_id IS NULL",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
             .await
             .unwrap();
-        assert_eq!(parked, 0);
+        assert_eq!(parked, (1, "unknown_address".to_string()));
     }
 
     #[tokio::test]
@@ -1675,8 +1721,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tick_ignores_unknown_addresses() {
+    async fn tick_records_money_from_elsewhere_without_crediting() {
         let (db, _) = setup(vec![]).await;
+        let db2 = db.clone();
         let watcher = PollingWatcher::new(
             Arc::new(FakeWallet {
                 payments: vec![WalletPayment {
@@ -1696,7 +1743,11 @@ mod tests {
             604_800,
         );
 
-        assert_eq!(watcher.tick().await.unwrap(), 0);
+        assert_eq!(watcher.tick().await.unwrap(), 0, "credits nothing");
+        watcher.tick().await.unwrap();
+        let sql = "SELECT COUNT(*) FROM unmatched_payments
+                   WHERE invoice_id IS NULL AND reason = 'unknown_address'";
+        assert_eq!(count(&db2, sql).await, 1, "written down once, under Alerts");
     }
 
     #[tokio::test]

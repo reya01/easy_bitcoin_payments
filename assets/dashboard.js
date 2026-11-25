@@ -980,13 +980,22 @@ var INV_ALERT_WHY = {
   could_not_be_recorded: "money arrived for this invoice but could not be counted toward it. The money is in your wallet and the invoice shows it. Mark it handled once you have sorted it out with your customer"
 };
 
+// Money at an address of this server that belongs to no invoice or order.
+var OTHER_WHY = {
+  exit_fees: "You sent this to the address shown for the emergency withdrawal's fee money. It stays on the server to pay network fees; nothing to do",
+  unknown_address: "This arrived at an address of your server that belongs to no invoice or order, for example a payment to an old address after a restore, or money someone sent you directly. It is in your wallet and was not counted toward anything. If you know where it came from, mark it handled"
+};
+
 function loadAlerts() {
   api("GET", "/api/v1/unmatched-payments").then(function (list) {
     var u = $("unmatched"); clear(u);
     list.forEach(function (p) {
       var c = el("div", "", "card");
       c.appendChild(row(fmtSats(p.amount_sats) + " · " + ({ ark: "Ark", onchain: "regular Bitcoin", lightning: "Lightning" }[p.rail] || p.rail), p.resolved_at ? "handled" : "open", p.resolved_at ? "ok" : "bad"));
-      if (p.source === "manual") {
+      if (p.source === "none") {
+        c.appendChild(el("div", p.reason === "exit_fees" ? "Fee money for the emergency withdrawal" : "Money from elsewhere", "pd"));
+        c.appendChild(el("div", (OTHER_WHY[p.reason] || String(p.reason).replace(/_/g, " ")) + " · " + when(p.detected_at), "muted"));
+      } else if (p.source === "manual") {
         c.appendChild(el("div", "Invoice " + (p.invoice_number || "") + (p.customer_name ? " · " + p.customer_name : ""), "pd"));
         c.appendChild(el("div", "Why: " + (INV_ALERT_WHY[p.reason] || ALERT_WHY[p.reason] || String(p.reason).replace(/_/g, " ")) + " · " + when(p.detected_at), "muted"));
       } else {

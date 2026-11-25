@@ -74,6 +74,46 @@ the next, often from a phone, and many cannot fix a broken server by hand. So:
   change, including the update path, and what still needs a person on a real
   server (add it to the next release's test sheet).
 
+## Money code is written in Rust
+
+Anything that touches money is written in Rust, in the payment server (`src/`).
+Rust's type checks and memory safety, plus one place to review, make it the
+safest home for the code that can lose someone's bitcoin.
+
+**Money code** means anything that decides or changes:
+- amounts and conversions (sats, prices, fees, rounding);
+- whether something is paid, part paid, late or expired;
+- matching a payment to an invoice or order;
+- payout addresses and their safety delay;
+- sending, sweeping or withdrawing;
+- the wallet and the barkd client;
+- balances;
+- what gets written to the payment tables;
+- the signatures and secrets that guard these.
+
+**Other languages are fine for everything else:** tests, scripts, formatting
+and docs, page design, and the WooCommerce plugin's job of talking to the shop.
+
+**JavaScript is limited to design and ease of use.** It runs in the browser,
+where extensions, injected scripts and a tampered page can change it. So:
+- The pages (`assets/*.js`) may show, format and ask "are you sure?".
+- They never decide anything about money. The server checks every amount,
+  status and address again, and its answer is the one that counts.
+- A number the page works out (a dollar estimate, a part-paid remainder, the
+  "is this right?" check) is only a display or a convenience. Nothing may
+  depend on it being right.
+- If a page needs a money fact, add it to the server's answer rather than
+  working it out in the browser.
+
+**The shop plugin (PHP)** passes the order to the server and acts on the
+server's signed answer. It keeps only its safety checks: it refuses a forged
+notice, and it does not mark paid an order whose total changed. Any new money
+decision goes in the server and is sent to the plugin as a result.
+
+**Where that is not possible** (for example, code that must run inside
+WooCommerce), say so in the PR. Keep that code as small as possible, and test
+it against the Rust server in CI.
+
 ## Ground rules
 
 - **Browsers.** The checkout page, setup page and admin page are tested only in Google

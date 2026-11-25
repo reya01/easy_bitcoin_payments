@@ -4899,6 +4899,11 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
     assert_eq!(s["enabled"], false);
     assert_eq!(s["next_number"], "1");
     assert_eq!(s["store_name"], "Flow Shop");
+    assert_eq!(
+        s["currencies"],
+        serde_json::json!([]),
+        "no price looked up yet: sats only"
+    );
     let off = post("/api/v1/admin/invoices", serde_json::json!({"sats": 25000}))
         .send()
         .await
@@ -4941,7 +4946,11 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
     assert!(first["ark_address"].as_str().is_some_and(|a| !a.is_empty()));
     let created = chrono_secs(first["created_at"].as_str().unwrap());
     let expires = chrono_secs(first["expires_at"].as_str().unwrap());
-    assert_eq!(expires - created, 7 * 86_400, "open for 7 days by default");
+    assert_eq!(
+        expires - created,
+        24 * 3600,
+        "an invoice can be paid for 24 hours"
+    );
 
     // A used number (any case) is refused; a typed label is fine; counting goes on.
     let dup = post(
@@ -4954,7 +4963,7 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
     assert_eq!(dup.status(), 409);
     let typed: serde_json::Value = post(
         "/api/v1/admin/invoices",
-        serde_json::json!({"sats": 1000, "invoice_number": "INV-7", "customer_name": "Alex", "open_days": 1}),
+        serde_json::json!({"sats": 1000, "invoice_number": "INV-7", "customer_name": "Alex"}),
     )
     .send()
     .await
@@ -4971,14 +4980,6 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
         .await
         .unwrap();
     assert_eq!(next["invoice_number"], "2");
-    let bad_days = post(
-        "/api/v1/admin/invoices",
-        serde_json::json!({"sats": 2000, "open_days": 3}),
-    )
-    .send()
-    .await
-    .unwrap();
-    assert_eq!(bad_days.status(), 400);
 
     // List and search.
     let all: Vec<serde_json::Value> = get("/api/v1/admin/invoices")

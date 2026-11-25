@@ -20,10 +20,15 @@ use crate::models::Invoice;
 pub const ENABLED_KEY: &str = "invoices_enabled";
 /// Longest note ("what it is for") accepted, in characters.
 pub const MAX_NOTE_CHARS: usize = 200;
-/// How long an invoice can stay open, in days. The Ark address works for all
-/// of it; a Lightning invoice lasts only as long as the Ark server allows.
-pub const OPEN_DAYS_CHOICES: [i64; 4] = [1, 7, 14, 30];
-pub const DEFAULT_OPEN_DAYS: i64 = 7;
+/// How long an invoice can be paid, over Lightning or Ark (owner decision,
+/// 24 November 2026): 24 hours. Each Lightning invoice is asked for the time
+/// left; an Ark server may hand out a shorter one (its own `invoice_expiry`;
+/// Bark's default is 48 hours, Second's play-money server gave 3 hours on
+/// 15 November 2026, its real-money server gave the full 24 hours on
+/// 24 November 2026). The time shown is always read from the invoice itself.
+/// After 24 hours the invoice shows Expired; anything paid later still lands
+/// in the wallet and is shown under Alerts.
+pub const OPEN_SECS: i64 = 24 * 60 * 60;
 /// A fresh Lightning invoice is only made this long after the old one ran
 /// out, so a payment that was on its way at the last moment is never left
 /// pointing at a replaced invoice.

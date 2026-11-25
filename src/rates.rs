@@ -187,6 +187,16 @@ impl RateService {
         }
     }
 
+    /// The currencies that have a recent price right now, in the usual order
+    /// (USD first). Only what the server already looks up; never asks for more.
+    pub fn available_currencies(&self) -> Vec<String> {
+        CURRENCIES
+            .iter()
+            .filter(|c| self.quote(c).is_ok())
+            .map(|c| c.to_string())
+            .collect()
+    }
+
     /// Dollars per bitcoin for "(about $0.40)" labels, or `None` when unknown.
     pub fn usd_per_btc(&self) -> Option<f64> {
         self.quote("USD").ok().map(|q| q.fiat_per_btc)
@@ -597,6 +607,14 @@ mod tests {
     use super::*;
     use axum::{routing::get, Json, Router};
     use serde_json::json;
+
+    #[test]
+    fn only_currencies_with_a_price_are_offered_in_the_usual_order() {
+        assert!(RateService::new().available_currencies().is_empty());
+        let r =
+            RateService::seeded_for_tests(&[("EUR", 60_000.0), ("USD", 65_000.0), ("XYZ", 1.0)]);
+        assert_eq!(r.available_currencies(), vec!["USD", "EUR"]);
+    }
 
     #[test]
     fn fiat_amounts_beyond_the_money_supply_are_rejected() {

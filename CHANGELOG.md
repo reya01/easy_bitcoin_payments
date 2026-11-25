@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.3-rc4 — invoices simpler, clearer payout address (25 November 2026)
+
+A fix for repeated phone notices, simpler invoices and a clearer payout address screen. How payments, transfers and the database work is unchanged.
 
 - **Clearer "Where your money goes".** Your current payout address shows with an Ark or On-chain label, split into groups of four so it is easy to check against your wallet. Changing it is three numbered steps: pick Ark or On-chain on two cards that explain the difference, paste the address, confirm. Pasting an address of the other kind selects the matching card by itself and says so. Saving, the safety delay and the checks work exactly as before.
 - **Fixed: "An invoice was paid" repeated every minute or two.** The phone notice was queued again by a routine check that runs every minute over invoices finished in the last two days. It is now sent once, when the payment arrives.

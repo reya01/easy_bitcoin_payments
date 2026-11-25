@@ -4899,6 +4899,11 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
     assert_eq!(s["enabled"], false);
     assert_eq!(s["next_number"], "1");
     assert_eq!(s["store_name"], "Flow Shop");
+    assert_eq!(
+        s["currencies"],
+        serde_json::json!([]),
+        "no price looked up yet: sats only"
+    );
     let off = post("/api/v1/admin/invoices", serde_json::json!({"sats": 25000}))
         .send()
         .await

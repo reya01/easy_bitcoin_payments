@@ -1908,8 +1908,12 @@ function loadInvSettings() {
     INV.s = s; INV.enabled = !!s.enabled;
     $("tab-inv").classList.toggle("hidden", !INV.enabled);
     renderInvSettings();
-    var cur = (s.default_currency || "USD").toUpperCase();
-    $("inv-unit-fiat").textContent = cur;
+    // sats first, then each currency the server has a recent price for.
+    var unit = $("inv-unit"), keepUnit = unit.value;
+    clear(unit);
+    var so = el("option", "sats"); so.value = "sats"; unit.appendChild(so);
+    (s.currencies || []).forEach(function (c) { var o = el("option", c); o.value = c; unit.appendChild(o); });
+    unit.value = Array.prototype.some.call(unit.options, function (o) { return o.value === keepUnit; }) ? keepUnit : "sats";
     var days = $("inv-days"), keep = days.value;
     clear(days);
     (s.open_days_choices || [1, 7, 14, 30]).forEach(function (d) {
@@ -2137,7 +2141,7 @@ function loadInvList() {
 function invHint() {
   var v = $("inv-amt").value.trim(), h = $("inv-amt-hint");
   if ($("inv-unit").value === "sats" && /^\d+$/.test(v) && USD > 0) h.textContent = "About " + fmtSats(Number(v)).replace(/^.*\(|\)$/g, "") + ".";
-  else if ($("inv-unit").value === "fiat") h.textContent = "Turned into sats at today's price when you make the invoice. The sats amount then stays fixed.";
+  else if ($("inv-unit").value !== "sats") h.textContent = "Turned into sats at today's price when you make the invoice. The sats amount then stays fixed.";
   else h.textContent = "";
 }
 $("inv-amt").addEventListener("input", invHint);
@@ -2155,7 +2159,7 @@ $("inv-go").addEventListener("click", function () {
     body.sats = Number(v);
   } else {
     if (!/^\d+(\.\d{1,2})?$/.test(v) || Number(v) <= 0) { say("inv-msg", "Enter the amount as a number, like 25 or 25.50.", true); return; }
-    body.fiat = { currency: $("inv-unit-fiat").textContent, amount: v };
+    body.fiat = { currency: $("inv-unit").value, amount: v };
   }
   var b = $("inv-go"); b.disabled = true; $("inv-msg").className = "msg hidden";
   api("POST", "/api/v1/admin/invoices", body).then(function (r) {

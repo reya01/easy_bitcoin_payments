@@ -135,6 +135,8 @@ pub async fn settings(
         "open_days_choices": manual_invoice::OPEN_DAYS_CHOICES,
         "default_open_days": manual_invoice::DEFAULT_OPEN_DAYS,
         "default_currency": state.config.default_currency,
+        // Money the amount can be given in: only currencies with a recent price.
+        "currencies": state.rates.available_currencies(),
         "ark_server": ark_server(&state.config),
         "test_mode": state.config.mode == "test",
     })))

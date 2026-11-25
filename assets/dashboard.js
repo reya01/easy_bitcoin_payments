@@ -1144,13 +1144,19 @@ $("sweep-go").addEventListener("click", function () {
 
 function loadPayout() {
   api("GET", "/api/v1/payout").then(function (p) {
-    var KINDNAME = { ark: "an Ark address", onchain: "an on-chain Bitcoin address" };
-    $("po-now").textContent = p.address ? "Current address (" + KINDNAME[p.kind] + "): " + p.address + "." : "No payout address yet — money stays in the till until you add one.";
-    var kinds = $("po-kinds"); clear(kinds);
-    [["Ark address (recommended)", (p.live ? "starts with ark1… (your Ark wallet must use ark.second.tech)" : "starts with tark1… on this play-money server") + " — instant and almost free, so only a small amount is ever held on this server."],
-     ["On-chain Bitcoin address", (p.live ? "starts with bc1… (older wallets: 1… or 3…)" : "starts with tb1… on this play-money server") + " — the most widely understood option. Withdrawals wait for network fees to be low. Every withdrawal goes to this same address, which is easy to use but lets outsiders link your payouts together (a privacy trade-off)."]].forEach(function (k) {
-      var d = document.createElement("div"); var b = document.createElement("strong"); b.textContent = k[0] + ": "; d.appendChild(b); d.appendChild(document.createTextNode(k[1])); kinds.appendChild(d);
-    });
+    // Where it goes now: a type pill and the address in groups of four (easier to check
+    // against your wallet). The groups are spaced by style only, so a copy has no spaces.
+    var pillTxt = { ark: "Ark", onchain: "On-chain" }, kp = $("po-kind-pill"), now = $("po-now");
+    clear(now);
+    if (p.address) {
+      String(p.address).match(/.{1,4}/g).forEach(function (g) { now.appendChild(el("span", g, "chunk")); });
+      kp.textContent = pillTxt[p.kind] || p.kind; kp.classList.remove("hidden");
+    } else {
+      now.textContent = "No payout address yet. Money stays on this server until you add one.";
+      kp.classList.add("hidden");
+    }
+    PO.live = !!p.live;
+    renderPoKinds();
     $("sweep-box").classList.toggle("hidden", !p.address);
     $("min-box").classList.toggle("hidden", !p.address);
     $("fold-when").classList.toggle("hidden", !p.address);
@@ -1177,10 +1183,48 @@ function loadPayout() {
     if (p.set_by_server_config) $("po-now").textContent += " (set in the server's configuration; change it there)";
   }).catch(function (e) { $("po-now").textContent = e.message; });
 }
+// Step 1 of the payout form: two cards, Ark or on-chain. Pasting an address picks the
+// matching card by itself, so the card shown can never disagree with the address.
+var PO = { kind: "ark", live: false };
+function poKindOf(addr) {
+  var a = String(addr || "").trim().toLowerCase();
+  if (/^t?ark1/.test(a)) return "ark";
+  if (/^(bc1|tb1|bcrt1)/.test(a) || /^[123mn][1-9a-hj-np-z]{25,34}$/i.test(String(addr || "").trim())) return "onchain";
+  return "";
+}
+function renderPoKinds() {
+  var box = $("po-kinds"); clear(box);
+  var cards = [
+    ["ark", "Ark", "Recommended", ["Instant and almost free.", "Only a little is kept on this server.", PO.live ? "Needs an Ark wallet set to ark.second.tech, such as Noah or Ark\u00e9." : "On this play-money server: an Ark wallet on signet."]],
+    ["onchain", "On-chain Bitcoin", "", ["Works with any Bitcoin wallet.", "Waits for network fees to be low; each send is at least 50,000 sats.", "Every payout goes to this same address, so outsiders can link your payouts together (a privacy trade-off)."]]
+  ];
+  cards.forEach(function (c) {
+    var on = PO.kind === c[0], b = el("button", "", "po-kind" + (on ? " on" : ""));
+    b.type = "button"; b.setAttribute("role", "radio"); b.setAttribute("aria-checked", on ? "true" : "false"); b.id = "po-kind-" + c[0];
+    var t = el("span", "", "pk-title"); t.appendChild(el("span", "", "pk-tick")); t.appendChild(document.createTextNode(c[1]));
+    if (c[2]) t.appendChild(el("span", c[2], "pk-rec"));
+    b.appendChild(t);
+    var ul = el("ul", "", "pk-list"); c[3].forEach(function (x) { ul.appendChild(el("li", x)); }); b.appendChild(ul);
+    b.addEventListener("click", function () { PO.kind = c[0]; $("po-switched").className = "msg hidden"; renderPoKinds(); });
+    box.appendChild(b);
+  });
+  var ex = PO.kind === "ark" ? (PO.live ? "ark1" : "tark1") : (PO.live ? "bc1 (older wallets: 1 or 3)" : "tb1");
+  $("po-addr-label").textContent = PO.kind === "ark" ? "Your Ark address" : "Your Bitcoin address";
+  $("po-addr").placeholder = PO.kind === "ark" ? (PO.live ? "ark1\u2026" : "tark1\u2026") : (PO.live ? "bc1\u2026" : "tb1\u2026");
+  $("po-hint").textContent = "It starts with " + ex + ". Use a wallet you control, not an exchange deposit address.";
+}
+$("po-addr").addEventListener("input", function () {
+  var k = poKindOf($("po-addr").value), m = $("po-switched");
+  if (k && k !== PO.kind) {
+    PO.kind = k; renderPoKinds();
+    m.textContent = k === "ark" ? "This is an Ark address, so Ark is now selected." : "This is an on-chain Bitcoin address, so On-chain Bitcoin is now selected.";
+    m.className = "msg warn";
+  } else if (!k) { m.className = "msg hidden"; }
+});
 $("po-go").addEventListener("click", function () {
   var b = $("po-go"); b.disabled = true;
   api("POST", "/admin/payout", { address: $("po-addr").value, admin_password: $("po-pw").value, code: $("po-code").value }).then(function (r) {
-    $("po-addr").value = ""; $("po-pw").value = ""; $("po-code").value = "";
+    $("po-addr").value = ""; $("po-pw").value = ""; $("po-code").value = ""; $("po-switched").className = "msg hidden";
     say("po-msg", r.applied_now ? "Saved. Payouts now go to the new address." : "Saved. For safety it takes effect in about " + r.change_delay_hours + " hours; you can cancel until then. If you are having any issues, you can also use \"Pause new payments\" above.");
     loadPayout();
   }).catch(function (e) { say("po-msg", e.message, true); }).then(function () { b.disabled = false; });

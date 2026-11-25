@@ -21,7 +21,7 @@ updates too. You still choose; nothing is installed for you. Read the
 [CHANGELOG](../CHANGELOG.md) first to see what changed. Your wallet, settings, orders and shop
 connection are kept.
 
-## Update from the admin page (Home tab, new in 0.2.1-rc2, experimental)
+## Update from the admin page (Home tab, since 0.2.1-rc2)
 
 With the **update helper** installed, you can update without the Console:
 
@@ -69,11 +69,11 @@ and run these, one at a time (the folder name may differ; `ls` shows it):
 
 ```
 cd /opt/ebp
-./scripts/update.sh --check 0.3.0-rc3
-./scripts/update.sh 0.3.0-rc3
+./scripts/update.sh --check 0.3.3-rc4
+./scripts/update.sh 0.3.3-rc4
 ```
 
-Use the version you want instead of `0.3.0-rc3`. The first command only **checks**:
+Use the version you want instead of `0.3.3-rc4`. The first command only **checks**:
 it shows which version runs now, the version you asked for, the exact image
 (its "digest") and whether the signature is genuine, and changes nothing. The second
 shows the same and then asks you to **type yes** before it changes anything.
@@ -116,7 +116,7 @@ source on your own server:
 
 ```
 cd /opt/ebp
-./scripts/update.sh --from-source 0.3.0-rc3
+./scripts/update.sh --from-source 0.3.3-rc4
 ```
 
 It fetches that release's source, switches the folder to it, and builds the server there.

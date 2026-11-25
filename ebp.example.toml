@@ -38,8 +38,8 @@ rates_timeout_secs = 4
 
 # The till sends all of its money on to settlement_destination once it holds the
 # minimum (1,500 sats for an Ark address, 50,000 for an on-chain one; you can
-# raise it in Settings). Nothing stays behind unless you turn on the emergency
-# withdrawal in Settings and choose an amount to keep there.
+# raise it in Settings). Nothing stays behind. Only with the emergency withdrawal
+# turned on in Settings does 5,000 sats of regular Bitcoin stay, as fee money.
 
 # An automatic on-chain withdrawal waits until network fees are at or below
 # this many sats per vbyte. You can always withdraw by hand.

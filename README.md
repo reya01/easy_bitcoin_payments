@@ -45,7 +45,7 @@ Being honest about this matters more than sounding safe.
 
 **Built to hold up if these happen:**
 - *Your shop website is hacked.* The shop's key can create payment requests but cannot change where your money goes. You can pause new payments with one switch.
-- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in, change your payout address or change how much the server keeps, and a changed address waits a day before it is used.
+- *Someone learns your admin password.* With two-step sign-in on, they still need a code from your phone to sign in, change your payout address or change when the server sends money to you, and a changed address waits a day before it is used.
 - *The payment server is attacked.* It holds only a small amount at a time (the rest is moved to your own wallet), and nobody but you holds your keys.
 
 **Not protected, so please plan for it:**
@@ -74,7 +74,7 @@ Every click is spelled out in **[docs/START_HERE.md](docs/START_HERE.md)**.
 ## Other ways to run it
 
 Another hosting company, Render, or your own computer: [docs/OTHER_HOSTS.md](docs/OTHER_HOSTS.md).
-WooCommerce is the supported, first-class shop. Shareable invoices (get paid by a link, no shop needed) are planned next, and Shopify after version 1.0 ([roadmap](docs/ROADMAP.md), [Shopify notes](docs/dev/SHOPIFY.md)). Also later: optional payment-address verification with Branta ([notes](docs/dev/BRANTA.md)).
+WooCommerce is the supported, first-class shop. Invoices for customers outside your shop (send them as text or a picture, paid by Lightning or Ark) are in testing on the Invoices tab, off until you turn them on. Shopify comes after version 1.0 ([roadmap](docs/ROADMAP.md), [Shopify notes](docs/dev/SHOPIFY.md)). Also later: optional payment-address verification with Branta ([notes](docs/dev/BRANTA.md)).
 
 ## How it compares to BTCPay Server
 
@@ -92,7 +92,7 @@ the keys, no middleman) but aims at a different merchant.
 | Money on the server | Lightning keys and channel funds | A small "till", sent whole to your wallet automatically |
 | Setup | Sysadmin-grade | Paste one block of text, no terminal |
 | Lightning trust | No third party on the payment path | Depends on the Ark server |
-| Features | POS, crowdfunding, pay buttons, plugins | Invoice API, checkout page, WooCommerce plugin |
+| Features | POS, crowdfunding, pay buttons, plugins | Invoice API, checkout page, WooCommerce plugin, Invoices tab (in testing) |
 | Maturity | Thousands of merchants in production | Pre-release, unaudited |
 | Managed from | Desktop first | Phone friendly |
 
@@ -107,10 +107,13 @@ We do **not** claim EBP is more secure than BTCPay Server. It is **lower risk, o
 purpose**: the server only ever holds a small amount of money, so less is in harm's
 way. A smaller prize is not a stronger vault; it is a different bet.
 
-For example, set your payout address to an Ark wallet on your phone. Every payment
-is swept off the server within minutes once at least 1,000 sats are above the
-1,000 it keeps, so with the default settings the server holds about 2,000 sats at
-most at any moment. Then, if your wallet
+For example, set your payout address to an Ark wallet on your phone. The server
+keeps nothing: once it holds at least 1,500 sats (the default and lowest setting
+for an Ark address), it sends everything to your wallet, usually within minutes
+(coins the Ark server is renewing follow after its next round, usually under an
+hour). So with the default settings the server holds only a few thousand sats at
+most at any moment. (With an on-chain payout address the minimum is 50,000 sats,
+because every on-chain send pays a network fee.) Then, if your wallet
 supports it, have the phone wallet move funds to regular on-chain Bitcoin once they
 pass a threshold you choose. You hold the keys the whole way, and as your balance
 grows, more of it sits in colder storage. The full, blunt comparison:

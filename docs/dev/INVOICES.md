@@ -2,7 +2,7 @@
 
 **Time limits (owner decision, 24 November 2026):** no "stays open" choice. Every invoice can be paid for 24 hours, with Lightning or Ark, then it shows Expired. Each Lightning invoice is asked for the time left; the Ark server may shorten it (its `invoice_expiry`, 48 hours by default in Bark 0.8.1+; Second's play-money server gave 3 hours on 15 November 2026, its real-money server gave the full 24 hours on 24 November 2026), and the end time shown is read from the invoice itself, never later than the 24-hour deadline. Later payments still land in the wallet and show under Alerts.
 
-**Status: the Invoices tab is built and in testing (off until the owner turns it on in Settings). The real-money drill (phase 4) is still to do.** Where the owner had not decided an open question, the build follows the recommendation below it.
+**Status: the Invoices tab is built and in testing (off until the owner turns it on in Settings). Paid on real money by Lightning and by Ark on 24 November 2026 (the CSV matched); the rest of the real-money drill (phase 4) is still to do: a Lightning payment after expiry, a fresh Lightning invoice, a part payment, and a payment to a cancelled invoice.** Where the owner had not decided an open question, the build follows the recommendation below it.
 Written 22 November 2026, revised the same day: no payment link (see "Why no link"). Nothing here is a promise of dates.
 
 ## The idea

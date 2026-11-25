@@ -174,8 +174,8 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/invoices?status=&since=&limit=` | List invoices |
 | `GET` | `/api/v1/invoices.csv` | Payments export (CSV; includes what the wallet actually received next to what was credited, and the invoice number and customer name as the last two columns, empty for shop orders) |
 | `GET` | `/api/v1/admin/invoices` | Invoices tab (owner session): list, newest first; `q` searches number and customer name |
-| `POST` | `/api/v1/admin/invoices` | Invoices tab: make an invoice (`sats` or `fiat`, `note`, `invoice_number`, `customer_name`; Ark 24 hours, Lightning 3 hours); refused while the tab is off |
-| `GET` | `/api/v1/admin/invoices/settings` | Invoices tab: on or off, next number, customer names used before |
+| `POST` | `/api/v1/admin/invoices` | Invoices tab: make an invoice (`sats` or `fiat`, `note`, `invoice_number`, `customer_name`; payable for 24 hours, `manual_invoice::OPEN_SECS`; the Lightning invoice asks for the time left and the Ark server may shorten it); refused while the tab is off |
+| `GET` | `/api/v1/admin/invoices/settings` | Invoices tab: on or off, next number, customer names used before, store name, open hours, default currency, the currencies with a current price, the Ark server name (real-money mode only) and test mode |
 | `POST` | `/api/v1/admin/invoices/enabled` | Turn the Invoices tab on or off (`{"enabled": true}`) |
 | `POST` | `/api/v1/admin/invoices/{id}/lightning` | A fresh Lightning invoice, about 10 minutes after the old one ran out |
 | `POST` | `/api/v1/admin/invoices/{id}/cancel` | Cancel an invoice made on the Invoices tab |
@@ -294,9 +294,9 @@ variables. See [`ebp.example.toml`](../../ebp.example.toml) for every key.
 
 **Retired settings.** `EBP_HOT_WALLET_CAP_SATS` and `EBP_ONCHAIN_SWEEP_CAP_SATS` (and `hot_wallet_cap_sats` / `onchain_sweep_cap_sats` in the config file) were removed on 19 November 2026. If still set they are ignored, and the server says so when it starts. The one rule for what stays on the server is the emergency-withdrawal opt-in below.
 
-**What stays on the server, and when the rest is sent (from 19 November 2026).** By default the server keeps **nothing**: when the till holds at least the **send minimum**, the whole balance goes to the payout address in one send. That also leaves no small "change" coin behind (Bark 0.9 can refuse to spend coins under about 1,300 sats). The minimum has a hard floor per kind of payout address, `payout::Rail::floor`: **1,500 sats for Ark** (`ARK_MIN_FLOOR_SATS`) and **50,000 sats for on-chain** (`ONCHAIN_MIN_FLOOR_SATS`). The owner can raise either in **Settings → Where your money goes → When to send my money** (`POST /admin/payout/min` with `kind` `ark` or `onchain` and `min_sats`; null goes back to the floor): signed in, CSRF, admin password, second step when on, in the password-brake group; takes effect at once; security log `payout.min_changed`. Stored as `ark_sweep_min_sats` / `onchain_sweep_min_sats`; a stored value under its floor is ignored. Under the floor the route answers 400 with a plain explanation (`payout::floor_message`) before the slow password check, and the page shows the same words. An automatic on-chain send also waits for `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB`. "Move my money now" ignores the minimum, the fee limit and any kept amount.
+**What stays on the server, and when the rest is sent (from 19 November 2026).** By default the server keeps **nothing**: when the till holds at least the **send minimum**, the whole balance goes to the payout address in one send. That also leaves no small "change" coin behind (Bark 0.9 can refuse to spend coins under about 1,300 sats). The minimum has a hard floor per kind of payout address, `payout::Rail::floor`: **1,500 sats for Ark** (`ARK_MIN_FLOOR_SATS`) and **50,000 sats for on-chain** (`ONCHAIN_MIN_FLOOR_SATS`). The owner can raise either in **Settings → Where your money goes → When to send my money** (`POST /admin/payout/min` with `kind` `ark` or `onchain` and `min_sats`; null goes back to the floor): signed in, CSRF, admin password, second step when on, in the password-brake group; takes effect at once; security log `payout.min_changed`. Stored as `ark_sweep_min_sats` / `onchain_sweep_min_sats`; a stored value under its floor is ignored. Under the floor the route answers 400 with a plain explanation (`payout::floor_message`) before the slow password check, and the page shows the same words. An automatic on-chain send also waits for `EBP_ONCHAIN_SWEEP_MAX_FEE_SAT_VB`. "Move my money now" ignores the minimum and the fee limit.
 
-Coins that the wallet has registered for a renewal round are never sent: barkd 0.8.0 can list them as spendable for up to about an hour. The automatic transfer waits (and forgets its refusal) while any such coin is in a round, for at most `REQUESTED_GIVE_UP_SECS` (2 hours); "Move my money now" sends only the free coins and says so if nothing else is left.
+Coins that the wallet has registered for a renewal round are never sent: barkd can list them as spendable for up to about an hour. The automatic transfer waits (and forgets its refusal) while any such coin is in a round, for at most `REQUESTED_GIVE_UP_SECS` (2 hours); "Move my money now" sends only the free coins and says so if nothing else is left.
 
 **The emergency withdrawal is opt-in.** The setting `exit_opt_in` (`emergency_exit::opted_in`) is off by default; `POST /admin/exit/optin` (`on` true/false, password, code) turns it on (needs two-step sign-in, like the withdrawal itself) or off (password, plus a code when two-step is on; refused while a withdrawal runs). While it is on:
 
@@ -483,8 +483,8 @@ If you are a trust-minimization purist, use BTCPay.
 - **iPhone-first management.** Payments, settlement, the expiry queue, and
   health alerts are designed to be handled from a phone. If a flow cannot
   be completed on a phone, it does not ship.
-- **Smaller breach blast radius.** The server holds a capped till (default
-  1,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is swept to your own wallet automatically — the UI
+- **Smaller breach blast radius.** The server holds a small till that is sent whole to your own wallet once it
+  reaches a minimum (1,500 sats with an Ark payout address, 50,000 with an on-chain one), automatically — the UI
   calls it "cash in a till; we empty it into your vault automatically." A
   compromised server can steal the float, not a full Lightning node's hot
   wallet.
@@ -515,8 +515,8 @@ a high-value signing credential reachable through the web tier, guarding a
 hot wallet whose size is a *requirement* of Lightning (channels must hold
 liquidity). EBP is designed against that failure class:
 
-- The server-side wallet is a **capped till** (default 1,000 sats with an Ark payout address, 1,000,000 with an on-chain one) that is
-  swept automatically to your own wallet. A compromised server exposes the
+- The server-side wallet is a **small till**, sent whole to your own wallet once it reaches a minimum (1,500 sats
+  with an Ark payout address, 50,000 with an on-chain one). A compromised server exposes the
   float, not the vault.
 - **You do not have to trust the ASP with your funds — only for liveness.**
   Ark is self-custody: you hold the keys to your VTXOs. The Ark Service

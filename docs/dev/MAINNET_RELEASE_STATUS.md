@@ -1,4 +1,4 @@
-# First real-money release: where things stand (updated 22 November 2026)
+# First real-money release: where things stand (updated 25 November 2026)
 
 This is the one page to read before deciding to cut the first release that is
 meant to be tried with real money. It replaces the signet-only wording in
@@ -100,7 +100,19 @@ open the emergency-exit page.
 **Added in 0.3.3-rc1 and rc2 (24 November 2026), CI and browser tests only:**
 
 - rc1: a refused connection says why; a per-shop limit of 300 open payment requests; invoice number and customer name columns (migration 0015); the image's program matches the reproducible build, with `scripts/verify-release.sh`.
-- rc2: the Invoices tab, in testing and off by default (migration 0016): owner-made invoices with a text and a picture to send, a send-privately warning, fresh Lightning invoice, cancel, search and CSV. No real-money drill yet.
+- rc2: the Invoices tab, in testing and off by default (migration 0016): owner-made invoices with a text and a picture to send, a send-privately warning, fresh Lightning invoice, cancel, search and CSV. Paid on real money by Lightning and by Ark (below); the rest of the drill is still to do.
+
+**Added in 0.3.3-rc3 and rc4 (25 November 2026):**
+
+- rc3: design only (balance card on Home, status pills, Settings in three groups, the Lightning or Ark switch at the top of the checkout). The owner updated, downloaded and checked a backup, and looked it over on a phone.
+- rc4: invoices payable for 24 hours by Lightning or Ark with the real end time shown, the amount menu limited to currencies with a current price, a fix for the "invoice was paid" phone notice being repeated every minute or two, and a clearer "Where your money goes". CI and browser tests; the owner's check of rc4 is next.
+
+**Tried by the owner on the real-money test server, 24 November 2026 (0.3.3-rc2 to rc3 code):**
+
+- Invoices tab: one invoice paid by Lightning (1,111 sats) and one by Ark (priced at 1 euro, 1,845 sats); both showed Paid and the invoices CSV matched. The text and the picture copied and pasted. The repeated phone notice was found here (fixed in rc4).
+- A real-money Lightning invoice asked for 24 hours got the full 24 hours from `ark.second.tech` (the play-money server gave 3 hours on 15 November).
+- One Lightning and one Ark order through the real shop: both paid.
+- "Move my money now" while coins were being renewed: nothing moved, and the page said how much was locked and to try again in a few minutes. Backup download and check: worked.
 
 **Added in 0.3.2-rc3 (24 November 2026), CI and browser tests only:**
 

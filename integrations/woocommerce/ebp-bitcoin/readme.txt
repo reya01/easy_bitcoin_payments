@@ -75,10 +75,16 @@ An automated test installs the latest WordPress and WooCommerce and runs the che
 
 == Changelog ==
 
+= Test versions =
+* The plugin's version always matches the payment server's. The full list of changes for each version is in CHANGELOG.md in the project repository.
+
 = 0.1.0 =
 * First test version.
 
 == Upgrade Notice ==
+
+= Test versions =
+Use the plugin version that matches your payment server's version.
 
 = 0.1.0 =
 First test version. Play money only.

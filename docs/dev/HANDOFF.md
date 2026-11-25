@@ -2,7 +2,7 @@
 
 For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md).
 
-## Where things stand (24 November 2026)
+## Where things stand (25 November 2026)
 
 - **Latest release:** `v0.3.3-rc2` (pre-release, 24 November 2026; adds the Invoices tab, in testing and off by default). Earlier: `v0.1.0-rc1`, `-rc2`,
   `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1` to `-rc3`, `v0.3.3-rc1`. The release process is in
@@ -22,6 +22,11 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
   wallet it made itself, stricter transfer, sign-in and Lightning checks, no lost shop events, the weekly wallet
   check covering a skipped week). The review and what was fixed or declined is in the project docs
   (`full-review-validation-2026-11-21`).
+- **What 0.3.3 adds (release candidates, 24 to 25 November 2026):** the **Invoices tab**, in testing and off by
+  default (owner-made invoices with a text and a picture to send, payable for 24 hours by Lightning or Ark; paid on
+  real money by both on 24 November), invoice number and customer name columns, a reproducible-build check of the
+  image, a calmer look (balance card, status pills, Settings in groups), a clearer "Where your money goes", and a fix
+  for a repeated "invoice was paid" phone notice. Plan and status: [INVOICES.md](INVOICES.md).
 - **barkd is pinned at 0.9.0** (checksums in both Dockerfiles, `mainnet-compat-check.yml`, the OpenAPI
   snapshot in `docs/barkd-openapi.json`). To move to a newer barkd, follow
   [BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md) (the recipe from the last move). The `bark-canary` workflow
@@ -161,8 +166,8 @@ The authoritative lists are [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and section 3 
 3. **Owner actions:** GitHub secret scanning and push protection, a `main` ruleset, signing, the README
    comparison-table wording, held Dependabot PRs, and the decisions in `RC_CHECKLIST.md` section 3.
 4. **Later:** `update.sh --first-install`, Lightning and silent-payment payouts, refunds, automatic updates. Roadmap
-   decided 22 Nov 2026 ([../ROADMAP.md](../ROADMAP.md)): invoices (shareable pay links, plan in [INVOICES.md](INVOICES.md),
-   proposed for v0.4), own-domain move (v0.5), then release candidates to 1.0; **Shopify is after 1.0**
+   decided 22 Nov 2026 ([../ROADMAP.md](../ROADMAP.md)): invoices (in testing since 0.3.3, plan in [INVOICES.md](INVOICES.md); no pay link, see
+   there), own-domain move (v0.5), then release candidates to 1.0; **Shopify is after 1.0**
    ([SHOPIFY.md](SHOPIFY.md) is a plan).
    Also later, not planned for any release yet: a beginner-friendly guided move from the free `sslip.io` address to
    the owner's own domain (one easy default path, other routes for advanced users). The brainstorm seed is in the

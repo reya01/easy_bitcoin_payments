@@ -34,6 +34,24 @@ use crate::webhook::WebhookEmitter;
 /// watcher is visible to monitoring (beta hardening).
 pub static LAST_TICK_UNIX: AtomicI64 = AtomicI64::new(0);
 
+/// Did the late payment just written for `address` belong to an invoice made
+/// on the Invoices tab?
+fn late_payment_is_for_manual_invoice(
+    conn: &rusqlite::Connection,
+    address: &str,
+    amount_sats: i64,
+    detected_at: i64,
+) -> Result<bool, AppError> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM unmatched_payments u
+                         JOIN invoices i ON i.id = u.invoice_id
+                        WHERE u.address = ?1 AND u.amount_sats = ?2
+                          AND u.detected_at = ?3 AND i.source = 'manual')",
+        rusqlite::params![address, amount_sats, detected_at],
+        |r| r.get(0),
+    )?)
+}
+
 /// How long a remembered-as-handled wallet entry is trusted before the
 /// watcher forgets everything and reads the whole history again. The database
 /// guards are the real protection; this is only the safety net for the
@@ -483,7 +501,7 @@ impl PollingWatcher {
             let is_new = self
                 .db
                 .call(move |conn| {
-                    invoice::record_unmatched(
+                    let is_new = invoice::record_unmatched(
                         conn,
                         &invoice::UnmatchedInput {
                             address: &addr,
@@ -494,7 +512,14 @@ impl PollingWatcher {
                             detected_at: seen,
                             reason_override: late_reason,
                         },
-                    )
+                    )?;
+                    // Money for an invoice from the Invoices tab that arrived after it
+                    // stopped taking payments: one phone notice, the first time only
+                    // (no amount, number or name, like every alert).
+                    if is_new && late_payment_is_for_manual_invoice(conn, &addr, amount, seen)? {
+                        crate::alerts::queue_notice(conn, "invoice_paid_late")?;
+                    }
+                    Ok(is_new)
                 })
                 .await?;
             if is_new {
@@ -1456,6 +1481,43 @@ mod tests {
         watcher.tick().await.unwrap();
         let sql = "SELECT COUNT(*) FROM webhook_deliveries WHERE event = 'invoice.expired'";
         assert_eq!(count(&db, sql).await, 1, "queued once, never twice");
+    }
+
+    #[tokio::test]
+    async fn a_late_payment_for_an_invoice_from_the_invoices_tab_notifies_once() {
+        let (db, _store_id) = setup(vec![]).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET source = 'manual' WHERE id = 'inv_1'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        // Long past the late window: parked under Alerts, not counted.
+        expire_inv_1(&db, crate::invoice::LATE_FULL_PAYMENT_SECS + 3_600).await;
+        let watcher = late_watcher(&db, vec![ark_payment("v_late", 1000)]);
+        assert_eq!(watcher.tick().await.unwrap(), 0, "not counted");
+        let notices = || {
+            let db = db.clone();
+            async move {
+                db.call(|c| crate::settings::get(c, "alert_notices"))
+                    .await
+                    .unwrap()
+                    .unwrap_or_default()
+            }
+        };
+        assert_eq!(notices().await, "invoice_paid_late");
+        let sql = "SELECT COUNT(*) FROM unmatched_payments WHERE invoice_id = 'inv_1'";
+        assert_eq!(count(&db, sql).await, 1, "written down with the invoice");
+        db.call(|c| crate::settings::set(c, "alert_notices", ""))
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            watcher.tick().await.unwrap();
+        }
+        assert_eq!(notices().await, "", "never queued again");
     }
 
     #[tokio::test]

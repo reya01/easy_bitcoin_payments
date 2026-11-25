@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Invoices show money that arrived after they closed.** If a customer pays an invoice after its 24 hours ran out, pays it twice, pays after you cancelled it, or sends the rest of a part payment too late, the money still lands in your wallet, as before. Now the invoice says so too: the list shows both pills (for example **Expired** and **Paid late**) with a line such as "25,000 sats arrived by Ark after its 24 hours ran out", and the invoices CSV has `late_sats` and `late_at` columns. Nothing on your server is left unexplained.
+- **Alerts name the invoice.** A late payment for an invoice from the Invoices tab shows its number and customer under Alerts, with wording for invoices instead of shop orders.
+- **One phone notice for a late payment:** "An invoice was paid late", once per payment (no amount, number or name, like every alert).
+- **Tap an invoice to see what happened:** when it was made, each payment and how it arrived, when its time ran out. A part-paid invoice says "Part paid: 10,000 of 25,000 sats". An open invoice still offers its text and picture to send again.
+
 ## 0.3.3-rc4 — invoices simpler, clearer payout address (25 November 2026)
 
 A fix for repeated phone notices, simpler invoices and a clearer payout address screen. How payments, transfers and the database work is unchanged.

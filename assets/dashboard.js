@@ -971,13 +971,27 @@ var ALERT_WHY = {
   onchain_rail_disabled: "money arrived by regular (on-chain) Bitcoin, which this shop does not accept. It was not counted toward any order. Refund it or handle it by hand"
 };
 
+// The same reasons for an invoice made on the Invoices tab: no shop order to fulfil.
+var INV_ALERT_WHY = {
+  paid_after_expiry: "this invoice was paid after its 24 hours ran out. The money is in your wallet and the invoice shows it. If you are happy with it, mark it handled; if not, refund your customer",
+  invoice_expired: "this invoice was paid after its 24 hours ran out. The money is in your wallet and the invoice shows it. If you are happy with it, mark it handled; if not, refund your customer",
+  invoice_closed: "money arrived for an invoice that was already paid or cancelled (your customer may have paid twice). The money is in your wallet and the invoice shows it. Refund the extra or mark it handled",
+  topup_window_closed: "the rest of a part-paid invoice arrived too late to count. The money is in your wallet and the invoice shows it. If you are happy with it, mark it handled",
+  could_not_be_recorded: "money arrived for this invoice but could not be counted toward it. The money is in your wallet and the invoice shows it. Mark it handled once you have sorted it out with your customer"
+};
+
 function loadAlerts() {
   api("GET", "/api/v1/unmatched-payments").then(function (list) {
     var u = $("unmatched"); clear(u);
     list.forEach(function (p) {
       var c = el("div", "", "card");
       c.appendChild(row(fmtSats(p.amount_sats) + " · " + ({ ark: "Ark", onchain: "regular Bitcoin", lightning: "Lightning" }[p.rail] || p.rail), p.resolved_at ? "handled" : "open", p.resolved_at ? "ok" : "bad"));
-      c.appendChild(el("div", "Why: " + (ALERT_WHY[p.reason] || String(p.reason).replace(/_/g, " ")) + " · " + when(p.detected_at) + (p.order_id ? " · order " + p.order_id : ""), "muted"));
+      if (p.source === "manual") {
+        c.appendChild(el("div", "Invoice " + (p.invoice_number || "") + (p.customer_name ? " · " + p.customer_name : ""), "pd"));
+        c.appendChild(el("div", "Why: " + (INV_ALERT_WHY[p.reason] || ALERT_WHY[p.reason] || String(p.reason).replace(/_/g, " ")) + " · " + when(p.detected_at), "muted"));
+      } else {
+        c.appendChild(el("div", "Why: " + (ALERT_WHY[p.reason] || String(p.reason).replace(/_/g, " ")) + " · " + when(p.detected_at) + (p.order_id ? " · order " + p.order_id : ""), "muted"));
+      }
       if (!p.resolved_at) {
         var b = el("button", "Mark as handled", "small"); b.type = "button"; b.style.marginTop = "8px";
         b.addEventListener("click", function () { b.disabled = true; api("POST", "/api/v1/unmatched-payments/" + encodeURIComponent(p.id) + "/resolve", {}).then(loadAlerts).catch(function (e) { b.textContent = e.message; }); });
@@ -1981,6 +1995,40 @@ function renderInvSettings() {
   var m = el("p", "", "msg hidden"); m.id = "inv-set-msg"; box.appendChild(m);
 }
 
+// Money that reached an invoice but was not counted (paid after its time ran out, paid
+// twice, paid after it was cancelled, a top-up too late). It is in the wallet and listed
+// under Alerts; the invoice says so too, so nothing on the server is unexplained.
+var RAIL_NAME = { ark: "Ark", lightning: "Lightning", onchain: "regular Bitcoin" };
+function invLate(r) {
+  var late = (r.payments || []).filter(function (p) { return !p.counted; });
+  if (!late.length) return null;
+  var rails = [];
+  late.forEach(function (p) { var n = RAIL_NAME[p.rail] || p.rail; if (rails.indexOf(n) < 0) rails.push(n); });
+  var label = r.status === "cancelled" ? "Paid after cancelling" : (r.status === "paid" || r.status === "overpaid") ? "Paid again" : "Paid late";
+  var what = r.status === "cancelled" ? "after it was cancelled" : (r.status === "paid" || r.status === "overpaid") ? "after it was already paid" : r.status === "underpaid" ? "too late to count" : "after its 24 hours ran out";
+  return { label: label, sats: r.late_sats, line: Number(r.late_sats).toLocaleString("en-US") + " sats arrived by " + rails.join(" and ") + " " + what + ". It is in your wallet." };
+}
+function invPills(r) {
+  var w = el("span", "", "pills"), late = invLate(r);
+  w.appendChild(pill(r.status, INV_STATUS[r.status]));
+  if (late) w.appendChild(pill("paid", late.label));
+  return w;
+}
+// What happened to an invoice, oldest first.
+function invStory(r) {
+  var ev = [{ t: r.created_at, s: "Made" }];
+  if (r.status === "cancelled") ev.push({ t: null, s: "Cancelled" });
+  (r.payments || []).forEach(function (p) {
+    var sats = Number(p.amount_sats).toLocaleString("en-US") + " sats", by = " by " + (RAIL_NAME[p.rail] || p.rail);
+    ev.push({ t: p.detected_at, s: p.counted ? "Paid " + sats + by : sats + by + " arrived after it stopped taking payments" + (p.handled ? " (marked handled under Alerts)" : " (listed under Alerts)") });
+  });
+  var full = (r.payments || []).some(function (p) { return p.counted; }) && (r.status === "paid" || r.status === "overpaid");
+  if (r.status === "expired" || (r.status !== "cancelled" && !full && Date.parse(r.expires_at) < Date.now())) ev.push({ t: r.expires_at, s: "Time to pay ran out" });
+  ev.sort(function (a, b) { return (a.t ? Date.parse(a.t) : Date.parse(r.created_at) + 1) - (b.t ? Date.parse(b.t) : Date.parse(r.created_at) + 1); });
+  var list = el("ol", "", "inv-story");
+  ev.forEach(function (e) { var li = el("li"); li.appendChild(el("span", e.s)); if (e.t) li.appendChild(el("span", when(e.t), "pd")); list.appendChild(li); });
+  return list;
+}
 function invAmountLabel(r) {
   var sats = Number(r.amount_sats).toLocaleString("en-US") + " sats";
   return r.fiat_amount ? r.fiat_currency + " " + r.fiat_amount + " (" + sats + ")" : sats;
@@ -2110,11 +2158,15 @@ function renderInvoice(r) {
   var box = $("inv-out"); clear(box); box.classList.remove("hidden");
   var open = r.status === "pending" || r.status === "underpaid";
   box.appendChild(el("h2", "Invoice " + (r.invoice_number || "")));
-  var top = el("div", "", "row"); top.appendChild(el("span", invAmountLabel(r), "pa")); top.appendChild(pill(r.status, INV_STATUS[r.status])); box.appendChild(top);
+  var top = el("div", "", "row"); top.appendChild(el("span", invAmountLabel(r), "pa")); top.appendChild(invPills(r)); box.appendChild(top);
   if (r.customer_name) box.appendChild(row("Customer", r.customer_name));
   if (r.paid_at) box.appendChild(row("Paid", when(r.paid_at)));
   else box.appendChild(row(open ? "Open until" : "Was open until", when(r.expires_at)));
-  if (r.status === "underpaid") box.appendChild(el("p", "Part of this invoice has been paid (" + Number(r.paid_sats).toLocaleString("en-US") + " sats so far).", "muted"));
+  if (r.status === "underpaid") box.appendChild(el("p", "Part paid: " + Number(r.paid_sats).toLocaleString("en-US") + " of " + Number(r.amount_sats).toLocaleString("en-US") + " sats so far.", "muted"));
+  var late = invLate(r);
+  if (late) { var lb = el("p", late.line + " It is also listed under Alerts, where you can mark it handled.", "msg warn"); lb.id = "inv-late"; box.appendChild(lb); }
+  box.appendChild(el("h3", "What happened"));
+  var story = invStory(r); story.id = "inv-story"; box.appendChild(story);
   var msgId = "inv-out-msg";
   if (open) {
     var text = invText(r), name = "invoice-" + String(r.invoice_number || "").replace(/[^A-Za-z0-9_-]+/g, "-") + ".png";
@@ -2168,7 +2220,10 @@ function loadInvList() {
       var l = el("span", "", "pl");
       l.appendChild(el("span", invAmountLabel(r), "pa"));
       l.appendChild(el("span", "Invoice " + (r.invoice_number || "") + (r.customer_name ? " · " + r.customer_name : ""), "pd"));
-      b.appendChild(l); b.appendChild(pill(r.status, INV_STATUS[r.status]));
+      var late = invLate(r);
+      if (late) l.appendChild(el("span", late.line, "pd late"));
+      else if (r.status === "underpaid") l.appendChild(el("span", "Part paid: " + Number(r.paid_sats).toLocaleString("en-US") + " of " + Number(r.amount_sats).toLocaleString("en-US") + " sats", "pd"));
+      b.appendChild(l); b.appendChild(invPills(r));
       b.addEventListener("click", function () { renderInvoice(r); try { $("inv-out").scrollIntoView({ behavior: "smooth" }); } catch (e) {} });
       box.appendChild(b);
     });

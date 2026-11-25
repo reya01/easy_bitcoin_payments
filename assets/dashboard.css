@@ -162,3 +162,9 @@ details.more>summary::-webkit-details-marker{display:none}details.more>summary::
 .pk-rec{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--ok-bg);color:var(--ok);border:1.5px solid var(--line)}
 .pk-list{margin:8px 0 0;padding-left:18px;font-size:14px;line-height:1.4;color:var(--muted)}
 .msg.warn{color:var(--warn)}
+
+/* Invoices: a second pill when money arrived after the invoice closed, and its story. */
+.pills{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.pd.late{color:var(--warn)}
+.inv-story{list-style:none;margin:6px 0 12px;padding:0 0 0 14px;border-left:3px solid var(--soft)}
+.inv-story li{display:flex;flex-direction:column;padding:6px 0}

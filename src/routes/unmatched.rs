@@ -32,6 +32,12 @@ pub struct UnmatchedPaymentView {
     pub id: String,
     pub invoice_id: Option<String>,
     pub order_id: Option<String>,
+    /// `shop` or `manual` (an invoice from the Invoices tab).
+    pub source: String,
+    /// For an invoice from the Invoices tab: its number and customer name, so
+    /// Alerts can say which invoice the money was for.
+    pub invoice_number: Option<String>,
+    pub customer_name: Option<String>,
     pub rail: String,
     pub amount_sats: i64,
     /// `invoice_expired` | `invoice_closed` | `paid_after_expiry` | `onchain_rail_disabled` | `could_not_be_recorded`
@@ -56,7 +62,7 @@ pub async fn list(
         .call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT u.id, u.invoice_id, i.order_id, u.rail, u.amount_sats, u.reason,
-                        u.detected_at, u.resolved_at
+                        u.detected_at, u.resolved_at, i.source, i.invoice_number, i.customer_name
                  FROM unmatched_payments u
                  JOIN invoices i ON i.id = u.invoice_id
                  WHERE i.store_id = ?1
@@ -74,6 +80,9 @@ pub async fn list(
                         reason: row.get(5)?,
                         detected_at: to_rfc3339(row.get::<_, i64>(6)?),
                         resolved_at: row.get::<_, Option<i64>>(7)?.map(to_rfc3339),
+                        source: row.get(8)?,
+                        invoice_number: row.get(9)?,
+                        customer_name: row.get(10)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;

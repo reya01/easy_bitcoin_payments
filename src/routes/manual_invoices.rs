@@ -48,9 +48,26 @@ pub struct ManualInvoiceResponse {
     pub expires_at: String,
     pub created_at: String,
     pub paid_at: Option<String>,
+    /// Every payment that reached the invoice, oldest first: counted ones and
+    /// ones that arrived after it stopped taking payments (also under Alerts).
+    pub payments: Vec<PaymentView>,
+    /// Sats that arrived but were not counted (late, extra, or to a
+    /// cancelled invoice). They are in the wallet.
+    pub late_sats: i64,
+    pub late_at: Option<String>,
     pub store_name: String,
     pub ark_server: Option<String>,
     pub test_mode: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymentView {
+    pub rail: String,
+    pub amount_sats: i64,
+    pub detected_at: String,
+    pub counted: bool,
+    pub reason: Option<String>,
+    pub handled: bool,
 }
 
 /// When the Lightning invoice stops counting for this invoice: the end time
@@ -99,6 +116,20 @@ fn to_response(m: &ManualInvoice, state: &AppState, store_name: &str) -> ManualI
         expires_at: to_rfc3339(inv.expires_at),
         created_at: to_rfc3339(inv.created_at),
         paid_at: inv.paid_at.map(to_rfc3339),
+        payments: m
+            .payments
+            .iter()
+            .map(|p| PaymentView {
+                rail: p.rail.clone(),
+                amount_sats: p.amount_sats,
+                detected_at: to_rfc3339(p.detected_at),
+                counted: p.counted,
+                reason: p.reason.clone(),
+                handled: p.handled,
+            })
+            .collect(),
+        late_sats: m.late_sats(),
+        late_at: m.late_at().map(to_rfc3339),
         store_name: store_name.to_string(),
         ark_server: ark_server(&state.config).map(str::to_string),
         test_mode: state.config.mode == "test",
@@ -542,7 +573,7 @@ pub async fn export_csv(
         .call(move |conn| manual_invoice::export_all(conn, &store_id))
         .await?;
     let mut out = String::from(
-        "\u{feff}invoice_number,customer_name,created_at,paid_at,status,amount_sats,paid_sats,fiat_currency,fiat_amount,note\r\n",
+        "\u{feff}invoice_number,customer_name,created_at,paid_at,status,amount_sats,paid_sats,fiat_currency,fiat_amount,note,late_sats,late_at\r\n",
     );
     for m in &rows {
         let inv = &m.invoice;
@@ -557,6 +588,8 @@ pub async fn export_csv(
             csv_cell(inv.fiat_currency.as_deref().unwrap_or("")),
             csv_cell(inv.fiat_amount.as_deref().unwrap_or("")),
             csv_cell(m.note.as_deref().unwrap_or("")),
+            m.late_sats().to_string(),
+            csv_cell(&m.late_at().map(to_rfc3339).unwrap_or_default()),
         ];
         out.push_str(&cells.join(","));
         out.push_str("\r\n");

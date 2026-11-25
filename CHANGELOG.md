@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.3-rc5 — invoices explain every payment, money from elsewhere listed (25 November 2026)
+
+Invoices show late money and have new shortcuts; money that reached the server outside any invoice is now listed. One database change (migration 0017, adds two tables; nothing is changed or removed). Updates from rc4 were tested with invoice data in place.
+
 - **Invoices show money that arrived after they closed.** If a customer pays an invoice after its 24 hours ran out, pays it twice, pays after you cancelled it, or sends the rest of a part payment too late, the money still lands in your wallet, as before. Now the invoice says so too: the list shows both pills (for example **Expired** and **Paid late**) with a line such as "25,000 sats arrived by Ark after its 24 hours ran out", and the invoices CSV has `late_sats` and `late_at` columns. Nothing on your server is left unexplained.
 - **Alerts name the invoice.** A late payment for an invoice from the Invoices tab shows its number and customer under Alerts, with wording for invoices instead of shop orders.
 - **One phone notice for a late payment:** "An invoice was paid late", once per payment (no amount, number or name, like every alert).

@@ -4,8 +4,8 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
 
 ## Where things stand (24 November 2026)
 
-- **Latest release:** `v0.3.3-rc2` (pre-release, 24 November 2026; adds the Invoices tab, in testing and off by default). Earlier: `v0.1.0-rc1`, `-rc2`,
-  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1` to `-rc3`, `v0.3.3-rc1`. The release process is in
+- **Latest release:** `v0.3.3-rc4` (pre-release, 25 November 2026; simpler invoices, the repeated invoice notice fixed, a clearer payout address screen). Earlier: `v0.1.0-rc1`, `-rc2`,
+  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1` to `-rc3`, `v0.3.3-rc1` to `-rc3`. The release process is in
   [RC_CHECKLIST.md](RC_CHECKLIST.md); [CHANGELOG.md](../../CHANGELOG.md) says what is in each.
 - **Experimental.** Signet (play money) is the default; mainnet is opt-in and has been tried end
   to end with small real money (Lightning and Ark payments, a real WooCommerce shop, payouts,

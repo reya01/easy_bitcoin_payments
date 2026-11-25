@@ -32,7 +32,9 @@ pub struct UnmatchedPaymentView {
     pub id: String,
     pub invoice_id: Option<String>,
     pub order_id: Option<String>,
-    /// `shop` or `manual` (an invoice from the Invoices tab).
+    /// `shop`, `manual` (an invoice from the Invoices tab) or `none` (money at
+    /// an address of no payment request: reason `unknown_address`, or
+    /// `exit_fees` for the emergency withdrawal's fee money).
     pub source: String,
     /// For an invoice from the Invoices tab: its number and customer name, so
     /// Alerts can say which invoice the money was for.
@@ -64,8 +66,10 @@ pub async fn list(
                 "SELECT u.id, u.invoice_id, i.order_id, u.rail, u.amount_sats, u.reason,
                         u.detected_at, u.resolved_at, i.source, i.invoice_number, i.customer_name
                  FROM unmatched_payments u
-                 JOIN invoices i ON i.id = u.invoice_id
-                 WHERE i.store_id = ?1
+                 LEFT JOIN invoices i ON i.id = u.invoice_id
+                 -- One store per server: money at an address of no payment
+                 -- request (no invoice) belongs to it too.
+                 WHERE i.store_id = ?1 OR u.invoice_id IS NULL
                  ORDER BY (u.resolved_at IS NOT NULL), u.detected_at DESC, u.id
                  LIMIT ?2 OFFSET ?3",
             )?;
@@ -80,7 +84,9 @@ pub async fn list(
                         reason: row.get(5)?,
                         detected_at: to_rfc3339(row.get::<_, i64>(6)?),
                         resolved_at: row.get::<_, Option<i64>>(7)?.map(to_rfc3339),
-                        source: row.get(8)?,
+                        source: row
+                            .get::<_, Option<String>>(8)?
+                            .unwrap_or_else(|| "none".to_string()),
                         invoice_number: row.get(9)?,
                         customer_name: row.get(10)?,
                     })
@@ -105,8 +111,8 @@ pub async fn resolve(
         .call(move |conn| {
             let owned: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM unmatched_payments u
-                 JOIN invoices i ON i.id = u.invoice_id
-                 WHERE u.id = ?1 AND i.store_id = ?2",
+                 LEFT JOIN invoices i ON i.id = u.invoice_id
+                 WHERE u.id = ?1 AND (i.store_id = ?2 OR u.invoice_id IS NULL)",
                 params![id, store_id],
                 |row| row.get(0),
             )?;

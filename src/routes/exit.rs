@@ -256,6 +256,13 @@ pub async fn deposit_address(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     let address = client(&state)?.onchain_address().await?;
+    // Remembered, so money that arrives here is shown as fee money under
+    // Alerts instead of money from an unknown place.
+    let remembered = address.clone();
+    state
+        .db
+        .call(move |conn| crate::invoice::remember_own_address(conn, &remembered, "exit_fees"))
+        .await?;
     Ok(Json(json!({ "address": address })))
 }
 

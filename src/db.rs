@@ -23,6 +23,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0014_settlement_rate.sql"),
     include_str!("../migrations/0015_invoice_identifiers.sql"),
     include_str!("../migrations/0016_manual_invoices.sql"),
+    include_str!("../migrations/0017_unexplained_money.sql"),
 ];
 
 /// The newest schema version this build understands (what `PRAGMA user_version`

@@ -1181,6 +1181,10 @@ def main():
                      "reason": "invoice_expired", "detected_at": "2026-11-16T10:00:00Z", "resolved_at": done},
                     {"id": "unm_2", "invoice_id": "inv_2", "order_id": None, "rail": "ark", "amount_sats": 700,
                      "reason": "invoice_closed", "detected_at": "2026-11-15T10:00:00Z", "resolved_at": "2026-11-16T09:00:00Z"},
+                    {"id": "unm_3", "invoice_id": None, "order_id": None, "source": "none", "rail": "ark", "amount_sats": 900,
+                     "reason": "unknown_address", "detected_at": "2026-11-14T10:00:00Z", "resolved_at": "2026-11-14T11:00:00Z"},
+                    {"id": "unm_4", "invoice_id": None, "order_id": None, "source": "none", "rail": "onchain", "amount_sats": 6000,
+                     "reason": "exit_fees", "detected_at": "2026-11-13T10:00:00Z", "resolved_at": "2026-11-13T10:00:00Z"},
                 ]
             if path == "/api/v1/unmatched-payments/unm_1/resolve":
                 state["handled"] = True
@@ -1201,6 +1205,9 @@ def main():
             want(pr, "order shown", text, "order 1042")
             want(pr, "reason explained", text, "after the payment window closed")
             want(pr, "the other payment is shown as handled", text, "handled")
+            want(pr, "money at an address of no order is named", text, "Money from elsewhere")
+            want(pr, "and explained", text, "belongs to no invoice or order")
+            want(pr, "the owner's own fee money is named", text, "Fee money for the emergency withdrawal")
             buttons = p.query_selector_all("#unmatched button:text-is(\"Mark as handled\")")
             if len(buttons) != 1: pr.append(f"only the open payment gets a Mark as handled button, saw {len(buttons)}")
             if count(calls, "POST", "/api/v1/unmatched-payments/unm_1/resolve"): pr.append("nothing may be marked handled before the click")

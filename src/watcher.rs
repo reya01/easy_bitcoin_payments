@@ -351,7 +351,7 @@ impl PollingWatcher {
         let expired = self.db.call(invoice::expire_due).await?;
         for invoice in expired {
             tracing::info!(invoice_id = %invoice.id, "invoice expired");
-            self.emit_invoice_event(&invoice.store_id, &invoice, InvoiceStatus::Expired)
+            self.emit_invoice_event(&invoice.store_id, &invoice, InvoiceStatus::Expired, false)
                 .await;
         }
 
@@ -364,7 +364,7 @@ impl PollingWatcher {
             .await?;
         for invoice in recent {
             let store_id = invoice.store_id.clone();
-            self.emit_invoice_event(&store_id, &invoice, invoice.status)
+            self.emit_invoice_event(&store_id, &invoice, invoice.status, false)
                 .await;
         }
 
@@ -574,7 +574,8 @@ impl PollingWatcher {
             "payment applied"
         );
 
-        self.emit_invoice_event(&store_id, &updated, status).await;
+        self.emit_invoice_event(&store_id, &updated, status, true)
+            .await;
         Ok(true)
     }
 
@@ -583,13 +584,18 @@ impl PollingWatcher {
         store_id: &str,
         invoice: &crate::models::Invoice,
         status: InvoiceStatus,
+        // True only right after a payment was saved. The gap-filling pass over
+        // recently finished invoices calls this every check; shop events are
+        // de-duplicated by the outbox, but the phone notice is not, so it is
+        // only queued here (it repeated every minute in 0.3.3-rc2/rc3).
+        new_payment: bool,
     ) {
         // An invoice the owner made on the Invoices tab is not a shop order:
-        // no shop webhook. A paid one queues a phone notice instead (no
-        // amount, number or name, like every alert).
+        // no shop webhook. A payment that makes it paid queues one phone
+        // notice instead (no amount, number or name, like every alert).
         let (inv_id, paid) = (
             invoice.id.clone(),
-            matches!(status, InvoiceStatus::Paid | InvoiceStatus::Overpaid),
+            new_payment && matches!(status, InvoiceStatus::Paid | InvoiceStatus::Overpaid),
         );
         match self
             .db
@@ -1450,6 +1456,46 @@ mod tests {
         watcher.tick().await.unwrap();
         let sql = "SELECT COUNT(*) FROM webhook_deliveries WHERE event = 'invoice.expired'";
         assert_eq!(count(&db, sql).await, 1, "queued once, never twice");
+    }
+
+    #[tokio::test]
+    async fn a_paid_invoice_from_the_invoices_tab_notifies_the_phone_once() {
+        let (db, _store_id) = setup(vec![]).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET source = 'manual' WHERE id = 'inv_1'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let notices = |db: Db| async move {
+            db.call(|c| crate::settings::get(c, "alert_notices"))
+                .await
+                .unwrap()
+                .unwrap_or_default()
+        };
+        let watcher = late_watcher(&db, vec![ark_payment("v_inv", 1000)]);
+        assert_eq!(watcher.tick().await.unwrap(), 1, "credited");
+        assert_eq!(
+            notices(db.clone()).await,
+            "invoice_paid",
+            "one notice queued"
+        );
+        // The alert check takes the notice; later checks must not queue it again.
+        db.call(|c| crate::settings::set(c, "alert_notices", ""))
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            watcher.tick().await.unwrap();
+        }
+        assert_eq!(notices(db.clone()).await, "", "never queued again");
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM webhook_deliveries").await,
+            0,
+            "no shop event for an invoice made by hand"
+        );
     }
 
     #[tokio::test]

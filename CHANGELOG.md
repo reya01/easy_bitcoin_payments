@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: "An invoice was paid" repeated every minute or two.** The phone notice was queued again by a routine check that runs every minute over invoices finished in the last two days. It is now sent once, when the payment arrives.
+
 ## 0.3.3-rc3 — a calmer, clearer look (design only) (25 November 2026)
 
 Looks and words only: no change to how payments, transfers, settings or the database work, and every safety message keeps its exact words.

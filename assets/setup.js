@@ -86,13 +86,13 @@ pwHelper("admin-pw", "admin-pw-show", "admin-pw-count");
   var payoutHintsFor = {
     test: {
       ark: { label: "Your Ark address", ph: "tark1…",
-        hint: "In your Ark wallet (Arké or Noah, on signet) open Receive and copy the Ark address. On this play-money server it starts with tark1." },
+        hint: "In your Ark wallet (Noah on Android or Arké on iPhone, set to signet) open Receive and copy the Ark address. On this play-money server it starts with tark1." },
       onchain: { label: "Your Bitcoin address", ph: "tb1…",
         hint: "In your signet wallet open Receive and copy a fresh address. On this play-money server it starts with tb1. Use a wallet you control, not an exchange deposit address." }
     },
     live: {
       ark: { label: "Your Ark address", ph: "ark1…",
-        hint: "In your Ark wallet (Arké or Noah) open Receive and copy the Ark address. It starts with ark1. The wallet must use Second's Ark server (ark.second.tech)." },
+        hint: "In your Ark wallet (Noah on Android or Arké on iPhone) open Receive and copy the Ark address. It starts with ark1. The wallet must use Second's Ark server (ark.second.tech)." },
       onchain: { label: "Your Bitcoin address", ph: "bc1… (or 1… / 3…)",
         hint: "In your wallet (Sparrow, Nunchuk or Liana) open Receive and copy a fresh address. It starts with bc1 (older wallets: 1 or 3). Use a wallet you control, not an exchange deposit address." }
     }

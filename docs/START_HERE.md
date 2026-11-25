@@ -27,7 +27,8 @@ first if you want it.
   Make sure your host runs a current PHP version (WordPress: **Tools → Site
   Health → Info → Server**); see [Keep your shop patched](WOOCOMMERCE.md#keep-your-shop-patched).
 - The plugin file `ebp-bitcoin-woocommerce.zip`, downloaded from the [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases) (open the top release, look under **Assets**) and saved where your browser can reach it.
-- A wallet for the payout address (Ark or on-chain).
+- A free Ark wallet app on your phone, where your money will go: **Noah** on Android or
+  **Arké** on iPhone. Install it before you start.
 - Free play coins from <https://signet.2nd.dev/> (needs a GitHub login; they take
   5 to 10 minutes to arrive).
 - Pen and paper (for 12 recovery words) and a password manager, open and ready.
@@ -118,7 +119,8 @@ Open the web address from the box (it ends in `/setup`) and follow the page:
    characters (four random words works well). It signs you in to the admin page
    and locks your backups.
 5. **Where your money goes.** Choose **Ark wallet** (recommended: your money is moved to your own
-   wallet at very small amounts) or **On-chain Bitcoin wallet**, open Receive in that wallet, copy an address and paste it. For play
+   wallet at very small amounts). In Noah or Arké, open Receive, copy the Ark address and paste it.
+   (Already use an on-chain wallet such as Sparrow? Choose **On-chain Bitcoin wallet** instead.) For play
    money it starts with `tark1` (Ark) or `tb1` (on-chain); on a real-money server
    `ark1` (Ark) or `bc1` (on-chain; older wallets also `1` or `3`). This is required. You
    can change it later in Settings (a change waits a day for safety).

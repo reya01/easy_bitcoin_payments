@@ -68,6 +68,9 @@ pub struct PaymentView {
     pub counted: bool,
     pub reason: Option<String>,
     pub handled: bool,
+    /// For a payment that was not counted: its row under Alerts, which
+    /// `POST /api/v1/unmatched-payments/{id}/resolve` marks handled.
+    pub unmatched_id: Option<String>,
 }
 
 /// When the Lightning invoice stops counting for this invoice: the end time
@@ -126,6 +129,7 @@ fn to_response(m: &ManualInvoice, state: &AppState, store_name: &str) -> ManualI
                 counted: p.counted,
                 reason: p.reason.clone(),
                 handled: p.handled,
+                unmatched_id: p.unmatched_id.clone(),
             })
             .collect(),
         late_sats: m.late_sats(),
@@ -153,16 +157,28 @@ pub async fn settings(
     auth: OwnerAuth,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let store_id = auth.store.id.clone();
-    let (enabled, next, names) = state
+    let (enabled, next, names, largest) = state
         .db
         .call(move |conn| {
             Ok((
                 manual_invoice::is_enabled(conn)?,
                 crate::invoice_ident::next_invoice_number(conn)?,
                 crate::invoice_ident::customer_name_suggestions(conn, &store_id, 50)?,
+                manual_invoice::largest_sats(conn, &store_id)?,
             ))
         })
         .await?;
+    // The price of one bitcoin in each currency with a recent price, so the
+    // page can say what an amount is worth before the invoice is made.
+    let prices: serde_json::Map<String, serde_json::Value> = state
+        .rates
+        .available_currencies()
+        .into_iter()
+        .filter_map(|c| {
+            let q = state.rates.quote(&c).ok()?;
+            Some((c, serde_json::json!(q.fiat_per_btc)))
+        })
+        .collect();
     Ok(Json(serde_json::json!({
         "enabled": enabled,
         "next_number": next,
@@ -172,6 +188,9 @@ pub async fn settings(
         "default_currency": state.config.default_currency,
         // Money the amount can be given in: only currencies with a recent price.
         "currencies": state.rates.available_currencies(),
+        "prices": prices,
+        "usd_per_btc": state.rates.usd_per_btc(),
+        "largest_sats": largest,
         "ark_server": ark_server(&state.config),
         "test_mode": state.config.mode == "test",
     })))
@@ -535,6 +554,22 @@ pub async fn fresh_lightning(
             "The wallet could not make a Lightning invoice just now. The Ark option still works; try again in a few minutes.".into(),
         ));
     }
+    Ok(Json(to_response(&m, &state, &auth.store.name)))
+}
+
+/// `GET /api/v1/admin/invoices/{id}` — one invoice, as it is now. The page
+/// asks every few seconds while an open invoice is on screen, so the owner
+/// sees it turn Paid. Readable even while the tab is off, like the list.
+pub async fn get_one(
+    State(state): State<AppState>,
+    auth: OwnerAuth,
+    Path(id): Path<String>,
+) -> Result<Json<ManualInvoiceResponse>, AppError> {
+    let store_id = auth.store.id.clone();
+    let m = state
+        .db
+        .call(move |conn| manual_invoice::get(conn, &store_id, &id)?.ok_or(AppError::NotFound))
+        .await?;
     Ok(Json(to_response(&m, &state, &auth.store.name)))
 }
 

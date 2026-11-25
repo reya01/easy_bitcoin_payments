@@ -5001,6 +5001,36 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0]["id"], first["id"]);
 
+    // One invoice as it is now (the page asks while it is on screen); the
+    // settings say the largest so far, for the "is this right?" check.
+    let one: serde_json::Value = get(&format!(
+        "/api/v1/admin/invoices/{}",
+        first["id"].as_str().unwrap()
+    ))
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(one["id"], first["id"]);
+    assert_eq!(one["status"], "pending");
+    assert_eq!(one["payments"], serde_json::json!([]));
+    let s2: serde_json::Value = get("/api/v1/admin/invoices/settings")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s2["largest_sats"], 25000);
+    assert_eq!(s2["prices"], serde_json::json!({}));
+    let missing = get("/api/v1/admin/invoices/no-such-invoice")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
     // Cancel one of them; a shop order cannot be reached through this route.
     let cancelled: serde_json::Value = post(
         &format!(
@@ -5028,6 +5058,18 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
     .await
     .unwrap();
     assert_eq!(shop_cancel.status(), 404);
+    let shop_get = get(&format!(
+        "/api/v1/admin/invoices/{}",
+        shop_inv["id"].as_str().unwrap()
+    ))
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(
+        shop_get.status(),
+        404,
+        "a shop order is not on the Invoices tab"
+    );
 
     // The invoices file starts with the number and name; the payments file has them last.
     let csv = get("/api/v1/admin/invoices.csv")

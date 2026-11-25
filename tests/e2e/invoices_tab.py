@@ -7,7 +7,11 @@ Lightning with its exact end time, Ark) WITHOUT the customer name; draw the
 picture (only the facts, QR codes that decode when OpenCV is available); always
 show the send-privately warning under an open invoice; drop the Lightning part
 once it has run out; offer no sharing for a paid invoice; copy text and picture
-to the clipboard; and never scroll sideways or trip the Content-Security-Policy.
+to the clipboard; keep an open invoice up to date while it is on screen (and stop
+asking once the tab changes); ask "is this right?" before an unusually large amount;
+fill the form for the rest of a part payment and for "Invoice again" without making
+anything; mark late money handled from the invoice; offer a receipt once paid; and
+never scroll sideways or trip the Content-Security-Policy.
 Run: python3 tests/e2e/invoices_tab.py [screenshot-dir]
 """
 import base64, datetime, json, os, sys
@@ -40,13 +44,15 @@ def inv(n, status="pending", ln_left=3 * 3600, name="Sam Rivera", refresh=False)
     }
 
 
-def run(pw, name, steps):
+def run(pw, name, steps, clock=False):
     b = pw.chromium.launch()
     ctx = b.new_context(viewport={"width": 390, "height": 1400}, timezone_id="America/New_York")
     ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=ORIGIN)
     p = ctx.new_page()
+    if clock:
+        p.clock.install()
     errs, posts = [], []
-    state = {"enabled": False, "list": [], "next": "3", "made": None}
+    state = {"enabled": False, "list": [], "next": "3", "made": None, "settings": {}, "one": {}, "gets": []}
     p.on("pageerror", lambda e: errs.append(str(e)))
     watch_csp(p, errs)
 
@@ -64,7 +70,8 @@ def run(pw, name, steps):
             return route.fulfill(status=200, content_type="application/json", body=json.dumps({
                 "enabled": state["enabled"], "next_number": state["next"], "customer_names": ["Sam Rivera", "Alex"],
                 "store_name": "Sam's Plumbing", "open_hours": 24,
-                "default_currency": "USD", "currencies": ["USD", "EUR"], "ark_server": None, "test_mode": True}))
+                "default_currency": "USD", "currencies": ["USD", "EUR"], "ark_server": None, "test_mode": True,
+                **state["settings"]}))
         if path == "/api/v1/admin/invoices/enabled":
             body = json.loads(req.post_data or "{}")
             posts.append(("enabled", body, req.headers.get("x-ebp-csrf")))
@@ -79,6 +86,16 @@ def run(pw, name, steps):
             return route.fulfill(status=201, content_type="application/json", body=json.dumps(made))
         if path == "/api/v1/admin/invoices":
             return route.fulfill(status=200, content_type="application/json", body=json.dumps(state["list"]))
+        if path.startswith("/api/v1/unmatched-payments/") and path.endswith("/resolve"):
+            posts.append(("resolve", path.split("/")[4], req.headers.get("x-ebp-csrf")))
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"resolved": True}))
+        if path.startswith("/api/v1/admin/invoices/") and req.method == "GET":
+            iid = path.rsplit("/", 1)[1]
+            state["gets"].append(iid)
+            found = state["one"].get(iid) or next((x for x in state["list"] if x["id"] == iid), None)
+            if found is None:
+                return route.fulfill(status=404, content_type="application/json", body="{}")
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(found))
         if path == "/api/v1/admin/status":
             return route.fulfill(status=200, content_type="application/json", body=json.dumps(
                 {"checks": [], "counters": {}, "wallet": {}, "mode": "test", "usd_per_btc": 67000}))
@@ -253,6 +270,145 @@ def main():
                 p.locator("#inv-list").screenshot(path=os.path.join(SHOTS, "invoice-late-list.png"))
                 p.locator("#inv-out").screenshot(path=os.path.join(SHOTS, "invoice-late-story.png"))
         ok &= run(pw, "money after the invoice closed shows on it: Expired and Paid late, and its story", s_late)
+
+        def s_live(p, pr, st, posts):
+            st["enabled"] = True
+            st["list"] = [inv(9)]
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            left = p.inner_text("#inv-left") if p.is_visible("#inv-left") else ""
+            if "left to pay" not in left or not left.startswith(("23 h", "24 h")):
+                pr.append(f"an open invoice says how long is left: {left!r}")
+            # Nothing changed: the screen stays as it is.
+            p.clock.fast_forward(16000); p.wait_for_timeout(300)
+            if "inv_9" not in st["gets"]: pr.append("an open invoice on screen is asked for again")
+            # The customer pays: it turns Paid by itself.
+            paid = inv(9, status="paid")
+            st["one"]["inv_9"] = paid; st["list"] = [paid]
+            p.clock.fast_forward(16000); p.wait_for_timeout(400)
+            out = p.inner_text("#inv-out")
+            if "Paid" not in p.inner_text("#inv-out .pills"): pr.append(f"it must turn Paid without a reload: {out[:200]!r}")
+            if "Paid. The money is in your wallet." not in out: pr.append("it must say it was paid")
+            if p.is_visible("#inv-left"): pr.append("a paid invoice shows no time left")
+            # Closed now, and on another tab: no more asking.
+            n = len(st["gets"])
+            p.clock.fast_forward(60000); p.wait_for_timeout(300)
+            if len(st["gets"]) != n: pr.append("a paid invoice is not asked for again")
+            st["list"] = [inv(11)]
+            p.click('#tabs button[data-v="home"]'); open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            p.click('#tabs button[data-v="home"]'); p.wait_for_timeout(200)
+            n = len(st["gets"])
+            p.clock.fast_forward(60000); p.wait_for_timeout(300)
+            if len(st["gets"]) != n: pr.append("leaving the tab stops the asking")
+        ok &= run(pw, "an open invoice on screen keeps itself up to date and shows the time left", s_live, clock=True)
+
+        def s_big(p, pr, st, posts):
+            st["enabled"] = True
+            st["settings"] = {"largest_sats": 25000, "usd_per_btc": 67000, "prices": {"USD": 67000, "EUR": 62000}}
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            # A usual amount: no question.
+            p.fill("#inv-amt", "30000"); p.click("#inv-go"); p.wait_for_timeout(400)
+            if p.is_visible(".dlg"): pr.append("a usual amount must not ask")
+            if len([x for x in posts if x[0] == "create"]) != 1: pr.append("a usual amount is made straight away")
+            # A typo with an extra zero or two: asked first, and Go back makes nothing.
+            p.fill("#inv-amt", "2500000"); p.click("#inv-go"); p.wait_for_timeout(300)
+            if not p.is_visible(".dlg"): pr.append("a very large amount must ask first"); return
+            d = p.inner_text(".dlg")
+            for want in ("2,500,000 sats", "about $1,675", "more than 10 times your largest invoice so far (25,000 sats)"):
+                if want not in d: pr.append(f"the question must say {want!r}: {d!r}")
+            if SHOTS: p.screenshot(path=os.path.join(SHOTS, "invoice-big-amount.png"))
+            p.click("text=Go back and check"); p.wait_for_timeout(300)
+            if len([x for x in posts if x[0] == "create"]) != 1: pr.append("Go back must make nothing")
+            # In dollars: the dollar amount itself is checked.
+            p.select_option("#inv-unit", "USD"); p.fill("#inv-amt", "2400"); p.click("#inv-go"); p.wait_for_timeout(300)
+            d = p.inner_text(".dlg") if p.is_visible(".dlg") else ""
+            if "USD 2400" not in d or "about $2,400" not in d: pr.append(f"a large dollar amount asks too: {d!r}")
+            p.click("text=Yes, make it"); p.wait_for_timeout(400)
+            made = [x for x in posts if x[0] == "create"]
+            if len(made) != 2 or made[-1][1].get("fiat") != {"currency": "USD", "amount": "2400"}:
+                pr.append(f"Yes must make it as typed: {made[-1:]}")
+        ok &= run(pw, "asks before an unusually large amount", s_big)
+
+        def s_rest(p, pr, st, posts):
+            st["enabled"] = True
+            part = inv(10, status="expired")
+            part["paid_sats"] = 10000
+            part["created_at"], part["expires_at"] = iso(-30 * 3600), iso(-6 * 3600)
+            part["payments"] = [{"rail": "lightning", "amount_sats": 10000, "detected_at": iso(-29 * 3600), "counted": True,
+                                 "reason": None, "handled": False, "unmatched_id": None}]
+            st["list"] = [part]
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            btn = p.locator("text=Make a new invoice for the 15,000 sats still owed")
+            if not btn.is_visible(): pr.append("an expired part-paid invoice offers to bill the rest"); return
+            btn.click(); p.wait_for_timeout(300)
+            got = {k: p.input_value(k) for k in ("#inv-amt", "#inv-unit", "#inv-note", "#inv-cust", "#inv-num")}
+            want = {"#inv-amt": "15000", "#inv-unit": "sats", "#inv-note": "Rest of invoice 10: Bathroom tap repair",
+                    "#inv-cust": "Sam Rivera", "#inv-num": "3"}
+            if got != want: pr.append(f"the form must be filled for the rest: {got}")
+            if "still owed" not in p.inner_text("#inv-msg"): pr.append("the form says where it came from")
+            if any(x[0] == "create" for x in posts): pr.append("filling the form must not make an invoice")
+        ok &= run(pw, "bills the rest of a part payment by filling the form", s_rest)
+
+        def s_again(p, pr, st, posts):
+            st["enabled"] = True
+            old = inv(6, status="paid")
+            old["fiat_currency"], old["fiat_amount"] = "USD", "25.00"
+            st["list"] = [old]
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            p.click("text=Invoice again"); p.wait_for_timeout(300)
+            got = {k: p.input_value(k) for k in ("#inv-amt", "#inv-unit", "#inv-note", "#inv-cust")}
+            want = {"#inv-amt": "25.00", "#inv-unit": "USD", "#inv-note": "Bathroom tap repair", "#inv-cust": "Sam Rivera"}
+            if got != want: pr.append(f"Invoice again copies the amount, note and customer: {got}")
+            if "today's price" not in p.inner_text("#inv-msg"): pr.append("a money amount says it is priced again today")
+            if any(x[0] == "create" for x in posts): pr.append("Invoice again must not make anything by itself")
+        ok &= run(pw, "Invoice again fills the form from an old invoice", s_again)
+
+        def s_handled(p, pr, st, posts):
+            st["enabled"] = True
+            late = inv(7, status="expired")
+            late["created_at"], late["expires_at"] = iso(-30 * 3600), iso(-6 * 3600)
+            pay = {"rail": "ark", "amount_sats": 25000, "detected_at": iso(-60), "counted": False,
+                   "reason": "paid_after_expiry", "handled": False, "unmatched_id": "unm_1"}
+            late["payments"], late["late_sats"], late["late_at"] = [pay], 25000, iso(-60)
+            st["list"] = [late]
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            done = json.loads(json.dumps(late)); done["payments"][0]["handled"] = True
+            st["one"]["inv_7"] = done
+            p.click("#inv-out >> text=Mark handled"); p.wait_for_timeout(500)
+            res = [x for x in posts if x[0] == "resolve"]
+            if res != [("resolve", "unm_1", "tok")]: pr.append(f"Mark handled marks its Alerts row, with the CSRF token: {res}")
+            txt = p.inner_text("#inv-late")
+            if "You marked it handled." not in txt: pr.append(f"the invoice says it was handled: {txt!r}")
+            if p.locator("#inv-out >> text=Mark handled").count(): pr.append("no button once handled")
+            if "Paid late" not in p.inner_text("#inv-out .pills"): pr.append("it still shows Paid late")
+            if "marked handled under Alerts" not in p.inner_text("#inv-story"): pr.append("the story keeps the payment, as handled")
+        ok &= run(pw, "late money can be marked handled from the invoice", s_handled)
+
+        def s_receipt(p, pr, st, posts):
+            st["enabled"] = True
+            st["list"] = [inv(6, status="paid")]
+            p.reload(); p.wait_for_timeout(600)
+            open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            r = p.inner_text("#inv-receipt") if p.is_visible("#inv-receipt") else ""
+            for want in ("TEST RECEIPT", "Receipt from Sam's Plumbing", "Invoice 6: Bathroom tap repair", "Paid in full: 25,000 sats", "Paid on", "Thank you!"):
+                if want not in r: pr.append(f"the receipt must say {want!r}: {r!r}")
+            for never in ("Sam Rivera", ARK, BOLT11):
+                if never in r: pr.append(f"the receipt must not hold {never!r}")
+            p.click("text=Copy receipt"); p.wait_for_timeout(300)
+            if p.evaluate("navigator.clipboard.readText()") != r: pr.append("Copy receipt copies the shown receipt")
+            if "Receipt copied." not in p.inner_text("#inv-out-msg"): pr.append("it says the receipt was copied")
+            if SHOTS: p.locator("#inv-out").screenshot(path=os.path.join(SHOTS, "invoice-receipt.png"))
+        ok &= run(pw, "a paid invoice offers a receipt without the customer name or addresses", s_receipt)
     sys.exit(0 if ok else 1)
 
 

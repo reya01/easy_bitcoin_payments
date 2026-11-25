@@ -242,7 +242,7 @@ jobs:
           # release (RC_CHECKLIST.md), so each update is tested from where
           # testers really are.
           - name: last release
-            baseline: v0.3.3-rc4
+            baseline: v0.3.3-rc5
     env:
       BASELINE_REF: ${{ matrix.baseline }}
     steps:

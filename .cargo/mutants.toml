@@ -1,0 +1,10 @@
+# cargo-mutants settings (mutation testing for the money code; see "Testing money code" in
+# CONTRIBUTING.md). Used by the manual `mutants` workflow and the per-PR `mutants-pr` check.
+
+# Generous: a mutant that makes the code loop forever counts as caught once it times out.
+timeout_multiplier = 3.0
+
+# Mutants we accept as not worth a test. Each entry needs a one-line reason. Keep this list
+# short: a "missed" mutant in money code is a missing test until someone explains otherwise.
+exclude_re = [
+]

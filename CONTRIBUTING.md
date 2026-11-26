@@ -116,9 +116,14 @@ decision goes in the server and is sent to the plugin as a result.
 
 **Testing money code.** Besides ordinary tests, `src/money_properties.rs` runs thousands of
 random cases against the money rules and compares them with a plain model; extend it when you
-change a rule. The manual **mutants** workflow (Actions, mutants, Run workflow) changes the money
-code one line at a time and lists every change the tests did not catch; each "missed" one is
-either a missing test or dead code, and is worth a look before a release.
+change a rule. **Mutation testing** changes the money code one line at a time (`>` to `>=`, a
+function to `return 0`, ...) and lists every change the tests did not catch:
+- On every PR that touches money code, the **mutants-pr** check mutates only the changed lines
+  (minutes). For now it only reports; a "missed" mutant there means: add a test, or add it to
+  `.cargo/mutants.toml` with a one-line reason why it does not matter.
+- Before each release, the manual **mutants** workflow runs over all the money code (hours; it is
+  step 1 of the release steps in `docs/dev/RC_CHECKLIST.md`).
+- The goal is not a perfect score: it is that every mistake that could cost money would be caught.
 
 **Where that is not possible** (for example, code that must run inside
 WooCommerce), say so in the PR. Keep that code as small as possible, and test

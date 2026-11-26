@@ -55,7 +55,10 @@ that release's cut checklist on the test server. Still open:
 
 ## 4. Release steps (in order)
 
-1. `main` is green and the manual **Release dry run** (Actions → release → Run
+1. **Mutation testing:** start Actions → mutants → Run workflow on `main` (it takes a few hours,
+   so start it early). Every "missed" mutant in its job summaries gets a test, or a line with a
+   reason in `.cargo/mutants.toml`, before you tag.
+2. `main` is green and the manual **Release dry run** (Actions → release → Run
    workflow, on `main`) is green. Download the `dry-run-release-files` artifact
    and look at it: one `ebp-*.tar.gz` (x86-64), the plugin zip, `SHA256SUMS`.
    Container images count as dependencies too: the Dockerfile base images and
@@ -63,26 +66,26 @@ that release's cut checklist on the test server. Still open:
    unpinned one), and Dependabot proposes new digests as PRs. Review those like
    any other dependency update, and do not merge one in the same release as a
    risky change without a dry run.
-2. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
+3. Move the `Unreleased` section of `CHANGELOG.md` under the new version's
    heading (for example `0.3.2-rc2`), and check the version matches the tag in `Cargo.toml`, `Cargo.lock`, and the
    plugin (`ebp-bitcoin.php` header and `EBP_BITCOIN_VERSION`, `readme.txt` Stable tag),
    so Home and the Plugins page show which build is running. The release
    workflow runs `scripts/check_release_version.sh vX.Y.Z` first and stops
    before building if any of these disagree with the tag (you can run it
    yourself first).
-3. Tag the new version (for example `v0.3.2-rc2`) on `main` and push it.
+4. Tag the new version (for example `v0.3.2-rc2`) on `main` and push it.
    Right after the release, move the **last release** baseline of the CI
    `upgrade` job (`.github/workflows/ci.yml`, matrix entry `last release`) to the
    new tag, so every later change is tested as an update from what people run. The
    `-rcN` suffix makes the workflow
    publish a **pre-release**, which GitHub's "latest" and the dashboard's update
    notice both ignore. Install an rc by explicit version, not `latest`.
-4. Watch the release run. Then check: assets present, `SHA256SUMS` matches,
+5. Watch the release run. Then check: assets present, `SHA256SUMS` matches,
    the signature bundle exists, the notes show the image digest and the verify
    command, and the verify command works on your machine.
-5. Install that release on a fresh server exactly as `START_HERE.md` says, using
+6. Install that release on a fresh server exactly as `START_HERE.md` says, using
    the digest-pinned image.
-6. Only then tell testers. The final release (`v0.3.2`, the number the latest candidate is
+7. Only then tell testers. The final release (`v0.3.2`, the number the latest candidate is
    a candidate for) comes after the checklist in
    section 2 is fully ticked; the dashboard will tell rc users when it exists.
 

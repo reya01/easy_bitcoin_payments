@@ -14,7 +14,7 @@ on:
     inputs:
       files:
         description: "Space-separated files to mutate"
-        default: "src/invoice.rs src/manual_invoice.rs src/payout.rs src/rates.rs src/reconcile.rs src/watcher.rs"
+        default: "src/invoice.rs src/manual_invoice.rs src/payout.rs src/rates.rs src/reconcile.rs src/watcher.rs src/emergency_exit.rs"
 
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
           args=()
           for f in $FILES; do args+=(--file "$f"); done
           # Exit code 2 means "some mutants were missed": that is a result, not a failure.
-          cargo mutants --no-shuffle --shard "${{ matrix.shard }}/8" --timeout-multiplier 3 "${args[@]}" || code=$?
+          cargo mutants --no-shuffle --shard "${{ matrix.shard }}/8" "${args[@]}" || code=$?
           code=${code:-0}
           echo "cargo mutants exit code: $code"
           { echo "### Shard ${{ matrix.shard }}"; echo; for k in caught missed timeout unviable; do

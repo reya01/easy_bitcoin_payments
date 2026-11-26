@@ -1,3 +1,8 @@
 [toolchain]
-channel = "stable"
+# An exact version, not "stable": the reproducible builds (docs/dev/REPRODUCIBLE_BUILDS.md) need the
+# same compiler on every machine and every day. With "stable", every build quietly downloaded the
+# newest release, so a rebuild after the next Rust release could never match a published one.
+# Move it on purpose, in its own PR (CI, the image and the release all follow this file).
+channel = "1.100.0"
 profile = "minimal"
+components = ["rustfmt", "clippy"]

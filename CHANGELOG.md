@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **The download can be rebuilt byte for byte.** `ebp-x86_64-unknown-linux-musl.tar.gz` is now built with `scripts/repro-build-musl.sh` (pinned Rust image, musl tools from a dated Debian snapshot, fixed tarball details), and the release publishes exactly that file. CI builds it on two different machines and requires the same bytes. `scripts/verify-release.sh` checks the download against the release's `SHA256SUMS` as well as the program inside the image. Releases up to 0.3.3-rc5 are not reproducible this way.
+- **Rust is pinned to an exact version** (`rust-toolchain.toml`, 1.100.0). It said `stable` before, so every build downloaded the newest Rust and a later rebuild could not match a release.
 
 ## 0.3.3-rc5 — invoices explain every payment, money from elsewhere listed (25 November 2026)
 

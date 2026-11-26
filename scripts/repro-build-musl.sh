@@ -51,8 +51,9 @@ git archive --format=tar HEAD | docker run --rm -i \
       > /etc/apt/sources.list
     apt-get -qq update
     apt-get -qq install -y --no-install-recommends "musl=$MUSL_VERSION" "musl-dev=$MUSL_VERSION" "musl-tools=$MUSL_VERSION" >/dev/null
-    rustup target add "$TARGET" >/dev/null 2>&1
     mkdir /src && tar -x -C /src && cd /src
+    # In /src, so it applies to the exact toolchain rust-toolchain.toml names.
+    rustup target add "$TARGET"
     export RUSTFLAGS="--remap-path-prefix=/src=/build --remap-path-prefix=${CARGO_HOME:-/usr/local/cargo}=/cargo --remap-path-prefix=${RUSTUP_HOME:-/usr/local/rustup}=/rustup"
     cargo build --release --locked --target "$TARGET"
     tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \

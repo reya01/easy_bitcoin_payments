@@ -29,8 +29,11 @@ How the script removes the usual causes of difference:
 What it does **not** yet prove:
 - Until stage 2 (below), the Dockerfile built the image's binary without the path-rewriting
   flags, so the published images up to then do not match this hash.
-- `rust-toolchain.toml` says only `stable`, so it does not pin a compiler. The digest-pinned
-  image does, which is why the script uses it. (Until 0.3.3-rc5 the release's `ebp-*.tar.gz` was
+- Until 26 November 2026 `rust-toolchain.toml` said only `stable`. Inside `/src` that file wins
+  over the image's own compiler, so every build quietly downloaded the newest stable Rust: two
+  builds on the same day matched, but a rebuild after the next Rust release could not. It now
+  names an exact version (`1.100.0` at first); move it on purpose, in its own PR. The image still
+  pins the C compiler, linker and system libraries. (Until 0.3.3-rc5 the release's `ebp-*.tar.gz` was
   built on the runner with the latest stable and the runner's musl tools, with file times in the
   tarball, so those downloads are not reproducible. See "the download" below.)
 
@@ -52,8 +55,8 @@ stage 1's settings it:
 - installs the musl C tools (they compile the bundled SQLite and `ring`) from a **dated Debian
   snapshot** at an exact version (`SNAPSHOT` and `MUSL_VERSION` in the script; change them only
   together, in a PR);
-- adds the musl standard library with `rustup target add`, which fetches it for the pinned
-  image's exact Rust version;
+- adds the musl standard library with `rustup target add`, which fetches it for the exact Rust
+  version in `rust-toolchain.toml`;
 - writes the tarball with sorted names, owner 0, fixed permissions and the commit's time, and
   gzips it without a name or time.
 

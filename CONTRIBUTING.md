@@ -125,6 +125,10 @@ function to `return 0`, ...) and lists every change the tests did not catch:
   step 1 of the release steps in `docs/dev/RC_CHECKLIST.md`).
 - The goal is not a perfect score: it is that every mistake that could cost money would be caught.
 
+**Fuzz tests** (`fuzz/`, see `fuzz/README.md`) feed millions of random inputs to the code that
+reads outside data: Lightning invoices, payout addresses, payment-notice signatures, the wallet's
+history and money amounts. They run weekly and on demand; add a target when you add a parser.
+
 **Where that is not possible** (for example, code that must run inside
 WooCommerce), say so in the PR. Keep that code as small as possible, and test
 it against the Rust server in CI.

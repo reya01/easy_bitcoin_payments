@@ -1,0 +1,5 @@
+[toolchain]
+# libFuzzer needs a nightly compiler; pinned to a date so runs are repeatable. Only the fuzz
+# crate uses it: the server itself builds with the pinned stable in ../rust-toolchain.toml.
+channel = "nightly-2026-11-15"
+profile = "minimal"

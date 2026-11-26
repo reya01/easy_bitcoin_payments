@@ -1,0 +1,54 @@
+# Fuzz tests (cargo-fuzz / libFuzzer): millions of random and malformed inputs against the code
+# that reads data from outside. A separate crate with its own workspace, so the server's
+# dependencies and Cargo.lock are untouched. Run by the `fuzz` workflow; see fuzz/README.md.
+[package]
+name = "ebp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+easy-bitcoin-payments = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "lightning_invoice"
+path = "fuzz_targets/lightning_invoice.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "payout_address"
+path = "fuzz_targets/payout_address.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webhook_signature"
+path = "fuzz_targets/webhook_signature.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wallet_history"
+path = "fuzz_targets/wallet_history.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fiat_amount"
+path = "fuzz_targets/fiat_amount.rs"
+test = false
+doc = false
+bench = false

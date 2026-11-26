@@ -424,13 +424,13 @@ mod tests {
         // valid checksums (created 1,764,000,000; the signature is zeros, since
         // it is not checked) that reach the edges of the reader.
         const T: i64 = 1_764_000_000;
-        let only_time = "lntbs1p5jfqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqcdayrt";
+        let only_time = "lntbs1p5jfqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqcdayrt";
         assert_eq!(
             bolt11_expires_at(only_time),
             Some(T + 3_600),
             "no fields: BOLT11's default hour"
         );
-        let bech32m = "lntbs1p5jfqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqd3dgxf";
+        let bech32m = "lntbs1p5jfqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqd3dgxf";
         assert_eq!(
             bolt11_expires_at(bech32m),
             None,

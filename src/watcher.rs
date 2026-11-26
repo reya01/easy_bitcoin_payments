@@ -1769,8 +1769,13 @@ mod tests {
         .await
         .unwrap();
         let watcher = late_watcher(&db, vec![ark_payment("v_skew", 400)]);
-        assert_eq!(watcher.tick().await.unwrap(), 1);
-        assert_eq!(status_and_paid(&db).await, ("underpaid".to_string(), 400));
+        assert_eq!(watcher.tick().await.unwrap(), 1, "counted on the invoice");
+        // The same check then expires it (its time has run out); the 400 sats stay counted.
+        assert_eq!(status_and_paid(&db).await, ("expired".to_string(), 400));
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            0
+        );
     }
 
     #[tokio::test]

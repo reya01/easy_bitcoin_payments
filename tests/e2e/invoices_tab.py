@@ -352,6 +352,14 @@ def main():
             if got != want: pr.append(f"the form must be filled for the rest: {got}")
             if "still owed" not in p.inner_text("#inv-msg"): pr.append("the form says where it came from")
             if any(x[0] == "create" for x in posts): pr.append("filling the form must not make an invoice")
+            # The rest arrived too late: offering to bill it again could charge twice.
+            part["late_sats"], part["late_at"] = 15000, iso(-60)
+            part["payments"].append({"rail": "ark", "amount_sats": 15000, "detected_at": iso(-60), "counted": False,
+                                     "reason": "paid_after_expiry", "handled": False, "unmatched_id": "unm_r"})
+            st["list"] = [part]
+            p.click('#tabs button[data-v="home"]'); open_tab(p)
+            p.click("#inv-list .inv-row"); p.wait_for_timeout(300)
+            if p.locator("#inv-out button", has_text="still owed").count(): pr.append("no 'bill the rest' once late money has arrived")
         ok &= run(pw, "bills the rest of a part payment by filling the form", s_rest)
 
         def s_again(p, pr, st, posts):

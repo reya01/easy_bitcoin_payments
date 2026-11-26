@@ -2314,7 +2314,9 @@ function renderInvoice(r) {
   }
   var b4 = el("div", "", "btns");
   var rest = r.amount_sats - r.paid_sats;
-  if (r.status === "expired" && r.paid_sats > 0 && rest > 0) {
+  // Not when late money has arrived: it may be the rest, sent too late, so billing
+  // again could charge the customer twice. The late line above says what came.
+  if (r.status === "expired" && r.paid_sats > 0 && rest > 0 && !(r.late_sats > 0)) {
     b4.appendChild(button("Make a new invoice for the " + invSats(rest) + " still owed", function () {
       invFill({ sats: rest, customer: r.customer_name, note: "Rest of invoice " + (r.invoice_number || "") + (r.note ? ": " + r.note : ""),
         msg: "Filled in from invoice " + (r.invoice_number || "") + ": the " + invSats(rest) + " still owed. Check it, then press Make the invoice." });

@@ -114,6 +114,12 @@ server's signed answer. It keeps only its safety checks: it refuses a forged
 notice, and it does not mark paid an order whose total changed. Any new money
 decision goes in the server and is sent to the plugin as a result.
 
+**Testing money code.** Besides ordinary tests, `src/money_properties.rs` runs thousands of
+random cases against the money rules and compares them with a plain model; extend it when you
+change a rule. The manual **mutants** workflow (Actions, mutants, Run workflow) changes the money
+code one line at a time and lists every change the tests did not catch; each "missed" one is
+either a missing test or dead code, and is worth a look before a release.
+
 **Where that is not possible** (for example, code that must run inside
 WooCommerce), say so in the PR. Keep that code as small as possible, and test
 it against the Rust server in CI.

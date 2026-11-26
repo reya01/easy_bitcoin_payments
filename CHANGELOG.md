@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Fixed (found by a code review): a part payment that reached an invoice right as it expired was never written down.** If a customer paid only part of an invoice just before or within two minutes after its deadline, and the invoice had already been marked expired, the money reached the wallet but appeared nowhere: not on the order, not under Alerts. It is now listed under Alerts as paid late, with its invoice.
+- **Fixed (found by a code review): a top-up refused as too late could later be counted as well.** A second payment that came after the 15-minute top-up window was correctly listed under Alerts, but after the invoice expired and the server looked again (every hour, or after a restart) it could also complete the order: the same money in two places. A payment listed under Alerts is now never also counted, and the top-up window applies after expiry too.
+- **Invoices:** "Make a new invoice for the rest" is not offered when late money has arrived for that invoice, since it may be the rest.
+- **Tests:** property tests (thousands of random cases) for amount conversion, invoice status, the late-payment rule, the sats display and the whole payment-recording rule set; and a manual mutation-testing workflow for the money code.
+
 ## 0.3.3-rc5 — invoices explain every payment, money from elsewhere listed (25 November 2026)
 
 Invoices show late money and have new shortcuts; money that reached the server outside any invoice is now listed. One database change (migration 0017, adds two tables; nothing is changed or removed). Updates from rc4 were tested with invoice data in place.

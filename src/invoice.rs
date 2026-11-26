@@ -834,6 +834,21 @@ pub fn record_payment(
         return Ok(None);
     };
 
+    // A payment already written down under Alerts (for example a top-up that
+    // came after its window closed) is never also counted on the order: that
+    // would be the same money in two places. The mirror of the check in
+    // `record_unmatched`.
+    let parked: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM unmatched_payments
+                       WHERE (?1 IS NOT NULL AND vtxo_id = ?1)
+                          OR (?2 IS NOT NULL AND txid = ?2))",
+        params![vtxo_id, txid],
+        |r| r.get(0),
+    )?;
+    if parked {
+        return Ok(None);
+    }
+
     // An expired invoice is revived only by a full Ark/Lightning payment
     // inside the late window; anything else on it stays parked by the watcher.
     let revived = current.status == InvoiceStatus::Expired
@@ -1025,6 +1040,27 @@ mod tests {
             confs_required: 1,
             metadata_json: "{}".to_string(),
         }
+    }
+
+    #[tokio::test]
+    async fn a_payment_written_down_under_alerts_is_never_also_counted() {
+        let (db, store_id) = setup().await;
+        db.call(move |conn| {
+            insert(conn, &new_invoice(&store_id, "inv_p", 1000))?;
+            conn.execute(
+                "INSERT INTO unmatched_payments (id, address, invoice_id, rail, amount_sats, vtxo_id, reason, detected_at, created_at)
+                 VALUES ('u_p', 'ark1qinv_p', 'inv_p', 'ark', 1000, 'v_parked', 'topup_window_closed', 1, 1)",
+                [],
+            )?;
+            assert!(record_payment(conn, &obs("inv_p", "ark", 1000, Some("v_parked")))?.is_none());
+            let inv = get(conn, &store_id, "inv_p")?.unwrap();
+            assert_eq!((inv.status, inv.paid_sats), (InvoiceStatus::Pending, 0));
+            // A different payment still counts.
+            assert!(record_payment(conn, &obs("inv_p", "ark", 1000, Some("v_new")))?.is_some());
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 
     #[test]

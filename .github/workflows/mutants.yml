@@ -1,0 +1,63 @@
+# Mutation testing for the money code (manual only).
+#
+# cargo-mutants changes one line of code at a time (for example `>` to `>=`, or a function to
+# `return 0`) and runs the tests. A "missed" mutant is a change the tests did not notice: either a
+# missing test or dead code. Each one is looked at by a person; see "Testing money code" in
+# CONTRIBUTING.md.
+#
+# Slow (hours), so it is split into shards and only runs when started by hand:
+# Actions -> mutants -> Run workflow. Results: the "mutants-*" artifacts (missed.txt, caught.txt).
+name: mutants
+
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "Space-separated files to mutate"
+        default: "src/invoice.rs src/manual_invoice.rs src/payout.rs src/rates.rs src/reconcile.rs src/watcher.rs"
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: mutants shard ${{ matrix.shard }}/8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Install cargo-mutants (pinned)
+        run: cargo install --locked cargo-mutants@26.2.0
+      - name: Run
+        env:
+          FILES: ${{ inputs.files }}
+        run: |
+          set -u
+          args=()
+          for f in $FILES; do args+=(--file "$f"); done
+          # Exit code 2 means "some mutants were missed": that is a result, not a failure.
+          cargo mutants --no-shuffle --shard "${{ matrix.shard }}/8" --timeout-multiplier 3 "${args[@]}" || code=$?
+          code=${code:-0}
+          echo "cargo mutants exit code: $code"
+          { echo "### Shard ${{ matrix.shard }}"; echo; for k in caught missed timeout unviable; do
+              echo "- $k: $(wc -l < "mutants.out/$k.txt" 2>/dev/null || echo 0)"; done; echo
+            echo '```'; cat mutants.out/missed.txt 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" = 0 ] || [ "$code" = 2 ] || [ "$code" = 3 ]
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: |
+            mutants.out/caught.txt
+            mutants.out/missed.txt
+            mutants.out/timeout.txt
+            mutants.out/unviable.txt
+          if-no-files-found: warn

@@ -23,6 +23,8 @@ pub mod invoice_ident;
 pub mod managed_barkd;
 pub mod manual_invoice;
 pub mod models;
+#[cfg(test)]
+mod money_properties;
 pub mod passkey;
 pub mod payout;
 pub mod ratelimit;

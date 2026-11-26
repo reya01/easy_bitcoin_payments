@@ -463,6 +463,18 @@ mod tests {
     }
 
     #[test]
+    fn a_field_longer_than_31_values_is_skipped_whole() {
+        // Second mutation run (26 November 2026): a field's length is two
+        // values (high and low); a 33-value description must be skipped whole
+        // to reach the expiry after it. Made up, valid checksum, zero signature.
+        let long_description = "lntbs1p5jfqgqdppqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxqzpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqql4ycdq";
+        assert_eq!(
+            bolt11_expires_at(long_description),
+            Some(1_764_000_000 + 32)
+        );
+    }
+
+    #[test]
     fn an_invoice_is_open_for_a_day() {
         assert_eq!(OPEN_SECS, 86_400);
         assert_eq!(FRESH_LIGHTNING_GRACE_SECS, 600);

@@ -81,6 +81,21 @@ class EBP_Watch {
 				'date_created'   => '>' . ( $now - 7 * DAY_IN_SECONDS ),
 			)
 		);
+		// Recently cancelled ones too: a full payment shortly after the window
+		// closed still completes the invoice on the server (it says so in the
+		// order notes), and the notice alone should not be the only way to hear it.
+		$ids = array_merge(
+			$ids,
+			wc_get_orders(
+				array(
+					'limit'          => self::MAX_RECHECK,
+					'return'         => 'ids',
+					'payment_method' => 'ebp_bitcoin',
+					'status'         => array( 'cancelled' ),
+					'date_created'   => '>' . ( $now - 2 * DAY_IN_SECONDS ),
+				)
+			)
+		);
 		foreach ( $ids as $id ) {
 			$order = wc_get_order( $id );
 			if ( $order && ! $gateways['ebp_bitcoin']->check_with_server( $order ) ) {

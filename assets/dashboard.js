@@ -660,7 +660,7 @@ function loadPhone(openSteps) {
 
 var pwChanged = false;
 var EBP_MODE = "";
-var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wallet (Ark)", sweep_onchain: "Transfer to your wallet (on-chain)", sweep_refused: "Transfer blocked: payout address problem", renew: "Routine wallet upkeep", consolidate: "Tidy-up", offboard: "Withdrawal" };
+var KIND = { sweep: "Transfer to your wallet", sweep_ark: "Transfer to your wallet (Ark)", sweep_onchain: "Transfer to your wallet (on-chain)", sweep_refused: "Transfer blocked: payout address problem", renew: "Routine wallet upkeep", consolidate: "Tidy-up", offboard: "Withdrawal", exit_start: "Emergency withdrawal started", exit_claim: "Emergency withdrawal sent to your address", exit_leftover: "Fee money sent back" };
 // Optional first-payment check on Home: shown until one payment has been paid
 // or the owner skips it. Never blocks anything. "Skip" is remembered only in this browser.
 var TEST_SKIP_KEY = "ebp_test_payment_skipped";
@@ -819,7 +819,11 @@ var SETTLE_ST = {
 var settleLine = function (x) {
   var d = SETTLE_ST[x.status], money = USD > 0 ? fmtSats(x.amount_sats).replace(/^.*\(|\)$/g, "") + " \u00b7 " : "";
   var r = el("div", "", "prow"), l = el("span", "", "pl");
-  l.appendChild(el("span", Number(x.amount_sats).toLocaleString("en-US") + " sats", "pa"));
+  // An emergency-withdrawal line with no amount: the wallet did not say (claiming, or sending
+  // everything); what arrived is in the payout wallet.
+  var noAmount = /^exit_/.test(x.kind) && !(x.amount_sats > 0);
+  if (noAmount) money = "";
+  l.appendChild(el("span", noAmount ? "Amount: see your wallet" : Number(x.amount_sats).toLocaleString("en-US") + " sats", "pa"));
   l.appendChild(el("span", (KIND[x.kind] || x.kind) + " \u00b7 " + money + when(x.created_at), "pd"));
   r.appendChild(l);
   var pl = el("span", "", "st " + (d ? d[2] : "")), pi = el("span", d ? d[0] : ""); pi.setAttribute("aria-hidden", "true");

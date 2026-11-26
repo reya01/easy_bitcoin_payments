@@ -432,6 +432,12 @@ pub(crate) fn is_already_in_round(reason: &str) -> bool {
 static CYCLE_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
+/// Hold off every transfer (automatic or "move my money now") until the guard
+/// is dropped. Used while the emergency withdrawal takes over the coins.
+pub(crate) async fn lock_cycle() -> tokio::sync::MutexGuard<'static, ()> {
+    CYCLE_LOCK.lock().await
+}
+
 /// Minimum gap between refresh attempts for VTXOs whose expiry we cannot
 /// determine (no timestamp and no resolvable height).
 const UNKNOWN_EXPIRY_RETRY_SECS: i64 = 3600;
@@ -656,6 +662,35 @@ pub(crate) fn count_history_matches(
                     t >= u.created_at - HISTORY_MATCH_SLACK_SECS
                         && t <= now + HISTORY_MATCH_SLACK_SECS
                 })
+        })
+        .count()
+}
+
+/// A transfer already marked sent: (amount in sats, when it was made).
+pub(crate) type SentTransfer = (i64, i64);
+
+/// Like [`count_history_matches`], but an entry that could just as well be a
+/// transfer already marked sent to the same address is not counted. Found by
+/// review (26 November 2026): without this, a timed-out send that really did
+/// not go could be "confirmed" by an earlier, larger transfer's history entry,
+/// and the records would show money paid out that was still in the wallet.
+/// Such a send stays unclear, and the owner is asked.
+pub(crate) fn count_unclaimed_history_matches(
+    u: &UnsettledSend,
+    entries: &[crate::wallet::barkd::HistoryEntry],
+    now: i64,
+    already_sent: &[SentTransfer],
+) -> usize {
+    entries
+        .iter()
+        .filter(|e| count_history_matches(u, std::slice::from_ref(e), now) == 1)
+        .filter(|e| {
+            !already_sent.iter().any(|(amount, created_at)| {
+                e.outbound_sats()
+                    .is_some_and(|n| n >= *amount && n <= amount + HISTORY_MATCH_FEE_ROOM_SATS)
+                    && e.detected_at_unix()
+                        .is_some_and(|t| t >= created_at - HISTORY_MATCH_SLACK_SECS)
+            })
         })
         .count()
 }
@@ -1647,7 +1682,26 @@ impl SettlementEngine {
         let Ok(page) = self.client.history().await else {
             return Ok(false);
         };
-        let matches = count_history_matches(u, &page.entries, now_unix());
+        let (id, dest, since) = (
+            u.id.clone(),
+            u.destination.clone(),
+            u.created_at - HISTORY_MATCH_SLACK_SECS - 86_400,
+        );
+        let already_sent: Vec<SentTransfer> = self
+            .db
+            .call(move |conn| {
+                let mut st = conn.prepare(
+                    "SELECT amount_sats, created_at FROM settlements
+                     WHERE destination = ?1 AND id <> ?2 AND status = 'broadcast'
+                       AND kind IN ('sweep_ark', 'sweep_onchain') AND created_at >= ?3",
+                )?;
+                let rows = st
+                    .query_map(params![dest, id, since], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })
+            .await?;
+        let matches = count_unclaimed_history_matches(u, &page.entries, now_unix(), &already_sent);
         let id = u.id.clone();
         if matches == 1 {
             self.db
@@ -2703,6 +2757,55 @@ mod tests {
 
     fn history_entry(json: serde_json::Value) -> crate::wallet::barkd::HistoryEntry {
         serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn a_history_entry_that_belongs_to_an_earlier_transfer_does_not_confirm_another() {
+        let now = now_unix();
+        let unclear = UnsettledSend {
+            id: "stl_b".into(),
+            kind: "sweep_ark".into(),
+            amount_sats: 5_000,
+            destination: "tark1dest".into(),
+            created_at: now - 60,
+            vtxos: vec![],
+        };
+        let entry = |amount: i64, at: i64| {
+            history_entry(serde_json::json!({
+                "intended_balance_sat": -amount,
+                "status": "successful",
+                "sent_to": [{"destination": {"type": "ark", "value": "tark1dest"}, "amount_sat": amount}],
+                "time": {"completed_at": chrono::DateTime::from_timestamp(at, 0).unwrap().to_rfc3339()},
+            }))
+        };
+        // Transfer A (12,000 sats) went out a minute before B and is marked sent.
+        let a_entry = entry(12_000, now - 120);
+        let earlier_a: [SentTransfer; 1] = [(12_000, now - 120)];
+        assert_eq!(
+            count_history_matches(&unclear, std::slice::from_ref(&a_entry), now),
+            1
+        );
+        assert_eq!(
+            count_unclaimed_history_matches(
+                &unclear,
+                std::slice::from_ref(&a_entry),
+                now,
+                &earlier_a
+            ),
+            0,
+            "A's own entry must not confirm B"
+        );
+        // B's own entry (5,000 cannot be A's 12,000) still confirms B.
+        let b_entry = entry(5_000, now - 50);
+        assert_eq!(
+            count_unclaimed_history_matches(&unclear, &[a_entry, b_entry.clone()], now, &earlier_a),
+            1
+        );
+        // With nothing else marked sent, behaviour is as before.
+        assert_eq!(
+            count_unclaimed_history_matches(&unclear, &[b_entry], now, &[]),
+            1
+        );
     }
 
     #[test]

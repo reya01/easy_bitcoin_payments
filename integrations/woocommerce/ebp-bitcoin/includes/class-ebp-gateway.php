@@ -227,18 +227,26 @@ class EBP_Gateway extends WC_Payment_Gateway {
 				'meta_value' => $invoice_id, // phpcs:ignore WordPress.DB.SlowDBQuery
 			)
 		);
-		if ( empty( $orders ) ) {
-			$this->log( 'warning', 'Payment notice for invoice ' . $invoice_id . ' ignored: no order here has that invoice.' );
-			$this->reply( 200, 'unknown invoice' );
-		}
-		$order = $orders[0];
-
 		// Source of truth: ask the server, do not trust the notification alone.
 		$invoice = $this->client()->get_invoice( $invoice_id );
 		if ( is_wp_error( $invoice ) ) {
-			$this->log( 'warning', 'Payment notice for order ' . $order->get_id() . ': could not confirm with the payment server (' . $invoice->get_error_message() . ').' );
+			$this->log( 'warning', 'Payment notice for invoice ' . $invoice_id . ': could not confirm with the payment server (' . $invoice->get_error_message() . ').' );
 			$this->reply( 503, 'could not confirm with the payment server' );
 		}
+		if ( empty( $orders ) ) {
+			// Not the order's newest invoice: the server makes a new one when an
+			// order's amount changes, and an older one can still be paid. Find the
+			// order by the reference on the server's own record of the invoice
+			// (the amounts are still checked before anything is marked paid).
+			$by_ref = wc_get_order( EBP_Core::order_id_from_ref( isset( $invoice['order_id'] ) ? $invoice['order_id'] : '' ) );
+			if ( ! $by_ref || $this->id !== $by_ref->get_payment_method() ) {
+				$this->log( 'warning', 'Payment notice for invoice ' . $invoice_id . ' ignored: no order here has that invoice.' );
+				$this->reply( 200, 'unknown invoice' );
+			}
+			$this->log( 'info', 'Payment notice for an earlier invoice (' . $invoice_id . ') of order ' . $by_ref->get_id() . '.' );
+			$orders = array( $by_ref );
+		}
+		$order = $orders[0];
 		if ( EBP_Core::order_id_from_ref( isset( $invoice['order_id'] ) ? $invoice['order_id'] : '' ) !== $order->get_id() ) {
 			$this->log( 'warning', 'Payment notice for order ' . $order->get_id() . ' ignored: the invoice belongs to order reference "' . ( isset( $invoice['order_id'] ) ? (string) $invoice['order_id'] : '' ) . '".' );
 			$this->reply( 200, 'invoice does not belong to this order' );
@@ -320,6 +328,14 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		}
 		$invoice = $this->client()->get_invoice( $invoice_id );
 		if ( is_wp_error( $invoice ) ) {
+			$data = $invoice->get_error_data();
+			$code = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0;
+			if ( $code >= 400 && $code < 500 ) {
+				// The server answered, about this one order (for example an invoice
+				// it no longer has): skip it, and keep checking the others.
+				$this->log( 'warning', 'Hourly check for order ' . $order->get_id() . ': the payment server does not know invoice ' . $invoice_id . ' (' . $invoice->get_error_message() . ').' );
+				return true;
+			}
 			$this->log( 'warning', 'Hourly check for order ' . $order->get_id() . ': could not reach the payment server (' . $invoice->get_error_message() . ').' );
 			return false;
 		}

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The download can be rebuilt byte for byte.** `ebp-x86_64-unknown-linux-musl.tar.gz` is now built with `scripts/repro-build-musl.sh` (pinned Rust image, musl tools from a dated Debian snapshot, fixed tarball details), and the release publishes exactly that file. CI builds it on two different machines and requires the same bytes. `scripts/verify-release.sh` checks the download against the release's `SHA256SUMS` as well as the program inside the image. Releases up to 0.3.3-rc5 are not reproducible this way.
+
 ## 0.3.3-rc5 — invoices explain every payment, money from elsewhere listed (25 November 2026)
 
 Invoices show late money and have new shortcuts; money that reached the server outside any invoice is now listed. One database change (migration 0017, adds two tables; nothing is changed or removed). Updates from rc4 were tested with invoice data in place.

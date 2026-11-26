@@ -20,6 +20,7 @@ on:
       - "assets/**"
       - "migrations/**"
       - "scripts/repro-build.sh"
+      - "scripts/repro-build-musl.sh"
       - ".github/workflows/reproducible-build.yml"
   workflow_dispatch:
 
@@ -49,6 +50,28 @@ jobs:
             dist-repro/build-info.txt
           if-no-files-found: error
 
+  musl:
+    name: download (musl tarball) on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the download with the repeatable script
+        run: scripts/repro-build-musl.sh dist-repro-musl
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: musl-${{ matrix.runner }}
+          path: |
+            dist-repro-musl/SHA256SUMS.part
+            dist-repro-musl/build-info.txt
+          if-no-files-found: error
+
   image:
     name: binary inside the Docker image
     runs-on: ubuntu-24.04
@@ -75,12 +98,12 @@ jobs:
 
   compare:
     name: the two builds are byte-identical
-    needs: [build, image]
+    needs: [build, image, musl]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: repro-*
+          pattern: "*-*"
           path: results
       - name: Compare
         run: |
@@ -108,4 +131,22 @@ jobs:
             echo "DIFFERENT: the binary inside the Docker image is not the one the script builds." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo "Identical: both machines and the Docker image have the same bytes." | tee -a "$GITHUB_STEP_SUMMARY"
+          m1=$(cut -d' ' -f1 results/musl-ubuntu-22.04/SHA256SUMS.part)
+          m2=$(cut -d' ' -f1 results/musl-ubuntu-24.04/SHA256SUMS.part)
+          {
+            echo
+            echo "### Reproducible build (the release download, musl tarball)"
+            echo
+            echo "- Ubuntu 22.04 runner: \`$m1\`"
+            echo "- Ubuntu 24.04 runner: \`$m2\`"
+            echo
+            echo '```'
+            cat results/musl-ubuntu-22.04/build-info.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$m1" != "$m2" ]; then
+            echo "DIFFERENT: the two machines built different download tarballs." | tee -a "$GITHUB_STEP_SUMMARY"
+            diff results/musl-ubuntu-22.04/build-info.txt results/musl-ubuntu-24.04/build-info.txt || true
+            exit 1
+          fi
+          echo "Identical: both machines and the Docker image have the same bytes, and both machines built the same download." | tee -a "$GITHUB_STEP_SUMMARY"

@@ -4,7 +4,9 @@
 # It rebuilds the `ebp` program from the release's tag with scripts/repro-build.sh, takes the
 # `ebp` program out of the published Docker image (the amd64 one), and compares the two. If they
 # match, the published image runs exactly the program that source code produces, and you did not
-# have to trust whoever built it. See docs/dev/REPRODUCIBLE_BUILDS.md.
+# have to trust whoever built it. For tags that have scripts/repro-build-musl.sh it also rebuilds
+# the download (ebp-x86_64-unknown-linux-musl.tar.gz) and compares it with the release's
+# SHA256SUMS. See docs/dev/REPRODUCIBLE_BUILDS.md.
 #
 # Usage:   scripts/verify-release.sh VERSION            (for example 0.3.3)
 #          scripts/verify-release.sh VERSION IMAGE      (IMAGE = ghcr.io/...@sha256:..., if you
@@ -60,11 +62,34 @@ published="$(sha256sum "$WORK/ebp-published" | cut -d' ' -f1)"
 echo
 echo "rebuilt from $TAG:   $rebuilt"
 echo "inside the image:    $published"
+status=0
 if [ "$rebuilt" = "$published" ]; then
   echo "MATCH: the published image runs exactly the program this source code builds."
 else
   echo "DIFFERENT: the published image's program is not what this source code builds."
   echo "(Releases built before the Dockerfile used the same settings as the script are expected"
   echo "to differ. For a newer release, please report it: see SECURITY.md.)"
-  exit 1
+  status=1
 fi
+
+# The download (ebp-x86_64-unknown-linux-musl.tar.gz), if this tag can build it repeatably.
+if [ -x "$WORK/src/scripts/repro-build-musl.sh" ]; then
+  echo
+  echo "==> rebuilding the download (ebp-x86_64-unknown-linux-musl.tar.gz) from $TAG"
+  "$WORK/src/scripts/repro-build-musl.sh" "$WORK/rebuilt-musl" >/dev/null
+  tar_rebuilt="$(cut -d' ' -f1 "$WORK/rebuilt-musl/SHA256SUMS.part")"
+  tar_published="$(curl -fsSL "https://github.com/$REPO/releases/download/$TAG/SHA256SUMS" \
+    | awk '$2 == "ebp-x86_64-unknown-linux-musl.tar.gz" {print $1}')"
+  echo "download rebuilt from $TAG:  $tar_rebuilt"
+  echo "download in SHA256SUMS:      $tar_published"
+  if [ -n "$tar_published" ] && [ "$tar_rebuilt" = "$tar_published" ]; then
+    echo "MATCH: the published download is exactly what this source code builds."
+  else
+    echo "DIFFERENT: the published download is not what this source code builds. Please report it: see SECURITY.md."
+    status=1
+  fi
+else
+  echo
+  echo "(This tag is older than the repeatable download build, so only the image was checked.)"
+fi
+exit "$status"

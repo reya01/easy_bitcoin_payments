@@ -63,16 +63,17 @@ jobs:
       # VERIFY: this assumes reqwest is built with rustls (no openssl) so
       # the musl binaries link statically; if the build fails on TLS,
       # Cargo.toml is the line to fix.
-      - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
-
-      - name: Package
+      # Built with the repeatable script (docs/dev/REPRODUCIBLE_BUILDS.md): pinned Rust image,
+      # dated musl tools, fixed tarball metadata. Anyone can rebuild the tag and get the same
+      # bytes as the published download; the reproducible-build workflow checks this on two
+      # different machines for every change.
+      - name: Build and package (repeatable)
         run: |
+          set -eu
+          scripts/repro-build-musl.sh dist-repro-musl
           mkdir -p dist
-          # VERIFY: the crate's binary is `ebp` (as docker-compose uses);
-          # adjust here if the [[bin]] name ever differs.
-          tar -czf "dist/ebp-${{ matrix.target }}.tar.gz" \
-            -C "target/${{ matrix.target }}/release" ebp
+          cp "dist-repro-musl/ebp-${{ matrix.target }}.tar.gz" dist/
+          { echo '### The download, built repeatably'; echo; echo '```'; cat dist-repro-musl/build-info.txt; cat dist-repro-musl/SHA256SUMS.part; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

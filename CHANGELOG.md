@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Tests:** fuzz tests (`fuzz/`, weekly in CI) for Lightning invoices, payout addresses, payment-notice signatures, wallet history entries and money amounts.
+
 - **The download can be rebuilt byte for byte.** `ebp-x86_64-unknown-linux-musl.tar.gz` is now built with `scripts/repro-build-musl.sh` (pinned Rust image, musl tools from a dated Debian snapshot, fixed tarball details), and the release publishes exactly that file. CI builds it on two different machines and requires the same bytes. `scripts/verify-release.sh` checks the download against the release's `SHA256SUMS` as well as the program inside the image. Releases up to 0.3.3-rc5 are not reproducible this way.
 - **Rust is pinned to an exact version** (`rust-toolchain.toml`, 1.100.0). It said `stable` before, so every build downloaded the newest Rust and a later rebuild could not match a release.
 - **Fixed (found by a code review): a part payment that reached an invoice right as it expired was never written down.** If a customer paid only part of an invoice just before or within two minutes after its deadline, and the invoice had already been marked expired, the money reached the wallet but appeared nowhere: not on the order, not under Alerts. It is now listed under Alerts as paid late, with its invoice.

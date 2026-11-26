@@ -6,5 +6,52 @@ timeout_multiplier = 3.0
 
 # Mutants we accept as not worth a test. Each entry needs a one-line reason. Keep this list
 # short: a "missed" mutant in money code is a missing test until someone explains otherwise.
+# Reviewed after the first full run (26 November 2026: 806 mutants, 101 missed). Real gaps got
+# tests; these are the ones that cannot change behaviour or only change wording or timing by a
+# second. Patterns match the operator and function, not line numbers.
 exclude_re = [
+    # Bits shifted in are always zero, so | and ^ give the same result.
+    'replace \| with \^ in (polymod|five_to_eight|bolt11_expires_at|ark_server_tag)',
+    'replace \^ with \| in polymod',
+    # five_to_eight's bytes are only used for their count and the padding check (which is tested).
+    'replace (<< with >>|>> with <<|& with [|^]) in five_to_eight',
+    # Witness version 16 and above is refused again by the version match below it.
+    'replace > with (==|>=) in segwit_program_ok',
+    # A data part shorter than 6 characters cannot carry a valid checksum anyway.
+    'replace \|\| with && in decode_bech32',
+    'replace < with (<=|==) in decode_bech32',
+    # Base58Check decoding refuses the same inputs these quick pre-checks refuse.
+    'replace \|\| with && in check_legacy',
+    # Wording and audit-log text only.
+    'Rail::words',
+    'in short$',
+    # One-second boundaries on timers (no money depends on the exact second).
+    'replace > with >= in promote_if_due',
+    'replace > with >= in PollingWatcher::handle_payment',
+    'in (clear_save_trouble|save_trouble_showing)',
+    # An unsupported currency is still refused by the list check right after.
+    'replace \|\| with && in RateService::quote',
+    # Admin status display: which price sources answered.
+    'RateService::usd_sources',
+    # Exact floating-point equality with a limit (cannot be hit in practice).
+    'replace (< with <=|> with >=) in RateService::merge',
+    'replace < with <= in sats_with_usd',
+    'replace < with <= in RateService::load_json',
+    # Logging only. (run_round's first `!` is logging too, but its second one decides whether
+    # prices are saved and is tested, so that function is not excluded: expect one miss there.)
+    'replace != with == in credited_amount',
+    # Response-size limit of a price source; needs a huge fake answer to test.
+    'replace > with (==|>=) in fetch_one',
+    # The forever loop around tick(); tick() itself is tested.
+    'in PollingWatcher::run$',
+    # The "already handled" memory only saves work: the database's unique checks keep every
+    # payment single even when it re-reads everything (tested), so these change speed, not money.
+    # (Also expect misses in PollingWatcher::tick for the cursor write when it would not move
+    # (`>` to `>=`), the `!` before using that memory, and the size of the idempotent gap-fill
+    # window: harmless, but tick is too important to exclude as a whole.)
+    'in full_pass_due',
+    # A shop's webhook address and secret are always set together (store::set_webhook).
+    'replace \|\| with && in PollingWatcher::emit_invoice_event',
+    # An unknown expiry (0) is urgent either way.
+    'replace > with >= in upsert_vtxo_expiry',
 ]

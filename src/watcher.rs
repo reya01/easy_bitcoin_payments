@@ -58,6 +58,13 @@ fn late_payment_is_for_manual_invoice(
 /// shortcut below.
 const HANDLED_FULL_PASS_SECS: i64 = 3_600;
 
+/// Time to look at every wallet entry again (once an hour, or when the
+/// "already handled" memory grows too big)? Skipping only saves work: the
+/// database's unique checks keep every payment single either way.
+fn full_pass_due(now: i64, last_full_pass: i64, remembered: usize) -> bool {
+    now - last_full_pass >= HANDLED_FULL_PASS_SECS || remembered > HANDLED_MAX
+}
+
 /// Upper bound on remembered entries (about 100 bytes each). Past it the set is
 /// emptied and refilled by the next pass.
 const HANDLED_MAX: usize = 50_000;
@@ -270,7 +277,7 @@ impl PollingWatcher {
         {
             let mut guard = self.handled.lock().unwrap_or_else(|e| e.into_inner());
             let now = now_unix();
-            if now - guard.1 >= HANDLED_FULL_PASS_SECS || guard.0.len() > HANDLED_MAX {
+            if full_pass_due(now, guard.1, guard.0.len()) {
                 guard.0.clear();
                 guard.1 = now;
             }
@@ -473,11 +480,10 @@ impl PollingWatcher {
         // An underpaid invoice accepts a top-up only inside the short
         // window after its first partial payment. The same holds once such an
         // invoice has expired: a late "full" payment never bypasses the window.
+        // (`topup_window_closed` is false while nothing has been paid yet, so
+        // checking every invoice is the same as checking only part-paid ones.)
         let invoice = match invoice {
-            Some(i)
-                if i.status == crate::models::InvoiceStatus::Underpaid
-                    || (i.status == crate::models::InvoiceStatus::Expired && i.paid_sats > 0) =>
-            {
+            Some(i) => {
                 let (id, seen) = (i.id.clone(), payment.detected_at);
                 let closed = self
                     .db
@@ -490,7 +496,7 @@ impl PollingWatcher {
                     Some(i)
                 }
             }
-            other => other,
+            None => None,
         };
 
         let Some(invoice) = invoice else {
@@ -1704,6 +1710,95 @@ mod tests {
             count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
             0
         );
+    }
+
+    // Found by mutation testing (26 November 2026): the exact lengths of the
+    // late window, the top-up window and the clock-skew grace.
+    #[tokio::test]
+    async fn a_full_payment_two_hours_late_still_completes_the_order() {
+        let (db, _) = setup(vec![]).await;
+        expire_inv_1(&db, 2 * 3_600).await;
+        let watcher = late_watcher(&db, vec![ark_payment("v_2h", 1000)]);
+        assert_eq!(
+            watcher.tick().await.unwrap(),
+            1,
+            "the late window is 3 hours"
+        );
+        assert_eq!(status_and_paid(&db).await, ("paid".to_string(), 1000));
+    }
+
+    #[tokio::test]
+    async fn a_top_up_five_minutes_after_the_first_payment_is_counted() {
+        let (db, _) = setup(vec![]).await;
+        db.call(|c| {
+            let first = invoice::ObservedPayment {
+                invoice_id: "inv_1".into(),
+                rail: "ark".into(),
+                amount_sats: 400,
+                received_sats: Some(400),
+                vtxo_id: Some("v_first".into()),
+                txid: None,
+                detected_at: now_unix() - 300,
+                confirmed_at: None,
+            };
+            invoice::record_payment(c, &first)?.expect("counted");
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let watcher = late_watcher(&db, vec![ark_payment("v_rest", 600)]);
+        assert_eq!(
+            watcher.tick().await.unwrap(),
+            1,
+            "the top-up window is 15 minutes"
+        );
+        assert_eq!(status_and_paid(&db).await, ("paid".to_string(), 1000));
+    }
+
+    #[tokio::test]
+    async fn a_part_payment_a_minute_after_the_deadline_counts_while_the_invoice_is_open() {
+        // Inside the 2-minute clock-skew grace, before the sweep marked it expired.
+        let (db, _) = setup(vec![]).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET expires_at = ?1 WHERE id = 'inv_1'",
+                [now_unix() - 60],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let watcher = late_watcher(&db, vec![ark_payment("v_skew", 400)]);
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert_eq!(status_and_paid(&db).await, ("underpaid".to_string(), 400));
+    }
+
+    #[tokio::test]
+    async fn the_late_invoice_notice_is_not_repeated_when_everything_is_looked_at_again() {
+        let (db, _) = setup(vec![]).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET source = 'manual' WHERE id = 'inv_1'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        expire_inv_1(&db, crate::invoice::LATE_FULL_PAYMENT_SECS + 3_600).await;
+        let watcher = late_watcher(&db, vec![ark_payment("v_late2", 1000)]);
+        watcher.tick().await.unwrap();
+        db.call(|c| crate::settings::set(c, "alert_notices", ""))
+            .await
+            .unwrap();
+        watcher.handled.lock().unwrap().1 = 1; // the hourly full pass
+        watcher.tick().await.unwrap();
+        let notices = db
+            .call(|c| crate::settings::get(c, "alert_notices"))
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        assert_eq!(notices, "", "one notice per payment, ever");
     }
 
     #[tokio::test]

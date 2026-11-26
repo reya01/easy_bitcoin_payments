@@ -419,6 +419,56 @@ mod tests {
     }
 
     #[test]
+    fn crafted_lightning_invoices_are_read_exactly() {
+        // Found by mutation testing (26 November 2026). Made-up invoices with
+        // valid checksums (created 1,764,000,000; the signature is zeros, since
+        // it is not checked) that reach the edges of the reader.
+        const T: i64 = 1_764_000_000;
+        let only_time = "lntbs1p5jfqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqcdayrt";
+        assert_eq!(
+            bolt11_expires_at(only_time),
+            Some(T + 3_600),
+            "no fields: BOLT11's default hour"
+        );
+        let bech32m = "lntbs1p5jfqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqd3dgxf";
+        assert_eq!(
+            bolt11_expires_at(bech32m),
+            None,
+            "Lightning invoices are never bech32m"
+        );
+        let x12 = "lntbs1p5jfqgqxqvqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqhzpm92";
+        assert_eq!(
+            bolt11_expires_at(x12),
+            Some(T + 1),
+            "a 12-value expiry field is read"
+        );
+        let x13 = "lntbs1p5jfqgqxqdqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq3hesz3";
+        assert_eq!(
+            bolt11_expires_at(x13),
+            None,
+            "a 13-value expiry is too long to trust"
+        );
+        let x0 = "lntbs1p5jfqgqxqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqfdqgqr";
+        assert_eq!(
+            bolt11_expires_at(x0),
+            None,
+            "an empty expiry field is broken"
+        );
+        let tail = "lntbs1p5jfqgqxqzpqrpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2qxex";
+        assert_eq!(
+            bolt11_expires_at(tail),
+            Some(T + 32),
+            "leftover values after the fields are ignored"
+        );
+    }
+
+    #[test]
+    fn an_invoice_is_open_for_a_day() {
+        assert_eq!(OPEN_SECS, 86_400);
+        assert_eq!(FRESH_LIGHTNING_GRACE_SECS, 600);
+    }
+
+    #[test]
     fn notes_are_trimmed_and_checked() {
         assert_eq!(
             clean_note("  Bathroom tap repair ").unwrap(),

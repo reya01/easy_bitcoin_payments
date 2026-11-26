@@ -1167,4 +1167,84 @@ pub(crate) mod tests {
         assert!(status(&c, cfg).unwrap().from_server_config);
         assert!(request_change(&c, TARK_A, 0, cfg, "test").is_err());
     }
+
+    // Found by mutation testing (26 November 2026): these pin down WHICH
+    // explanation a mistake gets, and refusals that other layers used to hide.
+    #[test]
+    fn malformed_input_gets_the_not_an_address_explanation() {
+        let not = |s: &str| check(s, "live").unwrap_err() == NOT_AN_ADDRESS;
+        let broken = |s: &str| check(s, "live").unwrap_err() == BROKEN_ADDRESS;
+        assert!(
+            not("bc1q w508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+            "space inside"
+        );
+        assert!(
+            not("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t\u{20ac}"),
+            "not ASCII"
+        );
+        assert!(not("bc1qw508d6"), "far too short");
+        assert!(
+            broken("bc1qw508d6qejx"),
+            "14 characters is long enough to be checked"
+        );
+        let long = format!("bc1{}", "q".repeat(197));
+        assert_eq!(long.len(), 200);
+        assert!(broken(&long), "200 characters is still checked");
+        assert!(not(&format!("{long}q")), "201 characters is not an address");
+    }
+
+    #[test]
+    fn an_ark_address_must_use_bech32m() {
+        // Made-up addresses (not anyone's wallet): the same data with a bech32
+        // checksum, and with the bech32m checksum Ark addresses use.
+        let bech32 = "ark1q9999999999999999999999999999999999999999999999999999999999998c909m";
+        let bech32m = "ark1q999999999999999999999999999999999999999999999999999999999999jy4rqe";
+        assert_eq!(check(bech32, "live").unwrap_err(), BROKEN_ADDRESS);
+        assert!(check(bech32m, "live").is_ok());
+        assert_eq!(ark_server_tag(bech32), None, "a bech32 one names no server");
+        assert!(ark_server_tag(bech32m).is_some());
+        assert_eq!(
+            ark_server_tag("ark1q9999993ld58q"),
+            None,
+            "too short to name a server"
+        );
+        assert!(
+            ark_server_tag("ark1q9999999thumm3").is_some(),
+            "8 values are just enough"
+        );
+    }
+
+    #[test]
+    fn old_test_network_addresses_get_the_explanation_for_this_server() {
+        let t = "mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn";
+        assert_eq!(check(t, "live").unwrap_err(), TEST_ADDRESS_ON_LIVE_SERVER);
+        assert_eq!(check(t, "test").unwrap_err(), OLD_TEST_ADDRESS);
+    }
+
+    #[test]
+    fn the_largest_smallest_withdrawal_is_allowed_and_one_more_is_not() {
+        assert!(check_min(Rail::Ark, MAX_MIN_SATS).is_ok());
+        assert!(check_min(Rail::Ark, MAX_MIN_SATS + 1).is_err());
+    }
+
+    #[test]
+    fn a_later_change_takes_effect_after_exactly_the_delay() {
+        let c = conn();
+        set_initial(&c, TARK_A, "test").unwrap();
+        let before = now_unix();
+        let Change::Pending(at) = request_change(
+            &c,
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            3600,
+            None,
+            "test",
+        )
+        .unwrap() else {
+            panic!("must wait")
+        };
+        assert!(
+            (before + 3600..=now_unix() + 3600).contains(&at),
+            "{at} vs {before}"
+        );
+    }
 }

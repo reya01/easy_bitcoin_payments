@@ -955,4 +955,157 @@ mod tests {
         assert!(report.updated.is_empty());
         assert_eq!(service.usd_per_btc(), Some(100_100.0));
     }
+
+    // Found by mutation testing (26 November 2026).
+    #[test]
+    fn fiat_to_sats_says_why_and_takes_its_exact_limits() {
+        let e = fiat_to_sats(f64::NAN, 60_000.0).unwrap_err();
+        assert!(
+            matches!(&e, AppError::BadRequest(m) if m.contains("positive")),
+            "{e:?}"
+        );
+        let e = fiat_to_sats(-3.0, 60_000.0).unwrap_err();
+        assert!(
+            matches!(&e, AppError::BadRequest(m) if m.contains("positive")),
+            "{e:?}"
+        );
+        // A bad price is our fault, not the customer's.
+        assert!(matches!(
+            fiat_to_sats(10.0, -5.0),
+            Err(AppError::Internal(_))
+        ));
+        assert!(matches!(
+            fiat_to_sats(10.0, f64::NAN),
+            Err(AppError::Internal(_))
+        ));
+        // Exactly 1 sat and exactly the whole money supply are allowed.
+        assert_eq!(fiat_to_sats(1.0, 100_000_000.0).unwrap(), 1);
+        assert_eq!(
+            fiat_to_sats(21_000_000.0, 1.0).unwrap(),
+            crate::invoice::MAX_INVOICE_SATS
+        );
+    }
+
+    #[test]
+    fn zero_sats_show_zero_dollars() {
+        assert_eq!(sats_with_usd(0, Some(60_000.0)), "0 sats ($0.00)");
+        assert_eq!(sats_with_usd(1, Some(60_000.0)), "1 sats (<$0.01)");
+    }
+
+    #[test]
+    fn every_source_has_a_web_address() {
+        for s in default_sources() {
+            assert!(s.url.starts_with("https://"), "{}", s.url);
+        }
+    }
+
+    #[test]
+    fn a_saved_price_from_the_future_or_older_than_the_one_held_is_ignored() {
+        let now = now_unix();
+        let future = RateService::new();
+        future.load_json(&format!(
+            r#"{{"USD":{{"rate":60000.0,"at":{},"sources":[]}}}}"#,
+            now + 3_600
+        ));
+        assert_eq!(
+            future.usd_per_btc(),
+            None,
+            "an hour in the future is ignored"
+        );
+        let near = RateService::new();
+        near.load_json(&format!(
+            r#"{{"USD":{{"rate":60000.0,"at":{},"sources":[]}}}}"#,
+            now + 60
+        ));
+        assert_eq!(
+            near.usd_per_btc(),
+            Some(60_000.0),
+            "a minute of clock skew is fine"
+        );
+        let zero = RateService::new();
+        zero.load_json(&format!(
+            r#"{{"USD":{{"rate":0.0,"at":{now},"sources":[]}}}}"#
+        ));
+        assert_eq!(zero.usd_per_btc(), None, "a price of zero is ignored");
+        let held = RateService::seeded_for_tests(&[("USD", 61_000.0)]);
+        held.load_json(&format!(
+            r#"{{"USD":{{"rate":1.0,"at":{},"sources":[]}}}}"#,
+            now - 600
+        ));
+        assert_eq!(
+            held.usd_per_btc(),
+            Some(61_000.0),
+            "an older saved price never replaces a newer one"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_saved_price_read_for_bookkeeping_is_checked() {
+        let db = crate::db::Db::open(":memory:").unwrap();
+        let now = now_unix();
+        let at = |rate: f64, age: i64| {
+            format!(
+                r#"{{"USD":{{"rate":{rate},"at":{},"sources":[]}}}}"#,
+                now - age
+            )
+        };
+        for (json, want) in [
+            (at(60_000.0, 0), Some(60_000.0)),
+            (at(60_000.0, MAX_AGE_SECS), Some(60_000.0)),
+            (at(60_000.0, MAX_AGE_SECS + 1), None),
+            (at(-5.0, 0), None),
+            (at(0.0, 0), None),
+        ] {
+            let got = db
+                .call(move |c| {
+                    crate::settings::set(c, SETTINGS_KEY, &json)?;
+                    Ok(saved_quote(c, "usd", now).map(|q| q.fiat_per_btc))
+                })
+                .await
+                .unwrap();
+            assert_eq!(got, want);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_refresh_round_saves_new_prices_and_only_new_prices() {
+        let base = mock_server().await;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let db = crate::db::Db::open(":memory:").unwrap();
+        let saved = || {
+            let db = db.clone();
+            async move {
+                db.call(|c| crate::settings::get(c, SETTINGS_KEY))
+                    .await
+                    .unwrap()
+            }
+        };
+        let service = RateService::new();
+        let dead = vec![Source {
+            kind: SourceKind::Kraken,
+            url: format!("{base}/broken"),
+        }];
+        service.run_round(&client, &dead, &db).await;
+        assert_eq!(saved().await, None, "nothing new, nothing saved");
+        let good = vec![
+            Source {
+                kind: SourceKind::MempoolSpace,
+                url: format!("{base}/mempool"),
+            },
+            Source {
+                kind: SourceKind::Coinbase,
+                url: format!("{base}/coinbase"),
+            },
+        ];
+        service.run_round(&client, &good, &db).await;
+        let json = saved()
+            .await
+            .expect("new prices are saved for the next start");
+        let restarted = RateService::new();
+        restarted.load_json(&json);
+        assert_eq!(restarted.usd_per_btc(), Some(100_100.0));
+    }
 }

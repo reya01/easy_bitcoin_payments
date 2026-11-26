@@ -1063,6 +1063,47 @@ mod tests {
         .unwrap();
     }
 
+    #[tokio::test]
+    async fn the_whole_money_supply_is_the_largest_invoice() {
+        // Found by mutation testing (26 November 2026).
+        let (db, store_id) = setup().await;
+        db.call(move |conn| {
+            assert!(insert(conn, &new_invoice(&store_id, "inv_max", MAX_INVOICE_SATS)).is_ok());
+            assert!(insert(
+                conn,
+                &new_invoice(&store_id, "inv_over", MAX_INVOICE_SATS + 1)
+            )
+            .is_err());
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_expiry_sweep_returns_what_it_expired() {
+        // The watcher sends "invoice.expired" for exactly these.
+        let (db, store_id) = setup().await;
+        db.call(move |conn| {
+            let mut due = new_invoice(&store_id, "inv_due", 1000);
+            due.expires_at = now_unix() - 5;
+            insert(conn, &due)?;
+            let mut later = new_invoice(&store_id, "inv_later", 1000);
+            later.ark_address = "ark1qinv_later".into();
+            insert(conn, &later)?;
+            let out = expire_due(conn)?;
+            assert_eq!(
+                out.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+                vec!["inv_due"]
+            );
+            assert_eq!(out[0].status, InvoiceStatus::Expired);
+            assert!(expire_due(conn)?.is_empty(), "nothing twice");
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
     #[test]
     fn payment_status_math() {
         assert_eq!(status_after_payment(1000, 1000), InvoiceStatus::Paid);

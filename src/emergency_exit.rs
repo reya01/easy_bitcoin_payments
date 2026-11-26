@@ -652,4 +652,54 @@ mod tests {
         assert!(check_destination("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "test").is_err());
         assert!(check_destination("1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", "live").is_ok());
     }
+
+    // Second mutation run (26 November 2026): first time this file was included.
+    #[test]
+    fn the_fee_money_kept_back_has_an_exact_smallest_send() {
+        let rate = 3;
+        let fee = rate * LEFTOVER_FEE_VBYTES * LEFTOVER_FEE_PAD_PERCENT / 100;
+        let just_enough = RESERVE_FLOOR_SATS + fee + MIN_LEFTOVER_SEND_SATS;
+        assert_eq!(
+            leftover_plan(true, false, just_enough, rate),
+            Ok(Leftover::Amount(MIN_LEFTOVER_SEND_SATS))
+        );
+        assert!(leftover_plan(true, false, just_enough - 1, rate).is_err());
+    }
+
+    #[test]
+    fn each_unpriceable_fee_error_is_recognised_on_its_own() {
+        assert!(fee_cannot_be_priced("Non-Standard VTXO"));
+        assert!(fee_cannot_be_priced("exit chain is not relayable"));
+        assert!(fee_cannot_be_priced("output below the dust limit"));
+        assert!(!fee_cannot_be_priced("connection refused"));
+    }
+
+    #[test]
+    fn coin_refresh_timing() {
+        assert_eq!(
+            PREPARE_GAP_SECS, 3_000,
+            "about an hour between refresh rounds on mainnet"
+        );
+        assert_eq!(PREPARE_SHOWN_SECS, 7_200);
+    }
+
+    #[test]
+    fn every_known_state_has_its_own_words() {
+        let states = [
+            "start",
+            "processing",
+            "awaiting-delta",
+            "claimable",
+            "claim-in-progress",
+            "claimed",
+            "vtxo-already-spent",
+            "vtxo-swept",
+            "canceled",
+        ];
+        let words: std::collections::HashSet<&str> =
+            states.iter().map(|s| state_words(s)).collect();
+        assert_eq!(words.len(), states.len(), "two states share words");
+        assert!(!words.contains("in progress"), "a known state fell through");
+        assert_eq!(state_words("something-new"), "in progress");
+    }
 }

@@ -54,4 +54,7 @@ exclude_re = [
     'replace \|\| with && in PollingWatcher::emit_invoice_event',
     # An unknown expiry (0) is urgent either way.
     'replace > with >= in upsert_vtxo_expiry',
+    # Unreachable while ENABLED_ON_MAINNET is true (it returns None first). If that switch is
+    # ever turned off, remove this line and test the lock.
+    'in not_enabled_reason',
 ]

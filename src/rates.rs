@@ -1108,4 +1108,23 @@ mod tests {
         restarted.load_json(&json);
         assert_eq!(restarted.usd_per_btc(), Some(100_100.0));
     }
+
+    #[test]
+    fn a_bad_price_shows_sats_only() {
+        // Second mutation run (26 November 2026).
+        assert_eq!(sats_with_usd(1_000, Some(-5.0)), "1,000 sats");
+        assert_eq!(sats_with_usd(1_000, Some(0.0)), "1,000 sats");
+        assert_eq!(sats_with_usd(1_000, Some(f64::NAN)), "1,000 sats");
+    }
+
+    #[test]
+    fn a_newer_saved_price_replaces_an_older_one() {
+        let held = RateService::seeded_for_tests(&[("USD", 61_000.0)]);
+        held.write().get_mut("USD").unwrap().at -= 600;
+        held.load_json(&format!(
+            r#"{{"USD":{{"rate":62000.0,"at":{},"sources":[]}}}}"#,
+            now_unix()
+        ));
+        assert_eq!(held.usd_per_btc(), Some(62_000.0));
+    }
 }

@@ -1247,4 +1247,11 @@ pub(crate) mod tests {
             "{at} vs {before}"
         );
     }
+
+    #[test]
+    fn only_ark_addresses_name_an_ark_server() {
+        // BIP350's own example: a valid bech32m address, but Bitcoin, not Ark.
+        let taproot = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0";
+        assert_eq!(ark_server_tag(taproot), None);
+    }
 }

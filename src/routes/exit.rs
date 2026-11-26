@@ -393,6 +393,15 @@ pub async fn start(
         return Err(AppError::BadRequest(why));
     }
 
+    // Save where the money goes BEFORE asking the wallet: if the start goes
+    // through but its answer is lost, claiming still uses this address.
+    let dest_saved = destination.clone();
+    state
+        .db
+        .call(move |conn| crate::settings::set(conn, EXIT_DESTINATION_KEY, &dest_saved))
+        .await?;
+    // No automatic transfer may run while the coins are handed to the withdrawal.
+    let _cycle = crate::wallet::settlement::lock_cycle().await;
     c.start_exit_all().await?;
     let now = crate::util::now_unix();
     let detail = format!(
@@ -406,6 +415,7 @@ pub async fn start(
             crate::settings::set(conn, ee::EXIT_STARTED_AT_KEY, &now.to_string())?;
             crate::settings::set(conn, EXIT_DESTINATION_KEY, &destination)?;
             audit(conn, "exit.started", &detail);
+            record_exit_movement(conn, "exit_start", ark_sats, &destination, &detail)?;
             let _ = crate::alerts::queue_notice(conn, "exit_started");
             Ok(())
         })
@@ -414,6 +424,34 @@ pub async fn start(
         "started": true,
         "message": "Started. The server now sends the exit transactions by itself over the next hours. Leave the server on, and download a fresh backup now: the backup carries the withdrawal, the 12 words do not.",
     })))
+}
+
+/// Write an emergency-withdrawal money movement to the transfers list
+/// (`settlements`), which is kept for good: the security log is trimmed after
+/// a year, and a year later the owner must still see where the coins went.
+/// `amount_sats` is 0 when the wallet does not say (claiming, or sending
+/// everything): the page then says to check the wallet. Found by review
+/// (26 November 2026).
+pub(crate) fn record_exit_movement(
+    conn: &rusqlite::Connection,
+    kind: &str,
+    amount_sats: i64,
+    destination: &str,
+    detail: &str,
+) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO settlements (id, kind, amount_sats, destination, status, detail, created_at)
+         VALUES (?1, ?2, ?3, ?4, 'broadcast', ?5, ?6)",
+        rusqlite::params![
+            crate::util::new_id("stl"),
+            kind,
+            amount_sats.max(0),
+            destination,
+            detail,
+            crate::util::now_unix()
+        ],
+    )?;
+    Ok(())
 }
 
 /// `POST /admin/exit/cancel` — stop the exits barkd still allows stopping.
@@ -492,8 +530,21 @@ pub async fn claim(
             "Nothing is ready to claim yet. The page says when it is.".into(),
         ));
     }
-    c.claim_exits(&destination).await?;
-    let detail = format!("emergency withdrawal claimed to {}", short(&destination));
+    let answer = c.claim_exits(&destination).await?;
+    let txid = answer
+        .get("txid")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let detail = format!(
+        "emergency withdrawal claimed to {}{}; the amount is what arrives after network fees",
+        short(&destination),
+        if txid.is_empty() {
+            String::new()
+        } else {
+            format!(", transaction {txid}")
+        }
+    );
     state
         .db
         .call(move |conn| {
@@ -502,6 +553,7 @@ pub async fn claim(
                 rusqlite::params![ee::EXIT_CLAIMABLE_KEY],
             )?;
             audit(conn, "exit.claimed", &detail);
+            record_exit_movement(conn, "exit_claim", 0, &destination, &detail)?;
             let _ = crate::alerts::queue_notice(
                 conn,
                 if typed_now {
@@ -662,19 +714,29 @@ pub async fn leftover(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    let tx = if txid.is_empty() {
+        String::new()
+    } else {
+        format!(", transaction {txid}")
+    };
     let detail = match plan {
         ee::Leftover::Everything => {
-            format!("left-over on-chain money sent to {}", short(&destination))
+            format!("left-over on-chain money sent to {}{tx}", short(&destination))
         }
         ee::Leftover::Amount(sats) => format!(
-            "{sats} sats of on-chain money sent to {} (5,000 kept for the emergency withdrawal)",
+            "{sats} sats of on-chain money sent to {}{tx} (5,000 kept for the emergency withdrawal)",
             short(&destination)
         ),
+    };
+    let amount = match plan {
+        ee::Leftover::Everything => 0,
+        ee::Leftover::Amount(sats) => sats,
     };
     state
         .db
         .call(move |conn| {
             audit(conn, "exit.leftover_sent", &detail);
+            record_exit_movement(conn, "exit_leftover", amount, &destination, &detail)?;
             let _ = crate::alerts::queue_notice(conn, "exit_leftover_sent");
             Ok(())
         })
@@ -719,5 +781,35 @@ mod tests {
         // While a withdrawal is on record, its own address binds.
         let d = leftover_destination(&typed(), Some(OLD.into()), true, "test").unwrap();
         assert_eq!(d, OLD);
+    }
+
+    #[tokio::test]
+    async fn emergency_withdrawal_movements_are_kept_with_the_transfers() {
+        let db = crate::db::Db::open(":memory:").unwrap();
+        db.call(|conn| {
+            record_exit_movement(conn, "exit_start", 40_000, OLD, "started")?;
+            record_exit_movement(conn, "exit_claim", 0, OLD, "claimed, transaction abc")?;
+            record_exit_movement(conn, "exit_leftover", -5, OLD, "sent back")?;
+            let rows: Vec<(String, i64, String, String)> = conn
+                .prepare(
+                    "SELECT kind, amount_sats, destination, status FROM settlements ORDER BY rowid",
+                )?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .collect::<Result<_, _>>()?;
+            assert_eq!(
+                rows,
+                vec![
+                    ("exit_start".into(), 40_000, OLD.into(), "broadcast".into()),
+                    ("exit_claim".into(), 0, OLD.into(), "broadcast".into()),
+                    ("exit_leftover".into(), 0, OLD.into(), "broadcast".into()),
+                ]
+            );
+            // They are not counted as transfers to the payout wallet, and never
+            // look like an unclear send.
+            assert!(crate::wallet::settlement::unsettled_send(conn)?.is_none());
+            Ok(())
+        })
+        .await
+        .unwrap();
     }
 }

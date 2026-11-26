@@ -329,6 +329,29 @@ def main():
         st = wpcli("eval", f"echo wc_get_order({order2})->get_status();")
         assert st == "on-hold", st
 
+    @step("a payment to an order's earlier invoice still completes the order")
+    def _():
+        # The server makes a new invoice when an order's amount changes and the
+        # shop then remembers only the newest; an older one can still be paid.
+        code, hdr, _c = jhttp("GET", f"{wp}/?rest_route=/wc/store/v1/cart")
+        h = {"Nonce": hdr.get("Nonce") or hdr.get("nonce"), "Cart-Token": hdr.get("Cart-Token") or hdr.get("cart-token")}
+        code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/cart/add-item", {"id": int(pid), "quantity": 1}, h)
+        assert code in (200, 201), (code, str(r)[:300])
+        addr = {"first_name": "Mary", "last_name": "Jackson", "address_1": "4 Main St", "city": "Austin",
+                "state": "TX", "postcode": "78701", "country": "US", "email": "mj@example.com", "phone": ""}
+        code, _, r = jhttp("POST", f"{wp}/?rest_route=/wc/store/v1/checkout", {
+            "billing_address": addr, "shipping_address": addr, "payment_method": "ebp_bitcoin", "payment_data": []}, h)
+        assert code == 200, (code, str(r)[:600])
+        order4 = r["order_id"]
+        inv_id = r["payment_result"]["redirect_url"].rsplit("/", 1)[1]
+        # As if a newer invoice had replaced it in the shop's memory.
+        wpcli("eval", f"$o=wc_get_order({order4}); $o->update_meta_data('_ebp_invoice_id','inv_newer_one'); $o->save();")
+        code, _, inv = jhttp("GET", f"{base}/api/v1/invoices/{inv_id}", headers=inv_auth)
+        assert code == 200, (code, inv)
+        fake(action="pay_ark", address=inv["ark_address"], sats=inv["amount_sats"])
+        st = lambda: wpcli("eval", f"echo wc_get_order({order4})->get_status();")
+        wait_for(lambda: st() in ("processing", "completed"), "order paid through its earlier invoice", timeout=90)
+
     @step("an order whose payment notice never arrived is completed by the hourly check")
     def _():
         code, hdr, _c = jhttp("GET", f"{wp}/?rest_route=/wc/store/v1/cart")

@@ -471,9 +471,13 @@ impl PollingWatcher {
             }
         });
         // An underpaid invoice accepts a top-up only inside the short
-        // window after its first partial payment.
+        // window after its first partial payment. The same holds once such an
+        // invoice has expired: a late "full" payment never bypasses the window.
         let invoice = match invoice {
-            Some(i) if i.status == crate::models::InvoiceStatus::Underpaid => {
+            Some(i)
+                if i.status == crate::models::InvoiceStatus::Underpaid
+                    || (i.status == crate::models::InvoiceStatus::Expired && i.paid_sats > 0) =>
+            {
                 let (id, seen) = (i.id.clone(), payment.detected_at);
                 let closed = self
                     .db
@@ -495,39 +499,7 @@ impl PollingWatcher {
             // till and MUST be recorded (late payment) rather than
             // dropped. Money at an address of no payment request is
             // recorded too ("Money from elsewhere"), see `record_unmatched`.
-            let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
-            let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
-            let (amount, seen) = (payment.amount_sats, payment.detected_at);
-            let is_new = self
-                .db
-                .call(move |conn| {
-                    let is_new = invoice::record_unmatched(
-                        conn,
-                        &invoice::UnmatchedInput {
-                            address: &addr,
-                            rail: &rail,
-                            amount_sats: amount,
-                            vtxo_id: vtxo.as_deref(),
-                            txid: txid.as_deref(),
-                            detected_at: seen,
-                            reason_override: late_reason,
-                        },
-                    )?;
-                    // Money for an invoice from the Invoices tab that arrived after it
-                    // stopped taking payments: one phone notice, the first time only
-                    // (no amount, number or name, like every alert).
-                    if is_new && late_payment_is_for_manual_invoice(conn, &addr, amount, seen)? {
-                        crate::alerts::queue_notice(conn, "invoice_paid_late")?;
-                    }
-                    Ok(is_new)
-                })
-                .await?;
-            if is_new {
-                tracing::warn!(
-                    amount_sats = payment.amount_sats,
-                    "late/unmatched payment recorded in unmatched_payments; merchant must reconcile"
-                );
-            }
+            self.park(&payment, late_reason).await?;
             return Ok(false);
         };
 
@@ -589,6 +561,21 @@ impl PollingWatcher {
         };
 
         let Some((updated, status)) = outcome else {
+            // Not counted. Either the database already holds this payment (a
+            // repeat), or the invoice would not take it: for example a part
+            // payment that reached an invoice which expired in the meantime.
+            // The money is in the wallet either way, so it is written down
+            // under Alerts unless it is already held somewhere. (Before, this
+            // returned quietly and such a payment was never recorded.)
+            let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+            let held = self
+                .db
+                .call(move |conn| invoice::already_recorded(conn, vtxo.as_deref(), txid.as_deref()))
+                .await?;
+            if !held {
+                self.park(&payment, late_reason.or(Some("paid_after_expiry")))
+                    .await?;
+            }
             return Ok(false);
         };
 
@@ -602,6 +589,49 @@ impl PollingWatcher {
         self.emit_invoice_event(&store_id, &updated, status, true)
             .await;
         Ok(true)
+    }
+
+    /// Write a payment that is not counted to an order down under Alerts
+    /// (`unmatched_payments`), so money in the wallet is never unexplained.
+    async fn park(
+        &self,
+        payment: &WalletPayment,
+        reason: Option<&'static str>,
+    ) -> Result<(), AppError> {
+        let (addr, rail) = (payment.address.clone(), payment.rail.as_str().to_string());
+        let (vtxo, txid) = (payment.vtxo_id.clone(), payment.txid.clone());
+        let (amount, seen) = (payment.amount_sats, payment.detected_at);
+        let is_new = self
+            .db
+            .call(move |conn| {
+                let is_new = invoice::record_unmatched(
+                    conn,
+                    &invoice::UnmatchedInput {
+                        address: &addr,
+                        rail: &rail,
+                        amount_sats: amount,
+                        vtxo_id: vtxo.as_deref(),
+                        txid: txid.as_deref(),
+                        detected_at: seen,
+                        reason_override: reason,
+                    },
+                )?;
+                // Money for an invoice from the Invoices tab that arrived after it
+                // stopped taking payments: one phone notice, the first time only
+                // (no amount, number or name, like every alert).
+                if is_new && late_payment_is_for_manual_invoice(conn, &addr, amount, seen)? {
+                    crate::alerts::queue_notice(conn, "invoice_paid_late")?;
+                }
+                Ok(is_new)
+            })
+            .await?;
+        if is_new {
+            tracing::warn!(
+                amount_sats = payment.amount_sats,
+                "late/unmatched payment recorded in unmatched_payments; merchant must reconcile"
+            );
+        }
+        Ok(())
     }
 
     async fn emit_invoice_event(
@@ -1527,6 +1557,153 @@ mod tests {
         watcher.tick().await.unwrap();
         let sql = "SELECT COUNT(*) FROM webhook_deliveries WHERE event = 'invoice.expired'";
         assert_eq!(count(&db, sql).await, 1, "queued once, never twice");
+    }
+
+    async fn status_and_paid(db: &Db) -> (String, i64) {
+        db.call(|c| {
+            Ok(c.query_row(
+                "SELECT status, paid_sats FROM invoices WHERE id = 'inv_1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_part_payment_reaching_an_invoice_that_just_expired_is_written_down() {
+        // Found by review (26 November 2026): a part payment seen inside the
+        // 2-minute grace, or even before the deadline, on an invoice that had
+        // already been flipped to expired, was refused by record_payment and
+        // then dropped without a trace, every tick, forever.
+        let (db, _) = setup(vec![]).await;
+        expire_inv_1(&db, 30).await;
+        let mut before_deadline = ark_payment("v_part_a", 300);
+        before_deadline.detected_at = now_unix() - 60;
+        let in_grace = ark_payment("v_part_b", 400);
+        let watcher = late_watcher(&db, vec![before_deadline, in_grace]);
+        assert_eq!(
+            watcher.tick().await.unwrap(),
+            0,
+            "a part payment never revives an expired invoice"
+        );
+        let parked = "SELECT COUNT(*) FROM unmatched_payments WHERE invoice_id = 'inv_1' AND reason = 'paid_after_expiry'";
+        assert_eq!(
+            count(&db, parked).await,
+            2,
+            "both are written down with their invoice"
+        );
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM payments").await,
+            0,
+            "and not counted"
+        );
+        // Remembered: written once, and the next check skips them.
+        watcher.tick().await.unwrap();
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            2
+        );
+        assert_eq!(status_and_paid(&db).await, ("expired".to_string(), 0));
+    }
+
+    /// `inv_1` (1,000 sats) got a first part payment of 400 sats 20 minutes ago.
+    async fn part_paid_20_minutes_ago(db: &Db) {
+        db.call(|c| {
+            let first = invoice::ObservedPayment {
+                invoice_id: "inv_1".into(),
+                rail: "ark".into(),
+                amount_sats: 400,
+                received_sats: Some(400),
+                vtxo_id: Some("v_first".into()),
+                txid: None,
+                detected_at: now_unix() - 1_200,
+                confirmed_at: None,
+            };
+            invoice::record_payment(c, &first)?.expect("counted");
+            Ok(())
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_top_up_written_down_as_too_late_is_never_also_counted_after_expiry() {
+        // Found by review (26 November 2026): after the invoice expired and the
+        // hourly full pass (or a restart) looked at the parked top-up again, it
+        // counted as a "full late payment" too: the same money in two places.
+        let (db, _) = setup(vec![]).await;
+        part_paid_20_minutes_ago(&db).await;
+        let mut top_up = ark_payment("v_rest", 600);
+        top_up.detected_at = now_unix() - 120; // 18 minutes after the first: window closed
+        let watcher = late_watcher(&db, vec![top_up]);
+        assert_eq!(watcher.tick().await.unwrap(), 0);
+        let parked = "SELECT COUNT(*) FROM unmatched_payments WHERE reason = 'topup_window_closed'";
+        assert_eq!(count(&db, parked).await, 1);
+        // The invoice expires; then everything is looked at again.
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET status = 'expired', expires_at = ?1 WHERE id = 'inv_1'",
+                [now_unix() - 30],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        watcher.handled.lock().unwrap().1 = 1;
+        assert_eq!(
+            watcher.tick().await.unwrap(),
+            0,
+            "not counted on the second look"
+        );
+        assert_eq!(status_and_paid(&db).await, ("expired".to_string(), 400));
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM payments").await, 1);
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn a_late_top_up_first_seen_after_expiry_still_respects_the_window() {
+        let (db, _) = setup(vec![]).await;
+        part_paid_20_minutes_ago(&db).await;
+        db.call(|c| {
+            c.execute(
+                "UPDATE invoices SET status = 'expired', expires_at = ?1 WHERE id = 'inv_1'",
+                [now_unix() - 30],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let mut top_up = ark_payment("v_rest", 600);
+        top_up.detected_at = now_unix() - 120;
+        let watcher = late_watcher(&db, vec![top_up]);
+        assert_eq!(
+            watcher.tick().await.unwrap(),
+            0,
+            "the top-up window applies after expiry too"
+        );
+        let parked = "SELECT COUNT(*) FROM unmatched_payments WHERE reason = 'topup_window_closed'";
+        assert_eq!(count(&db, parked).await, 1);
+        assert_eq!(status_and_paid(&db).await, ("expired".to_string(), 400));
+    }
+
+    #[tokio::test]
+    async fn a_full_payment_just_after_the_deadline_still_completes_the_order() {
+        // The fixes above must not stop the rule that a full payment inside
+        // the late window completes an expired invoice.
+        let (db, _) = setup(vec![]).await;
+        expire_inv_1(&db, 30).await;
+        let watcher = late_watcher(&db, vec![ark_payment("v_full", 1000)]);
+        assert_eq!(watcher.tick().await.unwrap(), 1);
+        assert_eq!(status_and_paid(&db).await, ("paid".to_string(), 1000));
+        assert_eq!(
+            count(&db, "SELECT COUNT(*) FROM unmatched_payments").await,
+            0
+        );
     }
 
     #[tokio::test]

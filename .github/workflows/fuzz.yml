@@ -1,8 +1,13 @@
 # Fuzz tests for the code that reads outside input (see fuzz/README.md).
-# Weekly and on demand; never on pull requests (each target runs for 10 minutes).
+# Weekly and on demand (10 minutes per target), plus a 1-minute smoke run on pull requests
+# that change the fuzz tests themselves.
 name: fuzz
 
 on:
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
   schedule:
     - cron: "17 4 * * 2"
   workflow_dispatch:
@@ -35,7 +40,7 @@ jobs:
       - name: Run
         working-directory: fuzz
         env:
-          SECONDS_PER_TARGET: ${{ inputs.seconds || '600' }}
+          SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '600' }}
         run: |
           set -o pipefail
           cargo fuzz run "${{ matrix.target }}" -- -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 2>&1 | tail -80

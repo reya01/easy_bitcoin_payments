@@ -1,0 +1,41 @@
+# Fuzz tests for the code that reads outside input (see fuzz/README.md).
+# Weekly and on demand; never on pull requests (each target runs for 10 minutes).
+name: fuzz
+
+on:
+  schedule:
+    - cron: "17 4 * * 2"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Seconds per target"
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lightning_invoice, payout_address, webhook_signature, wallet_history, fiat_amount]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Nightly toolchain (pinned in fuzz/rust-toolchain.toml)
+        working-directory: fuzz
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Install cargo-fuzz (pinned)
+        run: cargo install --locked cargo-fuzz@0.12.0
+      - name: Run
+        working-directory: fuzz
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '600' }}
+        run: |
+          set -o pipefail
+          cargo fuzz run "${{ matrix.target }}" -- -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 2>&1 | tail -80

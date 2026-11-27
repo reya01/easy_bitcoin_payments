@@ -26,6 +26,8 @@ without pasting it.
 
 Known limits we already document are in `docs/KNOWN_ISSUES.md` and
 `docs/dev/archive/SECURITY_REVIEW_2026-11-05.md`.
+What the code already guards, and what makes a useful report, is in
+`docs/dev/REVIEWING.md`.
 
 ## Found a non-security bug?
 

@@ -2,10 +2,10 @@
 
 For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md).
 
-## Where things stand (25 November 2026)
+## Where things stand (27 November 2026)
 
-- **Latest release:** `v0.3.3-rc5` (pre-release, 25 November 2026; invoices show late money and gain shortcuts, money from elsewhere listed, Noah/Arké named in setup; migration 0017). Earlier: `v0.1.0-rc1`, `-rc2`,
-  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1` to `-rc3`, `v0.3.3-rc1` to `-rc4`. The release process is in
+- **Latest release:** `v0.3.3-rc6` (pre-release, 27 November 2026; money fixes from two code reviews, a download that rebuilds byte for byte, property, mutation and fuzz tests; no migration since rc5). Earlier: `v0.1.0-rc1`, `-rc2`,
+  `v0.2.0-rc1` to `-rc5`, `v0.2.1-rc1`, `-rc2`, `v0.2.2-rc1`, `v0.3.0-rc1` to `-rc4`, `v0.3.1`, `v0.3.2-rc1` to `-rc3`, `v0.3.3-rc1` to `-rc5`. The release process is in
   [RC_CHECKLIST.md](RC_CHECKLIST.md); [CHANGELOG.md](../../CHANGELOG.md) says what is in each.
 - **Experimental.** Signet (play money) is the default; mainnet is opt-in and has been tried end
   to end with small real money (Lightning and Ark payments, a real WooCommerce shop, payouts,

@@ -304,8 +304,11 @@ pub fn check(input: &str, mode: &str) -> Result<String, String> {
         return Err(BROKEN_ADDRESS.into());
     };
     let good = if is_ark {
-        // Ark addresses are bech32m with the `ark` / `tark` prefix.
-        decoded.bech32m && (decoded.hrp == "ark" || decoded.hrp == "tark")
+        // Ark addresses are bech32m with the `ark` / `tark` prefix, and carry
+        // at least a version, the 4-byte server tag and a 33-byte key.
+        decoded.bech32m
+            && (decoded.hrp == "ark" || decoded.hrp == "tark")
+            && decoded.data.len() >= ARK_MIN_DATA_LEN
     } else {
         matches!(decoded.hrp.as_str(), "bc" | "tb" | "bcrt") && segwit_program_ok(&decoded)
     };
@@ -315,6 +318,11 @@ pub fn check(input: &str, mode: &str) -> Result<String, String> {
         Err(BROKEN_ADDRESS.into())
     }
 }
+
+/// The fewest 5-bit values an Ark address can hold: one for the version, then
+/// the 4-byte server tag and a 33-byte public key (37 bytes, 60 values). Real
+/// addresses are longer; anything shorter cannot be one.
+const ARK_MIN_DATA_LEN: usize = 1 + (37_usize * 8).div_ceil(5);
 
 const BASE58: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
@@ -511,14 +519,18 @@ pub struct Status {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Change {
-    /// Took effect right away (first address, or delay of 0).
+    /// Took effect right away (already the address, or a delay of 0 set in the
+    /// server configuration, for tests).
     Now,
     /// Will take effect at this time unless cancelled.
     Pending(i64),
 }
 
-/// Promote a pending address whose time has come.
-fn promote_if_due(conn: &Connection) -> Result<(), AppError> {
+/// Promote a pending address whose time has come. It is checked again
+/// against this server's network first (the server may have been switched
+/// between test and live since it was asked for): one that no longer passes
+/// is dropped and the current address stays, so sweeps keep working.
+fn promote_if_due(conn: &Connection, mode: &str) -> Result<(), AppError> {
     let (Some(pending), Some(at)) = (
         crate::settings::get(conn, KEY_PENDING)?,
         crate::settings::get(conn, KEY_EFFECTIVE_AT)?.and_then(|v| v.parse::<i64>().ok()),
@@ -526,6 +538,19 @@ fn promote_if_due(conn: &Connection) -> Result<(), AppError> {
         return Ok(());
     };
     if at > now_unix() {
+        return Ok(());
+    }
+    if let Err(why) = check(&pending, mode) {
+        clear_pending(conn)?;
+        audit(
+            conn,
+            "payout.change_dropped",
+            &format!(
+                "the payout address change ({}) was not applied: it no longer passes the checks ({why}); the current address stays",
+                short(&pending)
+            ),
+        );
+        let _ = crate::alerts::queue_notice(conn, "payout_dropped");
         return Ok(());
     }
     crate::settings::set(conn, KEY_ACTIVE, &pending)?;
@@ -561,8 +586,12 @@ fn short(addr: &str) -> String {
     format!("{}…{}", &addr[..8], &addr[addr.len() - 6..])
 }
 
-pub fn status(conn: &Connection, server_config: Option<&str>) -> Result<Status, AppError> {
-    promote_if_due(conn)?;
+pub fn status(
+    conn: &Connection,
+    server_config: Option<&str>,
+    mode: &str,
+) -> Result<Status, AppError> {
+    promote_if_due(conn, mode)?;
     if let Some(cfg) = server_config.filter(|d| !d.trim().is_empty()) {
         return Ok(Status {
             active: Some(cfg.trim().to_string()),
@@ -653,8 +682,9 @@ pub fn clear_min(conn: &Connection, rail: Rail) -> Result<(), AppError> {
 pub fn effective(
     conn: &Connection,
     server_config: Option<&str>,
+    mode: &str,
 ) -> Result<Option<String>, AppError> {
-    Ok(status(conn, server_config)?.active)
+    Ok(status(conn, server_config, mode)?.active)
 }
 
 /// Wizard: set the first address immediately.
@@ -704,7 +734,7 @@ pub fn request_change(
         ));
     }
     let a = validate(address, mode)?;
-    promote_if_due(conn)?;
+    promote_if_due(conn, mode)?;
     let current = crate::settings::get(conn, KEY_ACTIVE)?;
     if current.as_deref() == Some(a.as_str()) {
         clear_pending(conn)?;
@@ -1100,20 +1130,20 @@ pub(crate) mod tests {
         let a = TARK_A;
         let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
         set_initial(&c, a, "test").unwrap();
-        assert_eq!(effective(&c, None).unwrap().as_deref(), Some(a));
+        assert_eq!(effective(&c, None, "test").unwrap().as_deref(), Some(a));
 
         let Change::Pending(at) = request_change(&c, b, 3600, None, "test").unwrap() else {
             panic!("second change must wait")
         };
         assert!(at > now_unix());
         // Still paying out to the OLD address until the delay passes.
-        assert_eq!(effective(&c, None).unwrap().as_deref(), Some(a));
-        let s = status(&c, None).unwrap();
+        assert_eq!(effective(&c, None, "test").unwrap().as_deref(), Some(a));
+        let s = status(&c, None, "test").unwrap();
         assert_eq!(s.pending.as_deref(), Some(b));
 
         assert!(cancel(&c).unwrap());
-        assert_eq!(status(&c, None).unwrap().pending, None);
-        assert_eq!(effective(&c, None).unwrap().as_deref(), Some(a));
+        assert_eq!(status(&c, None, "test").unwrap().pending, None);
+        assert_eq!(effective(&c, None, "test").unwrap().as_deref(), Some(a));
     }
 
     #[test]
@@ -1135,13 +1165,74 @@ pub(crate) mod tests {
             "the owner's phone hears about the request"
         );
         crate::settings::set(&c, KEY_EFFECTIVE_AT, &(now_unix() - 1).to_string()).unwrap();
-        assert_eq!(effective(&c, None).unwrap().as_deref(), Some(b));
-        assert_eq!(status(&c, None).unwrap().pending, None);
+        assert_eq!(effective(&c, None, "test").unwrap().as_deref(), Some(b));
+        assert_eq!(status(&c, None, "test").unwrap().pending, None);
         assert_eq!(
             queued(),
             "payout_requested,payout_changed",
             "and about it taking effect"
         );
+    }
+
+    #[test]
+    fn a_change_that_no_longer_fits_the_network_is_dropped_and_the_current_address_stays() {
+        let c = conn();
+        set_initial(&c, TARK_A, "test").unwrap();
+        let b = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        request_change(&c, b, 3600, None, "test").unwrap();
+        crate::settings::set(&c, KEY_EFFECTIVE_AT, &(now_unix() - 1).to_string()).unwrap();
+        // The server now runs live: a test-network address must not take over.
+        let s = status(&c, None, "live").unwrap();
+        assert_eq!(
+            s.active.as_deref(),
+            Some(TARK_A),
+            "the current address stays"
+        );
+        assert_eq!(s.pending, None, "the change is dropped, not kept for later");
+        let notices = crate::settings::get(&c, "alert_notices")
+            .unwrap()
+            .unwrap_or_default();
+        assert!(
+            notices.ends_with("payout_dropped"),
+            "the owner hears about it: {notices}"
+        );
+        assert!(!notices.contains("payout_changed"));
+    }
+
+    /// A bech32m string (only for making test addresses).
+    fn bech32m(hrp: &str, data: &[u8]) -> String {
+        let mut values: Vec<u8> = hrp.bytes().map(|c| c >> 5).collect();
+        values.push(0);
+        values.extend(hrp.bytes().map(|c| c & 31));
+        values.extend(data);
+        values.extend([0u8; 6]);
+        let m = polymod(&values) ^ BECH32M;
+        let chk: Vec<u8> = (0..6).map(|i| ((m >> (5 * (5 - i))) & 31) as u8).collect();
+        let chars: String = data
+            .iter()
+            .chain(&chk)
+            .map(|&v| CHARSET.as_bytes()[v as usize] as char)
+            .collect();
+        format!("{hrp}1{chars}")
+    }
+
+    #[test]
+    fn an_ark_address_too_short_to_hold_a_server_tag_and_key_is_refused() {
+        let short = bech32m("tark", &[0u8; ARK_MIN_DATA_LEN - 1]);
+        assert!(
+            decode_bech32(&short).is_some(),
+            "the checksum itself is good"
+        );
+        assert_eq!(check(&short, "test"), Err(BROKEN_ADDRESS.to_string()));
+        let just_enough = bech32m("tark", &[0u8; ARK_MIN_DATA_LEN]);
+        assert!(check(&just_enough, "test").is_ok());
+        // Real addresses are well over the minimum.
+        for a in [TARK_A, ARK_A] {
+            assert!(
+                decode_bech32(a).unwrap().data.len() > ARK_MIN_DATA_LEN,
+                "{a}"
+            );
+        }
     }
 
     #[test]
@@ -1151,7 +1242,7 @@ pub(crate) mod tests {
             panic!("a first address set from Settings must wait out the delay")
         };
         assert!(at > now_unix());
-        assert_eq!(effective(&c, None).unwrap(), None);
+        assert_eq!(effective(&c, None, "test").unwrap(), None);
         // No delay configured (tests, or an owner who chose none): at once.
         assert_eq!(
             request_change(&c, TARK_A, 0, None, "test").unwrap(),
@@ -1163,8 +1254,8 @@ pub(crate) mod tests {
     fn server_config_wins_and_blocks_changes() {
         let c = conn();
         let cfg = Some("tark1fromconfigfromconfigfromconfig");
-        assert_eq!(effective(&c, cfg).unwrap().as_deref(), cfg);
-        assert!(status(&c, cfg).unwrap().from_server_config);
+        assert_eq!(effective(&c, cfg, "test").unwrap().as_deref(), cfg);
+        assert!(status(&c, cfg, "test").unwrap().from_server_config);
         assert!(request_change(&c, TARK_A, 0, cfg, "test").is_err());
     }
 

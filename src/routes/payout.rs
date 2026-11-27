@@ -54,9 +54,10 @@ fn view(s: &crate::payout::Status, config: &crate::config::Config) -> Value {
 
 pub async fn get(State(state): State<AppState>, _auth: OwnerAuth) -> Result<Json<Value>, AppError> {
     let cfg = state.config.settlement_destination.clone();
+    let mode = state.config.mode.clone();
     let s = state
         .db
-        .call(move |c| crate::payout::status(c, cfg.as_deref()))
+        .call(move |c| crate::payout::status(c, cfg.as_deref(), &mode))
         .await?;
     Ok(Json(view(&s, &state.config)))
 }
@@ -111,7 +112,7 @@ pub async fn change(
         .db
         .call(move |c| {
             let ch = crate::payout::request_change(c, &address, delay, cfg.as_deref(), &mode)?;
-            let s = crate::payout::status(c, cfg.as_deref())?;
+            let s = crate::payout::status(c, cfg.as_deref(), &mode)?;
             Ok((ch, s))
         })
         .await?;
@@ -161,6 +162,7 @@ pub async fn change_min(
     crate::routes::admin_session::check_second_step(&state, &headers, req.code).await?;
 
     let cfg = state.config.settlement_destination.clone();
+    let mode = state.config.mode.clone();
     let min = req.min_sats;
     let s = state
         .db
@@ -169,7 +171,7 @@ pub async fn change_min(
                 Some(v) => crate::payout::set_min(c, rail, v)?,
                 None => crate::payout::clear_min(c, rail)?,
             }
-            crate::payout::status(c, cfg.as_deref())
+            crate::payout::status(c, cfg.as_deref(), &mode)
         })
         .await?;
     Ok(Json(view(&s, &state.config)))
@@ -181,11 +183,12 @@ pub async fn cancel(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     let cfg = state.config.settlement_destination.clone();
+    let mode = state.config.mode.clone();
     let s = state
         .db
         .call(move |c| {
             crate::payout::cancel(c)?;
-            crate::payout::status(c, cfg.as_deref())
+            crate::payout::status(c, cfg.as_deref(), &mode)
         })
         .await?;
     Ok(Json(view(&s, &state.config)))
@@ -201,9 +204,10 @@ pub async fn sweep_now(
 ) -> Result<Json<Value>, AppError> {
     require_session(&state, &headers).await?;
     let cfg = state.config.settlement_destination.clone();
+    let mode = state.config.mode.clone();
     let has_destination = state
         .db
-        .call(move |c| crate::payout::effective(c, cfg.as_deref()))
+        .call(move |c| crate::payout::effective(c, cfg.as_deref(), &mode))
         .await?
         .is_some_and(|d| !d.trim().is_empty());
     if !has_destination {

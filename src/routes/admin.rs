@@ -456,9 +456,10 @@ pub async fn status(
     let mut payout_set = false;
     {
         let cfg = state.config.settlement_destination.clone();
+        let mode = state.config.mode.clone();
         if let Ok(s) = state
             .db
-            .call(move |c| crate::payout::status(c, cfg.as_deref()))
+            .call(move |c| crate::payout::status(c, cfg.as_deref(), &mode))
             .await
         {
             use crate::health_checks::Payout;

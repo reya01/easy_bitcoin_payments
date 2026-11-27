@@ -1614,7 +1614,7 @@ pub async fn create_store(
             // already set stays as it is: change those in Settings, where the
             // safety delay and sign-in apply. Only what is missing is set.
             let fresh = created.is_some();
-            let has_payout = crate::payout::effective(conn, None)?.is_some();
+            let has_payout = crate::payout::effective(conn, None, &mode)?.is_some();
             if fresh || !has_payout {
                 if risky {
                     crate::payout::set_initial_unchecked(conn, &payout_address)?;

@@ -4595,7 +4595,7 @@ async fn running_the_shop_step_again_never_changes_payout_or_password() {
             .db
             .call(|c| {
                 Ok((
-                    easy_bitcoin_payments::payout::effective(c, None)?,
+                    easy_bitcoin_payments::payout::effective(c, None, "test")?,
                     easy_bitcoin_payments::admin_auth::stored_hash(c)?,
                 ))
             })
@@ -5117,4 +5117,158 @@ async fn the_invoices_tab_is_owner_only_off_by_default_and_numbers_invoices() {
 /// Seconds since 1970 from the server's RFC 3339 times (UTC, "Z").
 fn chrono_secs(s: &str) -> i64 {
     chrono::DateTime::parse_from_rfc3339(s).unwrap().timestamp()
+}
+
+#[tokio::test]
+async fn use_your_own_address_is_off_until_turned_on_and_checks_before_changing_anything() {
+    let (base, state, _store_id, key) = serve().await;
+    let (cookie, csrf) = owner_session(&base, &state).await;
+    let client = reqwest::Client::new();
+    let get = |path: &str| {
+        client
+            .get(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+    };
+    let post = |path: &str, body: serde_json::Value| {
+        client
+            .post(format!("{base}{path}"))
+            .header("host", "localhost")
+            .header("cookie", &cookie)
+            .header("x-ebp-csrf", &csrf)
+            .json(&body)
+    };
+
+    // A shop key is never enough.
+    let res = client
+        .get(format!("{base}/api/v1/admin/address"))
+        .header("host", "localhost")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+
+    let a: serde_json::Value = get("/api/v1/admin/address")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(a["enabled"], false);
+    assert_eq!(a["step"], "idle");
+    assert_eq!(a["record"]["type"], "A");
+    assert_eq!(a["record"]["proxy"], "DNS only");
+
+    // Off: checking is refused.
+    let off = post(
+        "/api/v1/admin/address/check",
+        serde_json::json!({"name": "pay.myshop.com"}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(off.status(), 400);
+
+    let on = post(
+        "/api/v1/admin/address/enabled",
+        serde_json::json!({"enabled": true}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(on.status(), 200);
+
+    // Only plain domain names; an IP or a free sslip.io name is refused.
+    for bad in [
+        "203.0.113.7",
+        "nodot",
+        "203-0-113-7.sslip.io",
+        "pay.myshop.com;rm -rf /",
+    ] {
+        let res = post(
+            "/api/v1/admin/address/check",
+            serde_json::json!({"name": bad}),
+        )
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(res.status(), 400, "{bad} accepted");
+    }
+    // A name that does not exist: explained, and nothing moves on.
+    let res: serde_json::Value = post(
+        "/api/v1/admin/address/check",
+        serde_json::json!({"name": "pay.does-not-exist.invalid"}),
+    )
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert_eq!(res["finding"]["result"], "not_there_yet", "{res}");
+    let a: serde_json::Value = get("/api/v1/admin/address")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(a["step"], "idle");
+    assert_eq!(a["name"], "pay.does-not-exist.invalid");
+
+    // The next steps need a passed check first.
+    for path in [
+        "/api/v1/admin/address/serve",
+        "/api/v1/admin/address/make-main",
+        "/api/v1/admin/address/go-back",
+    ] {
+        let res = post(path, serde_json::json!({})).send().await.unwrap();
+        assert_eq!(res.status(), 400, "{path} allowed without a check");
+    }
+
+    // The check page answers only the current token, and nothing else.
+    let token = state
+        .db
+        .call(|c| Ok(easy_bitcoin_payments::own_domain::load(c)?.token.unwrap()))
+        .await
+        .unwrap();
+    let page = client
+        .get(format!("{base}/.well-known/ebp-check/{token}"))
+        .header("host", "pay.does-not-exist.invalid")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    assert_eq!(page.text().await.unwrap(), token);
+    for wrong in [
+        "0123456789abcdef0123456789abcdef",
+        "nope",
+        "../../etc/passwd",
+    ] {
+        let res = client
+            .get(format!("{base}/.well-known/ebp-check/{wrong}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 404, "{wrong}");
+    }
+
+    // The shop's calls are noted by host name (for "has the shop moved?").
+    let _ = client
+        .get(format!("{base}/api/v1/invoices/inv_nope"))
+        .header("host", "pay.myshop.com")
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    let a: serde_json::Value = get("/api/v1/admin/address")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(a["shop_host"], "pay.myshop.com");
 }

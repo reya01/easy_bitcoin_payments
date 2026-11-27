@@ -206,12 +206,11 @@ page always wins.)
 
 ## Later
 
-- **A nicer address.** The free `sslip.io` address is built from the server's IP,
-  so it changes if you rebuild the server. For a fixed address, reserve an IP in
-  DigitalOcean (**Networking → Reserved IPs**) or use your own domain: add an **A
-  record** pointing at the server, then in the Console run
-  `cd /opt/ebp && ./scripts/start.sh --domain pay.myshop.com`. Do this before
-  connecting your shop; afterwards, update the server address in the plugin.
+- **A nicer address, later.** The free `sslip.io` address is built from the server's IP,
+  so it changes if you rebuild the server: reserve the IP in DigitalOcean (**Networking →
+  Reserved IPs**) to keep it. Once you are comfortable with EBP, you can move to your own
+  domain, like `pay.myshop.com`, with the old address kept as a backup:
+  [OWN_DOMAIN.md](OWN_DOMAIN.md) (in testing; Cloudflare is the easy path).
 - **Updating.** Nothing updates itself. The admin Home page tells you when a new
   version exists: [UPGRADING.md](UPGRADING.md).
 - **Something looks wrong:** [IF_SOMETHING_LOOKS_WRONG.md](IF_SOMETHING_LOOKS_WRONG.md)

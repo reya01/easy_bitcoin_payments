@@ -330,9 +330,16 @@ class EBP_Gateway extends WC_Payment_Gateway {
 		if ( is_wp_error( $invoice ) ) {
 			$data = $invoice->get_error_data();
 			$code = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0;
+			if ( 401 === $code || 403 === $code || 429 === $code ) {
+				// About the connection, not this order (wrong API key, a blocked
+				// address, too many requests): stop for this hour; every order is
+				// asked again next hour.
+				$this->log( 'warning', 'Hourly check: the payment server refused the request (HTTP ' . $code . ': ' . $invoice->get_error_message() . '). Check the API key in the plugin settings. Trying again next hour.' );
+				return false;
+			}
 			if ( $code >= 400 && $code < 500 ) {
 				// The server answered, about this one order (for example an invoice
-				// it no longer has): skip it, and keep checking the others.
+				// it no longer has): skip it this hour, and keep checking the others.
 				$this->log( 'warning', 'Hourly check for order ' . $order->get_id() . ': the payment server does not know invoice ' . $invoice_id . ' (' . $invoice->get_error_message() . ').' );
 				return true;
 			}

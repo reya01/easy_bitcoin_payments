@@ -108,7 +108,7 @@ pub async fn begin(
     Json(req): Json<BeginRequest>,
 ) -> Result<Json<Value>, AppError> {
     let token = require_session(&state, &headers).await?;
-    let rp = passkey::rp_from_base_url(&state.config.public_base_url)?;
+    let rp = rp_for_request(&state, &headers)?;
     let (on, have) = state
         .db
         .call(|c| Ok((crate::totp::is_enabled(c)?, passkey::count(c)?)))
@@ -162,7 +162,7 @@ pub async fn finish(
     Json(req): Json<FinishRequest>,
 ) -> Result<Json<Value>, AppError> {
     let token = require_session(&state, &headers).await?;
-    let rp = passkey::rp_from_base_url(&state.config.public_base_url)?;
+    let rp = rp_for_request(&state, &headers)?;
     let challenge = passkey::challenges()
         .take(&req.challenge, Purpose::Register, &token, now_unix())
         .ok_or_else(|| AppError::BadRequest(EXPIRED.into()))?;
@@ -260,6 +260,21 @@ pub struct AssertionBody {
     pub signature: String,
 }
 
+/// The server address this request came in on (main or backup), for passkeys.
+pub(crate) fn rp_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<passkey::Rp, AppError> {
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok());
+    passkey::rp_for_host(
+        &state.config.public_base_url,
+        &state.config.public_aliases,
+        host,
+    )
+}
+
 /// Check a passkey's answer to a challenge we issued (single use, tied to `binding`),
 /// and remember the use. Every failure is a plain 400 (never a 401, which the page
 /// reads as "signed out").
@@ -269,7 +284,11 @@ pub(crate) async fn check_answer(
     binding: &str,
     a: AssertionBody,
 ) -> Result<(), AppError> {
-    let rp = passkey::rp_from_base_url(&state.config.public_base_url)?;
+    let rp = passkey::rp_for_answer(
+        &state.config.public_base_url,
+        &state.config.public_aliases,
+        &a.client_data_json,
+    )?;
     let challenge = passkey::challenges()
         .take(&a.challenge, purpose, binding, now_unix())
         .ok_or_else(|| AppError::BadRequest(EXPIRED.into()))?;
@@ -308,7 +327,7 @@ pub async fn stepup_begin(
     headers: HeaderMap,
 ) -> Result<Json<Value>, AppError> {
     let token = require_session(&state, &headers).await?;
-    let rp = passkey::rp_from_base_url(&state.config.public_base_url)?;
+    let rp = rp_for_request(&state, &headers)?;
     let ids = state
         .db
         .call(|c| {

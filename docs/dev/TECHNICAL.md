@@ -178,6 +178,15 @@ All `/api/v1/*` routes except `/health` require `Authorization: Bearer <api key>
 | `GET` | `/api/v1/admin/invoices/settings` | Invoices tab: on or off, next number, customer names used before, store name, open hours, default currency, the currencies with a current price, the Ark server name (real-money mode only) and test mode; `prices` (price of one bitcoin in each of those currencies), `usd_per_btc` and `largest_sats` (largest invoice so far) let the page ask "is this right?" before an unusually large invoice (about $500 or more, or over 10 times the largest so far) |
 | `POST` | `/api/v1/admin/invoices/enabled` | Turn the Invoices tab on or off (`{"enabled": true}`) |
 | `GET` | `/api/v1/admin/invoices/{id}` | One invoice from the Invoices tab as it is now (404 for a shop order). The page asks every 15 seconds while an open invoice is on screen, so it turns Paid by itself; it stops when the invoice closes or the tab changes |
+| `GET` | `/api/v1/admin/address` | Use your own address (in testing; `docs/OWN_DOMAIN.md`): the switch, main and backup addresses, the server's IP (from its sslip.io name), the suggested `pay.<shop domain>`, the record to add, the move's step, watch and backup days left, failures, and the host the shop last called with its key |
+| `POST` | `/api/v1/admin/address/enabled` | The Settings switch (`{"enabled":bool}`) |
+| `POST` | `/api/v1/admin/address/check` | `{"name"}`: does the name reach this server yet? Resolves it with the server's own resolver, spots Cloudflare's proxy, then fetches a one-time `/.well-known/ebp-check/<token>` page over plain http through the name. Changes nothing on the web server |
+| `POST` | `/api/v1/admin/address/serve` | Checks again, then asks the address helper to serve the name next to the current address (Caddy gets its certificate) |
+| `POST` | `/api/v1/admin/address/make-main` | `{"code"?}` (second step when two-step sign-in is on): checks the name over https with a valid certificate, then makes it the main address; the old one stays as the backup |
+| `POST` | `/api/v1/admin/address/go-back` | The backup becomes the main address again |
+| `POST` | `/api/v1/admin/address/keep-backup` | Postpones giving up the backup by 7 days |
+| `POST` | `/api/v1/admin/address/cancel` | Before the switch only: stop the move and stop serving the new name |
+| `GET` | `/.well-known/ebp-check/{token}` | Public: answers with the token while a check runs (random, 30 minutes). Caddy passes this path on over plain http for any host name; every other plain-http request is redirected to https |
 | `POST` | `/api/v1/admin/invoices/{id}/lightning` | A fresh Lightning invoice, about 10 minutes after the old one ran out |
 | `POST` | `/api/v1/admin/invoices/{id}/cancel` | Cancel an invoice made on the Invoices tab |
 | `GET` | `/api/v1/admin/invoices.csv` | Invoices export: number and customer name first |

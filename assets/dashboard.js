@@ -175,7 +175,7 @@ function show(name) {
   if (name === "alerts") loadAlerts();
   if (name === "hooks") { PAGE.deliveries = 0; loadDeliveries(); loadKeylock(); }
   // The emergency answer is fetched ahead, so the section is usually ready when it is opened.
-  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); loadExit(); loadInvSettings(); }
+  if (name === "set") { PAGE.audit = 0; loadAudit(); loadPayout(); loadExit(); loadInvSettings(); loadAddress(); } else odStopPoll();
   if (name === "home" || name === "set" || name === "alerts") loadPhone();
   if (name === "home" || name === "set") loadTwofa();
   if (name === "home") loadRecon();
@@ -2007,6 +2007,135 @@ function renderInvSettings() {
   }, INV.enabled ? "" : "primary"));
   box.appendChild(b);
   var m = el("p", "", "msg hidden"); m.id = "inv-set-msg"; box.appendChild(m);
+}
+
+// Settings, Use your own address (in testing; docs/OWN_DOMAIN.md). Every check and
+// decision is made by the server; this only shows the steps and their results.
+var OD = { st: null, poll: null, typed: "" };
+var OD_BUSY = ["serve_requested", "main_requested", "back_requested", "retire_requested"];
+function odStopPoll() { if (OD.poll) { clearInterval(OD.poll); OD.poll = null; } }
+function loadAddress() {
+  return api("GET", "/api/v1/admin/address").then(function (st) {
+    OD.st = st; renderAddress(st);
+    odStopPoll();
+    if (OD_BUSY.indexOf(st.step) >= 0) OD.poll = setInterval(function () {
+      if ($("v-set").classList.contains("hidden")) { odStopPoll(); return; }
+      api("GET", "/api/v1/admin/address").then(function (x) {
+        if (x.step !== OD.st.step) { odStopPoll(); OD.st = x; renderAddress(x); }
+      }).catch(function () {});
+    }, 5000);
+  }).catch(function () {});
+}
+function odCopyRow(box, label, value, noCopy) {
+  var r = el("div", "", "odrow");
+  r.appendChild(el("span", label, "odk"));
+  r.appendChild(el("code", value || "—", "odv"));
+  if (value && !noCopy) r.appendChild(button("Copy", function (b) {
+    if (navigator.clipboard) navigator.clipboard.writeText(value).then(function () { b.textContent = "Copied"; });
+  }, "small"));
+  box.appendChild(r);
+}
+function odPost(path, body, msgId, btn, then) {
+  if (btn) btn.disabled = true;
+  return api("POST", path, body || {}).then(function (r) {
+    if (r && r.words) say(msgId, r.words, r.finding && r.finding.result !== "ready");
+    return then ? then(r) : loadAddress();
+  }).catch(function (e) { say(msgId, e.message, true); }).then(function () { if (btn) btn.disabled = false; });
+}
+function renderAddress(st) {
+  var box = $("od-set"); clear(box);
+  var msgId = "od-msg";
+  if (!st.enabled) {
+    box.appendChild(el("p", "When you are comfortable with EBP, you can move from the free sslip.io address to your own domain, like pay.myshop.com. Your current address keeps working as a backup until the new one has worked for weeks. In testing: domains are a common place for things to go wrong, so get your shop running first.", "muted"));
+    var b0 = el("div", "", "btns");
+    b0.appendChild(button("Turn this on", function (b) { odPost("/api/v1/admin/address/enabled", { enabled: true }, msgId, b); }, "primary"));
+    box.appendChild(b0);
+  } else {
+    var cur = el("p", "", "muted");
+    cur.textContent = "Main address: " + (st.main || "—") + (st.backups && st.backups.length ? ". Backup: " + st.backups.join(", ") + "." : ".");
+    box.appendChild(cur);
+    if (!st.helper_installed) box.appendChild(el("p", "This server cannot change its address from here yet: run sudo ./scripts/install-update-helper.sh once in the Console. You can still check a name.", "msg warn"));
+    var step = st.step;
+    if (step === "idle" || step === "checked") odStart(box, st, msgId);
+    else if (OD_BUSY.indexOf(step) >= 0) box.appendChild(el("p", step === "serve_requested" ? "Setting up " + st.name + " next to your current address. Getting the padlock certificate usually takes under a minute…" : "Switching… this page updates by itself.", "msg"));
+    else if (step === "serving") odServing(box, st, msgId);
+    else if (step === "main") odMain(box, st, msgId);
+    else if (step === "retired") box.appendChild(el("p", "Done. Your server uses only https://" + st.name + ". The free sslip.io address was given up.", "msg ok"));
+  }
+  var m = el("p", "", "msg hidden"); m.id = msgId; box.appendChild(m);
+}
+function odStart(box, st, msgId) {
+  box.appendChild(el("h3", "1. Choose the name"));
+  box.appendChild(el("p", "Use a name under a domain you own. Easiest: pay. in front of your shop's domain.", "muted"));
+  var inp = el("input"); inp.id = "od-name"; inp.type = "text"; inp.autocomplete = "off"; inp.spellcheck = false;
+  inp.placeholder = "pay.myshop.com"; inp.value = OD.typed || st.name || st.suggestion || "";
+  inp.addEventListener("input", function () { OD.typed = inp.value; });
+  box.appendChild(inp);
+  box.appendChild(el("h3", "2. Add one record where your domain's DNS is"));
+  var rec = el("div", "", "odrec");
+  var label = function () { var v = (inp.value || "").trim().toLowerCase(); return v.split(".")[0] || "pay"; };
+  odCopyRow(rec, "Type", "A");
+  var nameRow = el("div"); rec.appendChild(nameRow);
+  var drawName = function () { clear(nameRow); odCopyRow(nameRow, "Name", label()); };
+  drawName(); inp.addEventListener("input", drawName);
+  odCopyRow(rec, "IPv4 address", st.server_ip);
+  odCopyRow(rec, "Proxy status", "DNS only", true);
+  odCopyRow(rec, "TTL", "Auto", true);
+  box.appendChild(rec);
+  if (!st.server_ip) box.appendChild(el("p", "Use this server's public IP address (your hosting provider shows it).", "muted"));
+  var cf = el("details", "", "more"); cf.appendChild(el("summary", "Where to tap in Cloudflare"));
+  var ol = el("ol");
+  ["Open dash.cloudflare.com and pick your domain.", "Open DNS, then Records, then Add record.", "Type: A. Name: the name above. IPv4 address: the address above.", "Turn the orange cloud OFF so it says DNS only. This matters: EBP gets its own padlock certificate.", "Save. Then come back here and press Check."].forEach(function (t) { ol.appendChild(el("li", t)); });
+  cf.appendChild(ol); box.appendChild(cf);
+  var other = el("details", "", "more"); other.appendChild(el("summary", "Another DNS provider"));
+  other.appendChild(el("p", "Add an A record with the name and address above. If there is a proxy or CDN switch, turn it off. Delete any AAAA (IPv6) record on that name that points elsewhere.", "muted"));
+  box.appendChild(other);
+  box.appendChild(el("h3", "3. Check"));
+  box.appendChild(el("p", "Nothing changes on your server until the check passes and you press the next button.", "muted"));
+  var b = el("div", "", "btns");
+  b.appendChild(button("Check", function (btn) {
+    odPost("/api/v1/admin/address/check", { name: inp.value }, msgId, btn, function (r) {
+      return loadAddress().then(function () { if (r && r.words) say(msgId, r.words, r.finding.result !== "ready"); });
+    });
+  }, st.step === "checked" ? "" : "primary"));
+  if (st.step === "checked") b.appendChild(button("Serve " + st.name + " next to my current address", function (btn) {
+    odPost("/api/v1/admin/address/serve", {}, msgId, btn);
+  }, "primary"));
+  box.appendChild(b);
+}
+function odServing(box, st, msgId) {
+  box.appendChild(el("p", "Both addresses work now. Try it: open https://" + st.name + "/admin in a new tab.", "msg ok"));
+  box.appendChild(el("h3", "4. Make it your main address"));
+  box.appendChild(el("p", "New payment links and QR codes will use https://" + st.name + ". Links you already sent keep working. Passkeys you made on the old address only work there: add a passkey on the new address afterwards, or sign in with your app code.", "muted"));
+  var lab = el("label", "Code from your authenticator app (if two-step sign-in is on)"); lab.setAttribute("for", "od-code");
+  var code = el("input"); code.id = "od-code"; code.inputMode = "numeric"; code.autocomplete = "off"; code.placeholder = "6 digits";
+  box.appendChild(lab); box.appendChild(code);
+  var b = el("div", "", "btns");
+  b.appendChild(button("Make " + st.name + " my main address", function (btn) {
+    odPost("/api/v1/admin/address/make-main", { code: code.value.trim() || null }, msgId, btn, function (r) {
+      return loadAddress().then(function () { if (r && r.words) say(msgId, r.words, true); });
+    });
+  }, "primary"));
+  b.appendChild(button("Stop and remove " + st.name, function (btn) { odPost("/api/v1/admin/address/cancel", {}, msgId, btn); }));
+  box.appendChild(b);
+}
+function odMain(box, st, msgId) {
+  var d = st.days_left || {};
+  var good = !(st.failures > 0);
+  box.appendChild(el("p", good
+    ? "Your own address is your main address" + (d.watch > 0 ? ". Watching it for " + d.watch + " more day" + (d.watch === 1 ? "" : "s") + "." : " and has worked well.")
+    : "Your own address had a problem: " + (st.last_problem || "a check failed") + ". Your backup still works, and is kept.", good ? "msg ok" : "msg warn"));
+  if (st.backups && st.backups.length) box.appendChild(el("p", good
+    ? "The free backup address (" + st.backups.join(", ") + ") is given up in " + d.backup + " day" + (d.backup === 1 ? "" : "s") + " if all stays well, so a free service is not held for nothing."
+    : "The backup address is not given up while there are problems.", "muted"));
+  if (st.shop_moved === false) box.appendChild(el("p", "Your shop still uses the old address. In WordPress, open WooCommerce, Settings, Payments, Bitcoin, and change Server address to https://" + st.name + ". The backup is kept until it does.", "msg warn"));
+  var b = el("div", "", "btns");
+  if (st.backups && st.backups.length && d.backup <= 3) b.appendChild(button("Keep the backup a little longer", function (btn) { odPost("/api/v1/admin/address/keep-backup", {}, msgId, btn); }));
+  if (st.backups && st.backups.length) b.appendChild(button("Go back to the backup address", function (btn) {
+    askConfirm({ title: "Go back to " + st.backups[0] + "?", body: "New links will use the backup address again. Your own address keeps working, and you can make it the main address again later.", cancel: "Keep my own address", ok: "Go back", danger: false })
+      .then(function (yes) { if (yes) odPost("/api/v1/admin/address/go-back", {}, msgId, btn); });
+  }));
+  box.appendChild(b);
 }
 
 // Money that reached an invoice but was not counted (paid after its time ran out, paid

@@ -1,0 +1,15 @@
+# The EBP address helper (scripts/address-helper.sh). Runs once per request, as
+# root because it restarts the web server with Docker. It has no network port; it
+# only serves the host names EBP asked for, after checking each is a plain name.
+# Installed by scripts/install-update-helper.sh.
+[Unit]
+Description=EBP address helper: serve the addresses the owner chose
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ebp
+ExecStart=/opt/ebp/scripts/address-helper.sh
+TimeoutStartSec=300
+PrivateTmp=yes

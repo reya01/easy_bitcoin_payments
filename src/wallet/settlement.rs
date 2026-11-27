@@ -1311,9 +1311,10 @@ impl SettlementEngine {
         //    unset/blank one means sweeping stays off (renewal above is
         //    unaffected).
         let cfg_destination = self.config.settlement_destination.clone();
+        let mode = self.config.mode.clone();
         let Some(destination) = self
             .db
-            .call(move |conn| crate::payout::effective(conn, cfg_destination.as_deref()))
+            .call(move |conn| crate::payout::effective(conn, cfg_destination.as_deref(), &mode))
             .await?
             .filter(|d| !d.trim().is_empty())
         else {

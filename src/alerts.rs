@@ -95,6 +95,10 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "Your payout address is being changed",
             "Someone asked to change where your money is sent. It takes effect after the safety delay. If this was not you, open Settings now, cancel the change, and change your admin password.",
         )),
+        "payout_dropped" => Some((
+            "A payout address change was not applied",
+            "The new payout address no longer passes this server's checks (for example it is for a different network), so your current address stays. Open Settings to choose a new one.",
+        )),
         "payout_changed" => Some((
             "Your payout address was changed",
             "The payout address change has taken effect. If you did not ask for it, pause payments in Settings and follow If something looks wrong.",
@@ -114,6 +118,18 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
         "invoice_paid" => Some((
             "An invoice was paid",
             "One of the invoices you made on the Invoices tab has been paid. Open your dashboard, Invoices, to see which one.",
+        )),
+        "own_address_problem" => Some((
+            "Your own address is not working",
+            "Your server could not reach itself at your own address with a valid padlock certificate. Your backup address still works. Open your dashboard, Settings, Your address: you can go back to the backup with one tap, then check your domain's DNS record.",
+        )),
+        "own_address_backup_soon" => Some((
+            "Your backup address will be given up in 3 days",
+            "Your own address has worked for weeks, so the free sslip.io backup address will be given up in 3 days. Nothing else changes. To keep it a little longer, open your dashboard, Settings, Your address.",
+        )),
+        "own_address_backup_retired" => Some((
+            "Your backup address was given up",
+            "Your own address has worked for 30 days, so the free sslip.io backup address was given up. Your shop and admin page use your own address.",
         )),
         "invoice_paid_late" => Some((
             "An invoice was paid late",

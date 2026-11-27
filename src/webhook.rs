@@ -48,8 +48,10 @@ pub fn verify_signature(
         return false;
     };
 
-    if (now - timestamp).abs() > tolerance_secs {
-        return false;
+    // Checked: a timestamp near i64::MIN or MAX is refused, never overflowed.
+    match now.checked_sub(timestamp).and_then(i64::checked_abs) {
+        Some(age) if age <= tolerance_secs => {}
+        _ => return false,
     }
 
     let expected = sign_payload(secret, timestamp, body);
@@ -146,7 +148,7 @@ pub fn validate_webhook_url(raw: &str, allow_private: bool) -> Result<(), String
         "http" | "https" => {}
         other => {
             return Err(format!(
-                "the address must start with https:// (it starts with {other}://)"
+                "the address must start with https:// or http:// (it starts with {other}://). Use https:// where you can."
             ))
         }
     }
@@ -534,5 +536,10 @@ mod tests {
             300
         ));
         assert!(!verify_signature(SECRET, "t=1700000000", b"x", now, 300));
+        // Extreme timestamps are refused without overflowing.
+        for t in [i64::MIN, i64::MIN + 1, i64::MAX] {
+            let header = sign_payload(SECRET, t, b"x");
+            assert!(!verify_signature(SECRET, &header, b"x", now, 300));
+        }
     }
 }

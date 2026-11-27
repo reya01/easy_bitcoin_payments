@@ -1,0 +1,13 @@
+# Starts the EBP address helper when the admin page asks to change which
+# addresses the server answers on (Settings, Your address; docs/OWN_DOMAIN.md).
+# Installed by scripts/install-update-helper.sh, which replaces /opt/ebp with the
+# real EBP folder.
+[Unit]
+Description=EBP address helper: watch for an address change request from the admin page
+
+[Path]
+PathExists=/opt/ebp/updates/inbox/address-request.json
+Unit=ebp-address-helper.service
+
+[Install]
+WantedBy=multi-user.target

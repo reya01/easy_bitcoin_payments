@@ -23,6 +23,7 @@ pub mod invoice_ident;
 pub mod managed_barkd;
 pub mod manual_invoice;
 pub mod models;
+pub mod own_domain;
 #[cfg(test)]
 mod money_properties;
 pub mod passkey;

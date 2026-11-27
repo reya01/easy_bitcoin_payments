@@ -15,3 +15,17 @@
 	header @public Strict-Transport-Security "max-age=15552000"
 	reverse_proxy ebp:8080
 }
+
+# Before a new name is served, the admin page checks that it already reaches
+# this server (Settings, Your address): EBP asks itself for a one-time page
+# through the new name over plain http. Only that path is passed on; every other
+# plain-http request is sent to https, as before. (Certificate challenges are
+# answered by Caddy itself before this.)
+http:// {
+	handle /.well-known/ebp-check/* {
+		reverse_proxy ebp:8080
+	}
+	handle {
+		redir https://{host}{uri} 308
+	}
+}

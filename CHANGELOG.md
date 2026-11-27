@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Use your own address (in testing, off until turned on in Settings).** Move from the free sslip.io address to your own domain, like `pay.myshop.com`, from Settings. The page shows the one DNS record to add (Cloudflare is the easy path, with DNS only; any provider works). Nothing changes until the server has checked that the name reaches it. Then it serves the new name next to the old one, gets its certificate, and only then makes it the main address. The old address stays as a backup that also keeps passkeys made there working. The new address is watched for 14 days. If all is well and the shop has moved, the free sslip.io address is given up after 30 days (warned 3 days ahead). Go back is one tap. `start.sh --domain` also keeps the sslip.io address as a backup now. Guide: `docs/OWN_DOMAIN.md`.
+
 ## 0.3.3-rc6 — money fixes from code reviews, reproducible download, deeper tests (26 November 2026)
 
 Two independent code reviews of the money paths found three bugs and several record-keeping gaps, all fixed below; no way to lose funds was found. No database change since rc5.

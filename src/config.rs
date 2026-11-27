@@ -14,6 +14,11 @@ pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_path: String,
     pub public_base_url: String,
+    /// Other addresses this server also answers on, as full URLs: the free
+    /// sslip.io backup while the owner moves to their own domain
+    /// (`EBP_PUBLIC_ALIASES`, comma separated). Passkeys work on each of them;
+    /// new links always use `public_base_url`.
+    pub public_aliases: Vec<String>,
     pub default_expiry_minutes: i64,
     pub max_expiry_minutes: i64,
     /// Largest single payment request this server will create (sats). A
@@ -99,6 +104,7 @@ impl Default for Config {
             bind_addr: "0.0.0.0:8080".parse().expect("valid default bind addr"),
             database_path: "./data/ebp.sqlite3".to_string(),
             public_base_url: "http://localhost:8080".to_string(),
+            public_aliases: Vec::new(),
             default_expiry_minutes: 20,
             max_expiry_minutes: 1440,
             max_invoice_sats: 100_000_000,
@@ -418,6 +424,9 @@ impl Config {
             // beginner never has to type it.
             self.public_base_url = v.trim_end_matches('/').to_string();
         }
+        if let Some(v) = lookup("EBP_PUBLIC_ALIASES") {
+            self.public_aliases = parse_aliases(&v);
+        }
         if let Some(v) = lookup("EBP_DEFAULT_EXPIRY_MINUTES") {
             self.default_expiry_minutes = parse_int("EBP_DEFAULT_EXPIRY_MINUTES", &v)?;
         }
@@ -616,6 +625,15 @@ fn parse_addr(value: &str) -> Result<SocketAddr, ConfigError> {
     })
 }
 
+/// `EBP_PUBLIC_ALIASES`: comma-separated full URLs, trailing slashes dropped,
+/// empty entries skipped.
+pub fn parse_aliases(v: &str) -> Vec<String> {
+    v.split(',')
+        .map(|a| a.trim().trim_end_matches('/').to_string())
+        .filter(|a| !a.is_empty())
+        .collect()
+}
+
 fn parse_int(key: &str, value: &str) -> Result<i64, ConfigError> {
     value.parse().map_err(|_| ConfigError::Invalid {
         key: key.to_string(),
@@ -674,6 +692,18 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn backup_addresses_are_read_from_a_comma_list() {
+        assert_eq!(
+            parse_aliases(" https://203-0-113-7.sslip.io/ , ,https://old.example.com"),
+            vec![
+                "https://203-0-113-7.sslip.io".to_string(),
+                "https://old.example.com".to_string()
+            ]
+        );
+        assert!(parse_aliases("").is_empty());
+    }
     use std::collections::HashMap;
 
     #[test]

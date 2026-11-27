@@ -152,6 +152,7 @@ pub(crate) async fn check_second_step(
 /// `POST /admin/login`
 pub async fn login(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Response, AppError> {
     if req.password.len() > 1024 {
@@ -167,7 +168,7 @@ pub async fn login(
     // 3. Record the outcome (fast, inside the lock).
     let code = req.code;
     // Passkeys can only be offered when the server's address allows them.
-    let rp = crate::passkey::rp_from_base_url(&state.config.public_base_url).ok();
+    let rp = crate::routes::passkeys::rp_for_request(&state, &headers).ok();
     let outcome = state
         .db
         .call(move |c| {

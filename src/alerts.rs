@@ -115,6 +115,18 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "An invoice was paid",
             "One of the invoices you made on the Invoices tab has been paid. Open your dashboard, Invoices, to see which one.",
         )),
+        "own_address_problem" => Some((
+            "Your own address is not working",
+            "Your server could not reach itself at your own address with a valid padlock certificate. Your backup address still works. Open your dashboard, Settings, Your address: you can go back to the backup with one tap, then check your domain's DNS record.",
+        )),
+        "own_address_backup_soon" => Some((
+            "Your backup address will be given up in 3 days",
+            "Your own address has worked for weeks, so the free sslip.io backup address will be given up in 3 days. Nothing else changes. To keep it a little longer, open your dashboard, Settings, Your address.",
+        )),
+        "own_address_backup_retired" => Some((
+            "Your backup address was given up",
+            "Your own address has worked for 30 days, so the free sslip.io backup address was given up. Your shop and admin page use your own address.",
+        )),
         "invoice_paid_late" => Some((
             "An invoice was paid late",
             "Money arrived for one of the invoices you made on the Invoices tab after it stopped taking payments. It is in your wallet. Open your dashboard, Invoices or Alerts, to see which one.",

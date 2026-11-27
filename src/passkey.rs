@@ -273,6 +273,56 @@ fn credential_list(ids: &[String]) -> Vec<Value> {
 
 /// Options for `navigator.credentials.create` (binary values as base64url text;
 /// the page turns them back into bytes). `existing_ids` stops adding the same
+/// Every address passkeys may be used on: the main address first, then any
+/// backup address the server also answers on (while moving to your own domain).
+/// Addresses that cannot carry passkeys are left out.
+pub fn all_rps(main: &str, aliases: &[String]) -> Vec<Rp> {
+    let mut out: Vec<Rp> = Vec::new();
+    for base in std::iter::once(main).chain(aliases.iter().map(String::as_str)) {
+        if let Ok(rp) = rp_from_base_url(base) {
+            if !out.iter().any(|r| r.origin == rp.origin) {
+                out.push(rp);
+            }
+        }
+    }
+    out
+}
+
+/// The address a request arrived on (its `Host`), when it is one of the
+/// server's own; otherwise the main address. A passkey belongs to the address
+/// it was made on, so the backup address keeps working for passkeys made there.
+pub fn rp_for_host(main: &str, aliases: &[String], host: Option<&str>) -> Result<Rp, AppError> {
+    if let Some(h) = host.map(|h| h.trim().to_ascii_lowercase()) {
+        if let Some(rp) = all_rps(main, aliases)
+            .into_iter()
+            .find(|rp| rp.origin.split_once("://").map(|(_, a)| a) == Some(h.as_str()))
+        {
+            return Ok(rp);
+        }
+    }
+    rp_from_base_url(main)
+}
+
+/// The address a passkey answer says it came from (the origin the browser put
+/// in it), when it is one of the server's own; otherwise the main address, so
+/// the check then fails with its usual explanation. Safe: the browser writes
+/// that origin, and the signature covers it.
+pub fn rp_for_answer(
+    main: &str,
+    aliases: &[String],
+    client_data_b64: &str,
+) -> Result<Rp, AppError> {
+    let origin = b64url_decode(client_data_b64)
+        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        .and_then(|v| v.get("origin").and_then(Value::as_str).map(str::to_string));
+    if let Some(o) = origin {
+        if let Some(rp) = all_rps(main, aliases).into_iter().find(|rp| rp.origin == o) {
+            return Ok(rp);
+        }
+    }
+    rp_from_base_url(main)
+}
+
 /// passkey twice.
 pub fn registration_options(
     rp: &Rp,
@@ -1316,5 +1366,71 @@ mod tests {
             .unwrap();
         assert_eq!(a, b);
         assert_eq!(b64url_decode(&a).unwrap().len(), 32);
+    }
+
+    #[test]
+    fn passkeys_work_on_the_main_and_the_backup_address() {
+        let main = "https://pay.example.com";
+        let aliases = vec![
+            "https://203-0-113-7.sslip.io".to_string(),
+            "not a url".to_string(),
+        ];
+        let rps = all_rps(main, &aliases);
+        assert_eq!(rps.len(), 2, "the bad alias is left out");
+        assert_eq!(rps[0].id, "pay.example.com", "main first");
+        assert_eq!(rps[1].id, "203-0-113-7.sslip.io");
+
+        // By the address the request came in on.
+        assert_eq!(
+            rp_for_host(main, &aliases, Some("203-0-113-7.sslip.io"))
+                .unwrap()
+                .id,
+            "203-0-113-7.sslip.io"
+        );
+        assert_eq!(
+            rp_for_host(main, &aliases, Some("PAY.example.com"))
+                .unwrap()
+                .id,
+            "pay.example.com"
+        );
+        assert_eq!(
+            rp_for_host(main, &aliases, Some("evil.example"))
+                .unwrap()
+                .id,
+            "pay.example.com",
+            "a stranger's name gets the main address"
+        );
+        assert_eq!(
+            rp_for_host(main, &aliases, None).unwrap().id,
+            "pay.example.com"
+        );
+
+        // By the origin the browser wrote into the answer.
+        let answer = |origin: &str| {
+            b64url_encode(format!(r#"{{"type":"webauthn.get","origin":"{origin}"}}"#).as_bytes())
+        };
+        assert_eq!(
+            rp_for_answer(main, &aliases, &answer("https://203-0-113-7.sslip.io"))
+                .unwrap()
+                .id,
+            "203-0-113-7.sslip.io"
+        );
+        assert_eq!(
+            rp_for_answer(main, &aliases, &answer("https://evil.example"))
+                .unwrap()
+                .id,
+            "pay.example.com"
+        );
+        assert_eq!(
+            rp_for_answer(main, &aliases, "%%%").unwrap().id,
+            "pay.example.com"
+        );
+        // Without backups, nothing changes.
+        assert_eq!(
+            rp_for_host(main, &[], Some("203-0-113-7.sslip.io"))
+                .unwrap()
+                .id,
+            "pay.example.com"
+        );
     }
 }

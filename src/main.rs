@@ -213,6 +213,12 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     );
     // Rolling cleanup of operational logs (never invoices or payments).
     tokio::spawn(easy_bitcoin_payments::retention::run(db.clone()));
+    // Moving to your own domain (Settings switch): confirms changes, watches the
+    // new address, and gives up the sslip.io backup when it is time.
+    tokio::spawn(easy_bitcoin_payments::own_domain::run(
+        db.clone(),
+        easy_bitcoin_payments::own_domain::Current::from_config(&config),
+    ));
     let watcher_handle = tokio::spawn(watcher.run());
 
     // Settlement engine (Phase 1): refreshes VTXOs ahead of their per-VTXO

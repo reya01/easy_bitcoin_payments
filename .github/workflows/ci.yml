@@ -85,6 +85,8 @@ jobs:
       # name, the picture, the send-privately warning, copy, run-out Lightning.
       - name: Invoices tab
         run: python3 tests/e2e/invoices_tab.py
+      - name: Settings, Use your own address (in testing)
+        run: python3 tests/e2e/own_address.py
 
       # Settings, "Where your money goes": current address in groups, Ark / On-chain cards,
       # the matching card selected when an address is pasted.
@@ -361,6 +363,8 @@ jobs:
         run: bash scripts/test_update.sh
       - name: The update helper reads requests strictly, never goes backwards, installs only the approved digest
         run: bash scripts/test_update_helper.sh
+      - name: address helper (moving to your own domain)
+        run: bash scripts/test_address_helper.sh
       - name: The pinned cosign (if any) still matches its fingerprint
         run: bash scripts/get-cosign.sh --check
       - name: install.sh pins the same cosign as get-cosign.sh
@@ -410,9 +414,25 @@ jobs:
         run: |
           # The same Caddy image the merchant's server runs.
           caddy_image=$(sed -nE 's/^\s*image:\s*(caddy:[^ ]+).*/\1/p' docker-compose.yml)
-          docker run --rm -e EBP_DOMAIN=203-0-113-7.sslip.io \
+          # One name (a fresh install) and two (own domain plus the sslip.io backup).
+          for names in "203-0-113-7.sslip.io" "pay.myshop.com, 203-0-113-7.sslip.io"; do
+            docker run --rm -e EBP_SITE_NAMES="$names" \
+              -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+              "$caddy_image" caddy validate --config /etc/caddy/Caddyfile
+          done
+          # Both names are served, and plain http passes only the check page on.
+          docker run --rm -e EBP_SITE_NAMES="pay.myshop.com, 203-0-113-7.sslip.io" \
             -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            "$caddy_image" caddy validate --config /etc/caddy/Caddyfile
+            "$caddy_image" caddy adapt --config /etc/caddy/Caddyfile > "$RUNNER_TEMP/caddy.json"
+          python3 - "$RUNNER_TEMP/caddy.json" <<'PY'
+          import json, sys
+          cfg = json.load(open(sys.argv[1]))
+          text = json.dumps(cfg)
+          assert "pay.myshop.com" in text and "203-0-113-7.sslip.io" in text, "both names served"
+          assert "/.well-known/ebp-check/*" in text, "check path passed on over plain http"
+          assert "https://{http.request.host}{http.request.uri}" in text, "everything else redirected to https"
+          print("Caddy serves both names; plain http only passes the check page on")
+          PY
 
   barkd-drift:
     name: barkd openapi drift check

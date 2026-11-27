@@ -64,6 +64,14 @@ The `reproducible-build` workflow builds the download on the same two different 
 fails unless both tarballs are identical. `scripts/verify-release.sh VERSION` rebuilds the
 download too and compares it with the release's `SHA256SUMS` (for tags that have the script).
 
+From 0.3.4 each release also publishes the build record,
+`ebp-x86_64-unknown-linux-musl.build-info.txt`: the commit, the pinned Rust image, the
+compiler, gcc and musl versions, the time used inside the tarball, and the fingerprint of the
+`ebp` program inside it. It is listed in `SHA256SUMS`, so the same signature covers it, and the
+release workflow refuses to publish one that does not name the tagged commit and the packaged
+program. Your own rebuild writes the same file (in `dist-repro-musl/`); if the bytes ever
+differ, `verify-release.sh` prints both records side by side, which usually shows why.
+
 **Stage 2, still to do: the whole image.** Docker adds more moving parts:
 - `apt-get install` in the image fetches whatever Debian serves that day. Either remove the
   packages (the healthcheck can stop needing `curl`), or install from a dated

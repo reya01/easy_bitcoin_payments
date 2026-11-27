@@ -82,7 +82,7 @@ if [ -n "$want_https" ]; then
   fi
   # Your own domain: keep the free sslip.io address working next to it, as a backup.
   names="$domain" aliases=""
-  if [ -n "$sslip" ] && [ "$sslip" != "$domain" ]; then
+  if [ -n "$sslip" ] && [ "$sslip" != "$domain" ] && [ "$domain" != localhost ]; then
     names="$domain, $sslip"
     aliases="https://$sslip"
   fi

@@ -43,7 +43,8 @@ while [ "$#" -gt 0 ]; do
         exit 1
       fi
       # Only a plain host name: it ends up in the web server's settings.
-      if ! printf '%s' "$domain" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$' \
+      # (localhost is allowed for tests on your own computer.)
+      if [ "$domain" != localhost ] && ! printf '%s' "$domain" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$' \
         || [ "${#domain}" -gt 253 ]; then
         echo "error: '$domain' is not a domain name like pay.myshop.com (small letters, digits, dots and dashes)" >&2
         exit 1

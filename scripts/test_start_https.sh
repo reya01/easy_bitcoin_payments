@@ -44,6 +44,8 @@ for bad in 'pay.myshop.com;rm' 'PAY.myshop.com' '203.0.113.7' 'nodot' 'pay..mysh
   printf '%s' "$out" | grep -q 'is not a domain name' || fail "bad domain accepted: $bad"
 done
 grep -qx 'EBP_DOMAIN=pay.myshop.com' .env || fail "a refused name changed the settings"
+PATH="$work/bin:$PATH" ./scripts/start.sh --domain localhost >/dev/null || fail "localhost (local tests) refused"
+grep -qx 'EBP_DOMAIN=localhost' .env || fail "localhost not written"
 
 out="$(PATH="$work/bin:$PATH" ./scripts/start.sh --domain 2>&1 || true)"
 printf '%s' "$out" | grep -q 'needs a name' || fail "--domain without a name not explained"

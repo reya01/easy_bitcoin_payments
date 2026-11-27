@@ -4595,7 +4595,7 @@ async fn running_the_shop_step_again_never_changes_payout_or_password() {
             .db
             .call(|c| {
                 Ok((
-                    easy_bitcoin_payments::payout::effective(c, None)?,
+                    easy_bitcoin_payments::payout::effective(c, None, "test")?,
                     easy_bitcoin_payments::admin_auth::stored_hash(c)?,
                 ))
             })

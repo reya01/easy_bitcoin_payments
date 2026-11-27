@@ -95,6 +95,10 @@ pub fn notice_text(name: &str) -> Option<(&'static str, &'static str)> {
             "Your payout address is being changed",
             "Someone asked to change where your money is sent. It takes effect after the safety delay. If this was not you, open Settings now, cancel the change, and change your admin password.",
         )),
+        "payout_dropped" => Some((
+            "A payout address change was not applied",
+            "The new payout address no longer passes this server's checks (for example it is for a different network), so your current address stays. Open Settings to choose a new one.",
+        )),
         "payout_changed" => Some((
             "Your payout address was changed",
             "The payout address change has taken effect. If you did not ask for it, pause payments in Settings and follow If something looks wrong.",

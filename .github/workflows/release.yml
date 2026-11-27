@@ -73,12 +73,17 @@ jobs:
           scripts/repro-build-musl.sh dist-repro-musl
           mkdir -p dist
           cp "dist-repro-musl/ebp-${{ matrix.target }}.tar.gz" dist/
+          # What it was built from and with (commit, Rust image, compiler, musl, time,
+          # program fingerprint), published next to the download and listed in SHA256SUMS.
+          cp dist-repro-musl/build-info.txt "dist/ebp-${{ matrix.target }}.build-info.txt"
           { echo '### The download, built repeatably'; echo; echo '```'; cat dist-repro-musl/build-info.txt; cat dist-repro-musl/SHA256SUMS.part; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ebp-${{ matrix.target }}
-          path: dist/ebp-${{ matrix.target }}.tar.gz
+          path: |
+            dist/ebp-${{ matrix.target }}.tar.gz
+            dist/ebp-${{ matrix.target }}.build-info.txt
           if-no-files-found: error
 
   release:
@@ -105,7 +110,7 @@ jobs:
       - name: Generate SHA256SUMS
         run: |
           cd dist
-          sha256sum ebp-*.tar.gz ebp-bitcoin-woocommerce.zip > SHA256SUMS
+          sha256sum ebp-*.tar.gz ebp-*.build-info.txt ebp-bitcoin-woocommerce.zip > SHA256SUMS
           cat SHA256SUMS
 
       # Checks that run on a dry run too, so a broken package is caught before
@@ -119,6 +124,11 @@ jobs:
           mkdir x && tar -xzf ebp-x86_64-unknown-linux-musl.tar.gz -C x
           ./x/ebp --help | head -1
           test "$(ls ebp-*.tar.gz | wc -l)" = 1  # x86-64 only for now
+          # The build record describes exactly this commit and this program.
+          info=ebp-x86_64-unknown-linux-musl.build-info.txt
+          grep -qx "commit:  $GITHUB_SHA" "$info"
+          grep -qx "binary:  $(sha256sum x/ebp | cut -d' ' -f1)" "$info"
+          cat "$info"
 
       - name: Keep the dry-run files for inspection
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -127,6 +137,7 @@ jobs:
           name: dry-run-release-files
           path: |
             dist/ebp-*.tar.gz
+            dist/ebp-*.build-info.txt
             dist/ebp-bitcoin-woocommerce.zip
             dist/SHA256SUMS
           retention-days: 3
@@ -147,6 +158,7 @@ jobs:
         with:
           files: |
             dist/ebp-*.tar.gz
+            dist/ebp-*.build-info.txt
             dist/ebp-bitcoin-woocommerce.zip
             dist/SHA256SUMS
             dist/SHA256SUMS.sigstore.json

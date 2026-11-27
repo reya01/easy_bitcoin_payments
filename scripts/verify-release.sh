@@ -86,6 +86,12 @@ if [ -x "$WORK/src/scripts/repro-build-musl.sh" ]; then
     echo "MATCH: the published download is exactly what this source code builds."
   else
     echo "DIFFERENT: the published download is not what this source code builds. Please report it: see SECURITY.md."
+    # Releases from 0.3.4 on publish their build record: show where the two builds differ.
+    if curl -fsSL -o "$WORK/published-build-info.txt" \
+      "https://github.com/$REPO/releases/download/$TAG/ebp-x86_64-unknown-linux-musl.build-info.txt" 2>/dev/null; then
+      echo "Build records (published, then yours):"
+      diff "$WORK/published-build-info.txt" "$WORK/rebuilt-musl/build-info.txt" || true
+    fi
     status=1
   fi
 else

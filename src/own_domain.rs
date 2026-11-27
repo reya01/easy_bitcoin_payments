@@ -285,7 +285,7 @@ pub fn classify(resolved: &[IpAddr], expected: Option<IpAddr>) -> Finding {
             .iter()
             .filter(|ip| ip.is_ipv4())
             .all(|ip| *ip == exp)
-            && resolved.iter().any(|ip| *ip == exp);
+            && resolved.contains(&exp);
         if v4_ok {
             let v6: Vec<String> = resolved
                 .iter()

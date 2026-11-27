@@ -511,7 +511,7 @@ pub struct Status {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Change {
-    /// Took effect right away (first address, or delay of 0).
+    /// The requested address is already active; there is nothing to change.
     Now,
     /// Will take effect at this time unless cancelled.
     Pending(i64),
@@ -690,7 +690,8 @@ pub fn set_initial_unchecked(conn: &Connection, address: &str) -> Result<(), App
 }
 
 /// Settings: change the address (caller has already verified the admin
-/// password). The first address applies at once; later ones after `delay`.
+/// password). Every new address takes effect after `delay`; only the setup
+/// wizard may set one at once.
 pub fn request_change(
     conn: &Connection,
     address: &str,
@@ -703,6 +704,11 @@ pub fn request_change(
             "the payout address is set in the server's configuration; change it there".into(),
         ));
     }
+    if delay_secs <= 0 {
+        return Err(AppError::BadRequest(
+            "the payout address safety delay must be greater than zero".into(),
+        ));
+    }
     let a = validate(address, mode)?;
     promote_if_due(conn)?;
     let current = crate::settings::get(conn, KEY_ACTIVE)?;
@@ -713,19 +719,6 @@ pub fn request_change(
     // Even a first address set here waits out the delay: only the setup
     // wizard (set_initial, with an empty till behind the setup code) may set
     // one at once. Money that arrives meanwhile waits safely in the till.
-    if delay_secs <= 0 {
-        crate::settings::set(conn, KEY_ACTIVE, &a)?;
-        clear_pending(conn)?;
-        if current.is_some() {
-            let _ = crate::alerts::queue_notice(conn, "payout_changed");
-        }
-        audit(
-            conn,
-            "payout.set",
-            &format!("payout address set ({})", short(&a)),
-        );
-        return Ok(Change::Now);
-    }
     let at = now_unix() + delay_secs;
     crate::settings::set(conn, KEY_PENDING, &a)?;
     crate::settings::set(conn, KEY_EFFECTIVE_AT, &at.to_string())?;
@@ -1145,18 +1138,25 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_first_address_set_outside_setup_also_waits() {
+    fn non_positive_delays_are_rejected_without_changing_the_destination() {
         let c = conn();
         let Change::Pending(at) = request_change(&c, TARK_A, 3600, None, "test").unwrap() else {
             panic!("a first address set from Settings must wait out the delay")
         };
         assert!(at > now_unix());
         assert_eq!(effective(&c, None).unwrap(), None);
-        // No delay configured (tests, or an owner who chose none): at once.
-        assert_eq!(
-            request_change(&c, TARK_A, 0, None, "test").unwrap(),
-            Change::Now
-        );
+        for delay in [0, -1] {
+            assert!(request_change(&c, TARK_A, delay, None, "test").is_err());
+            assert_eq!(effective(&c, None).unwrap(), None);
+        }
+
+        set_initial(&c, TARK_A, "test").unwrap();
+        let destination = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+        for delay in [0, -1] {
+            assert!(request_change(&c, destination, delay, None, "test").is_err());
+            assert_eq!(effective(&c, None).unwrap().as_deref(), Some(TARK_A));
+            assert_eq!(status(&c, None).unwrap().pending, None);
+        }
     }
 
     #[test]

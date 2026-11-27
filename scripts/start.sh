@@ -10,6 +10,9 @@
 #   ./scripts/start.sh --https                 # free address made from your server's IP
 #   ./scripts/start.sh --domain pay.myshop.com # your own domain name
 #
+# With --domain, the free sslip.io address keeps working next to your domain as
+# a backup (docs/OWN_DOMAIN.md), so a DNS mistake never locks you out.
+#
 # Your server must be reachable from the internet on ports 80 and 443.
 # The choice is remembered (in a file called .env), so later runs of plain
 # ./scripts/start.sh keep https on.
@@ -39,6 +42,12 @@ while [ "$#" -gt 0 ]; do
         echo "error: --domain needs a name, e.g. --domain pay.myshop.com" >&2
         exit 1
       fi
+      # Only a plain host name: it ends up in the web server's settings.
+      if ! printf '%s' "$domain" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$' \
+        || [ "${#domain}" -gt 253 ]; then
+        echo "error: '$domain' is not a domain name like pay.myshop.com (small letters, digits, dots and dashes)" >&2
+        exit 1
+      fi
       want_https=1
       ;;
     *) passthru+=("$1") ;;
@@ -55,23 +64,39 @@ set_env() {
 }
 
 if [ -n "$want_https" ]; then
+  ip="$(curl -fsS -m 10 https://api.ipify.org 2>/dev/null || curl -fsS -m 10 https://ifconfig.me 2>/dev/null || true)"
+  sslip=""
+  if printf '%s' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    # sslip.io turns 203-0-113-7.sslip.io into 203.0.113.7: a free name with
+    # a real certificate, no domain purchase and no DNS settings needed.
+    sslip="$(printf '%s' "$ip" | tr . -).sslip.io"
+  fi
   if [ -z "$domain" ]; then
-    ip="$(curl -fsS -m 10 https://api.ipify.org 2>/dev/null || curl -fsS -m 10 https://ifconfig.me 2>/dev/null || true)"
-    if ! printf '%s' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    if [ -z "$sslip" ]; then
       echo "Could not work out this server's public address." >&2
       echo "Use your own domain instead:  ./scripts/start.sh --domain pay.myshop.com" >&2
       exit 1
     fi
-    # sslip.io turns 203-0-113-7.sslip.io into 203.0.113.7: a free name with
-    # a real certificate, no domain purchase and no DNS settings needed.
-    domain="$(printf '%s' "$ip" | tr . -).sslip.io"
+    domain="$sslip"
+  fi
+  # Your own domain: keep the free sslip.io address working next to it, as a backup.
+  names="$domain" aliases=""
+  if [ -n "$sslip" ] && [ "$sslip" != "$domain" ]; then
+    names="$domain, $sslip"
+    aliases="https://$sslip"
   fi
   set_env EBP_DOMAIN "$domain"
+  set_env EBP_SITE_NAMES "$names"
   set_env EBP_PUBLIC_BASE_URL "https://$domain"
+  set_env EBP_PUBLIC_ALIASES "$aliases"
   set_env EBP_TRUST_PROXY_HEADERS true
   set_env COMPOSE_PROFILES https
-  export EBP_DOMAIN="$domain" EBP_PUBLIC_BASE_URL="https://$domain" EBP_TRUST_PROXY_HEADERS=true COMPOSE_PROFILES=https
+  export EBP_DOMAIN="$domain" EBP_SITE_NAMES="$names" EBP_PUBLIC_BASE_URL="https://$domain" \
+    EBP_PUBLIC_ALIASES="$aliases" EBP_TRUST_PROXY_HEADERS=true COMPOSE_PROFILES=https
   echo "==> https is ON for https://$domain"
+  if [ -n "$aliases" ]; then
+    echo "    backup address (keeps working): https://$sslip"
+  fi
   echo "    (your server must accept visitors on ports 80 and 443)"
 fi
 

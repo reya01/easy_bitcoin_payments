@@ -1218,6 +1218,8 @@ pub(crate) mod tests {
 
     #[test]
     fn an_ark_address_too_short_to_hold_a_server_tag_and_key_is_refused() {
+        // 1 version value + 37 bytes (296 bits) in 5-bit values = 1 + 60.
+        assert_eq!(ARK_MIN_DATA_LEN, 61);
         let short = bech32m("tark", &[0u8; ARK_MIN_DATA_LEN - 1]);
         assert!(
             decode_bech32(&short).is_some(),

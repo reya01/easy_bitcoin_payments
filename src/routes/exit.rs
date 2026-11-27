@@ -53,9 +53,10 @@ fn short(addr: &str) -> String {
 async fn onchain_payout(state: &AppState) -> Option<String> {
     let cfg = state.config.settlement_destination.clone();
     let mode = state.config.mode.clone();
+    let db_mode = mode.clone();
     state
         .db
-        .call(move |c| crate::payout::effective(c, cfg.as_deref()))
+        .call(move |c| crate::payout::effective(c, cfg.as_deref(), &db_mode))
         .await
         .ok()
         .flatten()

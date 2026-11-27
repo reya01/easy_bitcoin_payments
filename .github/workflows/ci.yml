@@ -128,6 +128,7 @@ jobs:
         run: |
           for f in $(find integrations -name '*.php'); do php -l "$f" >/dev/null; done
           php integrations/woocommerce/tests/core-test.php
+          php integrations/woocommerce/tests/hourly-check-test.php
           # The plugin's version must agree in all three places it is written.
           d=integrations/woocommerce/ebp-bitcoin
           v1=$(sed -n 's/^ \* Version: *//p' "$d/ebp-bitcoin.php")

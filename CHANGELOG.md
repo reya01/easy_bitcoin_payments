@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Payout address checks:** a payout address change that no longer fits this server's network when its delay ends (for example the server was switched between test and live) is dropped instead of applied; the current address stays, and you get a notice and a security-log entry. Ark addresses too short to hold a server tag and key are refused when saved (the checksum alone did not catch them). Neither could send money anywhere: every transfer already checks the address again before sending.
+- **WooCommerce plugin:** in the hourly check, a refused request (wrong API key, blocked, too many requests: HTTP 401, 403, 429) now stops the check for that hour with a log line that says to check the API key, instead of being logged once per order as an invoice the server does not know.
+- **Payment-notice signatures:** an extreme timestamp is refused without arithmetic overflow. The webhook address message now says http:// is accepted (https:// recommended).
+
 ## 0.3.3-rc6 — money fixes from code reviews, reproducible download, deeper tests (26 November 2026)
 
 Two independent code reviews of the money paths found three bugs and several record-keeping gaps, all fixed below; no way to lose funds was found. No database change since rc5.

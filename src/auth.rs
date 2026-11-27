@@ -107,6 +107,13 @@ impl FromRequestParts<AppState> for StoreAuth {
         // valid key can leave a "refused address" hint behind (anyone on the
         // internet can send a made-up key).
         let key_hash = hash_secret(token);
+        // Which of the server's addresses the shop calls (moving to your own
+        // domain: the backup is only given up once the shop has moved).
+        let host = parts
+            .headers
+            .get(axum::http::header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         let store = state
             .db
             .call(move |conn| {
@@ -116,6 +123,9 @@ impl FromRequestParts<AppState> for StoreAuth {
                 if !crate::shopkey::ip_allowed(conn, &ip)? {
                     crate::shopkey::note_blocked(conn, &ip)?;
                     return Ok(None);
+                }
+                if let Some(h) = host.as_deref() {
+                    crate::own_domain::note_shop_host(conn, h)?;
                 }
                 Ok(Some(store))
             })

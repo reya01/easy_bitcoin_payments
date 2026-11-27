@@ -10,6 +10,7 @@ pub mod exit;
 pub mod health;
 pub mod invoices;
 pub mod manual_invoices;
+pub mod own_domain;
 pub mod page_assets;
 pub mod passkeys;
 pub mod payout;
@@ -196,6 +197,23 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/admin/invoices/enabled",
             post(manual_invoices::set_enabled),
         )
+        .route("/api/v1/admin/address", get(own_domain::get_address))
+        .route(
+            "/api/v1/admin/address/enabled",
+            post(own_domain::set_enabled),
+        )
+        .route("/api/v1/admin/address/check", post(own_domain::check))
+        .route("/api/v1/admin/address/serve", post(own_domain::serve))
+        .route(
+            "/api/v1/admin/address/make-main",
+            post(own_domain::make_main),
+        )
+        .route("/api/v1/admin/address/go-back", post(own_domain::go_back))
+        .route(
+            "/api/v1/admin/address/keep-backup",
+            post(own_domain::keep_backup),
+        )
+        .route("/api/v1/admin/address/cancel", post(own_domain::cancel))
         .route("/api/v1/admin/invoices/{id}", get(manual_invoices::get_one))
         .route(
             "/api/v1/admin/invoices/{id}/lightning",
@@ -359,6 +377,10 @@ pub fn router(state: AppState) -> Router {
         .route("/assets/setup.css", get(page_assets::setup_css))
         .route("/assets/mascot/{name}", get(checkout::mascot))
         .route("/api/v1/health", get(health::health))
+        .route(
+            "/.well-known/ebp-check/{token}",
+            get(own_domain::check_page),
+        )
         .merge(setup)
         .merge(gated)
         .layer(DefaultBodyLimit::max(64 * 1024))

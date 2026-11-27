@@ -25,6 +25,7 @@ pub mod manual_invoice;
 pub mod models;
 #[cfg(test)]
 mod money_properties;
+pub mod own_domain;
 pub mod passkey;
 pub mod payout;
 pub mod ratelimit;

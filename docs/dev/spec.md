@@ -1,5 +1,7 @@
 # Easy Bitcoin Payments
 
+> **The original product spec, written before the build.** It is kept for the reasons behind the design. Where it differs from what was built (for example the single-container install, the wording "sidecar", or what "v1.0" contains), [TECHNICAL.md](TECHNICAL.md) and the [roadmap](../ROADMAP.md) win.
+
 *A free & open-source payments layer for online stores, built on Ark and Bark. Run a sovereign, Bitcoin-first business from your own server — manageable entirely from an iPhone.*
 
 ---

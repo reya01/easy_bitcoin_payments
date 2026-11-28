@@ -22,6 +22,7 @@ the signet smoke workflow names it, and `BARKD_0_9_0_UPGRADE.md` because it is t
 | [UX_RECOMMENDATIONS.md](UX_RECOMMENDATIONS.md) | An outside AI's UX review (14 November 2026). Part done in PRs #190 to #193, the rest decided against or not scheduled. |
 | [PHASE1_PLAN.md](PHASE1_PLAN.md) | The barkd integration plan, code-complete on 1 November 2026, with its drill log. |
 | [WATCHER_DESIGN_NOTE.md](WATCHER_DESIGN_NOTE.md) | Design note for the payment watcher re-reading the whole history; built. |
+| [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md) | The test-day sheet for a live DigitalOcean server, rounds 1 to 3 (last written for 0.2.2-rc1). Each release now gets its own short test sheet. |
 | [MAINNET_TEST_SHEET.md](MAINNET_TEST_SHEET.md) | The test-day sheet for the first real-money test (stage 4 of the mainnet plan, 15 to 16 November 2026). |
 | [RC3_CHECKS.md](RC3_CHECKS.md) | The signet checks for what was new in 0.2.0-rc3. |
 | [MAINNET_DRILL_2026-11-15.md](MAINNET_DRILL_2026-11-15.md), [MAINNET_DRILL_2026-11-15_round2.md](MAINNET_DRILL_2026-11-15_round2.md) | The two live mainnet drills with two barkd wallets (15 November 2026). |

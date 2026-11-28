@@ -25,7 +25,7 @@ repository cannot be taken back cleanly, so check first.
 | Scripts and blueprints | shellcheck, cloud-init validity, Render blueprint safety rules |
 | barkd API drift | Our client matches barkd 0.9.0's published API |
 | Dependency audit | Known-vulnerability scan |
-| Docker image | Builds for amd64 (x86-64 only for now; arm64 returns at v1.0) |
+| Docker image | Builds for amd64 (x86-64 only for now; arm64 is planned for 0.8, see the [roadmap](../ROADMAP.md)) |
 | Release dry run (manual) | Builds the binary, packages the plugin, checksums, smoke-tests the binary; publishes and signs nothing |
 
 ## 2. What a person still has to do
@@ -55,6 +55,7 @@ that release's cut checklist on the test server. Still open:
 
 ## 4. Release steps (in order)
 
+0. **Test sheet:** write a short test sheet for this release (what changed, 15 to 30 minutes on a test server, play money) and give it to the owner with the release notes. The old multi-round sheet is in [archive/DROPLET_TEST_SHEET.md](archive/DROPLET_TEST_SHEET.md) for ideas.
 1. **Mutation testing:** start Actions → mutants → Run workflow on `main` (it takes a few hours,
    so start it early). Every "missed" mutant in its job summaries gets a test, or a line with a
    reason in `.cargo/mutants.toml`, before you tag.

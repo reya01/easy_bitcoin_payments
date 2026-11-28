@@ -38,7 +38,7 @@ For developers (this folder):
 - [HANDOFF.md](HANDOFF.md): one-stop context for a new developer or agent. Start here.
 - Where things stand: [MAINNET_RELEASE_STATUS.md](MAINNET_RELEASE_STATUS.md) (what is proven on real money and what is not),
   [BARKD_0_9_0_UPGRADE.md](BARKD_0_9_0_UPGRADE.md) (the recipe for moving to a new barkd).
-- Release and testing: [RC_CHECKLIST.md](RC_CHECKLIST.md), [DROPLET_TEST_SHEET.md](DROPLET_TEST_SHEET.md) (the test-day sheet for a live server),
+- Release and testing: [RC_CHECKLIST.md](RC_CHECKLIST.md), [SIGNET_DRILL.md](SIGNET_DRILL.md) (the live checks CI cannot do; older test-day sheets are in [archive/](archive/README.md)),
   [SIGNET_DRILL.md](SIGNET_DRILL.md), [E2E_TESTING.md](E2E_TESTING.md), [REPRODUCIBLE_BUILDS.md](REPRODUCIBLE_BUILDS.md).
 - Security and wallet: [SHOP_COMPROMISE.md](SHOP_COMPROMISE.md) (what a hacked shop can and cannot do).
 - Plans and design notes: [SHOPIFY.md](SHOPIFY.md), [BRANTA.md](BRANTA.md), [spec.md](spec.md) (the original spec).

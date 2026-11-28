@@ -175,7 +175,7 @@ signed keylessly with sigstore/cosign, and carry build provenance and an SBOM. T
 release notes list the digest and the exact `cosign verify` command (`update.sh` runs it for
 you). A server keeps the exact image in its `.env` as `EBP_IMAGE=ghcr.io/<owner>/<repo>@sha256:<digest>`. Releases are cut by
 pushing a `v*` tag, which builds the x86_64 binary (x86-64 only for now; ARM is planned
-for v1.0), `SHA256SUMS`, the GitHub release and the image. Maintainer to-do (a repository setting):
+for 0.8, see the [roadmap](ROADMAP.md)), `SHA256SUMS`, the GitHub release and the image. Maintainer to-do (a repository setting):
 protect the `v*` tag pattern so only maintainers can create release tags.
 
 What these checks do and do not prove: the signatures and provenance show that this

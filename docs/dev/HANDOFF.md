@@ -44,8 +44,8 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
   branch and read the checks. Browser page tests (`tests/e2e/`) and `rustfmt` can run locally.
 - **Never commit real Bitcoin addresses** (treat them like personal data); use dummy ones.
 - **Docs move with the code.** A change to behavior updates `CHANGELOG.md`, the user guide it
-  touches, `TECHNICAL.md` and, if it needs a live check,
-  `DROPLET_TEST_SHEET.md`. Finished plans and dated reports go to [archive/](archive/README.md).
+  touches, `TECHNICAL.md` and, if it needs a live check, the test sheet for
+  the next release (see [RC_CHECKLIST.md](RC_CHECKLIST.md); older sheets are in the archive). Finished plans and dated reports go to [archive/](archive/README.md).
 
 ## Read first
 
@@ -118,7 +118,7 @@ For a new developer or agent. Read this first, then [TECHNICAL.md](TECHNICAL.md)
   the real build, and runs a usage smoke test — the stub-ship failure class
   that caused the 22h restart-loop cannot ship again
   ([docs/KNOWN_ISSUES.md](../KNOWN_ISSUES.md) has the full forensic record).
-- **CI**: builds the release image for amd64 only (arm64 dropped on 17 Nov 2026 as too slow; planned back at v1.0),
+- **CI**: builds the release image for amd64 only (arm64 dropped on 17 Nov 2026 as too slow; planned back in 0.8, see the [roadmap](../ROADMAP.md)),
   shellchecks every shipped script, clippy `-D warnings`, drift check,
   tests. Verify CI is GREEN after every push — it once went red for a day
   unnoticed.

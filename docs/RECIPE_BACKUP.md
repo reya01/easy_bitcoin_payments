@@ -194,8 +194,8 @@ If the practice fails, the backup is a story, not a backup. Fix it before going 
   continuously backs up the wallet folder, encrypted with a key derived from the
   wallet's recovery words. It is **not packaged with EBP yet**, so for now use the
   Settings download plus the recovery words.
-- **Copying the wallet folder by hand.** Stop the wallet first
-  (`docker compose stop barkd`), copy the data volume, then start it again; a copy
+- **Copying the wallet folder by hand.** Stop the server first
+  (`docker compose stop ebp`; the wallet program runs inside that container), copy the data volume, then start it again; a copy
   of a running wallet can catch the database mid-write. Keep such copies encrypted
   and off-site: they hold everything needed to spend the money in the server wallet.
   To use such a copy on a new server, copy the **whole** data folder (EBP's files and

@@ -33,7 +33,7 @@ check, and a day of running unattended. The new things are in
       currencies are refused for now).
 - [ ] Your shop's PHP is up to date (WordPress: Tools, Site Health, Info, Server;
       PHP security fixes were released 21 October 2026, see
-      [WOOCOMMERCE.md](../WOOCOMMERCE.md#keep-your-shop-patched)). Play money only,
+      [WOOCOMMERCE.md](../../WOOCOMMERCE.md#keep-your-shop-patched)). Play money only,
       but check anyway so the habit is there.
 - [ ] Your DigitalOcean account with a payment method added.
 - [ ] The setup text copied (START_HERE.md step 1).
@@ -42,7 +42,7 @@ check, and a day of running unattended. The new things are in
 
 | # | Step | Where it is explained | Started | Done | Notes: what surprised or confused you |
 |---|------|------------------------|---------|------|----------------------------------------|
-| 1 | Create the Droplet (Ubuntu 24.04, 2 GB, paste the setup text) | [START_HERE.md](../START_HERE.md) steps 1-2 | | | |
+| 1 | Create the Droplet (Ubuntu 24.04, 2 GB, paste the setup text) | [START_HERE.md](../../START_HERE.md) steps 1-2 | | | |
 | 2 | Wait 15 to 30 minutes | START_HERE step 3 | | | |
 | 3 | Open the Console and read the address and SETUP CODE | START_HERE step 3 | | | |
 | 4 | Open the address; check there is a padlock | START_HERE step 3 | | | |
@@ -52,7 +52,7 @@ check, and a day of running unattended. The new things are in
 | 7b | On first sign-in, turn on two-step sign-in with an authenticator app; save the 10 backup codes; sign out and back in with a code | START_HERE step 4 | | | |
 | 8 | **Try a payment**; the checkout page shows a Lightning invoice first, with the dollar value next to the sats. Pay it from the wallet; it shows Paid | START_HERE step 5 | | | |
 | 9 | Download a backup (Settings), then **Check a backup** with the file you just saved | START_HERE step 7 | | | |
-| 10 | Install the plugin zip in WordPress and enable it | [WOOCOMMERCE.md](../WOOCOMMERCE.md) | | | |
+| 10 | Install the plugin zip in WordPress and enable it | [WOOCOMMERCE.md](../../WOOCOMMERCE.md) | | | |
 | 11 | Fill in server address, API key, notification address, signing secret | WOOCOMMERCE (and the steps at the top of the plugin page) | | | |
 | 12 | Save: green "connected" message; **Send a test notification** | WOOCOMMERCE | | | |
 | 13 | Place a small test order and pay it | WOOCOMMERCE | | | |
@@ -197,8 +197,8 @@ CI already covers these on a fake wallet and a local shop. These need the real t
 ## If something goes wrong
 
 1. Stop and write down exactly what you saw (a screenshot is best).
-2. Look in [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) and the "If something goes wrong"
-   part of [START_HERE.md](../START_HERE.md).
+2. Look in [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md) and the "If something goes wrong"
+   part of [START_HERE.md](../../START_HERE.md).
 3. To report it (the "Something went wrong" form on GitHub Issues lists what to include), collect: the text of the Console box, the **Home** tab text, and
    the last lines of the install log (in the Console:
    `tail -n 50 /var/log/ebp-vps-setup.log`).

@@ -227,6 +227,87 @@ jobs:
         if: failure()
         run: docker compose logs --no-color --tail 80 || true
 
+  shop-rehearsal:
+    name: Shop recipe rehearsal (WordPress + WooCommerce, clean Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: cloud-init file is valid and runs this script
+        run: |
+          python3 - <<'PY'
+          import yaml
+          c = yaml.safe_load(open("deploy/shop-cloud-init.yaml"))
+          cmds = " ".join(" ".join(r) for r in c["runcmd"])
+          assert "scripts/shop-setup.sh" in cmds, cmds
+          env = c["write_files"][0]["content"]
+          assert "SHOP_DOMAIN=" in env
+          PY
+
+      # The runner image ships MySQL and web servers a fresh droplet does not
+      # have. Remove them so the script meets what a beginner's droplet has.
+      - name: Make the runner look like a fresh droplet
+        run: |
+          sudo systemctl stop mysql apache2 nginx 2>/dev/null || true
+          sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq 'mysql-*' apache2 'nginx*' >/dev/null || true
+          sudo rm -rf /var/lib/mysql /etc/mysql
+
+      - name: Run shop-setup.sh (real packages, real WordPress and WooCommerce, real plugin release)
+        run: |
+          sudo SHOP_DOMAIN=localhost SHOP_CADDY_LOCAL_CERTS=1 SHOP_SKIP_FIREWALL=1 \
+            SHOP_CURL_OPTS=-k SHOP_INFO_FILE=/tmp/shop-info.txt SHOP_TITLE="Rehearsal shop" \
+            bash scripts/shop-setup.sh
+
+      - name: The shop works and the plugins are active
+        run: |
+          W="sudo -u www-data wp --path=/var/www/shop"
+          $W core is-installed
+          $W plugin is-active woocommerce
+          $W plugin is-active ebp-bitcoin
+          [ "$($W option get woocommerce_currency)" = USD ]
+          [ "$($W option get siteurl)" = https://localhost ]
+          curl -kfsS -o /dev/null https://localhost/wp-login.php
+          curl -kfsS -o /dev/null https://localhost/
+          sudo test "$(sudo stat -c %a /tmp/shop-info.txt)" = 600
+          sudo grep -q "Password:" /tmp/shop-info.txt
+          ! sudo grep -q "Password:" /var/log/syslog 2>/dev/null
+
+      - name: The attack surface is closed
+        run: |
+          for p in /xmlrpc.php /wp-config.php /readme.html /.git/config; do
+            code=$(curl -ks -o /dev/null -w '%{http_code}' "https://localhost$p")
+            echo "$p -> $code"; [ "$code" = 404 ]
+          done
+          sudo -u www-data mkdir -p /var/www/shop/wp-content/uploads
+          echo '<?php echo "ran";' | sudo -u www-data tee /var/www/shop/wp-content/uploads/x.php >/dev/null
+          [ "$(curl -ks -o /dev/null -w '%{http_code}' https://localhost/wp-content/uploads/x.php)" = 404 ]
+          ! curl -ks https://localhost/wp-content/uploads/x.php | grep -q ran
+          grep -q "cron event run" /etc/cron.d/shop-wp-cron
+
+      # Through the web server, as the payment server will call it.
+      - name: Payment notices reach the plugin (unsigned refused, signed accepted)
+        run: |
+          W="sudo -u www-data wp --path=/var/www/shop"
+          url='https://localhost/?wc-api=ebp_bitcoin'
+          code=$(curl -ks -o /tmp/r -w '%{http_code}' -X POST -d '{}' "$url"); cat /tmp/r; echo
+          [ "$code" = 401 ] && grep -q "bad signature" /tmp/r
+          secret=rehearsal-secret-not-real
+          $W option update woocommerce_ebp_bitcoin_settings "{\"enabled\":\"no\",\"server_url\":\"https://pay.example.com\",\"api_key\":\"x\",\"webhook_secret\":\"$secret\"}" --format=json
+          body='{"type":"test"}'; t=$(date +%s)
+          sig=$(printf '%s' "$t.$body" | openssl dgst -sha256 -hmac "$secret" -r | cut -d' ' -f1)
+          code=$(curl -ks -o /tmp/r -w '%{http_code}' -X POST -H "X-EBP-Signature: t=$t,v1=$sig" -H 'Content-Type: application/json' -d "$body" "$url"); cat /tmp/r; echo
+          [ "$code" = 200 ]
+
+      - name: Running it again changes nothing important
+        run: |
+          before=$(sudo grep Password: /tmp/shop-info.txt)
+          sudo SHOP_DOMAIN=localhost SHOP_CADDY_LOCAL_CERTS=1 SHOP_SKIP_FIREWALL=1 \
+            SHOP_CURL_OPTS=-k SHOP_INFO_FILE=/tmp/shop-info.txt bash scripts/shop-setup.sh
+          [ "$(sudo grep Password: /tmp/shop-info.txt)" = "$before" ]
+          sudo -u www-data wp --path=/var/www/shop plugin is-active ebp-bitcoin
+
   upgrade:
     name: upgrade + backup/restore (${{ matrix.name }} to this build)
     runs-on: ubuntu-latest

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **New, first draft: a whole shop on DigitalOcean** ([docs/SHOP_ON_DIGITALOCEAN.md](docs/SHOP_ON_DIGITALOCEAN.md)). `deploy/shop-cloud-init.yaml` and `scripts/shop-setup.sh` set up a separate shop droplet (Caddy, PHP 8.3, MariaDB, WordPress, WooCommerce, the EBP plugin after its signature check, firewall, automatic security updates) from the startup box. CI runs it on a clean Ubuntu 24.04 and sends it signed and unsigned payment notices. Not yet run on a real droplet.
 - **Releases publish their build record** (`ebp-x86_64-unknown-linux-musl.build-info.txt`, listed in the signed `SHA256SUMS`): the commit, Rust image, compiler and musl versions, and the fingerprint of the program in the download. `scripts/verify-release.sh` shows it next to your own rebuild's if they ever differ.
 
 ## 0.3.3-rc6 — money fixes from code reviews, reproducible download, deeper tests (26 November 2026)

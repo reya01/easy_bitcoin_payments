@@ -80,7 +80,7 @@ Rules that shape every stage:
 
 1. **Feature freeze.** Only fixes. Every drill (pause and resume, "Move my money now", restore, a small emergency withdrawal) repeated on the exact release.
 2. **Docs and newcomer pass.** Both hosts (DigitalOcean, Sovereign Hybrid Compute) tested from scratch and by update on that release; every doc step says where it happens (payment server, shop site or phone wallet).
-3. **A recipe for a whole shop on DigitalOcean, with an AI assistant's help.**
+3. **A recipe for a whole shop on DigitalOcean, with an AI assistant's help** (first draft: [SHOP_ON_DIGITALOCEAN.md](SHOP_ON_DIGITALOCEAN.md)).
    - One tested recipe a person can hand to an AI assistant (or follow by hand) to go from an empty DigitalOcean account to a WooCommerce store **and** an Easy Bitcoin Payments server, connected, with a paid test order.
    - Two servers, one for the shop and one for the payment server, so a hacked shop cannot reach the payment server ([docs/dev/SHOP_COMPROMISE.md](dev/SHOP_COMPROMISE.md)).
    - Written for beginners and for phones, and says which place each step happens in. The assistant never sees your recovery words, admin password, API key or signing secret: you type those yourself.

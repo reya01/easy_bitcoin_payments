@@ -194,7 +194,7 @@ one network when you press **Create wallet**. To use real bitcoin:
    server's Console** (log in as `root`): `cd /opt/ebp`, then
    `echo "EBP_MAX_INVOICE_SATS=5000" >> .env`, then `./scripts/start.sh`.
 4. Test with a product priced under one dollar. Keep only small amounts on this
-   server: the emergency withdrawal (Settings, off until you turn it on) has been run
+   server: the emergency withdrawal (in Settings; turning it on sets fee money aside) has been run
    once from start to finish on real money (about a day, about 0.7% in fees) but is new.
 
 At the end of setup the server restarts once by itself to switch to real

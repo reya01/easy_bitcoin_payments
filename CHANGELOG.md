@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **New, first draft, advanced option: a whole shop on DigitalOcean** ([docs/SHOP_ON_DIGITALOCEAN.md](docs/SHOP_ON_DIGITALOCEAN.md)). The guide builds on DigitalOcean's own WordPress 1-Click for the shop droplet (a separate droplet from the payment server) and says plainly that a hosted WooCommerce shop is the recommended default. An untested startup-script idea is kept for later (`deploy/shop-cloud-init.yaml`, `scripts/shop-setup.sh`; not supported, never run on a real droplet) (Caddy, PHP 8.3, MariaDB, WordPress, WooCommerce, the EBP plugin after its signature check, firewall, automatic security updates); CI runs it on a clean Ubuntu 24.04 and sends it signed and unsigned payment notices. Not yet run on a real droplet.
 - **Releases publish their build record** (`ebp-x86_64-unknown-linux-musl.build-info.txt`, listed in the signed `SHA256SUMS`): the commit, Rust image, compiler and musl versions, and the fingerprint of the program in the download. `scripts/verify-release.sh` shows it next to your own rebuild's if they ever differ.
 
 ## 0.3.3-rc6 — money fixes from code reviews, reproducible download, deeper tests (26 November 2026)

@@ -1,0 +1,27 @@
+#cloud-config
+# EXPERIMENTAL IDEA, kept for later; not part of the supported recipe and never
+# run on a real droplet. The recipe uses DigitalOcean's WordPress 1-Click.
+#
+# The SHOP server: WordPress + WooCommerce + the Easy Bitcoin Payments plugin.
+# Paste this whole file into DigitalOcean's "user data" box when you create a
+# NEW Ubuntu 24.04 droplet. Use a different droplet from your payment server.
+# Step-by-step: docs/SHOP_ON_DIGITALOCEAN.md
+#
+# Change the three lines that start with SHOP_ below if you want; you can
+# also leave them as they are.
+#   SHOP_DOMAIN: leave empty to start on a free address. To use your own
+#   name (like myshop.com), point it at the droplet first (see the guide).
+write_files:
+  - path: /etc/ebp-shop.env
+    permissions: "0600"
+    content: |
+      SHOP_DOMAIN=
+      SHOP_TITLE="My shop"
+      SHOP_CURRENCY=USD
+package_update: true
+packages:
+  - git
+  - curl
+runcmd:
+  - [ sh, -c, "git clone --depth 1 --branch main https://github.com/reya01/easy_bitcoin_payments.git /opt/ebp-shop" ]
+  - [ sh, -c, "set -a; . /etc/ebp-shop.env; set +a; /opt/ebp-shop/scripts/shop-setup.sh > /var/log/shop-setup.log 2>&1" ]

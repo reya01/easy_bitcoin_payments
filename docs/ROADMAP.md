@@ -80,8 +80,8 @@ Rules that shape every stage:
 
 1. **Feature freeze.** Only fixes. Every drill (pause and resume, "Move my money now", restore, a small emergency withdrawal) repeated on the exact release.
 2. **Docs and newcomer pass.** Both hosts (DigitalOcean, Sovereign Hybrid Compute) tested from scratch and by update on that release; every doc step says where it happens (payment server, shop site or phone wallet).
-3. **A recipe for a whole shop on DigitalOcean, with an AI assistant's help** (first draft: [SHOP_ON_DIGITALOCEAN.md](SHOP_ON_DIGITALOCEAN.md)).
-   - One tested recipe a person can hand to an AI assistant (or follow by hand) to go from an empty DigitalOcean account to a WooCommerce store **and** an Easy Bitcoin Payments server, connected, with a paid test order.
+3. **An advanced option: a whole shop on DigitalOcean, with an AI assistant's help** (first draft: [SHOP_ON_DIGITALOCEAN.md](SHOP_ON_DIGITALOCEAN.md)). The recommended default stays a hosted WooCommerce shop such as WooCommerce.com; this is for people who want to run the shop themselves.
+   - One tested recipe a person can hand to an AI assistant (or follow by hand) to go from an empty DigitalOcean account to a WooCommerce store **and** an Easy Bitcoin Payments server, connected, with a paid test order. It builds on DigitalOcean's own WordPress 1-Click image; our startup script is the more advanced alternative.
    - Two servers, one for the shop and one for the payment server, so a hacked shop cannot reach the payment server ([docs/dev/SHOP_COMPROMISE.md](dev/SHOP_COMPROMISE.md)).
    - Written for beginners and for phones, and says which place each step happens in. The assistant never sees your recovery words, admin password, API key or signing secret: you type those yourself.
    - Tried with more than one AI assistant, and by someone who did not write it.
@@ -97,7 +97,7 @@ Rules that shape every stage:
 - The independent review is done and a second operator has run it.
 - Releases are signed, rebuild identically, and update from the previous release keeps all data.
 - WooCommerce and invoices are tested on two hosts.
-- The AI-assisted DigitalOcean recipe (shop and payment server) has been followed to a paid order by someone who did not write it.
+- The advanced DigitalOcean shop recipe (shop and payment server, with an AI assistant) has been followed to a paid order by someone who did not write it.
 - The owner decides whether "experimental" comes off the README.
 
 Backups, the shop connection and the settings names keep working across 1.x. A change that cannot is a 2.0.

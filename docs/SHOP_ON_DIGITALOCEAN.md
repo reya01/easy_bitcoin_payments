@@ -1,9 +1,15 @@
-# A whole shop on DigitalOcean (recipe, first draft)
+# A whole shop on DigitalOcean (advanced option, first draft)
 
-> **Status: first draft, in testing.** The roadmap goal is that this recipe is
-> ready at or near 1.0. The shop script is tested automatically on a clean
-> Ubuntu 24.04 machine on every change, but **it has not been run on a real
-> DigitalOcean droplet yet.** Use play money (signet) while trying it.
+> **Status: first draft, in testing, for more advanced users.** It has not been
+> run end to end on a real DigitalOcean droplet yet. Use play money (signet)
+> while trying it.
+>
+> **Most people should not use this page.** The recommended way is a hosted
+> WooCommerce shop that someone else looks after (for example WooCommerce.com
+> hosting), connected to your payment server with
+> [WOOCOMMERCE.md](WOOCOMMERCE.md). A hosted shop patches PHP, backs itself up
+> and sends email for you. Use this page if you want to run the shop yourself,
+> on the same host as your payment server.
 
 This recipe takes you from an empty DigitalOcean account to:
 
@@ -12,12 +18,16 @@ This recipe takes you from an empty DigitalOcean account to:
 - connected to each other, with a paid test order.
 
 You can follow it by hand, or give it to an AI assistant and let it walk you
-through (see [Using an AI assistant](#using-an-ai-assistant)).
+through ([below](#using-an-ai-assistant)).
 
 **Why two droplets?** If someone breaks into the shop (WordPress is the part
 people attack most), they must not be able to reach the payment server. On
 separate droplets they cannot. Never put both on one droplet. See
 [docs/dev/SHOP_COMPROMISE.md](dev/SHOP_COMPROMISE.md).
+
+**What you are taking on.** Running your own shop means you apply its updates,
+back it up, and keep it safe ([KEEPING_WORDPRESS_SAFE.md](KEEPING_WORDPRESS_SAFE.md)).
+Plan on 15 minutes a month, and more on a bad day.
 
 ## Places you will use
 
@@ -25,7 +35,7 @@ Every step says which one it means:
 
 - **DigitalOcean**: the DigitalOcean website (control panel).
 - **Shop console**: the shop droplet's **Console** button in DigitalOcean (a
-  black text window in your browser). Only needed once, to read the sign-in details.
+  black text window in your browser).
 - **Shop admin**: your shop's WordPress admin, at your shop address followed by `/wp-admin`.
 - **Payment server**: the Easy Bitcoin Payments admin, at its address followed by `/admin`.
 - **Phone wallet**: Noah (Android) or Arké (iPhone).
@@ -34,68 +44,62 @@ Every step says which one it means:
 
 - A DigitalOcean account with **two-step sign-in turned on**.
 - A **password manager**. You will save several passwords and keys.
-- Optional: your own domain name for the shop (for example `myshop.com`). You
-  can start on a free address and add your own later, but moving a WordPress
-  shop to a new name later is extra work, so if you have one, use it from the start.
+- Optional but best: your own domain name for the shop (for example
+  `myshop.com`). Have it ready before you start, because moving a WordPress shop
+  to a new name later is extra work.
 
 ## 1. The payment server
 
 **DigitalOcean, payment server:** follow [START_HERE.md](START_HERE.md) to the end
-of setup. Save the **API key** in your password manager. Leave it on play money.
+of setup. Save the **API key** in your password manager. Stay on play money.
 
-## 2. The shop droplet
+## 2. The shop droplet: DigitalOcean's WordPress 1-Click
 
-1. Optional, own domain: **at your domain company**, add an **A record** for the
-   shop name pointing at the droplet's IP. You only know the IP after step 2, so
-   you can also create the droplet first, add the record, wait a few minutes,
-   and then do step 3 with your name filled in on a new droplet. (Making this
-   smoother is on the list below.)
-2. **DigitalOcean:** Create → Droplets. Choose **Ubuntu 24.04**, a **2 GB**
-   memory size (1 GB works for trying it out; the script adds a swap file), the
-   same region as your payment server.
-3. Under **Advanced options**, tick **Add Initialization scripts (free)** and
-   paste the whole of [`deploy/shop-cloud-init.yaml`](../deploy/shop-cloud-init.yaml).
-   Change `SHOP_TITLE` and, if you have one ready, `SHOP_DOMAIN`. Leave
-   `SHOP_DOMAIN=` empty to start on a free `…sslip.io` address.
-4. Create it and wait about 10 minutes.
-5. **Shop console:** open the droplet's **Console** and type:
+DigitalOcean makes a ready-made **WordPress** droplet, kept up to date by
+DigitalOcean (Ubuntu 24.04, Caddy for the padlock, PHP 8.3, MySQL, WP-CLI, a
+firewall and fail2ban). We build on that rather than on our own setup.
 
-   ```
-   sudo cat /root/shop-info.txt
-   ```
+1. **DigitalOcean:** Create → Droplets → **Marketplace**, choose **WordPress**.
+   Use a **2 GB** memory size or more (DigitalOcean's minimum is 1 GB; 2 GB is
+   its advice for a real shop) and the same region as your payment server.
+2. **DigitalOcean:** under authentication choose a password or an SSH key, then
+   create it. Wait a few minutes.
+3. **Shop console:** open the droplet's **Console**. On the first login a setup
+   script asks you for an **email address, an admin username, an admin password
+   and a site title**. Type them yourself, with a long password from your
+   password manager. (This is the one step that cannot be done from a startup
+   box, which is why this is an advanced route.)
+4. Your shop is now at its IP address with a padlock. Before the setup finishes,
+   the address only shows a "setup pending" page.
+5. **Own domain (recommended):** **at your domain company**, add an **A record**
+   for the shop name pointing at the droplet's IP, wait a few minutes, then in the
+   **Shop console** run `/root/wp_setup_domain.sh` and follow it. It switches the
+   padlock to your name. Do this **before** you add products.
 
-   It shows the shop address, the WordPress admin address, the username and a
-   long random password. Save them in your password manager. If the file is not
-   there yet, wait a few more minutes; progress is in `/var/log/shop-setup.log`.
+The Marketplace page for the image is the authority on these steps; if what you
+see differs from this page, follow the Marketplace page and tell us.
 
-What the script did for you: Caddy (web server with an automatic padlock), PHP 8.3,
-MariaDB, WordPress, WooCommerce, the Easy Bitcoin Payments plugin (installed only
-after its release signature checked out, not yet connected), a firewall that
-allows only ports 22, 80 and 443, fail2ban, automatic security updates, and a
-real timer for WordPress's scheduled jobs. It blocks a few addresses shops do not
-need and that attackers like (`xmlrpc.php`, PHP files in uploads).
-
-## 3. Make the shop yours
+## 3. Add WooCommerce and the Bitcoin plugin
 
 **Shop admin:**
 
-1. Sign in with the details from step 2, then change the password
-   (**Users → Profile**) to one from your password manager.
-2. **Settings → General:** put your real email address.
-3. Turn on two-step sign-in and automatic updates
+1. **Plugins → Add New**, search **WooCommerce** (by Automattic), **Install
+   Now**, **Activate**. Answer WooCommerce's own setup questions (store address,
+   what you sell). Add one test product priced under one dollar.
+2. Turn on two-step sign-in and automatic updates
    ([KEEPING_WORDPRESS_SAFE.md](KEEPING_WORDPRESS_SAFE.md)).
-4. **Shop console:** delete the file with the first password: `sudo rm /root/shop-info.txt`.
-5. **WooCommerce → Home:** answer WooCommerce's own setup questions (store
-   address, what you sell). Add one test product priced under one dollar.
+3. Install our plugin as in section 1 of [WOOCOMMERCE.md](WOOCOMMERCE.md):
+   download `ebp-bitcoin-woocommerce.zip` from the
+   [Releases page](https://github.com/reya01/easy_bitcoin_payments/releases),
+   then **Plugins → Add New → Upload Plugin**.
 
 New WooCommerce shops start in **Coming soon** mode: visitors see a placeholder
-until you press **Launch your store** (WooCommerce → Settings → Site visibility).
-That is fine while you test.
+until you press **Launch your store** (WooCommerce → Settings → Site
+visibility). That is fine while you test.
 
 ## 4. Connect the shop to the payment server
 
-The plugin is already installed, so skip section 1 of
-[WOOCOMMERCE.md](WOOCOMMERCE.md) and do **sections 2 and 3**: server address, API
+Do **sections 2 and 3** of [WOOCOMMERCE.md](WOOCOMMERCE.md): server address, API
 key, signing secret, then a test order paid from your phone wallet. The order
 should move from **On hold** to **Processing** by itself.
 
@@ -105,8 +109,8 @@ Copy the text below into an AI assistant (Claude, or another), with the link to
 this page.
 
 > **Never give the assistant your passwords, API key, signing secret, recovery
-> words, two-step codes or the contents of `shop-info.txt`.** You type those
-> yourself. If you share a screenshot, cover them first.
+> words or two-step codes.** You type those yourself, including the admin
+> password the setup script asks for. If you share a screenshot, cover them first.
 
 ```
 Please walk me through this recipe, one step at a time:
@@ -118,9 +122,8 @@ Rules for you:
 - For every step, say where it happens: DigitalOcean, shop console, shop admin,
   payment server, or phone wallet.
 - Give me one step, then wait until I say it is done or describe what I see.
-- Never ask me for passwords, the API key, the signing secret, recovery words,
-  two-step codes or the contents of shop-info.txt. If I start to paste one,
-  tell me to stop and change it.
+- Never ask me for passwords, the API key, the signing secret, recovery words
+  or two-step codes. If I start to paste one, tell me to stop and change it.
 - Keep the shop and the payment server on two separate droplets. Never suggest
   combining them.
 - Stay on play money (signet) until the test order has worked.
@@ -129,32 +132,35 @@ Rules for you:
   docs/IF_SOMETHING_LOOKS_WRONG.md instead of trying fixes.
 ```
 
-## Another way: DigitalOcean's WordPress 1-Click
+## Other ways to set up the shop droplet
 
-DigitalOcean offers a ready-made **WordPress** droplet (Ubuntu 24.04, Caddy,
-PHP 8.3, MySQL, WP-CLI), maintained by DigitalOcean. It cannot be finished
-from a startup script: on the first **Console** login it asks for an email,
-username, password and site title. After that, install WooCommerce from
-**Plugins → Add New** and upload the Easy Bitcoin Payments plugin zip as in
-[WOOCOMMERCE.md](WOOCOMMERCE.md). That route works too; this recipe uses its own
-script so the whole shop can be set up from the startup box and tested
-automatically.
-
-There is also a third-party **WordPress + WooCommerce** 1-Click in the
-Marketplace (Apache, an interactive setup on first login). It is not maintained
-by DigitalOcean or by us.
+- **Our own startup script (more advanced still).** `deploy/shop-cloud-init.yaml`
+  and `scripts/shop-setup.sh` build a similar shop (Caddy, PHP 8.3, MariaDB,
+  WordPress, WooCommerce, our plugin after its signature check, firewall,
+  automatic security updates) from the startup box, with no questions asked at
+  first login; the admin password is written to `/root/shop-info.txt`. Its
+  advantage is that CI runs it on a clean Ubuntu 24.04 on every change; the
+  1-Click image cannot be tested that way. Its disadvantage is that we maintain
+  it. Paste the file into **Advanced options → Add Initialization scripts** when
+  you create a plain Ubuntu 24.04 droplet, then read the details with
+  `sudo cat /root/shop-info.txt` in the Shop console.
+- **DigitalOcean's "WordPress + WooCommerce" 1-Click.** Made by a third party
+  (the Marketplace page does not name them), with Apache and the same kind of
+  first-login questions. We do not recommend it for a shop that takes payments.
 
 ## Not done yet (known gaps)
 
-- **Never run on a real droplet yet.** Next step.
+- **Never run end to end on a real droplet yet.** Next step.
 - **Shop emails.** DigitalOcean blocks the email ports (25, 465 and 587) on
   droplets, so WooCommerce cannot send order emails on its own. You need an
   email-sending service and a plugin for it. Not covered yet.
-- **Own domain on a new droplet:** the IP is only known after the droplet
-  exists. A smoother path (a Reserved IP first, or a "change the shop's address"
-  helper) is to be designed.
-- **Shop backups.** DigitalOcean's droplet backups (a paid option) or a WordPress
-  backup plugin. Not covered yet. The payment server has its own backup
+- **Scheduled jobs.** WordPress runs its timed jobs when someone visits. Our
+  plugin's hourly check of unpaid orders runs from the same timer, so a quiet
+  shop checks late. Our own script sets up a real timer; with the 1-Click you
+  can do the same (see the WordPress documentation on `DISABLE_WP_CRON`), not
+  yet written up here.
+- **Shop backups.** DigitalOcean's droplet backups (a paid option) or a
+  WordPress backup plugin. The payment server has its own backup
   ([RECIPE_BACKUP.md](RECIPE_BACKUP.md)).
 - **Shop address lock** on the payment server (only accept calls from the
   shop droplet's IP): to be added to step 4.

@@ -262,7 +262,7 @@ jobs:
 
       - name: The shop works and the plugins are active
         run: |
-          W="sudo -u www-data wp --path=/var/www/shop"
+          cd /var/www/shop; W="sudo -u www-data wp --path=/var/www/shop"
           $W core is-installed
           $W plugin is-active woocommerce
           $W plugin is-active ebp-bitcoin
@@ -289,7 +289,7 @@ jobs:
       # Through the web server, as the payment server will call it.
       - name: Payment notices reach the plugin (unsigned refused, signed accepted)
         run: |
-          W="sudo -u www-data wp --path=/var/www/shop"
+          cd /var/www/shop; W="sudo -u www-data wp --path=/var/www/shop"
           url='https://localhost/?wc-api=ebp_bitcoin'
           code=$(curl -ks -o /tmp/r -w '%{http_code}' -X POST -d '{}' "$url"); cat /tmp/r; echo
           [ "$code" = 401 ] && grep -q "bad signature" /tmp/r

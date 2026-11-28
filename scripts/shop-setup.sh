@@ -40,7 +40,9 @@ read -r -a CHECK_OPTS <<< "${SHOP_CURL_OPTS:-}"
 
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
-wp() { sudo -u www-data -- /usr/local/bin/wp --path="$WEB_ROOT" "$@"; }
+# Run from the web folder: WP-CLI starts copies of itself, which fails when the
+# current folder is one www-data cannot open.
+wp() { (cd "$WEB_ROOT" && sudo -u www-data -- /usr/local/bin/wp --path="$WEB_ROOT" "$@"); }
 secret() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "$1"; }
 
 [ "$(id -u)" = 0 ] || die "run as root (sudo)"

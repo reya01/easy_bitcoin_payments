@@ -140,10 +140,10 @@ matching and payment rules would be unchanged; only a front door would be added.
 
 | Version | What |
 | --- | --- |
-| 0.3.x (now) | Hardening and real-money drills. No new features. |
-| **0.4** | **Invoices, experimental.** New tab, payment request with copy and share, fresh Lightning invoice button, statuses, cancel, CSV, phone alert. Off until the owner turns it on in Settings. |
-| 0.5 | Invoice polish (duplicate an invoice, "valid until" wording, print or save as PDF), a "paid" signed event for people who connect their own tools, and the guided move to the owner's own domain. |
-| 0.6 to 0.9 | Release candidates for 1.0: a second independent review of the send path, arm64 builds, reproducible builds, tidy-up from owner use. |
+| 0.3.3 to 0.3.4 | Invoices in testing (off until turned on) and the own-address move. Done or in progress. |
+| **0.4** | **Steady shops and invoices.** Invoices drilled on real money and out of "in testing"; WooCommerce tested on current WordPress and WooCommerce. |
+| 0.5 | Invoice polish (duplicate an invoice, print or save as PDF), a signed "paid" event for people who connect their own tools, and the independent review. |
+| 0.6 to 0.9 | Release candidates for 1.0. See [../ROADMAP.md](../ROADMAP.md). |
 | **1.0** | Declared after the above has run on real money for a while. WooCommerce and invoices. |
 | After 1.0 | Shopify, Branta address checks, Lightning and silent-payment payouts, refunds, automatic updates. |
 

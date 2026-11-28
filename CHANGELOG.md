@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **New: an advanced command-line guide for any VPS** ([docs/START_HERE_ADVANCED.md](docs/START_HERE_ADVANCED.md)): server hardening, Docker, release checkout, first start, moving to the signed image, the update helper, everyday commands and what is not tested. Docs only.
 - **Releases publish their build record** (`ebp-x86_64-unknown-linux-musl.build-info.txt`, listed in the signed `SHA256SUMS`): the commit, Rust image, compiler and musl versions, and the fingerprint of the program in the download. `scripts/verify-release.sh` shows it next to your own rebuild's if they ever differ.
 
 ## 0.3.3-rc6 — money fixes from code reviews, reproducible download, deeper tests (26 November 2026)

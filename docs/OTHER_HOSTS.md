@@ -23,6 +23,8 @@ depend on the server telling the truth.
 
 ## Any other cloud server (Hetzner, AWS, and so on)
 
+**Comfortable with SSH?** The full command-line guide, with server hardening, signed-image steps and everyday commands, is [START_HERE_ADVANCED.md](START_HERE_ADVANCED.md). The short version:
+
 Create an Ubuntu 24.04 server with at least 2 GB of memory, open ports 80 and 443,
 and paste the same setup text as in [START_HERE.md](START_HERE.md) if the host has
 an "initialization script" or "user data" box. Otherwise log in and run:

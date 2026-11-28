@@ -33,12 +33,13 @@ Rules that shape every stage:
    - The WooCommerce plugin tested on current WordPress and WooCommerce, in both the block checkout and the classic checkout (classic is not separately tested today), with a real WordPress in the automatic checks.
    - Orders always end up right: paid, expired, cancelled, paid late, notice lost and resent. A load test with hundreds of simulated payments.
    - Invoices come out of "in testing". They stay off until the owner turns them on.
-2. **Sovereign Hybrid Compute: a tested guide for advanced users.**
-   - A written, step-by-step install on a Sovereign Hybrid Compute server, tried from scratch, and an update on it tried from the previous release.
-   - It is the second supported host, as an advanced route. DigitalOcean stays the easy path unless the provider offers a paste-in script or an API.
-   - Before writing it we find out what they actually offer (server locations, a standard Linux image, startup scripts, an API, and whether they accept bitcoin). Their site does not say.
+2. **A recipe for a whole shop on DigitalOcean, with an AI assistant's help.**
+   - One tested recipe a person can hand to an AI assistant (or follow by hand) to go from an empty DigitalOcean account to a WooCommerce store **and** an Easy Bitcoin Payments server, connected, with a paid test order.
+   - Written for beginners and for phones. The recipe says which place each step happens in: the payment server, the shop site or the phone wallet.
+   - Safe by design. The assistant never sees your recovery words, admin password, API key or signing secret: you type those yourself. By default the shop and the payment server are separate servers, so a hacked shop cannot reach the payment server ([docs/dev/SHOP_COMPROMISE.md](dev/SHOP_COMPROMISE.md)).
+   - Tried with more than one AI assistant, and by someone who did not write it.
 
-*Gate:* 30 days of real use on the owner's own shop with no money-affecting bug. The Sovereign Hybrid Compute guide followed from scratch by someone other than its writer, ending in a paid test order.
+*Gate:* 30 days of real use on the owner's own shop with no money-affecting bug. The recipe followed from an empty account by someone other than its writer, with an AI assistant, ending in a paid test order.
 
 ### v0.5: Checkable by others
 
@@ -59,23 +60,23 @@ Rules that shape every stage:
 
 *Gate:* the second operator finishes both without help; renewals run a full cycle with no manual fix.
 
-### v0.7: A steady wallet foundation
+### v0.7: A steady foundation, safer backups
 
-*The goal: updates from Second's Bark never put your money at risk.*
+*The goal: Bark updates and bad days cost you nothing.*
 
-1. **Follow Bark on purpose.** Move to the current Bark by one written recipe: backup first, the wallet identity unchanged, a restore from the 12 words, one small send that must arrive as an Ark payment. A weekly check warns us when Bark changes something we use.
-2. **Second's open questions answered** (whether a missed Lightning claim can be retried, how long a client works after the server raises its minimum version) and the code or docs updated to match.
+1. **Follow Bark on purpose.** Move to the current Bark by one written recipe: backup first, the wallet identity unchanged, a restore from the 12 words, one small send that must arrive as an Ark payment. A weekly check warns us when Bark changes something we use. Second's open questions answered (whether a missed Lightning claim can be retried, how long a client works after the server raises its minimum version) and the code or docs updated to match.
+2. **Easier, safer backups.** An opt-in backup that happens on its own to a place the owner chooses (today the encrypted backup is a manual download). Off by default, no new outside connection unless the owner sets it up.
 
-*Gate:* a Bark move done by the recipe with an identical wallet before and after, and a restore that works on the new Bark.
+*Gate:* a Bark move with an identical wallet before and after and a working restore; a server destroyed and rebuilt from the automatic backup and the 12 words.
 
-### v0.8: Harder to lose
+### v0.8: More places to run it
 
-*The goal: a bad day costs little.*
+*The goal: not tied to one host or one kind of server.*
 
-1. **Easier, safer backups.** An opt-in backup that happens on its own to a place the owner chooses (today the encrypted backup is a manual download). Off by default, no new outside connection unless the owner sets it up.
+1. **Sovereign Hybrid Compute: a tested guide for advanced users.** A written, step-by-step install on a Sovereign Hybrid Compute server, tried from scratch and by update from the previous release. DigitalOcean stays the easy path unless the provider offers a paste-in script or an API. First we find out what they offer (server locations, a standard Linux image, startup scripts, an API, whether they accept bitcoin); their site does not say.
 2. **ARM servers return** (smaller, cheaper hosts), installed and tried.
 
-*Gate:* a server destroyed and rebuilt from the automatic backup and the 12 words; an install on ARM that reaches a paid order.
+*Gate:* the guide followed from scratch by someone other than its writer, ending in a paid test order, and an ARM install that does the same.
 
 ### v0.9: The 1.0 candidate
 

@@ -1,4 +1,7 @@
 #cloud-config
+# EXPERIMENTAL IDEA, kept for later; not part of the supported recipe and never
+# run on a real droplet. The recipe uses DigitalOcean's WordPress 1-Click.
+#
 # The SHOP server: WordPress + WooCommerce + the Easy Bitcoin Payments plugin.
 # Paste this whole file into DigitalOcean's "user data" box when you create a
 # NEW Ubuntu 24.04 droplet. Use a different droplet from your payment server.

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# EXPERIMENTAL IDEA, kept for later: not part of the supported recipe and never
+# run on a real droplet (CI runs it on a clean Ubuntu 24.04 only).
+#
 # Set up a WordPress + WooCommerce shop on a fresh Ubuntu 24.04 server, with
 # the Easy Bitcoin Payments plugin installed (not yet connected).
 #

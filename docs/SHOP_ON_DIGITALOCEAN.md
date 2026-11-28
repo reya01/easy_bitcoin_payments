@@ -132,21 +132,18 @@ Rules for you:
   docs/IF_SOMETHING_LOOKS_WRONG.md instead of trying fixes.
 ```
 
-## Other ways to set up the shop droplet
+## An idea for later (not supported)
 
-- **Our own startup script (more advanced still).** `deploy/shop-cloud-init.yaml`
-  and `scripts/shop-setup.sh` build a similar shop (Caddy, PHP 8.3, MariaDB,
-  WordPress, WooCommerce, our plugin after its signature check, firewall,
-  automatic security updates) from the startup box, with no questions asked at
-  first login; the admin password is written to `/root/shop-info.txt`. Its
-  advantage is that CI runs it on a clean Ubuntu 24.04 on every change; the
-  1-Click image cannot be tested that way. Its disadvantage is that we maintain
-  it. Paste the file into **Advanced options → Add Initialization scripts** when
-  you create a plain Ubuntu 24.04 droplet, then read the details with
-  `sudo cat /root/shop-info.txt` in the Shop console.
-- **DigitalOcean's "WordPress + WooCommerce" 1-Click.** Made by a third party
-  (the Marketplace page does not name them), with Apache and the same kind of
-  first-login questions. We do not recommend it for a shop that takes payments.
+The repository also holds an **untested idea**: a startup script
+(`deploy/shop-cloud-init.yaml` and `scripts/shop-setup.sh`) that would build the
+shop droplet from the startup box, with WooCommerce and our plugin already
+installed, so you skip the first-login questions and the plugin upload. It has
+passed an automatic test on a clean Ubuntu machine but has **never been run on a
+real droplet** and is not part of this recipe. It may change or be removed.
+
+Also in DigitalOcean's Marketplace is a third-party **WordPress + WooCommerce**
+1-Click (Apache, its maintainer is not named on the page). We do not recommend
+it for a shop that takes payments.
 
 ## Not done yet (known gaps)
 
@@ -156,8 +153,7 @@ Rules for you:
   email-sending service and a plugin for it. Not covered yet.
 - **Scheduled jobs.** WordPress runs its timed jobs when someone visits. Our
   plugin's hourly check of unpaid orders runs from the same timer, so a quiet
-  shop checks late. Our own script sets up a real timer; with the 1-Click you
-  can do the same (see the WordPress documentation on `DISABLE_WP_CRON`), not
+  shop checks late. With the 1-Click you can switch to a real timer (see the WordPress documentation on `DISABLE_WP_CRON`), not
   yet written up here.
 - **Shop backups.** DigitalOcean's droplet backups (a paid option) or a
   WordPress backup plugin. The payment server has its own backup

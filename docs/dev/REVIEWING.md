@@ -27,7 +27,10 @@ Only two ways:
    understand" path, a pending change saved before the server's network changed) still cannot receive money unless it
    passes these checks.
 2. **The emergency withdrawal** (`src/routes/exit.rs`): admin session, the tick box, password
-   and second step, a fresh fee estimate and fee money already on the server. The destination
+   and second step, a fresh fee estimate and fee money already on the server. Its Settings
+   switch (`emergency_exit::opted_in`) is by design only a setup choice: it shows the
+   withdrawal on the admin page and keeps 5,000 sats of fee money from being sent out. It is
+   not a lock, and the start route does not check it; the checks above are the protection. The destination
    is saved before the wallet is asked, and later claims and left-over sends always use the
    saved one (`settled_destination`), so a later request cannot redirect it. No automatic
    transfer runs while it starts (`settlement::lock_cycle`).

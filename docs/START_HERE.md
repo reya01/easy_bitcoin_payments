@@ -221,6 +221,7 @@ page always wins.)
 
 ## Other options
 
+- **Comfortable with a terminal, on another VPS:** [START_HERE_ADVANCED.md](START_HERE_ADVANCED.md).
 - **Another hosting company, Render, or your own computer:** [OTHER_HOSTS.md](OTHER_HOSTS.md).
 - **Shopify:** not supported. WooCommerce comes first; Shopify is planned for a much later release. [Notes](dev/SHOPIFY.md).
 - **Later ideas:** optional checkout address verification with Branta. [Notes](dev/BRANTA.md).

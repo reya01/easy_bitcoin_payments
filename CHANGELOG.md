@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Docs only: accuracy pass and tidy-up.** Every link, file path and setting name in the current docs was checked against the repository (all fine). Fixed: the backup guide told you to stop a `barkd` container that does not exist (it is `ebp`); ARM builds are now described as planned for 0.8 (the roadmap) instead of 1.0; HANDOFF and RC_CHECKLIST no longer point at the old multi-round test sheet, which moved to `docs/dev/archive/`; the original spec carries a note that TECHNICAL.md and the roadmap win where they differ.
+- **New: an advanced command-line guide for any VPS** ([docs/START_HERE_ADVANCED.md](docs/START_HERE_ADVANCED.md)): server hardening, Docker, release checkout, first start, moving to the signed image, the update helper, everyday commands and what is not tested. Docs only.
 - **Releases publish their build record** (`ebp-x86_64-unknown-linux-musl.build-info.txt`, listed in the signed `SHA256SUMS`): the commit, Rust image, compiler and musl versions, and the fingerprint of the program in the download. `scripts/verify-release.sh` shows it next to your own rebuild's if they ever differ.
 
 ## 0.3.3-rc6 — money fixes from code reviews, reproducible download, deeper tests (26 November 2026)

@@ -73,7 +73,7 @@ Every click is spelled out in **[docs/START_HERE.md](docs/START_HERE.md)**.
 
 ## Other ways to run it
 
-Another hosting company, Render, or your own computer: [docs/OTHER_HOSTS.md](docs/OTHER_HOSTS.md).
+Another hosting company, Render, or your own computer: [docs/OTHER_HOSTS.md](docs/OTHER_HOSTS.md). On a VPS from the command line: [docs/START_HERE_ADVANCED.md](docs/START_HERE_ADVANCED.md).
 WooCommerce is the supported, first-class shop. Invoices for customers outside your shop (send them as text or a picture, paid by Lightning or Ark) are in testing on the Invoices tab, off until you turn them on. Shopify comes after version 1.0 ([roadmap](docs/ROADMAP.md), [Shopify notes](docs/dev/SHOPIFY.md)). Also later: optional payment-address verification with Branta ([notes](docs/dev/BRANTA.md)).
 
 ## How it compares to BTCPay Server

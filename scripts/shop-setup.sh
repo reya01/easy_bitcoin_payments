@@ -181,8 +181,13 @@ wp plugin auto-updates enable woocommerce --quiet 2>/dev/null || true
 # ---------------------------------------------------------------- EBP plugin
 if [ "${SHOP_SKIP_EBP_PLUGIN:-0}" != 1 ] && ! wp plugin is-installed ebp-bitcoin 2>/dev/null; then
   if [ "$EBP_PLUGIN_VERSION" = latest ]; then
-    json="$("${CURL[@]}" "https://api.github.com/repos/${REPO}/releases?per_page=1")" || json=""
+    json="$("${CURL[@]}" "https://api.github.com/repos/${REPO}/releases?per_page=1" 2>/dev/null)" || json=""
     TAG="$(printf '%s' "$json" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | sed 's/.*"\(v[^"]*\)"$/\1/' || true)"
+    if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+      # GitHub's API limits unsigned requests per address; its releases feed does not.
+      feed="$("${CURL[@]}" "https://github.com/${REPO}/releases.atom" 2>/dev/null)" || feed=""
+      TAG="$(printf '%s' "$feed" | grep -o "releases/tag/v[^\"<]*" | head -n 1 | sed 's#releases/tag/##' || true)"
+    fi
   else
     TAG="v${EBP_PLUGIN_VERSION#v}"
   fi
